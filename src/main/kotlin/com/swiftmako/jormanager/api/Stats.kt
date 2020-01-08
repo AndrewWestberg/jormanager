@@ -19,5 +19,6 @@ data class Stats(
         @Json(name = "txRecvCnt") val txRecvCnt: Long? = null,
         @Json(name = "uptime") val uptime: Long? = null,
         @Json(name = "version") val version: String,
-        val numberOfPeers: Int? = -1
+        val numberOfPeers: Int? = -1,
+        val leader:Boolean = false
 )

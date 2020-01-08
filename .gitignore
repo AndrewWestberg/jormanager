@@ -5,6 +5,7 @@ build/
 !**/src/main/**
 !**/src/test/**
 local.properties
+JorManager-0.0.2-SNAPSHOT.tar.bz2
 
 ### STS ###
 .apt_generated

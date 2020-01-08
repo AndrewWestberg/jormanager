@@ -1,0 +1,518 @@
+package com.swiftmako.jormanager
+
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.swiftmako.jormanager.api.CompletedBlock
+import com.swiftmako.jormanager.api.LeaderBlock
+import com.swiftmako.jormanager.api.LeaderInfo
+import com.swiftmako.jormanager.api.OutputStats
+import com.swiftmako.jormanager.api.PendingBlock
+import com.swiftmako.jormanager.api.PooltoolResult
+import com.swiftmako.jormanager.api.RejectedBlock
+import com.swiftmako.jormanager.api.Stats
+import com.swiftmako.jormanager.utils.toHex
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okio.Okio
+import org.joda.time.DateTime
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.web.bind.annotation.RestController
+import retrofit2.HttpException
+import retrofit2.Retrofit
+import java.io.File
+import java.net.SocketTimeoutException
+import java.util.Collections
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
+import kotlin.system.measureTimeMillis
+
+@RestController
+class JormanagerController @Autowired constructor(
+        private val processStartQueue: Channel<Int>,
+        private val retrofitBuilder: Retrofit.Builder,
+        private val moshi: Moshi,
+        private val pooltool: PooltoolService,
+        @Value("\${jormanager.leader_election_delay_ms}") private val leaderElectionDelayMs: Long,
+        @Value("\${jormanager.max_blocks_behind}") private val maxBlocksBehind: Int,
+        @Value("\${jormanager.node_probation_secs}") private val nodeProbationSecs: Long,
+        @Value("\${jormanager.max_bootstrap_ms}") private val maxBootstrapMs: Long,
+        @Value("\${jormanager.node_stagger_ms}") private val nodeStaggerMs: Long,
+        @Value("\${jormanager.healthy_peers}") private val healthyPeers: Int,
+        @Value("\${jormanager.pooltool.poolId}") private val pooltoolPoolId: String,
+        @Value("\${jormanager.pooltool.userId}") private val pooltoolUserId: String,
+        @Value("\${jormanager.pooltool.genesisPref}") private val pooltoolGenesisPref: String,
+        @Value("\${jormanager.block_log}") private val blockLogPath: String,
+        @Value("\${jormanager.stats_log}") private val statsLogPath: String,
+        @Value("\${jormanager.jormungandr.rest_api_url}") private val restApiUrlPattern: String,
+        @Value("\${jormanager.jormungandr.log_location}") private val jormungandrLogPath: String,
+        @Value("\${jormanager.jormungandr.process}") private val jormungandrProcessPath: String,
+        @Value("\${jormanager.jormungandr.config}") private val jormungandrConfigPath: String,
+        @Value("\${jormanager.jormungandr.genesis}") private val jormungandrGenesisHash: String,
+        @Value("\${jormanager.jormungandr.secret}") private val jormungandrSecretPath: String,
+        @Value("\${jormanager.jormungandr.secret_json}") private val jormungandrSecretJsonPath: String
+) : CoroutineScope {
+    private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
+    override val coroutineContext: CoroutineContext = Dispatchers.IO
+
+    private val mutex = Mutex()
+    private val leaderLogMutex = Mutex()
+
+    var leaderId: Int = -1
+    var leaderProcessNumber: Int = -1
+
+    private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
+    private val processes = Collections.synchronizedMap(mutableMapOf<Int, JormungandrProcess>())
+    private val services = Collections.synchronizedMap(mutableMapOf<Int, JormungandrService>())
+
+
+    init {
+        manageProcessStartup()
+        manageLeaderElection()
+        manageProcessShutdown()
+    }
+
+    /**
+     * Launch a new Jormungandr process from our queue once every 30 seconds
+     */
+    private fun manageProcessStartup() = launch {
+        for (processNumber in processStartQueue) {
+            delay(5000)
+            logger.info("Starting Process${processNumber}...")
+            mutex.withLock {
+                processes[processNumber] = JormungandrProcess(
+                        startedAt = System.currentTimeMillis(),
+                        process = launchJormungandrProcess(processNumber)
+                )
+                services[processNumber] = retrofitBuilder
+                        .baseUrl(restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                        .build()
+                        .create(JormungandrService::class.java)
+                logger.info("Active Jormungandr processes: ${processes.size}")
+                manageBootstrap(processNumber)
+            }
+            delay(nodeStaggerMs)
+        }
+    }
+
+    /**
+     * Add a shutdown hook to ensure all child process are terminated when this app terminates
+     */
+    private fun manageProcessShutdown() {
+        Runtime.getRuntime().addShutdownHook(object : Thread() {
+            override fun run() {
+                processes.forEach {
+                    it.value.process.destroy()
+                }
+            }
+        })
+    }
+
+    private fun launchJormungandrProcess(processNumber: Int): Process {
+        val pid = "$processNumber".padStart(2, '0')
+        val log = File(jormungandrLogPath.replace("{pid}", pid))
+
+        return ProcessBuilder(
+                jormungandrProcessPath.replace("{pid}", pid),
+                "--config", jormungandrConfigPath.replace("{pid}", pid),
+                "--genesis-block-hash", jormungandrGenesisHash,
+                "--secret", jormungandrSecretPath
+        ).apply {
+            redirectErrorStream(true)
+            redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+        }.start()
+    }
+
+    private fun manageBootstrap(processNumber: Int) = launch {
+        processes[processNumber]?.let { process ->
+            services[processNumber]?.let { service ->
+                delay(4000)
+                while (true) {
+                    delay(1000)
+                    try {
+                        val stats = service.nodeStats()
+                        if (stats.state == "Running") {
+                            if(leaderProcessNumber > -1) {
+                                // Node came up! Turn off leadership immediately
+                                service.removeLeadership(1)
+                                logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                            } else {
+                                logger.warn("KEEP FIRST LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                leaderProcessNumber = processNumber
+                                leaderId = 1
+                            }
+                            return@launch
+                        }
+                    } catch (e: Throwable) {
+                        logger.error("Process${processNumber}: Error waiting for node to bootstrap!", e);
+                        shutdownProcess(processNumber)
+                        return@launch
+                    }
+
+                    if (System.currentTimeMillis() - process.startedAt > maxBootstrapMs) {
+                        // Stale bootstrap. restart it.
+                        logger.error("STALE BOOTSTRAP: Will restart Process${processNumber}")
+                        shutdownProcess(processNumber)
+                        return@launch
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun shutdownProcess(processNumber: Int) {
+        logger.error("Shutting down Process$processNumber...")
+        try {
+            services[processNumber]?.shutdown()
+        } catch (e: Throwable) {
+            logger.warn("Shutdown Error: ${e.message}")
+        }
+        val process = processes.remove(processNumber)
+        services.remove(processNumber)
+        process?.process?.destroy()
+        processStartQueue.send(processNumber)
+
+        if (processNumber == leaderProcessNumber) {
+            logger.warn("Process${leaderProcessNumber}: Removed as leader")
+            leaderProcessNumber = -1
+        }
+    }
+
+    /**
+     * Manage the node health and potentially promote a new leader whenever election is triggered (normally every 20 seconds)
+     */
+    private fun manageLeaderElection() = launch {
+        var maxBlockHeight: Long = 0
+        var pooltoolResult = PooltoolResult(success = false)
+        val processesToRemove = mutableListOf<Int>()
+        val serviceCalls = mutableListOf<Deferred<Any?>>()
+        val leaderLogs = mutableListOf<List<LeaderBlock>>()
+
+        while (true) {
+            delay(leaderElectionDelayMs)
+            mutex.withLock {
+                serviceCalls.clear()
+                leaderLogs.clear()
+                services.forEach { entry ->
+                    serviceCalls.add(async {
+                        val processNumber = entry.key
+                        val service = entry.value
+                        try {
+                            val stats = service.nodeStats()
+                            when (stats.state) {
+                                "Running" -> {
+                                    leaderLogs.add(
+                                            service.getLeaderLog()
+                                    )
+
+                                    val networkStats = service.networkStats()
+                                    latestStats[processNumber] = stats.copy(numberOfPeers = networkStats.size)
+                                    logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${networkStats.size}, uptime: ${stats.uptime}")
+                                    maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
+
+                                    stats.uptime?.let { uptime ->
+                                        if (uptime > nodeProbationSecs) {
+                                            // We've been up long enough. See if we've fallen behind the maxBlockHeight
+                                            stats.lastBlockHeight?.toLong()?.let { lastBlockHeight ->
+                                                if (maxBlockHeight - lastBlockHeight > maxBlocksBehind) {
+                                                    // We're more than the max blocks behind. kill this node.
+                                                    logger.error("Process${processNumber}: has fallen behind, restarting...")
+                                                    processesToRemove.add(processNumber)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                "Bootstrapping" -> {
+                                    latestStats[processNumber] = stats
+                                    logger.info("Process${processNumber}: state: ${stats.state}")
+                                    processes[processNumber]?.let { process ->
+                                        if (System.currentTimeMillis() - process.startedAt > TimeUnit.MINUTES.toMillis(5)) {
+                                            // Stale bootstrap. restart it.
+                                            logger.error("Process${processNumber}: Stale bootstrap, restarting...")
+                                            processesToRemove.add(processNumber)
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    latestStats[processNumber] = stats
+                                    logger.info("Process${processNumber}: state: ${stats.state}")
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            when (e) {
+                                is SocketTimeoutException, is HttpException -> {
+                                    logger.error("Process${processNumber}: ${e.message}")
+                                }
+                                else -> {
+                                    logger.error("Process${processNumber}: Exception checking node!", e)
+                                }
+                            }
+                            processesToRemove.add(processNumber)
+                        }
+                        return@async
+                    })
+                }
+
+                awaitAll(*serviceCalls.toTypedArray())
+
+                if (leaderLogs.isNotEmpty()) {
+                    processLeaderLogs(leaderLogs)
+                }
+
+                processesToRemove.forEach { processNumber ->
+                    shutdownProcess(processNumber)
+                    latestStats.remove(processNumber)
+                }
+                processesToRemove.clear()
+
+                // Find the best leader candidate
+                var bestLeaderProcessCandidate: Map.Entry<Int, Stats>? = null
+                latestStats.forEach { entry ->
+                    val stats = entry.value
+                    if (stats.lastBlockHeight?.toLong() == maxBlockHeight) {
+                        if (bestLeaderProcessCandidate == null) {
+                            bestLeaderProcessCandidate = entry
+                            return@forEach
+                        } else {
+                            if (bestLeaderProcessCandidate?.value?.numberOfPeers!! > healthyPeers && stats.numberOfPeers!! > healthyPeers) {
+                                if (bestLeaderProcessCandidate?.value?.uptime!! > stats.uptime!!) {
+                                    // both have good number of peers, but this one has lower uptime
+                                    bestLeaderProcessCandidate = entry
+                                    return@forEach
+                                }
+                            } else if (stats.numberOfPeers!! > healthyPeers) {
+                                // we have more peers than the previous leader candidate
+                                bestLeaderProcessCandidate = entry
+                                return@forEach
+                            } else {
+                                // neither have over ${jormanager.healthy_peers} peers, just pick the one with the most
+                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                    bestLeaderProcessCandidate = entry
+                                    return@forEach
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val shouldPromoteNewLeader = bestLeaderProcessCandidate != null && bestLeaderProcessCandidate?.key != leaderProcessNumber
+                if (leaderProcessNumber > -1 && shouldPromoteNewLeader) {
+                    // remove leadership from previous leader
+                    try {
+                        services[leaderProcessNumber]?.removeLeadership(leaderId)
+                        logger.warn("REMOVE LEADER: Process${leaderProcessNumber}")
+                        leaderProcessNumber = -1
+                        leaderId = -1
+                    } catch (e: Throwable) {
+                        logger.error("Unable to remove leadership from Process${leaderProcessNumber}!")
+                    }
+                }
+
+                bestLeaderProcessCandidate?.let { entry ->
+                    val processNumber = entry.key
+                    val stats = entry.value
+
+                    if (shouldPromoteNewLeader) {
+                        Okio.buffer(Okio.source(File(jormungandrSecretJsonPath)))?.use { source ->
+                            moshi.adapter(LeaderInfo::class.java)
+                                    .fromJson(source)?.let { leaderInfo ->
+                                        try {
+                                            leaderId = services[processNumber]?.promoteToLeader(leaderInfo) ?: -1
+                                            leaderProcessNumber = processNumber
+                                            logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
+                                        } catch (e: Throwable) {
+                                            logger.error("Unable to promote Process${processNumber} to leader", e)
+                                        }
+                                    } ?: logger.error("Unable to parse leader json file!!")
+                        }
+                    }
+
+                    logger.info("CURRENT LEADER: Process${leaderProcessNumber}")
+
+                    latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
+
+                    // Update pooltool with our info
+                    try {
+                        val responseBody = try {
+                            services[processNumber]?.getBlock(stats.lastBlockHash!!)
+                        } catch (e: HttpException) {
+                            if (e.code() == 404) {
+                                null
+                            } else {
+                                throw e
+                            }
+                        }
+                        responseBody?.bytes()?.let { responseBytes ->
+                            val blockString = responseBytes.toHex()
+                            val lastPoolId = blockString.substring(168, 232)
+
+                            pooltoolResult = pooltool.shareMyTip(
+                                    poolId = pooltoolPoolId,
+                                    userId = pooltoolUserId,
+                                    genesisPref = pooltoolGenesisPref,
+                                    lastBlockHeight = stats.lastBlockHeight!!,
+                                    lastBlockHash = stats.lastBlockHash!!,
+                                    lastPoolId = lastPoolId
+                            )
+                            logger.info("$pooltoolResult")
+                        }
+                    } catch (e: Throwable) {
+                        logger.error("Error getting last block or updating pooltool!", e)
+                    }
+                }
+
+                // log our status info
+                val adapter = moshi.adapter(OutputStats::class.java)
+                Okio.buffer(Okio.sink(File(statsLogPath))).use {
+                    adapter.toJson(it, OutputStats(pooltoolResult, latestStats))
+                }
+            }
+        }
+    }
+
+    private fun processLeaderLogs(leaderLogs: List<List<LeaderBlock>>) = launch {
+        leaderLogMutex.withLock {
+            val time = measureTimeMillis {
+                val jsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
+                val leaderLogHistory = mutableListOf<LeaderBlock>()
+                Okio.buffer(Okio.source(File(blockLogPath)))?.use { source ->
+                    jsonAdapter.fromJson(source)?.let { leaderLog ->
+                        leaderLogHistory.addAll(leaderLog)
+                    } ?: logger.error("Unable to parse leader json file!!")
+                }
+
+                leaderLogs.forEach { leaderLog ->
+                    leaderLog.forEach { newBlock ->
+                        val historicalBlockIndex = leaderLogHistory.indexOfFirst { historicalBlock -> historicalBlock.scheduledAtDate == newBlock.scheduledAtDate }
+                        if (historicalBlockIndex < 0) {
+                            // Block was not found. Add it to the history
+                            leaderLogHistory.add(newBlock)
+                        } else {
+                            // Block was found.
+                            when (leaderLogHistory[historicalBlockIndex]) {
+                                is PendingBlock -> {
+                                    if (newBlock is RejectedBlock || newBlock is CompletedBlock) {
+                                        // Replace the historical block with this one that has more information
+                                        leaderLogHistory[historicalBlockIndex] = newBlock
+                                    }
+                                }
+                                is RejectedBlock -> {
+                                    if (newBlock is CompletedBlock) {
+                                        // Replace the historical block that was probably from a demoted leader with this one that has more information
+                                        leaderLogHistory[historicalBlockIndex] = newBlock
+                                        logger.info("COMPLETED Block: ${newBlock.status.blockDetail}")
+                                    } else if(newBlock is RejectedBlock && !newBlock.status.rejectedDetail.reason.contains("enclave")) {
+                                        // Replace with the real rejected reason, not just that this leader was not in the enclave
+                                        leaderLogHistory[historicalBlockIndex] = newBlock
+                                    }
+                                }
+                                is CompletedBlock -> {
+                                    // do nothing. we already have the latest info about what we attempted to mint
+                                    // safely in our history.
+                                }
+                            }
+                        }
+                    }
+                }
+
+                leaderLogHistory.sortWith(Comparator { block0, block1 ->
+                    val block0Epoch = block0.scheduledAtDate.substringBefore('.').toLong()
+                    val block1Epoch = block1.scheduledAtDate.substringBefore('.').toLong()
+                    when {
+                        block0Epoch > block1Epoch -> -1
+                        block0Epoch < block1Epoch -> 1
+                        else -> {
+                            // compare the slot values in descending order
+                            val block0Slot = block0.scheduledAtDate.substringAfter('.').toLong()
+                            val block1Slot = block1.scheduledAtDate.substringAfter('.').toLong()
+                            -1 * block0Slot.compareTo(block1Slot)
+                        }
+                    }
+                })
+
+                // See if there are any CompletedBlocks that we need to check for minting
+                val mintCandidateIndex = leaderLogHistory.indexOfFirst { historicalBlock ->
+                    historicalBlock is CompletedBlock &&
+                            historicalBlock.minted == null &&
+                            DateTime.parse(historicalBlock.finishedAtTime)
+                                    .isBefore(System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(5))
+                }
+
+                if (mintCandidateIndex > -1) {
+                    // Found a block to check for minting
+                    mutex.withLock {
+                        try {
+                            if (leaderProcessNumber > -1) {
+                                val mintCandidateBlock = leaderLogHistory[mintCandidateIndex]
+                                val responseBody = try {
+                                    services[leaderProcessNumber]?.getBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
+                                } catch (e: HttpException) {
+                                    if (e.code() == 404) {
+                                        logger.warn("Completed block not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
+                                        null
+                                    } else {
+                                        throw e
+                                    }
+                                }
+                                responseBody?.bytes()?.let { responseBytes ->
+                                    val blockString = responseBytes.toHex()
+                                    if (blockString.length > 232) {
+                                        val poolId = blockString.substring(168, 232)
+                                        if (pooltoolPoolId == poolId) {
+                                            val nextBlockResponseBody = try {
+                                                services[leaderProcessNumber]?.getNextBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
+                                            } catch (e: HttpException) {
+                                                if (e.code() == 404) {
+                                                    logger.warn("Completed block's next_id not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
+                                                    null
+                                                } else {
+                                                    throw e
+                                                }
+                                            }
+                                            if (nextBlockResponseBody?.bytes()?.size ?: -1 > 0) {
+                                                leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = true)
+                                                logger.info("MINTED Block: ${mintCandidateBlock.status.blockDetail}")
+                                            } else {
+                                                leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                                logger.info("SNIPED Block (missing nextBlockId): ${mintCandidateBlock.status.blockDetail}")
+                                            }
+                                        } else {
+                                            leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                            logger.info("SNIPED Block (poolId didn't match): ${mintCandidateBlock.status.blockDetail}")
+                                        }
+                                    } else {
+                                        leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                        logger.info("SNIPED Block (block length too short): ${mintCandidateBlock.status.blockDetail}")
+                                    }
+                                }
+                                        ?: run {
+                                            leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                            logger.info("SNIPED Block (block not found): ${mintCandidateBlock.status.blockDetail}")
+                                        }
+                            }
+                        } catch (e: Throwable) {
+                            logger.error("Error getting block info!", e)
+                        }
+                    }
+                }
+
+                // overwrite the historical log
+                Okio.buffer(Okio.sink(File(blockLogPath)))?.use { sink ->
+                    jsonAdapter.toJson(sink, leaderLogHistory)
+                }
+            }
+            logger.info("Updated Leader logs in : $time ms")
+        }
+    }
+
+}
