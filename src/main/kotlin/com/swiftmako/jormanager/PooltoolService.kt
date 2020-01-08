@@ -1,0 +1,18 @@
+package com.swiftmako.jormanager
+
+import com.swiftmako.jormanager.api.PooltoolResult
+import retrofit2.http.GET
+import retrofit2.http.Query
+
+interface PooltoolService {
+
+    @GET("sharemytip")
+    suspend fun shareMyTip(
+            @Query("poolid") poolId: String,
+            @Query("userid") userId: String,
+            @Query("genesispref") genesisPref: String,
+            @Query("mytip") lastBlockHeight: String,
+            @Query("lasthash") lastBlockHash: String,
+            @Query("lastpool") lastPoolId: String
+    ) : PooltoolResult
+}
