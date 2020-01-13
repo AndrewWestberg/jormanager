@@ -2,6 +2,10 @@
 
 This project was born out of my frustration as a stakepool operator on the incentivized testnet for cardano. It is designed to spin up many Jormungandr nodes at once for improved reliability and bootstrapping. The nodes are monitored for healthiness on an interval and a single node in the cluster is promoted to leader (capable of minting blocks). Other nodes remain passive, but could be promoted to leader if they become the healthiest.
 
+![alt text](jormanager_log.png "JorManager Log")
+
+![alt text](jormanager_status.png "JorManager Status")
+
 ## Health
 
 The health calculation is determined by:
@@ -40,3 +44,13 @@ This project is designed to do nothing more than help out the Cardano community 
 ```
 DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mLXAgMh7aVDjPxobYr7rh6s8E2
 ```
+
+###### Release Notes
+
+0.0.4-SNAPSHOT - Add quiet period for leader election during block creation times.
+
+0.0.3-SNAPSHOT - Bug fixes & cleaned up logging
+
+0.0.2-SNAPSHOT - Bug fixes 
+
+0.0.1-SNAPSHOT - Initial Beta Release

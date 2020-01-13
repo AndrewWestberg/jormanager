@@ -69,6 +69,7 @@ class JormanagerController @Autowired constructor(
 
     var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
+    var nextBlockTime: DateTime? = null
 
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = Collections.synchronizedMap(mutableMapOf<Int, JormungandrProcess>())
@@ -141,7 +142,7 @@ class JormanagerController @Autowired constructor(
                     try {
                         val stats = service.nodeStats()
                         if (stats.state == "Running") {
-                            if(leaderProcessNumber > -1) {
+                            if (leaderProcessNumber > -1) {
                                 // Node came up! Turn off leadership immediately
                                 service.removeLeadership(1)
                                 logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
@@ -198,7 +199,19 @@ class JormanagerController @Autowired constructor(
         val leaderLogs = mutableListOf<List<LeaderBlock>>()
 
         while (true) {
-            delay(leaderElectionDelayMs)
+            // Do some extra waiting if we're going to be making a block soon. We don't want to switch horses while
+            // minting a block and potentially be without a leader. Otherwise, just wait the normal leader election delay
+            // timeperiod.
+            nextBlockTime?.let {
+                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(it)) {
+                    logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
+                    delay(it.millis - System.currentTimeMillis() + 2000)
+                    logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
+                } else {
+                    delay(leaderElectionDelayMs)
+                }
+            } ?: delay(leaderElectionDelayMs)
+
             mutex.withLock {
                 serviceCalls.clear()
                 leaderLogs.clear()
@@ -411,7 +424,7 @@ class JormanagerController @Autowired constructor(
                                         // Replace the historical block that was probably from a demoted leader with this one that has more information
                                         leaderLogHistory[historicalBlockIndex] = newBlock
                                         logger.info("COMPLETED Block: ${newBlock.status.blockDetail}")
-                                    } else if(newBlock is RejectedBlock && !newBlock.status.rejectedDetail.reason.contains("enclave")) {
+                                    } else if (newBlock is RejectedBlock && !newBlock.status.rejectedDetail.reason.contains("enclave")) {
                                         // Replace with the real rejected reason, not just that this leader was not in the enclave
                                         leaderLogHistory[historicalBlockIndex] = newBlock
                                     }
@@ -439,6 +452,12 @@ class JormanagerController @Autowired constructor(
                         }
                     }
                 })
+
+                // Find next upcoming block time
+                val nextBlock = leaderLogHistory.filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.minBy { block -> block.scheduledAtDate.substringAfter('.').toLong() }
+                nextBlockTime = nextBlock?.let { block ->
+                    DateTime.parse(block.scheduledAtTime)
+                }
 
                 // See if there are any CompletedBlocks that we need to check for minting
                 val mintCandidateIndex = leaderLogHistory.indexOfFirst { historicalBlock ->
@@ -514,5 +533,4 @@ class JormanagerController @Autowired constructor(
             logger.info("Updated Leader logs in : $time ms")
         }
     }
-
 }
