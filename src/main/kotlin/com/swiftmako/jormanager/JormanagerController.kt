@@ -11,9 +11,11 @@ import com.swiftmako.jormanager.api.PooltoolResult
 import com.swiftmako.jormanager.api.RejectedBlock
 import com.swiftmako.jormanager.api.Stats
 import com.swiftmako.jormanager.utils.toHex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -74,6 +76,7 @@ class JormanagerController @Autowired constructor(
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = Collections.synchronizedMap(mutableMapOf<Int, JormungandrProcess>())
     private val services = Collections.synchronizedMap(mutableMapOf<Int, JormungandrService>())
+    private val bootstrapJobs = Collections.synchronizedMap(mutableMapOf<Int, Job>())
 
 
     init {
@@ -88,8 +91,8 @@ class JormanagerController @Autowired constructor(
     private fun manageProcessStartup() = launch {
         for (processNumber in processStartQueue) {
             delay(5000)
-            logger.info("Starting Process${processNumber}...")
             mutex.withLock {
+                logger.info("Starting Process${processNumber}...")
                 processes[processNumber] = JormungandrProcess(
                         startedAt = System.currentTimeMillis(),
                         process = launchJormungandrProcess(processNumber)
@@ -99,7 +102,7 @@ class JormanagerController @Autowired constructor(
                         .build()
                         .create(JormungandrService::class.java)
                 logger.info("Active Jormungandr processes: ${processes.size}")
-                manageBootstrap(processNumber)
+                bootstrapJobs[processNumber] = manageBootstrap(processNumber)
             }
             delay(nodeStaggerMs)
         }
@@ -153,8 +156,12 @@ class JormanagerController @Autowired constructor(
                             }
                             return@launch
                         }
+                    } catch (e: CancellationException) {
+                        // The coroutine was canceled. Job will get restarted by the canceling coroutine
+                        logger.warn("Process${processNumber}: Bootstrap canceled. Will restart later...")
+                        return@launch
                     } catch (e: Throwable) {
-                        logger.error("Process${processNumber}: Error waiting for node to bootstrap!", e);
+                        logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}");
                         shutdownProcess(processNumber)
                         return@launch
                     }
@@ -204,9 +211,28 @@ class JormanagerController @Autowired constructor(
             // timeperiod.
             nextBlockTime?.let {
                 if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(it)) {
-                    logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
-                    delay(it.millis - System.currentTimeMillis() + 2000)
-                    logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
+                    // lock the mutex so new nodes can't be spun up
+                    mutex.withLock {
+                        logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
+                        val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
+                        if (fiveSecondsBeforeMinting > 0) {
+                            delay(fiveSecondsBeforeMinting)
+                        }
+
+                        // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
+                        bootstrapJobs.forEach { (processNumber, job) ->
+                            launch {
+                                if (job.isActive) {
+                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                                    job.cancel()
+                                    shutdownProcess(processNumber)
+                                }
+                            }
+                        }
+
+                        delay(it.millis - System.currentTimeMillis() + 2000)
+                        logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
+                    }
                 } else {
                     delay(leaderElectionDelayMs)
                 }
@@ -267,7 +293,7 @@ class JormanagerController @Autowired constructor(
                                     logger.error("Process${processNumber}: ${e.message}")
                                 }
                                 else -> {
-                                    logger.error("Process${processNumber}: Exception checking node!", e)
+                                    logger.error("Error checking Process${processNumber}!: ${e.message}")
                                 }
                             }
                             processesToRemove.add(processNumber)
