@@ -11,8 +11,7 @@ This project was born out of my frustration as a stakepool operator on the incen
 The health calculation is determined by:
 
   * The block height of a node. Higher is better.
-  * The number of peers a node has. 248 peers is the current default for marking a node as "healthy"
-  * The uptime a peer has. Normally, you'd think a longer-uptime node would be healthier, but since the ITN is so unstable, we currently consider the youngest node to be the healthiest. The old ones are closer to "death".
+  * The number of peers a node has.
 
 ## Setup
 

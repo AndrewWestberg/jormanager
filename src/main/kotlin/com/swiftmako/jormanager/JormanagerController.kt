@@ -19,12 +19,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.Okio
 import org.joda.time.DateTime
+import org.joda.time.DateTimeZone
+import org.joda.time.format.DateTimeFormat
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -32,11 +36,15 @@ import org.springframework.web.bind.annotation.RestController
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import java.io.File
+import java.lang.reflect.Field
 import java.net.SocketTimeoutException
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.system.measureTimeMillis
+
 
 @RestController
 class JormanagerController @Autowired constructor(
@@ -49,7 +57,6 @@ class JormanagerController @Autowired constructor(
         @Value("\${jormanager.node_probation_secs}") private val nodeProbationSecs: Long,
         @Value("\${jormanager.max_bootstrap_ms}") private val maxBootstrapMs: Long,
         @Value("\${jormanager.node_stagger_ms}") private val nodeStaggerMs: Long,
-        @Value("\${jormanager.healthy_peers}") private val healthyPeers: Int,
         @Value("\${jormanager.pooltool.poolId}") private val pooltoolPoolId: String,
         @Value("\${jormanager.pooltool.userId}") private val pooltoolUserId: String,
         @Value("\${jormanager.pooltool.genesisPref}") private val pooltoolGenesisPref: String,
@@ -58,6 +65,7 @@ class JormanagerController @Autowired constructor(
         @Value("\${jormanager.jormungandr.rest_api_url}") private val restApiUrlPattern: String,
         @Value("\${jormanager.jormungandr.log_location}") private val jormungandrLogPath: String,
         @Value("\${jormanager.jormungandr.process}") private val jormungandrProcessPath: String,
+        @Value("\${jormanager.jormungandr.storage}") private val jormungandrStoragePath: String,
         @Value("\${jormanager.jormungandr.config}") private val jormungandrConfigPath: String,
         @Value("\${jormanager.jormungandr.genesis}") private val jormungandrGenesisHash: String,
         @Value("\${jormanager.jormungandr.secret}") private val jormungandrSecretPath: String,
@@ -72,6 +80,7 @@ class JormanagerController @Autowired constructor(
     var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
     var nextBlockTime: DateTime? = null
+    var nextEpochTime: DateTime? = null
 
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = Collections.synchronizedMap(mutableMapOf<Int, JormungandrProcess>())
@@ -86,25 +95,27 @@ class JormanagerController @Autowired constructor(
     }
 
     /**
-     * Launch a new Jormungandr process from our queue once every 30 seconds
+     * Launch a new Jormungandr process from our queue once every {nodeStaggerMs} seconds
      */
     private fun manageProcessStartup() = launch {
         for (processNumber in processStartQueue) {
-            delay(5000)
+            delay(1000)
             mutex.withLock {
-                logger.info("Starting Process${processNumber}...")
-                processes[processNumber] = JormungandrProcess(
-                        startedAt = System.currentTimeMillis(),
-                        process = launchJormungandrProcess(processNumber)
-                )
-                services[processNumber] = retrofitBuilder
-                        .baseUrl(restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
-                        .build()
-                        .create(JormungandrService::class.java)
-                logger.info("Active Jormungandr processes: ${processes.size}")
-                bootstrapJobs[processNumber] = manageBootstrap(processNumber)
+                if (processes[processNumber] == null) {
+                    logger.info("Starting Process${processNumber}...")
+                    processes[processNumber] = JormungandrProcess(
+                            startedAt = System.currentTimeMillis(),
+                            process = launchJormungandrProcess(processNumber)
+                    )
+                    services[processNumber] = retrofitBuilder
+                            .baseUrl(restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                            .build()
+                            .create(JormungandrService::class.java)
+                    logger.info("Active Jormungandr processes: ${processes.size}")
+                    bootstrapJobs[processNumber] = manageBootstrap(processNumber)
+                }
             }
-            delay(nodeStaggerMs)
+            delay(nodeStaggerMs - 1000)
         }
     }
 
@@ -125,9 +136,22 @@ class JormanagerController @Autowired constructor(
         val pid = "$processNumber".padStart(2, '0')
         val log = File(jormungandrLogPath.replace("{pid}", pid))
 
+//        if (leaderProcessNumber > -1) {
+//            // rsync the blocks db from the leader to improve bootstrap time for this new node
+//            val leaderPid = "$leaderProcessNumber".padStart(2, '0')
+//            ProcessBuilder(
+//                    "rsync",
+//                    "-a",
+//                    "${jormungandrStoragePath.replace("{pid}", leaderPid)}/",
+//                    "${jormungandrStoragePath.replace("{pid}", pid)}/"
+//            ).start().waitFor(5, TimeUnit.SECONDS)
+//            logger.info("COPIED DB to storage for Process$processNumber")
+//        }
+
         return ProcessBuilder(
                 jormungandrProcessPath.replace("{pid}", pid),
                 "--config", jormungandrConfigPath.replace("{pid}", pid),
+                "--storage", jormungandrStoragePath.replace("{pid}", pid),
                 "--genesis-block-hash", jormungandrGenesisHash,
                 "--secret", jormungandrSecretPath
         ).apply {
@@ -161,7 +185,7 @@ class JormanagerController @Autowired constructor(
                         logger.warn("Process${processNumber}: Bootstrap canceled. Will restart later...")
                         return@launch
                     } catch (e: Throwable) {
-                        logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}");
+                        logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}")
                         shutdownProcess(processNumber)
                         return@launch
                     }
@@ -186,7 +210,30 @@ class JormanagerController @Autowired constructor(
         }
         val process = processes.remove(processNumber)
         services.remove(processNumber)
+        val pid = process?.process?.let {
+            getPidOfProcess(it)
+        }
         process?.process?.destroy()
+
+        if (pid != null && pid > -1) {
+            logger.warn("TERM Process$processNumber with pid: $pid")
+            @Suppress("BlockingMethodInNonBlockingContext")
+            ProcessBuilder(
+                    "kill",
+                    "-s", "TERM",
+                    "$pid"
+            ).start().waitFor()
+            logger.warn("KILL Process$processNumber with pid: $pid")
+            @Suppress("BlockingMethodInNonBlockingContext")
+            ProcessBuilder(
+                    "kill",
+                    "-s", "KILL",
+                    "$pid"
+            ).start().waitFor()
+        } else {
+            logger.warn("Could not get PID for Process$processNumber shutdown.")
+        }
+
         processStartQueue.send(processNumber)
 
         if (processNumber == leaderProcessNumber) {
@@ -206,100 +253,83 @@ class JormanagerController @Autowired constructor(
         val leaderLogs = mutableListOf<List<LeaderBlock>>()
 
         while (true) {
-            // Do some extra waiting if we're going to be making a block soon. We don't want to switch horses while
-            // minting a block and potentially be without a leader. Otherwise, just wait the normal leader election delay
-            // timeperiod.
-            nextBlockTime?.let {
-                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(it)) {
-                    // lock the mutex so new nodes can't be spun up
-                    mutex.withLock {
-                        logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
-                        val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
-                        if (fiveSecondsBeforeMinting > 0) {
-                            delay(fiveSecondsBeforeMinting)
-                        }
+            handleBlockMinting()
+            calculateNextEpochCutover()
+            handleEpochCutover()
 
-                        // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
-                        bootstrapJobs.forEach { (processNumber, job) ->
-                            launch {
-                                if (job.isActive) {
-                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
-                                    job.cancel()
-                                    shutdownProcess(processNumber)
-                                }
-                            }
-                        }
-
-                        delay(it.millis - System.currentTimeMillis() + 2000)
-                        logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
-                    }
-                } else {
-                    delay(leaderElectionDelayMs)
-                }
-            } ?: delay(leaderElectionDelayMs)
-
+            // Do leader election process
             mutex.withLock {
                 serviceCalls.clear()
                 leaderLogs.clear()
                 services.forEach { entry ->
-                    serviceCalls.add(async {
-                        val processNumber = entry.key
-                        val service = entry.value
-                        try {
-                            val stats = service.nodeStats()
-                            when (stats.state) {
-                                "Running" -> {
-                                    leaderLogs.add(
-                                            service.getLeaderLog()
-                                    )
+                    if (System.currentTimeMillis() - (processes[entry.key]?.startedAt
+                                    ?: System.currentTimeMillis()) > 5000) {
+                        serviceCalls.add(async {
+                            val processNumber = entry.key
+                            val service = entry.value
+                            try {
+                                val stats = service.nodeStats()
+                                when (stats.state) {
+                                    "Running" -> {
+                                        leaderLogs.add(
+                                                service.getLeaderLog()
+                                        )
 
-                                    val networkStats = service.networkStats()
-                                    latestStats[processNumber] = stats.copy(numberOfPeers = networkStats.size)
-                                    logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${networkStats.size}, uptime: ${stats.uptime}")
-                                    maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
+                                        val numberOfPeers = service.networkStats().size
 
-                                    stats.uptime?.let { uptime ->
-                                        if (uptime > nodeProbationSecs) {
-                                            // We've been up long enough. See if we've fallen behind the maxBlockHeight
-                                            stats.lastBlockHeight?.toLong()?.let { lastBlockHeight ->
-                                                if (maxBlockHeight - lastBlockHeight > maxBlocksBehind) {
-                                                    // We're more than the max blocks behind. kill this node.
-                                                    logger.error("Process${processNumber}: has fallen behind, restarting...")
-                                                    processesToRemove.add(processNumber)
+                                        // Another method to get number of peers by by using established sockets from lsof
+//                                        val numberOfPeers = establishedSocketsByProcessId(
+//                                                processes[processNumber]?.process?.let {
+//                                                    getPidOfProcess(it)
+//                                                } ?: 0)
+
+                                        latestStats[processNumber] = stats.copy(numberOfPeers = numberOfPeers)
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${numberOfPeers}, uptime: ${stats.uptime}")
+                                        maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
+
+                                        stats.uptime?.let { uptime ->
+                                            if (uptime > nodeProbationSecs) {
+                                                // We've been up long enough. See if we've fallen behind the maxBlockHeight
+                                                stats.lastBlockHeight?.toLong()?.let { lastBlockHeight ->
+                                                    if (maxBlockHeight - lastBlockHeight > maxBlocksBehind) {
+                                                        // We're more than the max blocks behind. kill this node.
+                                                        logger.error("Process${processNumber}: has fallen behind, restarting...")
+                                                        processesToRemove.add(processNumber)
+                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                }
-                                "Bootstrapping" -> {
-                                    latestStats[processNumber] = stats
-                                    logger.info("Process${processNumber}: state: ${stats.state}")
-                                    processes[processNumber]?.let { process ->
-                                        if (System.currentTimeMillis() - process.startedAt > TimeUnit.MINUTES.toMillis(5)) {
-                                            // Stale bootstrap. restart it.
-                                            logger.error("Process${processNumber}: Stale bootstrap, restarting...")
-                                            processesToRemove.add(processNumber)
+                                    "Bootstrapping" -> {
+                                        latestStats[processNumber] = stats
+                                        logger.info("Process${processNumber}: state: ${stats.state}")
+                                        processes[processNumber]?.let { process ->
+                                            if (System.currentTimeMillis() - process.startedAt > TimeUnit.MINUTES.toMillis(5)) {
+                                                // Stale bootstrap. restart it.
+                                                logger.error("Process${processNumber}: Stale bootstrap, restarting...")
+                                                processesToRemove.add(processNumber)
+                                            }
                                         }
                                     }
+                                    else -> {
+                                        latestStats[processNumber] = stats
+                                        logger.info("Process${processNumber}: state: ${stats.state}")
+                                    }
                                 }
-                                else -> {
-                                    latestStats[processNumber] = stats
-                                    logger.info("Process${processNumber}: state: ${stats.state}")
+                            } catch (e: Throwable) {
+                                when (e) {
+                                    is SocketTimeoutException, is HttpException -> {
+                                        logger.error("Process${processNumber}: ${e.message}")
+                                    }
+                                    else -> {
+                                        logger.error("Error checking Process${processNumber}!: ${e.message}")
+                                    }
                                 }
+                                processesToRemove.add(processNumber)
                             }
-                        } catch (e: Throwable) {
-                            when (e) {
-                                is SocketTimeoutException, is HttpException -> {
-                                    logger.error("Process${processNumber}: ${e.message}")
-                                }
-                                else -> {
-                                    logger.error("Error checking Process${processNumber}!: ${e.message}")
-                                }
-                            }
-                            processesToRemove.add(processNumber)
-                        }
-                        return@async
-                    })
+                            return@async
+                        })
+                    }
                 }
 
                 awaitAll(*serviceCalls.toTypedArray())
@@ -323,22 +353,10 @@ class JormanagerController @Autowired constructor(
                             bestLeaderProcessCandidate = entry
                             return@forEach
                         } else {
-                            if (bestLeaderProcessCandidate?.value?.numberOfPeers!! > healthyPeers && stats.numberOfPeers!! > healthyPeers) {
-                                if (bestLeaderProcessCandidate?.value?.uptime!! > stats.uptime!!) {
-                                    // both have good number of peers, but this one has lower uptime
-                                    bestLeaderProcessCandidate = entry
-                                    return@forEach
-                                }
-                            } else if (stats.numberOfPeers!! > healthyPeers) {
-                                // we have more peers than the previous leader candidate
+                            // Just compare purely based on number of peers
+                            if (stats.numberOfPeers!! > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
                                 bestLeaderProcessCandidate = entry
                                 return@forEach
-                            } else {
-                                // neither have over ${jormanager.healthy_peers} peers, just pick the one with the most
-                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
-                                    bestLeaderProcessCandidate = entry
-                                    return@forEach
-                                }
                             }
                         }
                     }
@@ -416,6 +434,163 @@ class JormanagerController @Autowired constructor(
                     adapter.toJson(it, OutputStats(pooltoolResult, latestStats))
                 }
             }
+        }
+    }
+
+    /**
+     * Calculate the next epoch cutover timeperiod based on network settings
+     */
+    private suspend fun calculateNextEpochCutover() {
+        if (leaderProcessNumber > -1 && (nextEpochTime == null || nextEpochTime?.isBeforeNow == true)) {
+            var multiplier = 1024
+            services[leaderProcessNumber]?.settings()?.let { nodeSettings ->
+                val epochLengthSecs = (nodeSettings.slotDurationSec * nodeSettings.slotsPerEpoch).toInt()
+                nextEpochTime = DateTime.parse(nodeSettings.block0Time)
+                val df = DateTimeFormat.fullDateTime()
+                // logger.info("nextEpochTime test: ${df.print(nextEpochTime?.withZone(DateTimeZone.getDefault()))}")
+                var isNextEpochTimeBeforeNow = nextEpochTime!!.isBeforeNow
+                var isNextEpochTimeMinusOneAfterNow = nextEpochTime!!.minusSeconds(epochLengthSecs).isAfterNow
+                while (isNextEpochTimeBeforeNow || isNextEpochTimeMinusOneAfterNow) {
+                    nextEpochTime = if (isNextEpochTimeBeforeNow) {
+                        nextEpochTime!!.plusSeconds(multiplier * epochLengthSecs)
+                    } else {
+                        nextEpochTime!!.minusSeconds(multiplier * epochLengthSecs)
+                    }
+                    // logger.info("nextEpochTime test: ${df.print(nextEpochTime?.withZone(DateTimeZone.getDefault()))}")
+
+                    isNextEpochTimeBeforeNow = nextEpochTime!!.isBeforeNow
+                    isNextEpochTimeMinusOneAfterNow = nextEpochTime!!.minusSeconds(epochLengthSecs).isAfterNow
+                    if (isNextEpochTimeBeforeNow || isNextEpochTimeMinusOneAfterNow) {
+                        multiplier /= 2
+                    }
+                }
+
+                logger.info("NEXT EPOCH SCHEDULED AT: ${df.print(nextEpochTime?.withZone(DateTimeZone.getDefault()))}")
+            }
+        }
+    }
+
+    /**
+     * Promote all nodes to leader just before epoch cutover and demote them just afterward. This should ensure all
+     * nodes get the leader logs.
+     */
+    private suspend fun handleEpochCutover() {
+        nextEpochTime?.let { nextEpochTime ->
+            coroutineScope {
+                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(nextEpochTime)) {
+                    // lock the mutex so new nodes can't be spun up
+                    mutex.withLock {
+                        logger.warn("EPOCH IS ENDING SOON: Pausing Leader Election changes...")
+                        val fiveSecondsBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 5000
+                        if (fiveSecondsBeforeEpoch > 0) {
+                            delay(fiveSecondsBeforeEpoch)
+                        }
+
+                        // Shutdown any nodes that are still bootstrapping so they don't interfere with epoch cutover
+                        bootstrapJobs.forEach { (processNumber, job) ->
+                            launch {
+                                if (job.isActive) {
+                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                                    job.cancel()
+                                    shutdownProcess(processNumber)
+                                }
+                            }
+                        }
+
+                        // wait until 1.75 seconds before epoch cutover and make all running nodes into leaders
+                        val justBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 1750
+                        if (justBeforeEpoch > 0) {
+                            delay(justBeforeEpoch)
+                        }
+                        val leaderPromotions = mutableListOf<Deferred<Any?>>()
+                        val leaderInfo = Okio.buffer(Okio.source(File(jormungandrSecretJsonPath)))?.use { source ->
+                            moshi.adapter(LeaderInfo::class.java).fromJson(source)
+                        }
+                        leaderInfo?.let { li ->
+                            services.forEach { entry ->
+                                val processNumber = entry.key
+                                val service = entry.value
+                                if (processNumber != leaderProcessNumber) {
+                                    leaderPromotions.add(
+                                            async {
+                                                try {
+                                                    service.promoteToLeader(li)
+                                                    logger.warn("PROMOTE LEADER: Process${processNumber}")
+                                                } catch (e: Throwable) {
+                                                    logger.error("Unable to promote Process${processNumber} to leader", e)
+                                                }
+                                            }
+                                    )
+                                }
+                            }
+                        }
+
+                        awaitAll(*leaderPromotions.toTypedArray())
+                        logger.warn("EPOCH CUTOVER LEADER PROMOTIONS COMPLETED.")
+
+                        // wait until 1.75 seconds after epoch cutover and make all leaders passive
+                        val justAfterEpoch = nextEpochTime.millis - System.currentTimeMillis() + 1750
+                        if (justAfterEpoch > 0) {
+                            delay(justAfterEpoch)
+                        }
+                        val leaderDemotions = mutableListOf<Deferred<Any?>>()
+                        services.forEach { entry ->
+                            leaderDemotions.add(
+                                    async {
+                                        val processNumber = entry.key
+                                        val service = entry.value
+                                        if (processNumber != leaderProcessNumber) {
+                                            try {
+                                                service.removeLeadership(1)
+                                                logger.warn("REMOVE LEADER: Process${processNumber}")
+                                            } catch (e: Throwable) {
+                                                logger.error("Unable to remove leadership from Process${processNumber}!")
+                                            }
+                                        }
+                                    })
+                        }
+                        awaitAll(*leaderDemotions.toTypedArray())
+                        logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Do some extra waiting if we're going to be making a block soon. We don't want to switch horses while minting a
+     * block and potentially be without a leader. Otherwise, just wait the normal leader election delay timeperiod.
+     */
+    private suspend fun handleBlockMinting() {
+        coroutineScope {
+            nextBlockTime?.let {
+                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(it)) {
+                    // lock the mutex so new nodes can't be spun up
+                    mutex.withLock {
+                        logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
+                        val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
+                        if (fiveSecondsBeforeMinting > 0) {
+                            delay(fiveSecondsBeforeMinting)
+                        }
+
+                        // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
+                        bootstrapJobs.forEach { (processNumber, job) ->
+                            launch {
+                                if (job.isActive) {
+                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                                    job.cancel()
+                                    shutdownProcess(processNumber)
+                                }
+                            }
+                        }
+
+                        delay(it.millis - System.currentTimeMillis() + 1500)
+                        logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
+                    }
+                } else {
+                    delay(leaderElectionDelayMs)
+                }
+            } ?: delay(leaderElectionDelayMs)
         }
     }
 
@@ -557,6 +732,50 @@ class JormanagerController @Autowired constructor(
                 }
             }
             logger.info("Updated Leader logs in : $time ms")
+        }
+    }
+
+    private suspend fun establishedSocketsByProcessId(pid: Long): Int {
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                val process = ProcessBuilder(
+                        "/bin/sh", "-c", "lsof -w -n -P -l -i -a -p $pid | grep ESTABLISHED | wc -l"
+                ).start()
+
+                continuation.invokeOnCancellation {
+                    try {
+                        process.destroy()
+                    } catch (e: Throwable) {
+                        logger.error("establishedSocketsByProcessId Error!", e)
+                    }
+                }
+
+                val establishedSockets = Okio.buffer(Okio.source(process.inputStream)).use { source ->
+                    source.readUtf8().replace('"', ' ').trim()
+                }.toInt()
+                continuation.resume(establishedSockets)
+            } catch (e: Throwable) {
+                logger.error("establishedSocketsByProcessId ERROR!", e)
+                continuation.resumeWithException(e)
+            }
+        }
+    }
+
+    companion object {
+        @Synchronized
+        fun getPidOfProcess(p: Process): Long {
+            var pid: Long = -1
+            try {
+                if (p.javaClass.name == "java.lang.UNIXProcess") {
+                    val f: Field = p.javaClass.getDeclaredField("pid")
+                    f.isAccessible = true
+                    pid = f.getLong(p)
+                    f.isAccessible = false
+                }
+            } catch (e: Exception) {
+                pid = -1
+            }
+            return pid
         }
     }
 }

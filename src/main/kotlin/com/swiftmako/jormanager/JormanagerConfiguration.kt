@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Scope
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.util.concurrent.TimeUnit
 
 
 @Configuration

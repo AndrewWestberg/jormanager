@@ -1,13 +1,21 @@
 package com.swiftmako.jormanager
 
+import com.swiftmako.jormanager.api.JormSettings
 import com.swiftmako.jormanager.api.LeaderBlock
 import com.swiftmako.jormanager.api.LeaderInfo
 import com.swiftmako.jormanager.api.NetworkStat
 import com.swiftmako.jormanager.api.Stats
 import okhttp3.ResponseBody
-import retrofit2.http.*
+import retrofit2.http.Body
+import retrofit2.http.DELETE
+import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
 
 interface JormungandrService {
+
+    @GET("v0/settings")
+    suspend fun settings(): JormSettings
 
     @GET("v0/node/stats")
     suspend fun nodeStats(): Stats
