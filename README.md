@@ -45,6 +45,11 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.0.7-SNAPSHOT - UFW firewall support.
+
+0.0.6-SNAPSHOT - Handle Epoch cutover.
+
+0.0.5-SNAPSHOT - Shut down bootstrapping nodes 5 seconds before block creation times.
 
 0.0.4-SNAPSHOT - Add quiet period for leader election during block creation times.
 

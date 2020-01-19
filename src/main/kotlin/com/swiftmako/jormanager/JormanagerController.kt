@@ -69,7 +69,12 @@ class JormanagerController @Autowired constructor(
         @Value("\${jormanager.jormungandr.config}") private val jormungandrConfigPath: String,
         @Value("\${jormanager.jormungandr.genesis}") private val jormungandrGenesisHash: String,
         @Value("\${jormanager.jormungandr.secret}") private val jormungandrSecretPath: String,
-        @Value("\${jormanager.jormungandr.secret_json}") private val jormungandrSecretJsonPath: String
+        @Value("\${jormanager.jormungandr.secret_json}") private val jormungandrSecretJsonPath: String,
+        @Value("\${jormanager.ufw.enabled}") private val jormanagerUfwEnabled: Boolean,
+        @Value("\${jormanager.ufw.lower_limit}") private val jormanagerUfwLowerLimit: Int,
+        @Value("\${jormanager.ufw.upper_limit}") private val jormanagerUfwUpperLimit: Int,
+        @Value("\${jormanager.ufw.allow}") private val jormanagerUfwAllowCmd: String,
+        @Value("\${jormanager.ufw.deny}") private val jormanagerUfwDenyCmd: String
 ) : CoroutineScope {
     private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
     override val coroutineContext: CoroutineContext = Dispatchers.IO
@@ -103,9 +108,11 @@ class JormanagerController @Autowired constructor(
             mutex.withLock {
                 if (processes[processNumber] == null) {
                     logger.info("Starting Process${processNumber}...")
+                    val firewallOpen = openFirewall(processNumber)
                     processes[processNumber] = JormungandrProcess(
                             startedAt = System.currentTimeMillis(),
-                            process = launchJormungandrProcess(processNumber)
+                            process = launchJormungandrProcess(processNumber),
+                            firewallOpen = firewallOpen
                     )
                     services[processNumber] = retrofitBuilder
                             .baseUrl(restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
@@ -283,8 +290,29 @@ class JormanagerController @Autowired constructor(
 //                                                    getPidOfProcess(it)
 //                                                } ?: 0)
 
+                                        // Enable/Disable firewall based on limits
+                                        val fw = if (jormanagerUfwEnabled) {
+                                            if (numberOfPeers <= jormanagerUfwLowerLimit && processes[processNumber]?.firewallOpen == false) {
+                                                // We dropped below number lower limit of connections we'd like to have. Open the firewall
+                                                val firewallOpen = openFirewall(processNumber)
+                                                processes[processNumber]?.firewallOpen = firewallOpen
+                                            } else if (numberOfPeers >= jormanagerUfwUpperLimit && processes[processNumber]?.firewallOpen == true) {
+                                                // We have enough connections. Close the firewall
+                                                val firewallClosed = closeFirewall(processNumber)
+                                                processes[processNumber]?.firewallOpen = !firewallClosed
+                                            }
+
+                                            if (processes[processNumber]?.firewallOpen == true) {
+                                                "ALLOW"
+                                            } else {
+                                                "DENY"
+                                            }
+                                        } else {
+                                            "---"
+                                        }
+
                                         latestStats[processNumber] = stats.copy(numberOfPeers = numberOfPeers)
-                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${numberOfPeers}, uptime: ${stats.uptime}")
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${numberOfPeers}, uptime: ${stats.uptime}, fw: $fw")
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->
@@ -732,6 +760,72 @@ class JormanagerController @Autowired constructor(
                 }
             }
             logger.info("Updated Leader logs in : $time ms")
+        }
+    }
+
+    private suspend fun openFirewall(processNumber: Int): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            if (!jormanagerUfwEnabled) {
+                continuation.resume(true)
+            } else {
+                try {
+                    val args = jormanagerUfwAllowCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
+                    val process = ProcessBuilder(
+                            *args.toTypedArray()
+                    ).start()
+
+                    continuation.invokeOnCancellation {
+                        try {
+                            process.destroy()
+                        } catch (e: Throwable) {
+                            logger.error("openFirewall Error!", e)
+                        }
+                    }
+
+                    val exitValue = process.waitFor()
+                    if (exitValue == 0) {
+                        continuation.resume(true)
+                    } else {
+                        continuation.resume(false)
+                    }
+                } catch (e: Throwable) {
+                    logger.error("openFirewall ERROR!", e)
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+    }
+
+    private suspend fun closeFirewall(processNumber: Int): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            if (!jormanagerUfwEnabled) {
+                continuation.resume(true)
+            } else {
+                try {
+                    val args = jormanagerUfwDenyCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
+                    val process = ProcessBuilder(
+                            *args.toTypedArray()
+                    ).start()
+
+                    continuation.invokeOnCancellation {
+                        try {
+                            process.destroy()
+                        } catch (e: Throwable) {
+                            logger.error("openFirewall Error!", e)
+                        }
+                    }
+
+                    val exitValue = process.waitFor()
+                    if (exitValue == 0) {
+                        continuation.resume(true)
+                    } else {
+                        continuation.resume(false)
+                    }
+                } catch (e: Throwable) {
+                    logger.error("openFirewall ERROR!", e)
+                    continuation.resumeWithException(e)
+                }
+            }
         }
     }
 
