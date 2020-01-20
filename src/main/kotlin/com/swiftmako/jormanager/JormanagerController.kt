@@ -305,7 +305,7 @@ class JormanagerController @Autowired constructor(
                                             if (processes[processNumber]?.firewallOpen == true) {
                                                 "ALLOW"
                                             } else {
-                                                "DENY"
+                                                "REJECT"
                                             }
                                         } else {
                                             "---"
@@ -450,6 +450,9 @@ class JormanagerController @Autowired constructor(
                                     lastPoolId = lastPoolId
                             )
                             logger.info("$pooltoolResult")
+                            pooltoolResult.pooltoolmax?.let { ptMax ->
+                                maxBlockHeight = maxOf(maxBlockHeight, ptMax)
+                            }
                         }
                     } catch (e: Throwable) {
                         logger.error("Error getting last block or updating pooltool!", e)

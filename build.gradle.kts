@@ -1,15 +1,17 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 
 plugins {
-	id("org.springframework.boot") version "2.2.2.RELEASE"
+	id("org.springframework.boot") version "2.2.3.RELEASE"
 	id("io.spring.dependency-management") version "1.0.8.RELEASE"
+	id("com.github.ben-manes.versions") version "0.27.0"
 	kotlin("jvm") version "1.3.61"
 	kotlin("kapt") version "1.3.61"
 	kotlin("plugin.spring") version "1.3.61"
 }
 
 group = "com.swiftmako"
-version = "0.0.7-SNAPSHOT"
+version = "0.0.8-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -20,7 +22,7 @@ dependencies {
 	kapt("com.squareup.moshi:moshi-kotlin-codegen:1.9.2")
 
 	implementation("org.springframework.boot:spring-boot-starter-web")
-	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+	implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.10.2")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.3")
@@ -32,6 +34,36 @@ dependencies {
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test") {
 		exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
+	}
+}
+
+fun isNonStable(version: String): Boolean {
+	val stableKeyword = listOf("RELEASE", "FINAL", "GA").any { version.toUpperCase().contains(it) }
+	val regex = "^[0-9,.v-]+(-r)?$".toRegex()
+	val isStable = stableKeyword || regex.matches(version)
+	return isStable.not()
+}
+
+tasks.withType<DependencyUpdatesTask> {
+	// Example 1: reject all non stable versions
+	rejectVersionIf {
+		isNonStable(candidate.version)
+	}
+
+	// Example 2: disallow release candidates as upgradable versions from stable versions
+	rejectVersionIf {
+		isNonStable(candidate.version) && !isNonStable(currentVersion)
+	}
+
+	// Example 3: using the full syntax
+	resolutionStrategy {
+		componentSelection {
+			all {
+				if (isNonStable(candidate.version) && !isNonStable(currentVersion)) {
+					reject("Release candidate")
+				}
+			}
+		}
 	}
 }
 
