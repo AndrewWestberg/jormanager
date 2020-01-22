@@ -45,6 +45,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.0.9-SNAPSHOT - Add systemd and rsyslog config scripts.
+
 0.0.8-SNAPSHOT - Include pooltool max when calculating fallen-behind nodes
 
 0.0.7-SNAPSHOT - UFW firewall support.

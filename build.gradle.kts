@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.0.8-SNAPSHOT"
+version = "0.0.9-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -75,5 +75,11 @@ tasks.withType<KotlinCompile> {
 	kotlinOptions {
 		freeCompilerArgs = listOf("-Xjsr305=strict")
 		jvmTarget = "1.8"
+	}
+}
+
+tasks {
+	bootJar {
+		launchScript()
 	}
 }

@@ -312,7 +312,7 @@ class JormanagerController @Autowired constructor(
                                         }
 
                                         latestStats[processNumber] = stats.copy(numberOfPeers = numberOfPeers)
-                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash}, peers: ${numberOfPeers}, uptime: ${stats.uptime}, fw: $fw")
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, fw: $fw")
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->
