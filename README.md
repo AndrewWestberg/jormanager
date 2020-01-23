@@ -15,7 +15,7 @@ The health calculation is determined by:
 
 ## Setup
 
-1. Download and extract `JorManager-#.#.#-SNAPSHOT.tar.bz2` to a folder of your choosing.
+1. Download and extract `JorManager-#.#.#-SNAPSHOT.tar.bz2` to a folder of your choosing. Rename `jormanager-#.#.#-SNAPSHOT.jar` to simply `jormanager.jar` and copy over any previous version.
 2. Create your config.yaml files. The default uses 10 nodes, so for this setup, create `itn_rewards_v1-config00.yaml` up to `itn_rewards_v1-config09.yaml`
 3. Edit your config.yaml files. Ensure to update the following:
     * Each node should use a different storage folder. `mkdir` these storage folders that you specify here. The software will not create them for you.
@@ -24,13 +24,53 @@ The health calculation is determined by:
     * If you already have a storage folder from a previous node, copy the contents of it to each and every storage file of the new setup. This will greatly improve your initial bootstrap time and you won't have to download the entire blockchain 10 times.
     * Edit the port numbers for both the node itself and the REST port. The nodes won't work right if there are port conflicts.
     * _Important!_ Don't forget to modify your firewall to allow these new ports from the outside.
-4. Edit `application.properties` for your own stakepool and https://pooltool.io information.
+4. Edit `application.properties` for your own stakepool and https://pooltool.io information. As you upgrade to new versions of JorManager, there is a new `application.properties` file embedded inside the .jar. Any property not overridden by your external `application.properties` file will use the defaults from inside the .jar.
 
 ## Running
 
-```
-$ java -jar JorManager-#.#.#-SNAPSHOT.jar
-```
+    $ java -jar jormanager.jar
+
+or
+
+    $ ./jormanager.jar
+
+## systemd setup
+
+It can be useful to set up jormanager to run automatically from a systemd script.
+
+1. Extract `/etc/systemd/system/jormanager.service` from the archive and place it in `/etc/systemd/system/`
+
+        $ sudo cp [extract_location]/etc/systemd/system/jormanager.service /etc/systemd/system/jormanager.service
+
+2. Edit `jormanager.service` modifying `User`, `WorkingDirectory`, and `ExecStart` to point to where you've extracted or plan to run JorManager. The `WorkingDirectory` should point to where you've customized your `application.properties` file.
+
+        $ sudo [vim/nano/etc...] /etc/systemd/system/jormanager.service
+
+3. Extract `/etc/rsyslog.d/jormanager.conf` from the archive and place it in `/etc/rsyslog.d/`. This file will redirect syslog messages from jormanager into `/var/log/jormanager.log`. Edit this file after copying if you need a different location for the log file.
+
+        $ sudo cp [extract_location]/etc/rsyslog.d/jormanager.conf /etc/rsyslog.d/jormanager.conf 
+       
+4. Create the log file with the correct ownership so it can be written to
+
+        $ sudo touch /var/log/jormanager.log
+        $ sudo chown syslog:adm /var/log/jormanager.log
+
+5. Reload management services to pull in the changes we've made.
+
+        $ sudo systemctl daemon-reload
+        $ sudo systemctl restart rsyslog
+       
+6. Start jormanager via systemctl.
+
+        $ sudo systemctl start jormanager.service
+       
+7. Watch the logs to monitor jormanager's operation.
+
+        $ tail -f /var/log/jormanager.log | sed 's/^.*\]: //g; s#WARN.*$#\x1b[33m&\x1b[0m#; s#ERROR.*$#\x1b[31m&\x1b[0m#; s#INFO#\x1b[32m&\x1b[0m#'
+
+8. Optionally set up jormanager to start on system boot
+
+        $ sudo systemctl enable jormanager.service       
 
 ## Support
 
