@@ -1,5 +1,4 @@
 ---
-storage: /home/{username_here}/cardano/storage4
 log:
 - format: plain
   level: warn

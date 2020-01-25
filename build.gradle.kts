@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.0.9-SNAPSHOT"
+version = "0.1.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {

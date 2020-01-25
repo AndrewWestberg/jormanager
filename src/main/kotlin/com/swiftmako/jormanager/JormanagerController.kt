@@ -37,7 +37,10 @@ import retrofit2.HttpException
 import retrofit2.Retrofit
 import java.io.File
 import java.lang.reflect.Field
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.SocketTimeoutException
+import java.nio.charset.Charset
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -139,7 +142,7 @@ class JormanagerController @Autowired constructor(
         })
     }
 
-    private fun launchJormungandrProcess(processNumber: Int): Process {
+    private suspend fun launchJormungandrProcess(processNumber: Int): Process {
         val pid = "$processNumber".padStart(2, '0')
         val log = File(jormungandrLogPath.replace("{pid}", pid))
 
@@ -155,9 +158,57 @@ class JormanagerController @Autowired constructor(
 //            logger.info("COPIED DB to storage for Process$processNumber")
 //        }
 
+        // Fix the config.yaml file so that only reachable peers are uncommented
+        val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
+        val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
+        val idRegex = Regex("^\\s*#?\\s*id:\\s*\"(.*)\".*\$")
+        val configYamlPath = jormungandrConfigPath.replace("{pid}", pid)
+
+        val yamlBuilder = StringBuilder()
+        var uncommentIdLine = false
+        var commentIdLine = false
+        File(configYamlPath).forEachLine { line ->
+            if(uncommentIdLine) {
+                idRegex.matchEntire(line)?.let { matchResult ->
+                    val idString = matchResult.groupValues[1]
+                    yamlBuilder.append("    id: \"$idString\"")
+                } ?: logger.error("line wasn't an id line!!")
+                yamlBuilder.append('\n')
+                uncommentIdLine = false
+                return@forEachLine
+            }
+
+            if(commentIdLine) {
+                idRegex.matchEntire(line)?.let { matchResult ->
+                    val idString = matchResult.groupValues[1]
+                    yamlBuilder.append("  #   id: \"$idString\"")
+                } ?: logger.error("line wasn't an id line!!")
+                yamlBuilder.append('\n')
+                commentIdLine = false
+                return@forEachLine
+            }
+
+            val matchResult = commentedAddressRegex.matchEntire(line) ?: uncommentedAddressRegex.matchEntire(line)
+            matchResult?.let { match->
+                val ipAddress = match.groupValues[1]
+                val port = match.groupValues[2].toInt()
+                if (isNodeReachable(ipAddress, port)) {
+                    yamlBuilder.append("  - address: \"/ip4/$ipAddress/tcp/$port\"")
+                    uncommentIdLine = true
+                } else {
+                    yamlBuilder.append("  # - address: \"/ip4/$ipAddress/tcp/$port\"")
+                    commentIdLine = true
+                }
+            } ?: yamlBuilder.append(line)
+
+            yamlBuilder.append('\n')
+        }
+
+        Okio.buffer(Okio.sink(File(configYamlPath))).use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
+
         return ProcessBuilder(
                 jormungandrProcessPath.replace("{pid}", pid),
-                "--config", jormungandrConfigPath.replace("{pid}", pid),
+                "--config", configYamlPath,
                 "--storage", jormungandrStoragePath.replace("{pid}", pid),
                 "--genesis-block-hash", jormungandrGenesisHash,
                 "--secret", jormungandrSecretPath
@@ -266,6 +317,7 @@ class JormanagerController @Autowired constructor(
 
             // Do leader election process
             mutex.withLock {
+                logger.info("STARTING Leader Election.")
                 serviceCalls.clear()
                 leaderLogs.clear()
                 services.forEach { entry ->
@@ -450,9 +502,6 @@ class JormanagerController @Autowired constructor(
                                     lastPoolId = lastPoolId
                             )
                             logger.info("$pooltoolResult")
-                            pooltoolResult.pooltoolmax?.let { ptMax ->
-                                maxBlockHeight = maxOf(maxBlockHeight, ptMax)
-                            }
                         }
                     } catch (e: Throwable) {
                         logger.error("Error getting last block or updating pooltool!", e)
@@ -855,6 +904,19 @@ class JormanagerController @Autowired constructor(
                 logger.error("establishedSocketsByProcessId ERROR!", e)
                 continuation.resumeWithException(e)
             }
+        }
+    }
+
+    private fun isNodeReachable(ipAddress: String, port: Int, timeoutMs: Int = 500): Boolean {
+        try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ipAddress, port), timeoutMs)
+                logger.info("Pinging $ipAddress:$port: SUCCESS!")
+                return true
+            }
+        } catch (e: Throwable) {
+            logger.warn("Pinging $ipAddress:$port: FAILURE!")
+            return false
         }
     }
 
