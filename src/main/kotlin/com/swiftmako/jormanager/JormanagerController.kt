@@ -84,6 +84,7 @@ class JormanagerController @Autowired constructor(
 
     private val mutex = Mutex()
     private val leaderLogMutex = Mutex()
+    private val firewallMutex = Mutex()
 
     var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
@@ -168,7 +169,7 @@ class JormanagerController @Autowired constructor(
         var uncommentIdLine = false
         var commentIdLine = false
         File(configYamlPath).forEachLine { line ->
-            if(uncommentIdLine) {
+            if (uncommentIdLine) {
                 idRegex.matchEntire(line)?.let { matchResult ->
                     val idString = matchResult.groupValues[1]
                     yamlBuilder.append("    id: \"$idString\"")
@@ -178,7 +179,7 @@ class JormanagerController @Autowired constructor(
                 return@forEachLine
             }
 
-            if(commentIdLine) {
+            if (commentIdLine) {
                 idRegex.matchEntire(line)?.let { matchResult ->
                     val idString = matchResult.groupValues[1]
                     yamlBuilder.append("  #   id: \"$idString\"")
@@ -189,7 +190,7 @@ class JormanagerController @Autowired constructor(
             }
 
             val matchResult = commentedAddressRegex.matchEntire(line) ?: uncommentedAddressRegex.matchEntire(line)
-            matchResult?.let { match->
+            matchResult?.let { match ->
                 val ipAddress = match.groupValues[1]
                 val port = match.groupValues[2].toInt()
                 if (isNodeReachable(ipAddress, port)) {
@@ -346,12 +347,16 @@ class JormanagerController @Autowired constructor(
                                         val fw = if (jormanagerUfwEnabled) {
                                             if (numberOfPeers <= jormanagerUfwLowerLimit && processes[processNumber]?.firewallOpen == false) {
                                                 // We dropped below number lower limit of connections we'd like to have. Open the firewall
-                                                val firewallOpen = openFirewall(processNumber)
-                                                processes[processNumber]?.firewallOpen = firewallOpen
+                                                firewallMutex.withLock {
+                                                    val firewallOpen = openFirewall(processNumber)
+                                                    processes[processNumber]?.firewallOpen = firewallOpen
+                                                }
                                             } else if (numberOfPeers >= jormanagerUfwUpperLimit && processes[processNumber]?.firewallOpen == true) {
                                                 // We have enough connections. Close the firewall
-                                                val firewallClosed = closeFirewall(processNumber)
-                                                processes[processNumber]?.firewallOpen = !firewallClosed
+                                                firewallMutex.withLock {
+                                                    val firewallClosed = closeFirewall(processNumber)
+                                                    processes[processNumber]?.firewallOpen = !firewallClosed
+                                                }
                                             }
 
                                             if (processes[processNumber]?.firewallOpen == true) {
@@ -611,6 +616,7 @@ class JormanagerController @Autowired constructor(
                         // wait until 1.75 seconds after epoch cutover and make all leaders passive
                         val justAfterEpoch = nextEpochTime.millis - System.currentTimeMillis() + 1750
                         if (justAfterEpoch > 0) {
+                            logger.info("DELAY for ${justAfterEpoch}ms")
                             delay(justAfterEpoch)
                         }
                         val leaderDemotions = mutableListOf<Deferred<Any?>>()
@@ -874,7 +880,7 @@ class JormanagerController @Autowired constructor(
                         continuation.resume(false)
                     }
                 } catch (e: Throwable) {
-                    logger.error("openFirewall ERROR!", e)
+                    logger.error("closeFirewall ERROR!", e)
                     continuation.resumeWithException(e)
                 }
             }
@@ -908,6 +914,9 @@ class JormanagerController @Autowired constructor(
     }
 
     private fun isNodeReachable(ipAddress: String, port: Int, timeoutMs: Int = 500): Boolean {
+        if(ipAddress == "127.0.0.1") {
+            return true
+        }
         try {
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(ipAddress, port), timeoutMs)
