@@ -85,6 +85,12 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.2-SNAPSHOT - Use ss for peers counts, bug fixes 
+
+0.1.1-SNAPSHOT - Passive node support
+
+0.1.0-SNAPSHOT - Web security stub, ping peers before bootstrap, simultaneous firewall update fix
+
 0.0.9-SNAPSHOT - Add systemd and rsyslog config scripts.
 
 0.0.8-SNAPSHOT - Include pooltool max when calculating fallen-behind nodes
