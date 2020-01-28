@@ -18,18 +18,6 @@ class JormanagerConfiguration {
 
     @Bean
     @Scope("singleton")
-    fun getProcessStartQueue(@Value("\${jormanager.nodecount}") nodecount: Int): Channel<Int> {
-        val processStartQueue = Channel<Int>(nodecount)
-        runBlocking {
-            for (processNumber in 0 until nodecount) {
-                processStartQueue.send(processNumber)
-            }
-        }
-        return processStartQueue
-    }
-
-    @Bean
-    @Scope("singleton")
     fun getOkHttpClient() = OkHttpClient.Builder()
             /*
             .addInterceptor(HttpLoggingInterceptor {
