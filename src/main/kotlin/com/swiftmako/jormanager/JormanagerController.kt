@@ -25,7 +25,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okio.Okio
+import okio.buffer
+import okio.sink
+import okio.source
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormat
@@ -208,7 +210,7 @@ class JormanagerController @Autowired constructor(
             yamlBuilder.append('\n')
         }
 
-        Okio.buffer(Okio.sink(File(configYamlPath))).use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
+        File(configYamlPath).sink().buffer().use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
 
         val processParams = mutableListOf(
                 jormungandrProcessPath.replace("{pid}", pid),
@@ -510,7 +512,7 @@ class JormanagerController @Autowired constructor(
                     val stats = entry.value
 
                     if (shouldPromoteNewLeader) {
-                        Okio.buffer(Okio.source(File(jormungandrSecretJsonPath)))?.use { source ->
+                        File(jormungandrSecretJsonPath).source().buffer().use { source ->
                             moshi.adapter(LeaderInfo::class.java)
                                     .fromJson(source)?.let { leaderInfo ->
                                         try {
@@ -519,6 +521,7 @@ class JormanagerController @Autowired constructor(
                                             logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
                                         } catch (e: Throwable) {
                                             logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
+                                            shutdownProcess(processNumber)
                                             if (oldLeaderProcessNumber > -1) {
                                                 // re-promote last leader
                                                 try {
@@ -528,6 +531,7 @@ class JormanagerController @Autowired constructor(
                                                     logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
                                                 } catch (ex: Throwable) {
                                                     logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
+                                                    shutdownProcess(oldLeaderProcessNumber)
                                                 }
                                             }
                                         }
@@ -535,44 +539,48 @@ class JormanagerController @Autowired constructor(
                         }
                     }
 
-                    logger.info("CURRENT LEADER: Process${leaderProcessNumber}")
+                    if (leaderProcessNumber > -1) {
+                        logger.info("CURRENT LEADER: Process${leaderProcessNumber}")
 
-                    latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
+                        latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
 
-                    // Update pooltool with our info
-                    try {
-                        val responseBody = try {
-                            services[processNumber]?.getBlock(stats.lastBlockHash!!)
-                        } catch (e: HttpException) {
-                            if (e.code() == 404) {
-                                null
-                            } else {
-                                throw e
+                        // Update pooltool with our info
+                        try {
+                            val responseBody = try {
+                                services[processNumber]?.getBlock(stats.lastBlockHash!!)
+                            } catch (e: HttpException) {
+                                if (e.code() == 404) {
+                                    null
+                                } else {
+                                    throw e
+                                }
                             }
-                        }
-                        responseBody?.bytes()?.let { responseBytes ->
-                            val blockString = responseBytes.toHex()
-                            val lastPoolId = blockString.substring(168, 232)
+                            responseBody?.bytes()?.let { responseBytes ->
+                                val blockString = responseBytes.toHex()
+                                val lastPoolId = blockString.substring(168, 232)
 
-                            pooltoolResult = pooltool.shareMyTip(
-                                    poolId = pooltoolPoolId,
-                                    userId = pooltoolUserId,
-                                    genesisPref = pooltoolGenesisPref,
-                                    lastBlockHeight = stats.lastBlockHeight!!,
-                                    lastBlockHash = stats.lastBlockHash!!,
-                                    lastPoolId = lastPoolId
-                            )
-                            logger.info("$pooltoolResult")
+                                pooltoolResult = pooltool.shareMyTip(
+                                        poolId = pooltoolPoolId,
+                                        userId = pooltoolUserId,
+                                        genesisPref = pooltoolGenesisPref,
+                                        lastBlockHeight = stats.lastBlockHeight!!,
+                                        lastBlockHash = stats.lastBlockHash!!,
+                                        lastPoolId = lastPoolId
+                                )
+                                logger.info("$pooltoolResult")
+                            }
+                        } catch (e: Throwable) {
+                            logger.error("Error getting last block or updating pooltool!", e)
                         }
-                    } catch (e: Throwable) {
-                        logger.error("Error getting last block or updating pooltool!", e)
+                    } else {
+                        logger.error("NO CURRENT LEADER Process!")
                     }
                 }
 
                 // log our status info
-                val adapter = moshi.adapter(OutputStats::class.java)
-                Okio.buffer(Okio.sink(File(statsLogPath))).use {
-                    adapter.toJson(it, OutputStats(pooltoolResult, latestStats))
+                val adapter = moshi.adapter(OutputStats::class.java).indent("  ")
+                File(statsLogPath).sink().buffer().use { sink ->
+                    adapter.toJson(sink, OutputStats(pooltoolResult, latestStats))
                 }
             }
         }
@@ -644,7 +652,7 @@ class JormanagerController @Autowired constructor(
                             delay(justBeforeEpoch)
                         }
                         val leaderPromotions = mutableListOf<Deferred<Any?>>()
-                        val leaderInfo = Okio.buffer(Okio.source(File(jormungandrSecretJsonPath)))?.use { source ->
+                        val leaderInfo = File(jormungandrSecretJsonPath).source().buffer().use { source ->
                             moshi.adapter(LeaderInfo::class.java).fromJson(source)
                         }
                         leaderInfo?.let { li ->
@@ -743,7 +751,7 @@ class JormanagerController @Autowired constructor(
             val time = measureTimeMillis {
                 val jsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
                 val leaderLogHistory = mutableListOf<LeaderBlock>()
-                Okio.buffer(Okio.source(File(blockLogPath)))?.use { source ->
+                File(blockLogPath).source().buffer().use { source ->
                     jsonAdapter.fromJson(source)?.let { leaderLog ->
                         leaderLogHistory.addAll(leaderLog)
                     } ?: logger.error("Unable to parse leader json file!!")
@@ -871,7 +879,7 @@ class JormanagerController @Autowired constructor(
                 }
 
                 // overwrite the historical log
-                Okio.buffer(Okio.sink(File(blockLogPath)))?.use { sink ->
+                File(blockLogPath).sink().buffer().use { sink ->
                     jsonAdapter.toJson(sink, leaderLogHistory)
                 }
             }
@@ -949,8 +957,8 @@ class JormanagerController @Autowired constructor(
         return suspendCancellableCoroutine { continuation ->
             try {
                 val process = ProcessBuilder(
-                        "/bin/sh", "-c", "ss -O -n -p -4 state synchronized | grep pid=$pid | wc -l"
-                ).start()
+                        "/bin/sh", "-c", "ss -n -p -4 state synchronized | grep pid=$pid | wc -l"
+                ).redirectErrorStream(true).start()
 
                 continuation.invokeOnCancellation {
                     try {
@@ -960,8 +968,10 @@ class JormanagerController @Autowired constructor(
                     }
                 }
 
-                val establishedSockets = Okio.buffer(Okio.source(process.inputStream)).use { source ->
-                    source.readUtf8().replace('"', ' ').trim()
+                val establishedSockets = process.inputStream.source().buffer().use { source ->
+                    val outputValue = source.readUtf8()
+                    logger.debug("establishedSocketsByProcessId output: '$outputValue'")
+                    outputValue.replace('"', ' ').trim()
                 }.toInt()
                 continuation.resume(establishedSockets)
             } catch (e: Throwable) {

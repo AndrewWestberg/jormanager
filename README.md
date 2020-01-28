@@ -85,6 +85,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.3-SNAPSHOT - Fix release for ss on some platforms not supporting the `-O --oneline` option.
+
 0.1.2-SNAPSHOT - Use ss for peers counts, bug fixes 
 
 0.1.1-SNAPSHOT - Passive node support

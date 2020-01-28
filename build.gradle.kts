@@ -2,8 +2,8 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.2.3.RELEASE"
-    id("io.spring.dependency-management") version "1.0.8.RELEASE"
+    id("org.springframework.boot") version "2.2.4.RELEASE"
+    id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.github.ben-manes.versions") version "0.27.0"
     kotlin("jvm") version "1.3.61"
     kotlin("kapt") version "1.3.61"
@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.1.2-SNAPSHOT"
+version = "0.1.3-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -33,7 +33,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.3.3")
     implementation("com.squareup.moshi:moshi-kotlin:1.9.2")
     implementation("com.squareup.retrofit2:converter-moshi:2.7.1")
-    implementation("com.squareup.okhttp3:logging-interceptor:3.14.4")
+    implementation("com.squareup.okhttp3:okhttp:4.3.1")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.3.1")
     implementation("joda-time:joda-time:2.10.5")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
