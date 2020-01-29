@@ -13,6 +13,10 @@ interface PooltoolService {
             @Query("genesispref") genesisPref: String,
             @Query("mytip") lastBlockHeight: String,
             @Query("lasthash") lastBlockHash: String,
-            @Query("lastpool") lastPoolId: String
-    ) : PooltoolResult
+            @Query("lastpool") lastPoolId: String,
+            @Query("lastparent") lastParent: String,
+            @Query("lastslot") lastSlot: String,
+            @Query("lastepoch") lastEpoch: String,
+            @Query("jormver") jormVersion: String?
+    ): PooltoolResult
 }

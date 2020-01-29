@@ -1,2 +1,2 @@
 #!/bin/bash
-tar -cjvf JorManager-0.1.3-SNAPSHOT.tar.bz2 -C /home/westbam/Development/jormanager/build/libs/ jormanager-0.1.3-SNAPSHOT.jar -C /home/westbam/Development/jormanager/ itn_rewards_v1-config04.yaml -C /home/westbam/Development/jormanager/src/main/resources application.properties /etc/systemd/system/jormanager.service /etc/rsyslog.d/jormanager.conf
+tar -cjvf JorManager-0.1.4-SNAPSHOT.tar.bz2 -C /home/westbam/Development/jormanager/build/libs/ jormanager-0.1.4-SNAPSHOT.jar -C /home/westbam/Development/jormanager/ itn_rewards_v1-config04.yaml -C /home/westbam/Development/jormanager/src/main/resources application.properties /etc/systemd/system/jormanager.service /etc/rsyslog.d/jormanager.conf

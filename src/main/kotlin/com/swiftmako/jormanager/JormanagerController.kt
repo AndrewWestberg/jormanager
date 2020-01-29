@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,17 +34,18 @@ import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormat
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationContext
+import org.springframework.context.ApplicationContextAware
 import org.springframework.web.bind.annotation.RestController
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import java.io.File
 import java.lang.reflect.Field
+import java.lang.reflect.Method
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.nio.charset.Charset
-import java.util.Collections
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
@@ -53,85 +55,125 @@ import kotlin.system.measureTimeMillis
 
 @RestController
 class JormanagerController @Autowired constructor(
-        private val processStartQueue: Channel<Int>,
         private val retrofitBuilder: Retrofit.Builder,
         private val moshi: Moshi,
-        private val pooltool: PooltoolService,
-        @Value("\${jormanager.leader_election_delay_ms}") private val leaderElectionDelayMs: Long,
-        @Value("\${jormanager.max_blocks_behind}") private val maxBlocksBehind: Int,
-        @Value("\${jormanager.node_probation_secs}") private val nodeProbationSecs: Long,
-        @Value("\${jormanager.max_bootstrap_ms}") private val maxBootstrapMs: Long,
-        @Value("\${jormanager.node_stagger_ms}") private val nodeStaggerMs: Long,
-        @Value("\${jormanager.pooltool.poolId}") private val pooltoolPoolId: String,
-        @Value("\${jormanager.pooltool.userId}") private val pooltoolUserId: String,
-        @Value("\${jormanager.pooltool.genesisPref}") private val pooltoolGenesisPref: String,
-        @Value("\${jormanager.block_log}") private val blockLogPath: String,
-        @Value("\${jormanager.stats_log}") private val statsLogPath: String,
-        @Value("\${jormanager.jormungandr.rest_api_url}") private val restApiUrlPattern: String,
-        @Value("\${jormanager.jormungandr.log_location}") private val jormungandrLogPath: String,
-        @Value("\${jormanager.jormungandr.process}") private val jormungandrProcessPath: String,
-        @Value("\${jormanager.jormungandr.storage}") private val jormungandrStoragePath: String,
-        @Value("\${jormanager.jormungandr.config}") private val jormungandrConfigPath: String,
-        @Value("\${jormanager.jormungandr.genesis}") private val jormungandrGenesisHash: String,
-        @Value("\${jormanager.jormungandr.secret}") private val jormungandrSecretPath: String,
-        @Value("\${jormanager.jormungandr.secret_json}") private val jormungandrSecretJsonPath: String,
-        @Value("\${jormanager.ufw.enabled}") private val jormanagerUfwEnabled: Boolean,
-        @Value("\${jormanager.ufw.lower_limit}") private val jormanagerUfwLowerLimit: Int,
-        @Value("\${jormanager.ufw.upper_limit}") private val jormanagerUfwUpperLimit: Int,
-        @Value("\${jormanager.ufw.allow}") private val jormanagerUfwAllowCmd: String,
-        @Value("\${jormanager.ufw.deny}") private val jormanagerUfwDenyCmd: String,
-        @Value("\${jormanager.node.passive}") private val passiveNodeList: List<Boolean>,
-        @Value("\${jormanager.lightweight.peercount}") private val useLightweightPeerCount: Boolean
-) : CoroutineScope {
+        private val pooltool: PooltoolService
+) : CoroutineScope, ApplicationContextAware {
     private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
     override val coroutineContext: CoroutineContext = Dispatchers.IO
 
+    private lateinit var applicationContext: ApplicationContext
+    private lateinit var config: JormanagerConfig
+
+    private val processStartQueue = Channel<Int>(Channel.UNLIMITED)
     private val mutex = Mutex()
     private val leaderLogMutex = Mutex()
     private val firewallMutex = Mutex()
+    private val configMutex = Mutex()
 
     var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
     var nextBlockTime: DateTime? = null
     var nextEpochTime: DateTime? = null
 
-    private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
-    private val processes = Collections.synchronizedMap(mutableMapOf<Int, JormungandrProcess>())
-    private val services = Collections.synchronizedMap(mutableMapOf<Int, JormungandrService>())
-    private val bootstrapJobs = Collections.synchronizedMap(mutableMapOf<Int, Job>())
+    private val latestStats = mutableMapOf<Int, Stats>()
+    private val processes = mutableMapOf<Int, JormungandrProcess>()
+    private val services = mutableMapOf<Int, JormungandrService>()
+    private val bootstrapJobs = mutableMapOf<Int, Job>()
 
+    override fun setApplicationContext(applicationContext: ApplicationContext) {
+        this.applicationContext = applicationContext
+        runBlocking {
+            refreshConfig()
+        }
 
-    init {
         manageProcessStartup()
         manageLeaderElection()
         manageProcessShutdown()
     }
 
+    private suspend fun refreshConfig() {
+        configMutex.withLock {
+            if (::config.isInitialized) {
+                val newConfig = applicationContext.getBean(JormanagerConfig::class.java)
+                if (newConfig != config) {
+                    logger.warn("Configuration Updated!")
+                    when {
+                        newConfig.nodeCount > config.nodeCount -> {
+                            logger.warn("jormanager.nodecount: ${config.nodeCount} -> ${newConfig.nodeCount}")
+                            val delta = newConfig.nodeCount - config.nodeCount
+                            config = newConfig // need to set this early so the new node will actually spin up
+                            for (processNumber in 0 until delta) {
+                                processStartQueue.send(newConfig.nodeCount + processNumber - 1)
+                            }
+                        }
+                        newConfig.nodeCount < config.nodeCount -> {
+                            logger.warn("jormanager.nodecount: ${config.nodeCount} -> ${newConfig.nodeCount}")
+                            val delta = config.nodeCount - newConfig.nodeCount
+                            for (processNumber in 0 until delta) {
+                                shutdownProcess(newConfig.nodeCount + processNumber, false)
+                            }
+                        }
+                        newConfig.passiveNodeList != config.passiveNodeList -> {
+                            for (i in newConfig.passiveNodeList.indices) {
+                                val newPassiveFlag = newConfig.passiveNodeList.getOrNull(i)
+                                val oldPassiveFlag = config.passiveNodeList.getOrNull(i)
+                                if (newPassiveFlag != null && oldPassiveFlag != null && newPassiveFlag != oldPassiveFlag && i < config.nodeCount) {
+                                    // restart this process
+                                    logger.warn("RESTART Process$i as ${if (newPassiveFlag) "PASSIVE" else "LEADER"}")
+                                    shutdownProcess(i)
+                                }
+                            }
+                        }
+                        else -> {
+                        }
+                    }
+
+                    config = newConfig
+                }
+            } else {
+                config = applicationContext.getBean(JormanagerConfig::class.java)
+            }
+        }
+    }
+
+
     /**
      * Launch a new Jormungandr process from our queue once every {nodeStaggerMs} seconds
      */
     private fun manageProcessStartup() = launch {
+
+        // populate initial set of processes
+        for (processNumber in 0 until config.nodeCount) {
+            processStartQueue.send(processNumber)
+        }
+
         for (processNumber in processStartQueue) {
             delay(1000)
             mutex.withLock {
-                if (processes[processNumber] == null) {
-                    logger.info("Starting Process${processNumber}...")
-                    val firewallOpen = openFirewall(processNumber)
-                    processes[processNumber] = JormungandrProcess(
-                            startedAt = System.currentTimeMillis(),
-                            process = launchJormungandrProcess(processNumber, passiveNodeList[processNumber]),
-                            firewallOpen = firewallOpen,
-                            isPassive = passiveNodeList[processNumber]
-                    )
-                    services[processNumber] = retrofitBuilder
-                            .baseUrl(restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
-                            .build()
-                            .create(JormungandrService::class.java)
-                    logger.info("Active Jormungandr processes: ${processes.size}")
-                    bootstrapJobs[processNumber] = manageBootstrap(processNumber)
+                refreshConfig()
+                if (processNumber < config.nodeCount) {
+                    if (processes[processNumber] == null) {
+                        logger.info("Starting Process${processNumber}...")
+                        val firewallOpen = openFirewall(processNumber)
+                        processes[processNumber] = JormungandrProcess(
+                                startedAt = System.currentTimeMillis(),
+                                process = launchJormungandrProcess(processNumber, config.passiveNodeList[processNumber]),
+                                firewallOpen = firewallOpen,
+                                isPassive = config.passiveNodeList[processNumber]
+                        )
+                        services[processNumber] = retrofitBuilder
+                                .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                .build()
+                                .create(JormungandrService::class.java)
+                        logger.info("Active Jormungandr processes: ${processes.size}")
+                        bootstrapJobs[processNumber] = manageBootstrap(processNumber)
+                    }
+                } else {
+                    logger.warn("Tried to start process$processNumber, but jormungandr.nodecount = ${config.nodeCount}")
                 }
             }
-            delay(nodeStaggerMs - 1000)
+            delay(config.nodeStaggerMs - 1000)
         }
     }
 
@@ -150,25 +192,13 @@ class JormanagerController @Autowired constructor(
 
     private suspend fun launchJormungandrProcess(processNumber: Int, isPassive: Boolean): Process {
         val pid = "$processNumber".padStart(2, '0')
-        val log = File(jormungandrLogPath.replace("{pid}", pid))
-
-//        if (leaderProcessNumber > -1) {
-//            // rsync the blocks db from the leader to improve bootstrap time for this new node
-//            val leaderPid = "$leaderProcessNumber".padStart(2, '0')
-//            ProcessBuilder(
-//                    "rsync",
-//                    "-a",
-//                    "${jormungandrStoragePath.replace("{pid}", leaderPid)}/",
-//                    "${jormungandrStoragePath.replace("{pid}", pid)}/"
-//            ).start().waitFor(5, TimeUnit.SECONDS)
-//            logger.info("COPIED DB to storage for Process$processNumber")
-//        }
+        val log = File(config.jormungandrLogPath.replace("{pid}", pid))
 
         // Fix the config.yaml file so that only reachable peers are uncommented
         val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val idRegex = Regex("^\\s*#?\\s*id:\\s*\"(.*)\".*\$")
-        val configYamlPath = jormungandrConfigPath.replace("{pid}", pid)
+        val configYamlPath = config.jormungandrConfigPath.replace("{pid}", pid)
 
         val yamlBuilder = StringBuilder()
         var uncommentIdLine = false
@@ -213,15 +243,15 @@ class JormanagerController @Autowired constructor(
         File(configYamlPath).sink().buffer().use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
 
         val processParams = mutableListOf(
-                jormungandrProcessPath.replace("{pid}", pid),
+                config.jormungandrProcessPath.replace("{pid}", pid),
                 "--config", configYamlPath,
-                "--storage", jormungandrStoragePath.replace("{pid}", pid),
-                "--genesis-block-hash", jormungandrGenesisHash
+                "--storage", config.jormungandrStoragePath.replace("{pid}", pid),
+                "--genesis-block-hash", config.jormungandrGenesisHash
         )
 
         if (!isPassive) {
             processParams.add("--secret")
-            processParams.add(jormungandrSecretPath)
+            processParams.add(config.jormungandrSecretPath)
         }
 
         return ProcessBuilder(
@@ -266,7 +296,7 @@ class JormanagerController @Autowired constructor(
                         return@launch
                     }
 
-                    if (System.currentTimeMillis() - process.startedAt > maxBootstrapMs) {
+                    if (System.currentTimeMillis() - process.startedAt > config.maxBootstrapMs) {
                         // Stale bootstrap. restart it.
                         logger.error("STALE BOOTSTRAP: Will restart Process${processNumber}")
                         shutdownProcess(processNumber)
@@ -277,7 +307,7 @@ class JormanagerController @Autowired constructor(
         }
     }
 
-    private suspend fun shutdownProcess(processNumber: Int) {
+    private suspend fun shutdownProcess(processNumber: Int, restart: Boolean = true) {
         logger.error("Shutting down Process$processNumber...")
         try {
             services[processNumber]?.shutdown()
@@ -310,7 +340,9 @@ class JormanagerController @Autowired constructor(
             logger.warn("Could not get PID for Process$processNumber shutdown.")
         }
 
-        processStartQueue.send(processNumber)
+        if (restart) {
+            processStartQueue.send(processNumber)
+        }
 
         if (processNumber == leaderProcessNumber) {
             logger.warn("Process${leaderProcessNumber}: Removed as leader")
@@ -329,6 +361,8 @@ class JormanagerController @Autowired constructor(
         val leaderLogs = mutableListOf<List<LeaderBlock>>()
 
         while (true) {
+            refreshConfig()
+
             handleBlockMinting()
             calculateNextEpochCutover()
             handleEpochCutover()
@@ -364,7 +398,7 @@ class JormanagerController @Autowired constructor(
                                             )
                                         }
 
-                                        val numberOfPeers = if (useLightweightPeerCount) {
+                                        val numberOfPeers = if (config.useLightweightPeerCount) {
                                             // Another method to get number of peers by by using sockets from ss
                                             establishedSocketsByProcessId(
                                                     processes[processNumber]?.process?.let {
@@ -380,15 +414,15 @@ class JormanagerController @Autowired constructor(
                                         }
 
                                         // Enable/Disable firewall based on limits
-                                        val fw = if (jormanagerUfwEnabled) {
+                                        val fw = if (config.jormanagerUfwEnabled) {
                                             if (processes[processNumber]?.isPassive == false) {
-                                                if (numberOfPeers <= jormanagerUfwLowerLimit && processes[processNumber]?.firewallOpen == false) {
+                                                if (numberOfPeers <= config.jormanagerUfwLowerLimit && processes[processNumber]?.firewallOpen == false) {
                                                     // We dropped below number lower limit of connections we'd like to have. Open the firewall
                                                     firewallMutex.withLock {
                                                         val firewallOpen = openFirewall(processNumber)
                                                         processes[processNumber]?.firewallOpen = firewallOpen
                                                     }
-                                                } else if (numberOfPeers >= jormanagerUfwUpperLimit && processes[processNumber]?.firewallOpen == true) {
+                                                } else if (numberOfPeers >= config.jormanagerUfwUpperLimit && processes[processNumber]?.firewallOpen == true) {
                                                     // We have enough connections. Close the firewall
                                                     firewallMutex.withLock {
                                                         val firewallClosed = closeFirewall(processNumber)
@@ -414,10 +448,10 @@ class JormanagerController @Autowired constructor(
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->
-                                            if (uptime > nodeProbationSecs) {
+                                            if (uptime > config.nodeProbationSecs) {
                                                 // We've been up long enough. See if we've fallen behind the maxBlockHeight
                                                 stats.lastBlockHeight?.toLong()?.let { lastBlockHeight ->
-                                                    if (maxBlockHeight - lastBlockHeight > maxBlocksBehind) {
+                                                    if (maxBlockHeight - lastBlockHeight > config.maxBlocksBehind) {
                                                         // We're more than the max blocks behind. kill this node.
                                                         logger.error("Process${processNumber}: has fallen behind, restarting...")
                                                         processesToRemove.add(processNumber)
@@ -512,7 +546,7 @@ class JormanagerController @Autowired constructor(
                     val stats = entry.value
 
                     if (shouldPromoteNewLeader) {
-                        File(jormungandrSecretJsonPath).source().buffer().use { source ->
+                        File(config.jormungandrSecretJsonPath).source().buffer().use { source ->
                             moshi.adapter(LeaderInfo::class.java)
                                     .fromJson(source)?.let { leaderInfo ->
                                         try {
@@ -544,33 +578,45 @@ class JormanagerController @Autowired constructor(
 
                         latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
 
-                        // Update pooltool with our info
-                        try {
-                            val responseBody = try {
-                                services[processNumber]?.getBlock(stats.lastBlockHash!!)
-                            } catch (e: HttpException) {
-                                if (e.code() == 404) {
-                                    null
-                                } else {
-                                    throw e
+                        if (config.pooltoolEnabled) {
+                            // Update pooltool with our info
+                            try {
+                                val responseBody = try {
+                                    services[processNumber]?.getBlock(stats.lastBlockHash!!)
+                                } catch (e: HttpException) {
+                                    if (e.code() == 404) {
+                                        null
+                                    } else {
+                                        throw e
+                                    }
                                 }
-                            }
-                            responseBody?.bytes()?.let { responseBytes ->
-                                val blockString = responseBytes.toHex()
-                                val lastPoolId = blockString.substring(168, 232)
+                                responseBody?.bytes()?.let { responseBytes ->
+                                    val blockString = responseBytes.toHex()
+                                    val lastPoolId = blockString.substring(168, 232)
+                                    val lastParent = blockString.substring(104, 168)
+                                    val lastSlot = blockString.substring(24, 32).toLong(16).toString()
+                                    val lastEpoch = blockString.substring(16, 24).toLong(16).toString()
 
-                                pooltoolResult = pooltool.shareMyTip(
-                                        poolId = pooltoolPoolId,
-                                        userId = pooltoolUserId,
-                                        genesisPref = pooltoolGenesisPref,
-                                        lastBlockHeight = stats.lastBlockHeight!!,
-                                        lastBlockHash = stats.lastBlockHash!!,
-                                        lastPoolId = lastPoolId
-                                )
-                                logger.info("$pooltoolResult")
+                                    // if (logger.isDebugEnabled) {
+                                    // logger.debug("Sending Pooltool Data:\n\tpoolId = ${config.pooltoolPoolId}\n\tuserId = ${config.pooltoolUserId}\n\tgenesisPref = ${config.pooltoolGenesisPref}\n\tlastBlockHeight = ${stats.lastBlockHeight!!}\n\tlastBlockHash = ${stats.lastBlockHash!!}\n\tlastPoolId = $lastPoolId\n\tlastParent = $lastParent\n\tlastSlot = $lastSlot\n\tlastEpoch = $lastEpoch\n\tjormVersion = ${if (config.pooltoolJormverEnabled) stats.version else null}")
+                                    // }
+                                    pooltoolResult = pooltool.shareMyTip(
+                                            poolId = config.pooltoolPoolId,
+                                            userId = config.pooltoolUserId,
+                                            genesisPref = config.pooltoolGenesisPref,
+                                            lastBlockHeight = stats.lastBlockHeight!!,
+                                            lastBlockHash = stats.lastBlockHash!!,
+                                            lastPoolId = lastPoolId,
+                                            lastParent = lastParent,
+                                            lastSlot = lastSlot,
+                                            lastEpoch = lastEpoch,
+                                            jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
+                                    )
+                                    logger.info("$pooltoolResult")
+                                }
+                            } catch (e: Throwable) {
+                                logger.error("Error getting last block or updating pooltool!", e)
                             }
-                        } catch (e: Throwable) {
-                            logger.error("Error getting last block or updating pooltool!", e)
                         }
                     } else {
                         logger.error("NO CURRENT LEADER Process!")
@@ -579,7 +625,7 @@ class JormanagerController @Autowired constructor(
 
                 // log our status info
                 val adapter = moshi.adapter(OutputStats::class.java).indent("  ")
-                File(statsLogPath).sink().buffer().use { sink ->
+                File(config.statsLogPath).sink().buffer().use { sink ->
                     adapter.toJson(sink, OutputStats(pooltoolResult, latestStats))
                 }
             }
@@ -623,87 +669,88 @@ class JormanagerController @Autowired constructor(
      * Promote all nodes to leader just before epoch cutover and demote them just afterward. This should ensure all
      * nodes get the leader logs.
      */
-    private suspend fun handleEpochCutover() {
+    private suspend fun handleEpochCutover() = coroutineScope {
         nextEpochTime?.let { nextEpochTime ->
-            coroutineScope {
-                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(nextEpochTime)) {
-                    // lock the mutex so new nodes can't be spun up
-                    mutex.withLock {
-                        logger.warn("EPOCH IS ENDING SOON: Pausing Leader Election changes...")
-                        val fiveSecondsBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 5000
-                        if (fiveSecondsBeforeEpoch > 0) {
-                            delay(fiveSecondsBeforeEpoch)
-                        }
+            if (DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(nextEpochTime)) {
+                // lock the mutex so new nodes can't be spun up
+                mutex.withLock {
+                    logger.warn("EPOCH IS ENDING SOON: Pausing Leader Election changes...")
+                    val fiveSecondsBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 5000
+                    if (fiveSecondsBeforeEpoch > 0) {
+                        delay(fiveSecondsBeforeEpoch)
+                    }
 
-                        // Shutdown any nodes that are still bootstrapping so they don't interfere with epoch cutover
-                        bootstrapJobs.forEach { (processNumber, job) ->
-                            launch {
-                                if (job.isActive && processes[processNumber]?.isPassive == false) {
-                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
-                                    job.cancel()
-                                    shutdownProcess(processNumber)
-                                }
+                    // Shutdown any nodes that are still bootstrapping so they don't interfere with epoch cutover
+                    bootstrapJobs.forEach { (processNumber, job) ->
+                        launch {
+                            if (job.isActive && processes[processNumber]?.isPassive == false) {
+                                logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                                job.cancel()
+                                shutdownProcess(processNumber)
                             }
                         }
+                    }
 
-                        // wait until 1.75 seconds before epoch cutover and make all running nodes into leaders
-                        val justBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 1750
-                        if (justBeforeEpoch > 0) {
-                            delay(justBeforeEpoch)
-                        }
-                        val leaderPromotions = mutableListOf<Deferred<Any?>>()
-                        val leaderInfo = File(jormungandrSecretJsonPath).source().buffer().use { source ->
-                            moshi.adapter(LeaderInfo::class.java).fromJson(source)
-                        }
-                        leaderInfo?.let { li ->
-                            services.forEach { entry ->
-                                val processNumber = entry.key
-                                val service = entry.value
-                                if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
-                                    leaderPromotions.add(
-                                            async {
-                                                try {
-                                                    service.promoteToLeader(li)
-                                                    logger.warn("PROMOTE LEADER: Process${processNumber}")
-                                                } catch (e: Throwable) {
-                                                    logger.error("Unable to promote Process${processNumber} to leader", e)
-                                                }
-                                            }
-                                    )
-                                }
-                            }
-                        }
-
-                        awaitAll(*leaderPromotions.toTypedArray())
-                        logger.warn("EPOCH CUTOVER LEADER PROMOTIONS COMPLETED.")
-
-                        // wait until 1.75 seconds after epoch cutover and make all leaders passive
-                        val justAfterEpoch = nextEpochTime.millis - System.currentTimeMillis() + 1750
-                        if (justAfterEpoch > 0) {
-                            logger.info("DELAY for ${justAfterEpoch}ms")
-                            delay(justAfterEpoch)
-                            logger.info("DELAY complete")
-                        }
-                        val leaderDemotions = mutableListOf<Deferred<Any?>>()
+                    // wait until 1.75 seconds before epoch cutover and make all running nodes into leaders
+                    val justBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 1750
+                    if (justBeforeEpoch > 0) {
+                        delay(justBeforeEpoch)
+                    }
+                    val leaderPromotions = mutableListOf<Deferred<Any?>>()
+                    val leaderInfo = File(config.jormungandrSecretJsonPath).source().buffer().use { source ->
+                        moshi.adapter(LeaderInfo::class.java).fromJson(source)
+                    }
+                    leaderInfo?.let { li ->
                         services.forEach { entry ->
                             val processNumber = entry.key
                             val service = entry.value
                             if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
-                                leaderDemotions.add(
+                                leaderPromotions.add(
                                         async {
                                             try {
-                                                service.removeLeadership(1)
-                                                logger.warn("REMOVE LEADER: Process${processNumber}")
+                                                service.promoteToLeader(li)
+                                                logger.warn("PROMOTE LEADER: Process${processNumber}")
                                             } catch (e: Throwable) {
-                                                logger.error("Unable to remove leadership from Process${processNumber}!")
+                                                logger.error("Unable to promote Process${processNumber} to leader", e)
                                             }
                                         }
                                 )
                             }
                         }
-                        awaitAll(*leaderDemotions.toTypedArray())
-                        logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
                     }
+
+                    awaitAll(*leaderPromotions.toTypedArray())
+                    logger.warn("EPOCH CUTOVER LEADER PROMOTIONS COMPLETED.")
+
+                    // wait until 1.75 seconds after epoch cutover and make all leaders passive
+                    val justAfterEpoch = nextEpochTime.millis - System.currentTimeMillis() + 1750
+                    if (justAfterEpoch > 0) {
+                        logger.info("DELAY for ${justAfterEpoch}ms")
+                        delay(justAfterEpoch)
+                        logger.info("DELAY complete")
+                    }
+                    val leaderDemotions = mutableListOf<Deferred<Any?>>()
+                    logger.debug("DELAY complete -1")
+                    services.forEach { entry ->
+                        val processNumber = entry.key
+                        val service = entry.value
+                        logger.debug("DELAY complete $processNumber")
+                        if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
+                            leaderDemotions.add(
+                                    async {
+                                        try {
+                                            logger.debug("Before removeLeadership $processNumber")
+                                            service.removeLeadership(1)
+                                            logger.warn("REMOVE LEADER: Process${processNumber}")
+                                        } catch (e: Throwable) {
+                                            logger.error("Unable to remove leadership from Process${processNumber}!")
+                                        }
+                                    }
+                            )
+                        }
+                    }
+                    awaitAll(*leaderDemotions.toTypedArray())
+                    logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
                 }
             }
         }
@@ -713,37 +760,35 @@ class JormanagerController @Autowired constructor(
      * Do some extra waiting if we're going to be making a block soon. We don't want to switch horses while minting a
      * block and potentially be without a leader. Otherwise, just wait the normal leader election delay timeperiod.
      */
-    private suspend fun handleBlockMinting() {
-        coroutineScope {
-            nextBlockTime?.let {
-                if (DateTime.now().plusMillis(2 * leaderElectionDelayMs.toInt()).isAfter(it)) {
-                    // lock the mutex so new nodes can't be spun up
-                    mutex.withLock {
-                        logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
-                        val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
-                        if (fiveSecondsBeforeMinting > 0) {
-                            delay(fiveSecondsBeforeMinting)
-                        }
+    private suspend fun handleBlockMinting() = coroutineScope {
+        nextBlockTime?.let {
+            if (DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(it)) {
+                // lock the mutex so new nodes can't be spun up
+                mutex.withLock {
+                    logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
+                    val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
+                    if (fiveSecondsBeforeMinting > 0) {
+                        delay(fiveSecondsBeforeMinting)
+                    }
 
-                        // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
-                        bootstrapJobs.forEach { (processNumber, job) ->
-                            launch {
-                                if (job.isActive && processes[processNumber]?.isPassive == false) {
-                                    logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
-                                    job.cancel()
-                                    shutdownProcess(processNumber)
-                                }
+                    // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
+                    bootstrapJobs.forEach { (processNumber, job) ->
+                        launch {
+                            if (job.isActive && processes[processNumber]?.isPassive == false) {
+                                logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                                job.cancel()
+                                shutdownProcess(processNumber)
                             }
                         }
-
-                        delay(it.millis - System.currentTimeMillis() + 1500)
-                        logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
                     }
-                } else {
-                    delay(leaderElectionDelayMs)
+
+                    delay(it.millis - System.currentTimeMillis() + 1500)
+                    logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
                 }
-            } ?: delay(leaderElectionDelayMs)
-        }
+            } else {
+                delay(config.leaderElectionDelayMs)
+            }
+        } ?: delay(config.leaderElectionDelayMs)
     }
 
     private fun processLeaderLogs(leaderLogs: List<List<LeaderBlock>>) = launch {
@@ -751,7 +796,7 @@ class JormanagerController @Autowired constructor(
             val time = measureTimeMillis {
                 val jsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
                 val leaderLogHistory = mutableListOf<LeaderBlock>()
-                File(blockLogPath).source().buffer().use { source ->
+                File(config.blockLogPath).source().buffer().use { source ->
                     jsonAdapter.fromJson(source)?.let { leaderLog ->
                         leaderLogHistory.addAll(leaderLog)
                     } ?: logger.error("Unable to parse leader json file!!")
@@ -840,7 +885,7 @@ class JormanagerController @Autowired constructor(
                                     val blockString = responseBytes.toHex()
                                     if (blockString.length > 232) {
                                         val poolId = blockString.substring(168, 232)
-                                        if (pooltoolPoolId == poolId) {
+                                        if (config.pooltoolPoolId == poolId) {
                                             val nextBlockResponseBody = try {
                                                 services[leaderProcessNumber]?.getNextBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
                                             } catch (e: HttpException) {
@@ -879,7 +924,7 @@ class JormanagerController @Autowired constructor(
                 }
 
                 // overwrite the historical log
-                File(blockLogPath).sink().buffer().use { sink ->
+                File(config.blockLogPath).sink().buffer().use { sink ->
                     jsonAdapter.toJson(sink, leaderLogHistory)
                 }
             }
@@ -889,11 +934,11 @@ class JormanagerController @Autowired constructor(
 
     private suspend fun openFirewall(processNumber: Int): Boolean {
         return suspendCancellableCoroutine { continuation ->
-            if (!jormanagerUfwEnabled) {
+            if (!config.jormanagerUfwEnabled) {
                 continuation.resume(true)
             } else {
                 try {
-                    val args = jormanagerUfwAllowCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
+                    val args = config.jormanagerUfwAllowCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
                     val process = ProcessBuilder(
                             *args.toTypedArray()
                     ).start()
@@ -922,11 +967,11 @@ class JormanagerController @Autowired constructor(
 
     private suspend fun closeFirewall(processNumber: Int): Boolean {
         return suspendCancellableCoroutine { continuation ->
-            if (!jormanagerUfwEnabled) {
+            if (!config.jormanagerUfwEnabled) {
                 continuation.resume(true)
             } else {
                 try {
-                    val args = jormanagerUfwDenyCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
+                    val args = config.jormanagerUfwDenyCmd.replace("{pid}", "$processNumber".padStart(2, '0')).split(' ')
                     val process = ProcessBuilder(
                             *args.toTypedArray()
                     ).start()
@@ -970,7 +1015,7 @@ class JormanagerController @Autowired constructor(
 
                 val establishedSockets = process.inputStream.source().buffer().use { source ->
                     val outputValue = source.readUtf8()
-                    logger.debug("establishedSocketsByProcessId output: '$outputValue'")
+//                    logger.debug("establishedSocketsByProcessId output: '$outputValue'")
                     outputValue.replace('"', ' ').trim()
                 }.toInt()
                 continuation.resume(establishedSockets)
@@ -1000,10 +1045,15 @@ class JormanagerController @Autowired constructor(
             var pid: Long = -1
             try {
                 if (p.javaClass.name == "java.lang.UNIXProcess") {
-                    val f: Field = p.javaClass.getDeclaredField("pid")
-                    f.isAccessible = true
-                    pid = f.getLong(p)
-                    f.isAccessible = false
+                    try {
+                        val f: Field = p.javaClass.getDeclaredField("pid")
+                        f.isAccessible = true
+                        pid = f.getLong(p)
+                        f.isAccessible = false
+                    } catch (nsfe: NoSuchFieldException) {
+                        val m: Method = p.javaClass.getDeclaredMethod("pid", null)
+                        pid = m.invoke(p, null) as Long
+                    }
                 }
             } catch (e: Exception) {
                 pid = -1
