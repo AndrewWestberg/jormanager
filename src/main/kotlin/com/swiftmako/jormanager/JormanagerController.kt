@@ -610,6 +610,7 @@ class JormanagerController @Autowired constructor(
                                             lastParent = lastParent,
                                             lastSlot = lastSlot,
                                             lastEpoch = lastEpoch,
+                                            platform = "JorManager",
                                             jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
                                     )
                                     logger.info("$pooltoolResult")

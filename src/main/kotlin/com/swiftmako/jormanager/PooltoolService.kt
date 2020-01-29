@@ -17,6 +17,7 @@ interface PooltoolService {
             @Query("lastparent") lastParent: String,
             @Query("lastslot") lastSlot: String,
             @Query("lastepoch") lastEpoch: String,
+            @Query("platform") platform: String,
             @Query("jormver") jormVersion: String?
     ): PooltoolResult
 }

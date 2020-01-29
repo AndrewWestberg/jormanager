@@ -86,44 +86,59 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
 ###### Release Notes
 0.1.4-SNAPSHOT
+
  * Add pooltool additional params
+ 
  * Allow editing of some application.properties values at runtime
                
 0.1.3-SNAPSHOT
+
  * Fix release for ss on some platforms not supporting the `-O --oneline` option.
 
 0.1.2-SNAPSHOT
+
  * Use ss for peers counts, bug fixes 
 
 0.1.1-SNAPSHOT
+
  * Passive node support
 
 0.1.0-SNAPSHOT
+
  * Web security stub, ping peers before bootstrap, simultaneous firewall update fix
 
 0.0.9-SNAPSHOT
+
  * Add systemd and rsyslog config scripts.
 
 0.0.8-SNAPSHOT
+
  * Include pooltool max when calculating fallen-behind nodes
 
 0.0.7-SNAPSHOT
+
  * UFW firewall support.
 
 0.0.6-SNAPSHOT
+
  * Handle Epoch cutover.
 
 0.0.5-SNAPSHOT
+
  * Shut down bootstrapping nodes 5 seconds before block creation times.
 
 0.0.4-SNAPSHOT
+
  * Add quiet period for leader election during block creation times.
 
 0.0.3-SNAPSHOT
+
  * Bug fixes & cleaned up logging
 
 0.0.2-SNAPSHOT
+
  * Bug fixes 
 
 0.0.1-SNAPSHOT
+
  * Initial Beta Release
