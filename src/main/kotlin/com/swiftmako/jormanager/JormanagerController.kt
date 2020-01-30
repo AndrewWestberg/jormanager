@@ -263,6 +263,7 @@ class JormanagerController @Autowired constructor(
     }
 
     private fun manageBootstrap(processNumber: Int) = launch {
+        var probationCount = 0
         processes[processNumber]?.let { process ->
             services[processNumber]?.let { service ->
                 delay(4000)
@@ -292,8 +293,13 @@ class JormanagerController @Autowired constructor(
                         return@launch
                     } catch (e: Throwable) {
                         logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}")
-                        shutdownProcess(processNumber)
-                        return@launch
+                        if (probationCount > 4) {
+                            shutdownProcess(processNumber)
+                            return@launch
+                        } else {
+                            probationCount++
+                            logger.warn("Process$processNumber is now on bootstrap probation: $probationCount")
+                        }
                     }
 
                     if (System.currentTimeMillis() - process.startedAt > config.maxBootstrapMs) {
