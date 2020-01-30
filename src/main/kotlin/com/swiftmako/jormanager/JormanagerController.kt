@@ -42,6 +42,7 @@ import retrofit2.Retrofit
 import java.io.File
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -70,6 +71,7 @@ class JormanagerController @Autowired constructor(
     private val leaderLogMutex = Mutex()
     private val firewallMutex = Mutex()
     private val configMutex = Mutex()
+    private val configYamlMutex = Mutex()
 
     var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
@@ -193,12 +195,80 @@ class JormanagerController @Autowired constructor(
     private suspend fun launchJormungandrProcess(processNumber: Int, isPassive: Boolean): Process {
         val pid = "$processNumber".padStart(2, '0')
         val log = File(config.jormungandrLogPath.replace("{pid}", pid))
+        val configYamlPath = config.jormungandrConfigPath.replace("{pid}", pid)
 
+        configYamlMutex.withLock {
+            if (config.incrementPublicIdEnabled) {
+                incrementPublicId(configYamlPath)
+            }
+
+            scanForReachablePeers(configYamlPath)
+        }
+
+        val processParams = mutableListOf(
+                config.jormungandrProcessPath.replace("{pid}", pid),
+                "--config", configYamlPath,
+                "--storage", config.jormungandrStoragePath.replace("{pid}", pid),
+                "--genesis-block-hash", config.jormungandrGenesisHash
+        )
+
+        if (!isPassive) {
+            processParams.add("--secret")
+            processParams.add(config.jormungandrSecretPath)
+        }
+
+        return ProcessBuilder(
+                *processParams.toTypedArray()
+        ).apply {
+            redirectErrorStream(true)
+            redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+        }.start()
+    }
+
+    /**
+     * Run through all of the config.yaml files and incrment the public_id by 0x1
+     */
+    private fun incrementPublicId(configYamlPath: String) {
+        val publicIdRegex = Regex("^\\s*public_id:\\s*\"?([0-9a-fA-F]{48}).*\$")
+        var currentPublicId = ""
+        var newPublicId = ""
+        File(configYamlPath).bufferedReader().lines().use { lines ->
+            for (line in lines) {
+                publicIdRegex.matchEntire(line)?.let { matchResult ->
+                    currentPublicId = matchResult.groupValues[1]
+                    newPublicId = BigInteger(currentPublicId, 16).add(BigInteger.ONE).toString(16)
+                } ?: continue
+                break
+            }
+        }
+        logger.info("Increment public_id $currentPublicId -> $newPublicId")
+
+        // Process up to 100 config.yaml files
+        for (processNumber in 0 until 100) {
+            val pid = "$processNumber".padStart(2, '0')
+            val configYamlPathToUpdate = config.jormungandrConfigPath.replace("{pid}", pid)
+            val yamlBuilder = StringBuilder()
+            val configYaml = File(configYamlPathToUpdate)
+            if (!configYaml.exists() || configYaml.length() == 0L) {
+                break
+            }
+            configYaml.forEachLine { line ->
+                yamlBuilder.append(line.replace(currentPublicId, newPublicId))
+                yamlBuilder.append('\n')
+            }
+
+            File(configYamlPathToUpdate).sink().buffer().use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
+        }
+    }
+
+    /**
+     * Comment/Uncomment config.yaml based on the reachability of trusted peers.
+     */
+    private fun scanForReachablePeers(configYamlPath: String) {
         // Fix the config.yaml file so that only reachable peers are uncommented
         val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val idRegex = Regex("^\\s*#?\\s*id:\\s*\"(.*)\".*\$")
-        val configYamlPath = config.jormungandrConfigPath.replace("{pid}", pid)
 
         val yamlBuilder = StringBuilder()
         var uncommentIdLine = false
@@ -241,25 +311,6 @@ class JormanagerController @Autowired constructor(
         }
 
         File(configYamlPath).sink().buffer().use { sink -> sink.writeString(yamlBuilder.toString(), Charset.forName("UTF-8")) }
-
-        val processParams = mutableListOf(
-                config.jormungandrProcessPath.replace("{pid}", pid),
-                "--config", configYamlPath,
-                "--storage", config.jormungandrStoragePath.replace("{pid}", pid),
-                "--genesis-block-hash", config.jormungandrGenesisHash
-        )
-
-        if (!isPassive) {
-            processParams.add("--secret")
-            processParams.add(config.jormungandrSecretPath)
-        }
-
-        return ProcessBuilder(
-                *processParams.toTypedArray()
-        ).apply {
-            redirectErrorStream(true)
-            redirectOutput(ProcessBuilder.Redirect.appendTo(log))
-        }.start()
     }
 
     private fun manageBootstrap(processNumber: Int) = launch {
@@ -713,7 +764,7 @@ class JormanagerController @Autowired constructor(
                             val service = entry.value
                             if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
                                 leaderPromotions.add(
-                                        async {
+                                        async(Dispatchers.IO) {
                                             try {
                                                 service.promoteToLeader(li)
                                                 logger.warn("PROMOTE LEADER: Process${processNumber}")
@@ -744,7 +795,7 @@ class JormanagerController @Autowired constructor(
                         logger.debug("DELAY complete $processNumber")
                         if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
                             leaderDemotions.add(
-                                    async {
+                                    async(Dispatchers.IO) {
                                         try {
                                             logger.debug("Before removeLeadership $processNumber")
                                             service.removeLeadership(1)

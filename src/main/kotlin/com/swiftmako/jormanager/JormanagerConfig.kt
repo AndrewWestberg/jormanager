@@ -16,6 +16,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val nodeProbationSecs: Long = properties.getLongProperty("jormanager.node_probation_secs")
     val maxBootstrapMs: Long = properties.getLongProperty("jormanager.max_bootstrap_ms")
     val nodeStaggerMs: Long = properties.getLongProperty("jormanager.node_stagger_ms")
+    val incrementPublicIdEnabled: Boolean = properties.getBooleanProperty("jormanager.increment.public_id.enabled")
     val pooltoolEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.enabled")
     val pooltoolJormverEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.jormver.enabled")
     val pooltoolPoolId: String = properties.getStringProperty("jormanager.pooltool.poolId")
@@ -51,6 +52,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (nodeProbationSecs != other.nodeProbationSecs) return false
         if (maxBootstrapMs != other.maxBootstrapMs) return false
         if (nodeStaggerMs != other.nodeStaggerMs) return false
+        if (incrementPublicIdEnabled != other.incrementPublicIdEnabled) return false
         if (pooltoolEnabled != other.pooltoolEnabled) return false
         if (pooltoolJormverEnabled != other.pooltoolJormverEnabled) return false
         if (pooltoolPoolId != other.pooltoolPoolId) return false
@@ -84,6 +86,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + nodeProbationSecs.hashCode()
         result = 31 * result + maxBootstrapMs.hashCode()
         result = 31 * result + nodeStaggerMs.hashCode()
+        result = 31 * result + incrementPublicIdEnabled.hashCode()
         result = 31 * result + pooltoolEnabled.hashCode()
         result = 31 * result + pooltoolJormverEnabled.hashCode()
         result = 31 * result + pooltoolPoolId.hashCode()

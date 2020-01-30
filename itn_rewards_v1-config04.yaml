@@ -6,37 +6,34 @@ log:
 p2p:
   listen_address: "/ip4/0.0.0.0/tcp/3304"
   public_address: "/ip4/111.222.333.444/tcp/3304"
-  public_id: 01234567890123456fdeadbeefdeadbeefaaa44444444444
+  public_id: 01234567890123456fdeadbeefdeadbeefaaa44444000000
   topics_of_interest:
     blocks: high
     messages: high
   max_connections: 256
   max_unreachable_nodes_to_connect_per_event: 0
   gossip_interval: "10s"
-  #topology_force_reset_interval: "300s"
-  #policy:
-  # quarantine_duration: "15m"
   trusted_peers:
   # My Nodes - First 16 characters of id identical so the nodes have a better chance of being in the same poldercast ring
   - address: "/ip4/111.222.333.444/tcp/3300"
     id: "01234567890123456fdeadbeefdeadbeefaaa00000000000"
   - address: "/ip4/111.222.333.444/tcp/3301"
-    id: "01234567890123456fdeadbeefdeadbeefaaa11111111111"
+    id: "01234567890123456fdeadbeefdeadbeefaaa11111000000"
   - address: "/ip4/111.222.333.444/tcp/3302"
-    id: "01234567890123456fdeadbeefdeadbeefaaa22222222222"
+    id: "01234567890123456fdeadbeefdeadbeefaaa22222000000"
   - address: "/ip4/111.222.333.444/tcp/3303"
-    id: "01234567890123456fdeadbeefdeadbeefaaa33333333333"
+    id: "01234567890123456fdeadbeefdeadbeefaaa33333000000"
 
   - address: "/ip4/111.222.333.444/tcp/3305"
-    id: "01234567890123456fdeadbeefdeadbeefaaa55555555555"
+    id: "01234567890123456fdeadbeefdeadbeefaaa55555000000"
   - address: "/ip4/111.222.333.444/tcp/3306"
-    id: "01234567890123456fdeadbeefdeadbeefaaa66666666666"
+    id: "01234567890123456fdeadbeefdeadbeefaaa66666000000"
   - address: "/ip4/111.222.333.444/tcp/3307"
-    id: "01234567890123456fdeadbeefdeadbeefaaa77777777777"
+    id: "01234567890123456fdeadbeefdeadbeefaaa77777000000"
   - address: "/ip4/111.222.333.444/tcp/3308"
-    id: "01234567890123456fdeadbeefdeadbeefaaa88888888888"
+    id: "01234567890123456fdeadbeefdeadbeefaaa88888000000"
   - address: "/ip4/111.222.333.444/tcp/3309"
-    id: "01234567890123456fdeadbeefdeadbeefaaa99999999999"
+    id: "01234567890123456fdeadbeefdeadbeefaaa99999000000"
     
   # IOHK Nodes
   - address: "/ip4/13.56.0.226/tcp/3000"

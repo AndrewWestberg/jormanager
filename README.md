@@ -19,8 +19,8 @@ The health calculation is determined by:
 2. Create your config.yaml files. The default uses 10 nodes, so for this setup, create `itn_rewards_v1-config00.yaml` up to `itn_rewards_v1-config09.yaml`
 3. Edit your config.yaml files. Ensure to update the following:
     * Each node should use a different storage folder. `mkdir` these storage folders that you specify here. The software will not create them for you.
-    * Each node should use `0.0.0.0` as the `listen_address`. _Important_ since other local nodes will connect to it on 127.0.0.1.
-    * `public_id` should be unique to your setup, but can follow a pattern to make things simple. See the `itn_rewards_v1-config04.yaml` example file.
+    * Each node should use `0.0.0.0` as the `listen_address`.
+    * `public_id` should be unique to your setup, but can follow a pattern to make things simple. See the `itn_rewards_v1-config04.yaml` example file. You'll want to end with 6 or more zeroes so that public_ids can be incremented nicely with each restart.
     * If you already have a storage folder from a previous node, copy the contents of it to each and every storage file of the new setup. This will greatly improve your initial bootstrap time and you won't have to download the entire blockchain 10 times.
     * Edit the port numbers for both the node itself and the REST port. The nodes won't work right if there are port conflicts.
     * _Important!_ Don't forget to modify your firewall to allow these new ports from the outside.
@@ -85,6 +85,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.5-SNAPSHOT
+
+ * add application.properties value jormanager.increment.public_id.enabled
+ 
 0.1.4-SNAPSHOT
 
  * Add pooltool additional params

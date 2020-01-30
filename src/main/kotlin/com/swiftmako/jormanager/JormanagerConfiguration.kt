@@ -1,10 +1,7 @@
 package com.swiftmako.jormanager
 
 import com.squareup.moshi.Moshi
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Scope
@@ -19,6 +16,9 @@ class JormanagerConfiguration {
     @Bean
     @Scope("singleton")
     fun getOkHttpClient() = OkHttpClient.Builder()
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             /*
             .addInterceptor(HttpLoggingInterceptor {
                 println(it)
