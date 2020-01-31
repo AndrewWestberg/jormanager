@@ -14,6 +14,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val leaderElectionDelayMs: Long = properties.getLongProperty("jormanager.leader_election_delay_ms")
     val maxBlocksBehind: Int = properties.getIntProperty("jormanager.max_blocks_behind")
     val nodeProbationSecs: Long = properties.getLongProperty("jormanager.node_probation_secs")
+    val nodeSequentialApiFailuresAllowed: Int = properties.getIntProperty("jormanager.node_sequential_api_failures_allowed")
     val maxBootstrapMs: Long = properties.getLongProperty("jormanager.max_bootstrap_ms")
     val nodeStaggerMs: Long = properties.getLongProperty("jormanager.node_stagger_ms")
     val incrementPublicIdEnabled: Boolean = properties.getBooleanProperty("jormanager.increment.public_id.enabled")
@@ -50,6 +51,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (leaderElectionDelayMs != other.leaderElectionDelayMs) return false
         if (maxBlocksBehind != other.maxBlocksBehind) return false
         if (nodeProbationSecs != other.nodeProbationSecs) return false
+        if (nodeSequentialApiFailuresAllowed != other.nodeSequentialApiFailuresAllowed) return false
         if (maxBootstrapMs != other.maxBootstrapMs) return false
         if (nodeStaggerMs != other.nodeStaggerMs) return false
         if (incrementPublicIdEnabled != other.incrementPublicIdEnabled) return false
@@ -84,6 +86,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + leaderElectionDelayMs.hashCode()
         result = 31 * result + maxBlocksBehind
         result = 31 * result + nodeProbationSecs.hashCode()
+        result = 31 * result + nodeSequentialApiFailuresAllowed
         result = 31 * result + maxBootstrapMs.hashCode()
         result = 31 * result + nodeStaggerMs.hashCode()
         result = 31 * result + incrementPublicIdEnabled.hashCode()

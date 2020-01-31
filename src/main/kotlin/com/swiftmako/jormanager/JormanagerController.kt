@@ -47,6 +47,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.nio.charset.Charset
+import java.util.Collections
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
@@ -78,7 +79,7 @@ class JormanagerController @Autowired constructor(
     var nextBlockTime: DateTime? = null
     var nextEpochTime: DateTime? = null
 
-    private val latestStats = mutableMapOf<Int, Stats>()
+    private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = mutableMapOf<Int, JormungandrProcess>()
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
@@ -397,6 +398,8 @@ class JormanagerController @Autowired constructor(
             logger.warn("Could not get PID for Process$processNumber shutdown.")
         }
 
+        latestStats.remove(processNumber)
+
         if (restart) {
             processStartQueue.send(processNumber)
         }
@@ -439,9 +442,18 @@ class JormanagerController @Autowired constructor(
                                 val stats = try {
                                     service.nodeStats()
                                 } catch (e: Throwable) {
-                                    logger.error("nodeStats error!")
-                                    throw e
+                                    processes[processNumber]?.let { process ->
+                                        if (process.apiFailureCount >= config.nodeSequentialApiFailuresAllowed) {
+                                            logger.error("nodeStats error!")
+                                            throw e
+                                        }
+                                    }
+                                    processes[processNumber]?.let { process -> process.apiFailureCount++ }
+                                    logger.warn("nodeStats error!: apiFailureCount=${processes[processNumber]?.apiFailureCount}")
+                                    return@async
                                 }
+                                processes[processNumber]?.apiFailureCount = 0
+
                                 when (stats.state) {
                                     "Running" -> {
                                         if (processes[processNumber]?.isPassive == false) {
@@ -1109,7 +1121,7 @@ class JormanagerController @Autowired constructor(
                         pid = f.getLong(p)
                         f.isAccessible = false
                     } catch (nsfe: NoSuchFieldException) {
-                        val m: Method = p.javaClass.getDeclaredMethod("pid", null)
+                        val m: Method = p.javaClass.getMethod("pid", null)
                         pid = m.invoke(p, null) as Long
                     }
                 }
