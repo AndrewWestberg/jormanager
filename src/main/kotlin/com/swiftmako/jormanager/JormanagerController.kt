@@ -2,28 +2,10 @@ package com.swiftmako.jormanager
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
-import com.swiftmako.jormanager.api.CompletedBlock
-import com.swiftmako.jormanager.api.LeaderBlock
-import com.swiftmako.jormanager.api.LeaderInfo
-import com.swiftmako.jormanager.api.OutputStats
-import com.swiftmako.jormanager.api.PendingBlock
-import com.swiftmako.jormanager.api.PooltoolResult
-import com.swiftmako.jormanager.api.RejectedBlock
-import com.swiftmako.jormanager.api.Stats
+import com.swiftmako.jormanager.api.*
 import com.swiftmako.jormanager.utils.toHex
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.buffer
@@ -49,6 +31,7 @@ import java.net.SocketTimeoutException
 import java.nio.charset.Charset
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import kotlin.Comparator
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -61,7 +44,6 @@ class JormanagerController @Autowired constructor(
         private val moshi: Moshi,
         private val pooltool: PooltoolService
 ) : CoroutineScope, ApplicationContextAware {
-    private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
     override val coroutineContext: CoroutineContext = Dispatchers.IO
 
     private lateinit var applicationContext: ApplicationContext
@@ -1110,22 +1092,23 @@ class JormanagerController @Autowired constructor(
     }
 
     companion object {
+        private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
+
         @Synchronized
         fun getPidOfProcess(p: Process): Long {
             var pid: Long = -1
             try {
-                if (p.javaClass.name == "java.lang.UNIXProcess") {
-                    try {
-                        val f: Field = p.javaClass.getDeclaredField("pid")
-                        f.isAccessible = true
-                        pid = f.getLong(p)
-                        f.isAccessible = false
-                    } catch (nsfe: NoSuchFieldException) {
-                        val m: Method = p.javaClass.getMethod("pid", null)
-                        pid = m.invoke(p, null) as Long
-                    }
+                try {
+                    val m: Method = p.javaClass.getMethod("pid", null)
+                    pid = m.invoke(p, null) as Long
+                } catch (e: Throwable) {
+                    val f: Field = p.javaClass.getDeclaredField("pid")
+                    f.isAccessible = true
+                    pid = f.getLong(p)
+                    f.isAccessible = false
                 }
             } catch (e: Exception) {
+                logger.error("getPidOfProcess!", e)
                 pid = -1
             }
             return pid
