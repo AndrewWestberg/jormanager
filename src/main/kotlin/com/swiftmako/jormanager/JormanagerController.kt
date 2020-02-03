@@ -10,6 +10,7 @@ import com.swiftmako.jormanager.api.PendingBlock
 import com.swiftmako.jormanager.api.PooltoolResult
 import com.swiftmako.jormanager.api.RejectedBlock
 import com.swiftmako.jormanager.api.Stats
+import com.swiftmako.jormanager.utils.CircularQueue
 import com.swiftmako.jormanager.utils.toHex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +30,8 @@ import kotlinx.coroutines.sync.withLock
 import okio.buffer
 import okio.sink
 import okio.source
+import org.apache.commons.math3.stat.descriptive.moment.Mean
+import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormat
@@ -52,6 +55,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.abs
 import kotlin.system.measureTimeMillis
 
 
@@ -82,6 +86,7 @@ class JormanagerController @Autowired constructor(
     private val processes = mutableMapOf<Int, JormungandrProcess>()
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
+    private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -168,6 +173,7 @@ class JormanagerController @Autowired constructor(
                                 .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
                                 .build()
                                 .create(JormungandrService::class.java)
+                        pastPeerCounts[processNumber] = CircularQueue(30) // 10 minutes worth of peer counts
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
                     }
@@ -481,6 +487,8 @@ class JormanagerController @Autowired constructor(
                                             }
                                         }
 
+                                        pastPeerCounts[processNumber]?.add(numberOfPeers)
+
                                         // Enable/Disable firewall based on limits
                                         val fw = if (config.jormanagerUfwEnabled) {
                                             if (processes[processNumber]?.isPassive == false) {
@@ -590,10 +598,33 @@ class JormanagerController @Autowired constructor(
                             bestLeaderProcessCandidate = entry
                             return@forEach
                         } else {
-                            // Just compare purely based on number of peers
-                            if (stats.numberOfPeers!! > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
-                                bestLeaderProcessCandidate = entry
-                                return@forEach
+                            if (stats.numberOfPeers!! < 150 && bestLeaderProcessCandidate?.value?.numberOfPeers!! < 150) {
+                                // Just compare purely based on number of peers
+                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                    bestLeaderProcessCandidate = entry
+                                    return@forEach
+                                }
+                            } else {
+                                val bestLeaderCandidatePeersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[bestLeaderProcessCandidate!!.key]!!)
+                                val peersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[entry.key]!!)
+                                logger.debug("bestLeaderCandidateSD: $bestLeaderCandidatePeersStandardDeviation, peersStandardDeviation: $peersStandardDeviation")
+
+//                                if (bestLeaderCandidatePeersStandardDeviation > 1.0 && peersStandardDeviation > 1.0) {
+//                                    // choose the lowest standard deviation as it's further from death
+//                                    if (peersStandardDeviation < bestLeaderCandidatePeersStandardDeviation) {
+//                                        bestLeaderProcessCandidate = entry
+//                                        return@forEach
+//                                    }
+//                                } else if (bestLeaderCandidatePeersStandardDeviation < 1.0 && peersStandardDeviation < 1.0) {
+                                // Just compare purely based on number of peers
+                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                    bestLeaderProcessCandidate = entry
+                                    return@forEach
+                                }
+//                                } else if (peersStandardDeviation < 1.0) {
+//                                    bestLeaderProcessCandidate = entry
+//                                    return@forEach
+//                                }
                             }
                         }
                     }
@@ -704,6 +735,24 @@ class JormanagerController @Autowired constructor(
                 }
             }
         }
+    }
+
+    private fun calculateStandardDeviationOfLastPeerCount(pastPeerCounts: CircularQueue<Int>): Double {
+        // If we haven't collected much data yet, just assume no deviation
+        if (pastPeerCounts.size < 5) return 0.0
+
+        val slopes = pastPeerCounts.mapIndexedNotNull { index, peerCount ->
+            if (index == 0) {
+                null
+            } else {
+                val prevPeerCount = pastPeerCounts[index - 1]
+                (peerCount - prevPeerCount).toDouble() / TimeUnit.MILLISECONDS.toSeconds(config.leaderElectionDelayMs).toDouble()
+            }
+        }.toDoubleArray()
+        val mean = Mean().evaluate(slopes)
+        val sd = StandardDeviation(false).evaluate(slopes, mean)
+
+        return abs(slopes.last() - mean) / sd
     }
 
     /**

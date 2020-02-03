@@ -85,6 +85,11 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+
+0.1.8-SNAPSHOT
+
+ * Prevent nodes with rapid changes in peers from becoming leader
+ 
 0.1.7-SNAPSHOT
 
  * Support higher java versions

@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.1.7-SNAPSHOT"
+version = "0.1.8-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -36,6 +36,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.3.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.3.1")
     implementation("joda-time:joda-time:2.10.5")
+    implementation("org.apache.commons:commons-math3:3.6.1")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
