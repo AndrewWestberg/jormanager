@@ -61,7 +61,6 @@ class JormanagerController @Autowired constructor(
         private val moshi: Moshi,
         private val pooltool: PooltoolService
 ) : CoroutineScope, ApplicationContextAware {
-    private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
     override val coroutineContext: CoroutineContext = Dispatchers.IO
 
     private lateinit var applicationContext: ApplicationContext
@@ -444,12 +443,12 @@ class JormanagerController @Autowired constructor(
                                 } catch (e: Throwable) {
                                     processes[processNumber]?.let { process ->
                                         if (process.apiFailureCount >= config.nodeSequentialApiFailuresAllowed) {
-                                            logger.error("nodeStats error!")
+                                            logger.error("Process${processNumber}: nodeStats error!: apiFailureCount=${processes[processNumber]?.apiFailureCount}")
                                             throw e
                                         }
                                     }
                                     processes[processNumber]?.let { process -> process.apiFailureCount++ }
-                                    logger.warn("nodeStats error!: apiFailureCount=${processes[processNumber]?.apiFailureCount}")
+                                    logger.warn("Process${processNumber}: nodeStats error!: apiFailureCount=${processes[processNumber]?.apiFailureCount}")
                                     return@async
                                 }
                                 processes[processNumber]?.apiFailureCount = 0
@@ -461,7 +460,7 @@ class JormanagerController @Autowired constructor(
                                                     try {
                                                         service.getLeaderLog()
                                                     } catch (e: Throwable) {
-                                                        logger.error("getLeaderLog error!")
+                                                        logger.error("Process${processNumber}: getLeaderLog error!")
                                                         throw e
                                                     }
                                             )
@@ -477,7 +476,7 @@ class JormanagerController @Autowired constructor(
                                             try {
                                                 service.networkStats().size
                                             } catch (e: Throwable) {
-                                                logger.error("getLeaderLog error!")
+                                                logger.error("Process${processNumber}: getLeaderLog error!")
                                                 throw e
                                             }
                                         }
@@ -576,9 +575,14 @@ class JormanagerController @Autowired constructor(
                 // Find the best leader candidate
                 var bestLeaderProcessCandidate: Map.Entry<Int, Stats>? = null
                 latestStats.forEach { entry ->
+                    val processNumber = entry.key
                     val stats = entry.value
                     if (stats.passive) {
                         // ignore passive nodes
+                        return@forEach
+                    }
+                    if (processes[processNumber]?.apiFailureCount ?: 1 > 0) {
+                        // ignore nodes with api failures
                         return@forEach
                     }
                     if (stats.lastBlockHeight?.toLong() == maxBlockHeight) {
@@ -1110,22 +1114,23 @@ class JormanagerController @Autowired constructor(
     }
 
     companion object {
+        private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
+
         @Synchronized
         fun getPidOfProcess(p: Process): Long {
-            var pid: Long = -1
+            var pid: Long
             try {
-                if (p.javaClass.name == "java.lang.UNIXProcess") {
-                    try {
-                        val f: Field = p.javaClass.getDeclaredField("pid")
-                        f.isAccessible = true
-                        pid = f.getLong(p)
-                        f.isAccessible = false
-                    } catch (nsfe: NoSuchFieldException) {
-                        val m: Method = p.javaClass.getMethod("pid", null)
-                        pid = m.invoke(p, null) as Long
-                    }
+                try {
+                    val m: Method = p.javaClass.getMethod("pid", null)
+                    pid = m.invoke(p, null) as Long
+                } catch (e: Throwable) {
+                    val f: Field = p.javaClass.getDeclaredField("pid")
+                    f.isAccessible = true
+                    pid = f.getLong(p)
+                    f.isAccessible = false
                 }
             } catch (e: Exception) {
+                logger.error("getPidOfProcess!", e)
                 pid = -1
             }
             return pid

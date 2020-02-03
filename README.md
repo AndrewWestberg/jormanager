@@ -85,6 +85,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.7-SNAPSHOT
+
+ * Support higher java versions
+ 
 0.1.6-SNAPSHOT
 
  * add application.properties value jormanager.node_sequential_api_failures_allowed 
