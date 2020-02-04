@@ -93,6 +93,7 @@ class JormanagerController @Autowired constructor(
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
+        logger.info("JAVA_VERSION: ${System.getProperty("java.version")}")
         runBlocking {
             refreshConfig()
         }
@@ -185,9 +186,11 @@ class JormanagerController @Autowired constructor(
                     if (processes[processNumber] == null) {
                         logger.info("Starting Process${processNumber}...")
                         val firewallOpen = openFirewall(processNumber)
+                        val process = launchJormungandrProcess(processNumber, config.passiveNodeList[processNumber])
+                        logger.info("Process$processNumber pid: ${getPidOfProcess(process)}")
                         processes[processNumber] = JormungandrProcess(
                                 startedAt = System.currentTimeMillis(),
-                                process = launchJormungandrProcess(processNumber, config.passiveNodeList[processNumber]),
+                                process = process,
                                 firewallOpen = firewallOpen,
                                 isPassive = config.passiveNodeList[processNumber]
                         )
@@ -1200,16 +1203,24 @@ class JormanagerController @Autowired constructor(
 
         @Synchronized
         fun getPidOfProcess(p: Process): Long {
-            var pid: Long
+            var pid: Long = -1
             try {
                 try {
-                    val m: Method = p.javaClass.getMethod("pid", null)
-                    pid = m.invoke(p, null) as Long
+                    logger.debug("Process.toString(): $p")
+                    Regex("^.*pid=(\\d+).*\$").matchEntire(p.toString())?.let { matchResult ->
+                        pid = matchResult.groupValues[1].toLong()
+                        logger.debug("got pid from toString()")
+                    } ?: run {
+                        val m: Method = Process::class.java.getMethod("pid")
+                        pid = m.invoke(p) as Long
+                        logger.debug("got pid from Process.pid()")
+                    }
                 } catch (e: Throwable) {
                     val f: Field = p.javaClass.getDeclaredField("pid")
                     f.isAccessible = true
                     pid = f.getLong(p)
                     f.isAccessible = false
+                    logger.debug("got pid from pid private field")
                 }
             } catch (e: Exception) {
                 logger.error("getPidOfProcess!", e)
