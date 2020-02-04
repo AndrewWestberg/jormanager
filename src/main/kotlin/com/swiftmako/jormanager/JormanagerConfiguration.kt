@@ -22,15 +22,11 @@ class JormanagerConfiguration {
     @Scope("singleton")
     fun getOkHttpClient(connectionPool: ConnectionPool) = OkHttpClient.Builder()
             .connectionPool(connectionPool)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS)
-            /*
-            .addInterceptor(HttpLoggingInterceptor {
-                println(it)
-            }.apply { level = HttpLoggingInterceptor.Level.BODY })
-             */
-            .build()
+    /*
+    .addInterceptor(HttpLoggingInterceptor {
+        println(it)
+    }.apply { level = HttpLoggingInterceptor.Level.BODY })
+     */
 
     @Bean
     @Scope("singleton")
@@ -42,15 +38,21 @@ class JormanagerConfiguration {
 
     @Bean
     @Scope("singleton")
-    fun getRetrofitBuilder(okHttpClient: OkHttpClient, moshi: Moshi) =
+    fun getRetrofitBuilder(okHttpClientBuilder: OkHttpClient.Builder, moshi: Moshi) =
             Retrofit.Builder()
-                    .client(okHttpClient)
                     .addConverterFactory(MoshiConverterFactory.create(moshi))
 
     @Bean("pooltool")
     @Scope("singleton")
-    fun getPooltoolRetrofit(builder: Retrofit.Builder) =
+    fun getPooltoolRetrofit(builder: Retrofit.Builder, okHttpClientBuilder: OkHttpClient.Builder) =
             builder.baseUrl("https://api.pooltool.io/v0/")
+                    .client(
+                            okHttpClientBuilder
+                                    .readTimeout(5, TimeUnit.SECONDS)
+                                    .writeTimeout(5, TimeUnit.SECONDS)
+                                    .connectTimeout(5, TimeUnit.SECONDS)
+                                    .build()
+                    )
                     .build()
                     .create(PooltoolService::class.java)
 

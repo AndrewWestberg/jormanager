@@ -27,7 +27,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okio.buffer
 import okio.sink
@@ -63,7 +62,7 @@ import kotlin.system.measureTimeMillis
 
 @RestController
 class JormanagerController @Autowired constructor(
-        private val connectionPool: ConnectionPool,
+        private val okHttpClientBuilder: OkHttpClient.Builder,
         private val retrofitBuilder: Retrofit.Builder,
         private val moshi: Moshi,
         private val pooltool: PooltoolService
@@ -137,21 +136,21 @@ class JormanagerController @Autowired constructor(
                             }
                         }
                         newConfig.nodeStatsTimeout != config.nodeStatsTimeout -> {
-                            // re-create our retrofit service with new okhttp timeouts
+                            // re-create our retrofit service with new okhttp timeouts for Running nodes
                             mutex.withLock {
-                                val okHttpClient = OkHttpClient.Builder()
-                                        .connectionPool(connectionPool)
-                                        .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                        .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                        .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                        .build()
-                                retrofitBuilder.client(okHttpClient)
                                 services.keys.forEach { processNumber ->
-                                    services[processNumber] = retrofitBuilder
-                                            .client(okHttpClient)
-                                            .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
-                                            .build()
-                                            .create(JormungandrService::class.java)
+                                    if (latestStats[processNumber]?.state == "Running") {
+                                        val okHttpClient = okHttpClientBuilder
+                                                .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                .build()
+                                        services[processNumber] = retrofitBuilder
+                                                .client(okHttpClient)
+                                                .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                                .build()
+                                                .create(JormungandrService::class.java)
+                                    }
                                 }
                             }
                         }
@@ -194,11 +193,11 @@ class JormanagerController @Autowired constructor(
                                 firewallOpen = firewallOpen,
                                 isPassive = config.passiveNodeList[processNumber]
                         )
-                        val okHttpClient = OkHttpClient.Builder()
-                                .connectionPool(connectionPool)
-                                .readTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                .writeTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                .connectTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                        // new nodes get 15 second timeouts while bootstrapping
+                        val okHttpClient = okHttpClientBuilder
+                                .readTimeout(15, TimeUnit.SECONDS)
+                                .writeTimeout(15, TimeUnit.SECONDS)
+                                .connectTimeout(15, TimeUnit.SECONDS)
                                 .build()
                         services[processNumber] = retrofitBuilder
                                 .client(okHttpClient)
@@ -525,7 +524,7 @@ class JormanagerController @Autowired constructor(
 
                                         // Enable/Disable firewall based on limits
                                         val fw = if (config.jormanagerUfwEnabled) {
-                                            if (processes[processNumber]?.isPassive == false) {
+                                            if (config.jormanagerUfwPassiveEnabled || processes[processNumber]?.isPassive == false) {
                                                 if (numberOfPeers <= config.jormanagerUfwLowerLimit && processes[processNumber]?.firewallOpen == false) {
                                                     // We dropped below number lower limit of connections we'd like to have. Open the firewall
                                                     firewallMutex.withLock {
@@ -548,6 +547,21 @@ class JormanagerController @Autowired constructor(
                                             }
                                         } else {
                                             "---"
+                                        }
+
+                                        if (latestStats[processNumber]?.state != "Running") {
+                                            // Moving to Running state for the first time. Set the new rest timeouts
+                                            logger.debug("Process$processNumber came up. Set REST timeout to ${config.nodeStatsTimeout}ms")
+                                            val okHttpClient = okHttpClientBuilder
+                                                    .readTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                    .writeTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                    .connectTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                    .build()
+                                            services[processNumber] = retrofitBuilder
+                                                    .client(okHttpClient)
+                                                    .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                                    .build()
+                                                    .create(JormungandrService::class.java)
                                         }
 
                                         latestStats[processNumber] = stats.copy(
@@ -1206,21 +1220,21 @@ class JormanagerController @Autowired constructor(
             var pid: Long = -1
             try {
                 try {
-                    logger.debug("Process.toString(): $p")
+                    //logger.debug("Process.toString(): $p")
                     Regex("^.*pid=(\\d+).*\$").matchEntire(p.toString())?.let { matchResult ->
                         pid = matchResult.groupValues[1].toLong()
-                        logger.debug("got pid from toString()")
+                        //logger.debug("got pid from toString()")
                     } ?: run {
                         val m: Method = Process::class.java.getMethod("pid")
                         pid = m.invoke(p) as Long
-                        logger.debug("got pid from Process.pid()")
+                        //logger.debug("got pid from Process.pid()")
                     }
                 } catch (e: Throwable) {
                     val f: Field = p.javaClass.getDeclaredField("pid")
                     f.isAccessible = true
                     pid = f.getLong(p)
                     f.isAccessible = false
-                    logger.debug("got pid from pid private field")
+                    //logger.debug("got pid from pid private field")
                 }
             } catch (e: Exception) {
                 logger.error("getPidOfProcess!", e)

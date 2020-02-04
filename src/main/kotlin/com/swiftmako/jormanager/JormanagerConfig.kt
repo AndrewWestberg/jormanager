@@ -35,6 +35,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val jormungandrSecretPath: String = properties.getStringProperty("jormanager.jormungandr.secret")
     val jormungandrSecretJsonPath: String = properties.getStringProperty("jormanager.jormungandr.secret_json")
     val jormanagerUfwEnabled: Boolean = properties.getBooleanProperty("jormanager.ufw.enabled")
+    val jormanagerUfwPassiveEnabled: Boolean = properties.getBooleanProperty("jormanager.ufw.passive.enabled")
     val jormanagerUfwLowerLimit: Int = properties.getIntProperty("jormanager.ufw.lower_limit")
     val jormanagerUfwUpperLimit: Int = properties.getIntProperty("jormanager.ufw.upper_limit")
     val jormanagerUfwAllowCmd: String = properties.getStringProperty("jormanager.ufw.allow")
@@ -76,6 +77,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (jormungandrSecretPath != other.jormungandrSecretPath) return false
         if (jormungandrSecretJsonPath != other.jormungandrSecretJsonPath) return false
         if (jormanagerUfwEnabled != other.jormanagerUfwEnabled) return false
+        if (jormanagerUfwPassiveEnabled != other.jormanagerUfwPassiveEnabled) return false
         if (jormanagerUfwLowerLimit != other.jormanagerUfwLowerLimit) return false
         if (jormanagerUfwUpperLimit != other.jormanagerUfwUpperLimit) return false
         if (jormanagerUfwAllowCmd != other.jormanagerUfwAllowCmd) return false
@@ -115,6 +117,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + jormungandrSecretPath.hashCode()
         result = 31 * result + jormungandrSecretJsonPath.hashCode()
         result = 31 * result + jormanagerUfwEnabled.hashCode()
+        result = 31 * result + jormanagerUfwPassiveEnabled.hashCode()
         result = 31 * result + jormanagerUfwLowerLimit
         result = 31 * result + jormanagerUfwUpperLimit
         result = 31 * result + jormanagerUfwAllowCmd.hashCode()
