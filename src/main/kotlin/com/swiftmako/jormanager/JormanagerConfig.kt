@@ -17,6 +17,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val nodeSequentialApiFailuresAllowed: Int = properties.getIntProperty("jormanager.node_sequential_api_failures_allowed")
     val maxBootstrapMs: Long = properties.getLongProperty("jormanager.max_bootstrap_ms")
     val nodeStaggerMs: Long = properties.getLongProperty("jormanager.node_stagger_ms")
+    val nodeStatsTimeout: Long = properties.getLongProperty("jormanager.nodestats_timeout_ms")
     val incrementPublicIdEnabled: Boolean = properties.getBooleanProperty("jormanager.increment.public_id.enabled")
     val pooltoolEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.enabled")
     val pooltoolJormverEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.jormver.enabled")
@@ -40,6 +41,9 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val jormanagerUfwDenyCmd: String = properties.getStringProperty("jormanager.ufw.deny")
     val passiveNodeList: List<Boolean> = properties.getBooleanListProperty("jormanager.node.passive")
     val useLightweightPeerCount: Boolean = properties.getBooleanProperty("jormanager.lightweight.peercount")
+    val minPeersForSDCalculationEnabled: Boolean = properties.getBooleanProperty("jormanager.minpeers.sdcalculation.enabled")
+    val minPeersForSDCalculation: Int = properties.getIntProperty("jormanager.minpeers.sdcalculation")
+    val minPeersBadSDLimit: Double = properties.getDoubleProperty("jormanager.minpeers.badsdlimit")
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -54,6 +58,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (nodeSequentialApiFailuresAllowed != other.nodeSequentialApiFailuresAllowed) return false
         if (maxBootstrapMs != other.maxBootstrapMs) return false
         if (nodeStaggerMs != other.nodeStaggerMs) return false
+        if (nodeStatsTimeout != other.nodeStatsTimeout) return false
         if (incrementPublicIdEnabled != other.incrementPublicIdEnabled) return false
         if (pooltoolEnabled != other.pooltoolEnabled) return false
         if (pooltoolJormverEnabled != other.pooltoolJormverEnabled) return false
@@ -77,6 +82,9 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (jormanagerUfwDenyCmd != other.jormanagerUfwDenyCmd) return false
         if (passiveNodeList != other.passiveNodeList) return false
         if (useLightweightPeerCount != other.useLightweightPeerCount) return false
+        if (minPeersForSDCalculationEnabled != other.minPeersForSDCalculationEnabled) return false
+        if (minPeersForSDCalculation != other.minPeersForSDCalculation) return false
+        if (minPeersBadSDLimit != other.minPeersBadSDLimit) return false
 
         return true
     }
@@ -89,6 +97,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + nodeSequentialApiFailuresAllowed
         result = 31 * result + maxBootstrapMs.hashCode()
         result = 31 * result + nodeStaggerMs.hashCode()
+        result = 31 * result + nodeStatsTimeout.hashCode()
         result = 31 * result + incrementPublicIdEnabled.hashCode()
         result = 31 * result + pooltoolEnabled.hashCode()
         result = 31 * result + pooltoolJormverEnabled.hashCode()
@@ -112,6 +121,9 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + jormanagerUfwDenyCmd.hashCode()
         result = 31 * result + passiveNodeList.hashCode()
         result = 31 * result + useLightweightPeerCount.hashCode()
+        result = 31 * result + minPeersForSDCalculationEnabled.hashCode()
+        result = 31 * result + minPeersForSDCalculation
+        result = 31 * result + minPeersBadSDLimit.hashCode()
         return result
     }
 }

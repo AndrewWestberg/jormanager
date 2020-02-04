@@ -13,6 +13,8 @@ class JormanagerProperties : ReloadableProperties() {
 
     fun getIntProperty(key: String) = environment.getProperty(key, "0").toInt()
 
+    fun getDoubleProperty(key: String) = environment.getProperty(key, "0.0").toDouble()
+
     fun getBooleanProperty(key: String) = environment.getProperty(key, "false").toBoolean()
 
     fun getBooleanListProperty(key: String): List<Boolean> {

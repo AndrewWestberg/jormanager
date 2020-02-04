@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager
 
 import com.squareup.moshi.Moshi
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -15,7 +16,12 @@ class JormanagerConfiguration {
 
     @Bean
     @Scope("singleton")
-    fun getOkHttpClient() = OkHttpClient.Builder()
+    fun getConnectionPool() = ConnectionPool()
+
+    @Bean
+    @Scope("singleton")
+    fun getOkHttpClient(connectionPool: ConnectionPool) = OkHttpClient.Builder()
+            .connectionPool(connectionPool)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)

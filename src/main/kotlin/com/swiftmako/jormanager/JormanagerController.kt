@@ -27,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
 import okio.buffer
 import okio.sink
 import okio.source
@@ -61,6 +63,7 @@ import kotlin.system.measureTimeMillis
 
 @RestController
 class JormanagerController @Autowired constructor(
+        private val connectionPool: ConnectionPool,
         private val retrofitBuilder: Retrofit.Builder,
         private val moshi: Moshi,
         private val pooltool: PooltoolService
@@ -132,6 +135,25 @@ class JormanagerController @Autowired constructor(
                                 }
                             }
                         }
+                        newConfig.nodeStatsTimeout != config.nodeStatsTimeout -> {
+                            // re-create our retrofit service with new okhttp timeouts
+                            mutex.withLock {
+                                val okHttpClient = OkHttpClient.Builder()
+                                        .connectionPool(connectionPool)
+                                        .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                        .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                        .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                        .build()
+                                retrofitBuilder.client(okHttpClient)
+                                services.keys.forEach { processNumber ->
+                                    services[processNumber] = retrofitBuilder
+                                            .client(okHttpClient)
+                                            .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                            .build()
+                                            .create(JormungandrService::class.java)
+                                }
+                            }
+                        }
                         else -> {
                         }
                     }
@@ -169,11 +191,18 @@ class JormanagerController @Autowired constructor(
                                 firewallOpen = firewallOpen,
                                 isPassive = config.passiveNodeList[processNumber]
                         )
+                        val okHttpClient = OkHttpClient.Builder()
+                                .connectionPool(connectionPool)
+                                .readTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                .writeTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                .connectTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                .build()
                         services[processNumber] = retrofitBuilder
+                                .client(okHttpClient)
                                 .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
                                 .build()
                                 .create(JormungandrService::class.java)
-                        pastPeerCounts[processNumber] = CircularQueue(30) // 10 minutes worth of peer counts
+                        pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
                     }
@@ -426,7 +455,9 @@ class JormanagerController @Autowired constructor(
         val leaderLogs = mutableListOf<List<LeaderBlock>>()
 
         while (true) {
-            refreshConfig()
+            mutex.withLock {
+                refreshConfig()
+            }
 
             handleBlockMinting()
             calculateNextEpochCutover()
@@ -585,6 +616,11 @@ class JormanagerController @Autowired constructor(
                 latestStats.forEach { entry ->
                     val processNumber = entry.key
                     val stats = entry.value
+
+                    if (logger.isDebugEnabled && config.minPeersForSDCalculationEnabled) {
+                        logger.debug("SD Process$processNumber: ${calculateStandardDeviationOfLastPeerCount(pastPeerCounts[processNumber]!!)}")
+                    }
+
                     if (stats.passive) {
                         // ignore passive nodes
                         return@forEach
@@ -598,33 +634,32 @@ class JormanagerController @Autowired constructor(
                             bestLeaderProcessCandidate = entry
                             return@forEach
                         } else {
-                            if (stats.numberOfPeers!! < 150 && bestLeaderProcessCandidate?.value?.numberOfPeers!! < 150) {
+                            if (!config.minPeersForSDCalculationEnabled || (stats.numberOfPeers!! < config.minPeersForSDCalculation && bestLeaderProcessCandidate?.value?.numberOfPeers!! < config.minPeersForSDCalculation)) {
                                 // Just compare purely based on number of peers
-                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                if (stats.numberOfPeers!! > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
                                     bestLeaderProcessCandidate = entry
                                     return@forEach
                                 }
                             } else {
                                 val bestLeaderCandidatePeersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[bestLeaderProcessCandidate!!.key]!!)
-                                val peersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[entry.key]!!)
-                                logger.debug("bestLeaderCandidateSD: $bestLeaderCandidatePeersStandardDeviation, peersStandardDeviation: $peersStandardDeviation")
+                                val peersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[processNumber]!!)
 
-//                                if (bestLeaderCandidatePeersStandardDeviation > 1.0 && peersStandardDeviation > 1.0) {
-//                                    // choose the lowest standard deviation as it's further from death
-//                                    if (peersStandardDeviation < bestLeaderCandidatePeersStandardDeviation) {
-//                                        bestLeaderProcessCandidate = entry
-//                                        return@forEach
-//                                    }
-//                                } else if (bestLeaderCandidatePeersStandardDeviation < 1.0 && peersStandardDeviation < 1.0) {
-                                // Just compare purely based on number of peers
-                                if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                if (bestLeaderCandidatePeersStandardDeviation > config.minPeersBadSDLimit && peersStandardDeviation > config.minPeersBadSDLimit) {
+                                    // choose the lowest standard deviation as it's further from death
+                                    if (peersStandardDeviation < bestLeaderCandidatePeersStandardDeviation) {
+                                        bestLeaderProcessCandidate = entry
+                                        return@forEach
+                                    }
+                                } else if (bestLeaderCandidatePeersStandardDeviation < config.minPeersBadSDLimit && peersStandardDeviation < config.minPeersBadSDLimit) {
+                                    // Just compare purely based on number of peers
+                                    if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                        bestLeaderProcessCandidate = entry
+                                        return@forEach
+                                    }
+                                } else if (peersStandardDeviation < config.minPeersBadSDLimit) {
                                     bestLeaderProcessCandidate = entry
                                     return@forEach
                                 }
-//                                } else if (peersStandardDeviation < 1.0) {
-//                                    bestLeaderProcessCandidate = entry
-//                                    return@forEach
-//                                }
                             }
                         }
                     }
@@ -737,22 +772,20 @@ class JormanagerController @Autowired constructor(
         }
     }
 
+    /**
+     * Calculates the standard deviation of the past peer counts. Finally, we calculate how many standard deviations away from the mean the
+     * last peer count is. If it is an anomaly, that's bad and will result in a higher value out of this function.
+     */
     private fun calculateStandardDeviationOfLastPeerCount(pastPeerCounts: CircularQueue<Int>): Double {
         // If we haven't collected much data yet, just assume no deviation
-        if (pastPeerCounts.size < 5) return 0.0
+        if (pastPeerCounts.size < 10) return 0.0
 
-        val slopes = pastPeerCounts.mapIndexedNotNull { index, peerCount ->
-            if (index == 0) {
-                null
-            } else {
-                val prevPeerCount = pastPeerCounts[index - 1]
-                (peerCount - prevPeerCount).toDouble() / TimeUnit.MILLISECONDS.toSeconds(config.leaderElectionDelayMs).toDouble()
-            }
-        }.toDoubleArray()
-        val mean = Mean().evaluate(slopes)
-        val sd = StandardDeviation(false).evaluate(slopes, mean)
+        val peerCounts = pastPeerCounts.map { it.toDouble() }.toDoubleArray()
+        val mean = Mean().evaluate(peerCounts)
+        val sd = StandardDeviation(false).evaluate(peerCounts, mean)
 
-        return abs(slopes.last() - mean) / sd
+        // How many standard deviations away from the mean is our last peer count? IOW, is it exceptional?
+        return abs(peerCounts.last() - mean) / sd
     }
 
     /**
