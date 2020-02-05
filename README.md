@@ -86,6 +86,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
 ###### Release Notes
 
+0.1.8.1-SNAPSHOT
+
+ * Fix deadlock changing jormanager.nodestats_timeout_ms
+ 
 0.1.8-SNAPSHOT
 
  * Prevent nodes with rapid changes in peers from becoming leader

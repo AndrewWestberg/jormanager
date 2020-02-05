@@ -137,20 +137,18 @@ class JormanagerController @Autowired constructor(
                         }
                         newConfig.nodeStatsTimeout != config.nodeStatsTimeout -> {
                             // re-create our retrofit service with new okhttp timeouts for Running nodes
-                            mutex.withLock {
-                                services.keys.forEach { processNumber ->
-                                    if (latestStats[processNumber]?.state == "Running") {
-                                        val okHttpClient = okHttpClientBuilder
-                                                .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                                .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                                .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                                .build()
-                                        services[processNumber] = retrofitBuilder
-                                                .client(okHttpClient)
-                                                .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
-                                                .build()
-                                                .create(JormungandrService::class.java)
-                                    }
+                            services.keys.forEach { processNumber ->
+                                if (latestStats[processNumber]?.state == "Running") {
+                                    val okHttpClient = okHttpClientBuilder
+                                            .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                            .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                            .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                            .build()
+                                    services[processNumber] = retrofitBuilder
+                                            .client(okHttpClient)
+                                            .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                            .build()
+                                            .create(JormungandrService::class.java)
                                 }
                             }
                         }
