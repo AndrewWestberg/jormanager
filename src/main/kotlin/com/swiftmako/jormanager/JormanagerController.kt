@@ -904,14 +904,25 @@ class JormanagerController @Autowired constructor(
                     logger.debug("DELAY complete -1")
                     services.forEach { entry ->
                         val processNumber = entry.key
-                        val service = entry.value
                         logger.debug("DELAY complete $processNumber")
                         if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
                             leaderDemotions.add(
                                     async(Dispatchers.IO) {
                                         try {
                                             logger.debug("Before removeLeadership $processNumber")
-                                            service.removeLeadership(1)
+                                            // Demoting gets 30 seconds to complete
+                                            val okHttpClient = okHttpClientBuilder
+                                                    .readTimeout(30, TimeUnit.SECONDS)
+                                                    .writeTimeout(30, TimeUnit.SECONDS)
+                                                    .connectTimeout(30, TimeUnit.SECONDS)
+                                                    .build()
+                                            val demoteService = retrofitBuilder
+                                                    .client(okHttpClient)
+                                                    .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
+                                                    .build()
+                                                    .create(JormungandrService::class.java)
+
+                                            demoteService.removeLeadership(1)
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
                                         } catch (e: Throwable) {
                                             logger.error("Unable to remove leadership from Process${processNumber}!")
