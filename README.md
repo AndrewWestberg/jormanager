@@ -85,7 +85,12 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.9-SNAPSHOT
 
+ * Fix issue with demote leader at epoch cutover timing out
+ 
+ * Add option to export a peers.yaml list for sharing with others or yourself.
+ 
 0.1.8.1-SNAPSHOT
 
  * Fix deadlock changing jormanager.nodestats_timeout_ms

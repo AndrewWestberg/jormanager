@@ -45,6 +45,10 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val minPeersForSDCalculationEnabled: Boolean = properties.getBooleanProperty("jormanager.minpeers.sdcalculation.enabled")
     val minPeersForSDCalculation: Int = properties.getIntProperty("jormanager.minpeers.sdcalculation")
     val minPeersBadSDLimit: Double = properties.getDoubleProperty("jormanager.minpeers.badsdlimit")
+    val peersOutputEnabled: Boolean = properties.getBooleanProperty("jormanager.peers.output.enabled")
+    val peersOutputIp: String = properties.getStringProperty("jormanager.peers.output_ip")
+    val peersOutputPort: String = properties.getStringProperty("jormanager.peers.output_port")
+    val peersOutputLogPath: String = properties.getStringProperty("jormanager.peers.output_log")
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -87,6 +91,10 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (minPeersForSDCalculationEnabled != other.minPeersForSDCalculationEnabled) return false
         if (minPeersForSDCalculation != other.minPeersForSDCalculation) return false
         if (minPeersBadSDLimit != other.minPeersBadSDLimit) return false
+        if (peersOutputEnabled != other.peersOutputEnabled) return false
+        if (peersOutputIp != other.peersOutputIp) return false
+        if (peersOutputPort != other.peersOutputPort) return false
+        if (peersOutputLogPath != other.peersOutputLogPath) return false
 
         return true
     }
@@ -127,6 +135,10 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + minPeersForSDCalculationEnabled.hashCode()
         result = 31 * result + minPeersForSDCalculation
         result = 31 * result + minPeersBadSDLimit.hashCode()
+        result = 31 * result + peersOutputEnabled.hashCode()
+        result = 31 * result + peersOutputIp.hashCode()
+        result = 31 * result + peersOutputPort.hashCode()
+        result = 31 * result + peersOutputLogPath.hashCode()
         return result
     }
 }

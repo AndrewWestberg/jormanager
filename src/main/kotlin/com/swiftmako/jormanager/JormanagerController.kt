@@ -783,6 +783,20 @@ class JormanagerController @Autowired constructor(
                 File(config.statsLogPath).sink().buffer().use { sink ->
                     adapter.toJson(sink, OutputStats(pooltoolResult, latestStats))
                 }
+
+                if (config.peersOutputEnabled) {
+                    // output our current peer info
+                    File(config.peersOutputLogPath).sink().buffer().use { sink ->
+                        val charset = Charset.forName("UTF-8")
+                        sink.writeString("  # JorManager Nodes\n", charset)
+                        latestStats.keys.sorted().forEach { processNumber ->
+                            if (latestStats[processNumber]?.state == "Running") {
+                                sink.writeString("  - address: \"/ip4/${config.peersOutputIp}/tcp/${config.peersOutputPort.replace("{pid}", "$processNumber".padStart(2, '0'))}\"\n", charset)
+                                sink.writeString("    id: \"${latestStats[processNumber]?.nodeId}\"\n", charset)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
