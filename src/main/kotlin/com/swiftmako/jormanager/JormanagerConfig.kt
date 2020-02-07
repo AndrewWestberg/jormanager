@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component
 class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) {
 
     val nodeCount: Int = properties.getIntProperty("jormanager.nodecount")
+    val standbyMode: Boolean = properties.getBooleanProperty("jormanager.standby.mode")
     val leaderElectionDelayMs: Long = properties.getLongProperty("jormanager.leader_election_delay_ms")
     val maxBlocksBehind: Int = properties.getIntProperty("jormanager.max_blocks_behind")
     val nodeProbationSecs: Long = properties.getLongProperty("jormanager.node_probation_secs")
@@ -58,6 +59,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         other as JormanagerConfig
 
         if (nodeCount != other.nodeCount) return false
+        if (standbyMode != other.standbyMode) return false
         if (leaderElectionDelayMs != other.leaderElectionDelayMs) return false
         if (maxBlocksBehind != other.maxBlocksBehind) return false
         if (nodeProbationSecs != other.nodeProbationSecs) return false
@@ -103,6 +105,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
 
     override fun hashCode(): Int {
         var result = nodeCount
+        result = 31 * result + standbyMode.hashCode()
         result = 31 * result + leaderElectionDelayMs.hashCode()
         result = 31 * result + maxBlocksBehind
         result = 31 * result + nodeProbationSecs.hashCode()
@@ -144,6 +147,4 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + peersOutputLogPath.hashCode()
         return result
     }
-
-
 }

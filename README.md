@@ -85,6 +85,12 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.10-SNAPSHOT
+
+ * Add `jormanager.pooltool.delay_ms` configuration option
+ 
+ * Add `jormanager.standby.mode` to run JorManager with no leader elected until this setting is changed. default: false
+ 
 0.1.9-SNAPSHOT
 
  * Fix issue with demote leader at epoch cutover timing out

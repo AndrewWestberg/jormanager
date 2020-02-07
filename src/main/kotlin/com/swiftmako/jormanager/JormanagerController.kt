@@ -153,6 +153,16 @@ class JormanagerController @Autowired constructor(
                                 }
                             }
                         }
+                        newConfig.standbyMode != config.standbyMode -> {
+                            if (newConfig.standbyMode && leaderProcessNumber > -1) {
+                                services[leaderProcessNumber]?.removeLeadership(leaderId)
+                                logger.warn("DEMOTE LEADER to STANDBY LEADER: Process${leaderProcessNumber}")
+                            } else {
+                                logger.warn("LEAVING STANDBY MODE. New Leader will be promoted soon.")
+                                leaderProcessNumber = -1
+                                leaderId = -1
+                            }
+                        }
                         else -> {
                         }
                     }
@@ -365,7 +375,12 @@ class JormanagerController @Autowired constructor(
                                     service.removeLeadership(1)
                                     logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
                                 } else {
-                                    logger.warn("KEEP FIRST LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                    if (config.standbyMode) {
+                                        service.removeLeadership(1)
+                                        logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                    } else {
+                                        logger.warn("KEEP FIRST LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                    }
                                     leaderProcessNumber = processNumber
                                     leaderId = 1
                                 }
@@ -686,8 +701,12 @@ class JormanagerController @Autowired constructor(
                 if (leaderProcessNumber > -1 && shouldPromoteNewLeader) {
                     // remove leadership from previous leader
                     try {
-                        services[leaderProcessNumber]?.removeLeadership(leaderId)
-                        logger.warn("REMOVE LEADER: Process${leaderProcessNumber}")
+                        if (config.standbyMode) {
+                            logger.warn("REMOVE STANDBY LEADER: Process${leaderProcessNumber}")
+                        } else {
+                            services[leaderProcessNumber]?.removeLeadership(leaderId)
+                            logger.warn("REMOVE LEADER: Process${leaderProcessNumber}")
+                        }
                         oldLeaderProcessNumber = leaderProcessNumber
                         leaderProcessNumber = -1
                         leaderId = -1
@@ -705,19 +724,31 @@ class JormanagerController @Autowired constructor(
                             moshi.adapter(LeaderInfo::class.java)
                                     .fromJson(source)?.let { leaderInfo ->
                                         try {
-                                            leaderId = services[processNumber]?.promoteToLeader(leaderInfo) ?: -1
-                                            leaderProcessNumber = processNumber
-                                            logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
+                                            if (config.standbyMode) {
+                                                leaderId = 1
+                                                leaderProcessNumber = processNumber
+                                                logger.warn("PROMOTE STANDBY LEADER: Process${leaderProcessNumber}")
+                                            } else {
+                                                leaderId = services[processNumber]?.promoteToLeader(leaderInfo) ?: -1
+                                                leaderProcessNumber = processNumber
+                                                logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
+                                            }
                                         } catch (e: Throwable) {
                                             logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
                                             shutdownProcess(processNumber)
                                             if (oldLeaderProcessNumber > -1) {
                                                 // re-promote last leader
                                                 try {
-                                                    leaderId = services[oldLeaderProcessNumber]?.promoteToLeader(leaderInfo)
-                                                            ?: -1
-                                                    leaderProcessNumber = oldLeaderProcessNumber
-                                                    logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
+                                                    if (config.standbyMode) {
+                                                        leaderId = 1
+                                                        leaderProcessNumber = oldLeaderProcessNumber
+                                                        logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}")
+                                                    } else {
+                                                        leaderId = services[oldLeaderProcessNumber]?.promoteToLeader(leaderInfo)
+                                                                ?: -1
+                                                        leaderProcessNumber = oldLeaderProcessNumber
+                                                        logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
+                                                    }
                                                 } catch (ex: Throwable) {
                                                     logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
                                                     shutdownProcess(oldLeaderProcessNumber)
@@ -729,7 +760,11 @@ class JormanagerController @Autowired constructor(
                     }
 
                     if (leaderProcessNumber > -1) {
-                        logger.info("CURRENT LEADER: Process${leaderProcessNumber}")
+                        if (config.standbyMode) {
+                            logger.info("CURRENT STANDBY LEADER: Process${leaderProcessNumber}")
+                        } else {
+                            logger.info("CURRENT LEADER: Process${leaderProcessNumber}")
+                        }
 
                         latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
 
@@ -895,7 +930,7 @@ class JormanagerController @Autowired constructor(
                         services.forEach { entry ->
                             val processNumber = entry.key
                             val service = entry.value
-                            if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
+                            if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
                                 leaderPromotions.add(
                                         async(Dispatchers.IO) {
                                             try {
@@ -925,7 +960,7 @@ class JormanagerController @Autowired constructor(
                     services.forEach { entry ->
                         val processNumber = entry.key
                         logger.debug("DELAY complete $processNumber")
-                        if (processNumber != leaderProcessNumber && processes[processNumber]?.isPassive == false) {
+                        if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
                             leaderDemotions.add(
                                     async(Dispatchers.IO) {
                                         try {
