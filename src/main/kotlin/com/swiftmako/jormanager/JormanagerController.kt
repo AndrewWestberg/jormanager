@@ -83,6 +83,7 @@ class JormanagerController @Autowired constructor(
     var leaderProcessNumber: Int = -1
     var nextBlockTime: DateTime? = null
     var nextEpochTime: DateTime? = null
+    var lastPooltoolTimestamp: Long = -1
 
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = mutableMapOf<Int, JormungandrProcess>()
@@ -733,44 +734,49 @@ class JormanagerController @Autowired constructor(
                         latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
 
                         if (config.pooltoolEnabled) {
-                            // Update pooltool with our info
-                            try {
-                                val responseBody = try {
-                                    services[processNumber]?.getBlock(stats.lastBlockHash!!)
-                                } catch (e: HttpException) {
-                                    if (e.code() == 404) {
-                                        null
-                                    } else {
-                                        throw e
+                            if (System.currentTimeMillis() - lastPooltoolTimestamp >= config.pooltoolDelayMs) {
+                                // Update pooltool with our info
+                                try {
+                                    val responseBody = try {
+                                        services[processNumber]?.getBlock(stats.lastBlockHash!!)
+                                    } catch (e: HttpException) {
+                                        if (e.code() == 404) {
+                                            null
+                                        } else {
+                                            throw e
+                                        }
                                     }
-                                }
-                                responseBody?.bytes()?.let { responseBytes ->
-                                    val blockString = responseBytes.toHex()
-                                    val lastPoolId = blockString.substring(168, 232)
-                                    val lastParent = blockString.substring(104, 168)
-                                    val lastSlot = blockString.substring(24, 32).toLong(16).toString()
-                                    val lastEpoch = blockString.substring(16, 24).toLong(16).toString()
+                                    responseBody?.bytes()?.let { responseBytes ->
+                                        val blockString = responseBytes.toHex()
+                                        val lastPoolId = blockString.substring(168, 232)
+                                        val lastParent = blockString.substring(104, 168)
+                                        val lastSlot = blockString.substring(24, 32).toLong(16).toString()
+                                        val lastEpoch = blockString.substring(16, 24).toLong(16).toString()
 
-                                    // if (logger.isDebugEnabled) {
-                                    // logger.debug("Sending Pooltool Data:\n\tpoolId = ${config.pooltoolPoolId}\n\tuserId = ${config.pooltoolUserId}\n\tgenesisPref = ${config.pooltoolGenesisPref}\n\tlastBlockHeight = ${stats.lastBlockHeight!!}\n\tlastBlockHash = ${stats.lastBlockHash!!}\n\tlastPoolId = $lastPoolId\n\tlastParent = $lastParent\n\tlastSlot = $lastSlot\n\tlastEpoch = $lastEpoch\n\tjormVersion = ${if (config.pooltoolJormverEnabled) stats.version else null}")
-                                    // }
-                                    pooltoolResult = pooltool.shareMyTip(
-                                            poolId = config.pooltoolPoolId,
-                                            userId = config.pooltoolUserId,
-                                            genesisPref = config.pooltoolGenesisPref,
-                                            lastBlockHeight = stats.lastBlockHeight!!,
-                                            lastBlockHash = stats.lastBlockHash!!,
-                                            lastPoolId = lastPoolId,
-                                            lastParent = lastParent,
-                                            lastSlot = lastSlot,
-                                            lastEpoch = lastEpoch,
-                                            platform = "JorManager",
-                                            jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
-                                    )
-                                    logger.info("$pooltoolResult")
+                                        // if (logger.isDebugEnabled) {
+                                        // logger.debug("Sending Pooltool Data:\n\tpoolId = ${config.pooltoolPoolId}\n\tuserId = ${config.pooltoolUserId}\n\tgenesisPref = ${config.pooltoolGenesisPref}\n\tlastBlockHeight = ${stats.lastBlockHeight!!}\n\tlastBlockHash = ${stats.lastBlockHash!!}\n\tlastPoolId = $lastPoolId\n\tlastParent = $lastParent\n\tlastSlot = $lastSlot\n\tlastEpoch = $lastEpoch\n\tjormVersion = ${if (config.pooltoolJormverEnabled) stats.version else null}")
+                                        // }
+                                        pooltoolResult = pooltool.shareMyTip(
+                                                poolId = config.pooltoolPoolId,
+                                                userId = config.pooltoolUserId,
+                                                genesisPref = config.pooltoolGenesisPref,
+                                                lastBlockHeight = stats.lastBlockHeight!!,
+                                                lastBlockHash = stats.lastBlockHash!!,
+                                                lastPoolId = lastPoolId,
+                                                lastParent = lastParent,
+                                                lastSlot = lastSlot,
+                                                lastEpoch = lastEpoch,
+                                                platform = "JorManager",
+                                                jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
+                                        )
+                                        logger.info("$pooltoolResult")
+                                        lastPooltoolTimestamp = System.currentTimeMillis()
+                                    }
+                                } catch (e: Throwable) {
+                                    logger.error("Error getting last block or updating pooltool!", e)
                                 }
-                            } catch (e: Throwable) {
-                                logger.error("Error getting last block or updating pooltool!", e)
+                            } else {
+                                logger.info("Skipping Pooltool: not enough elapsed time since last update")
                             }
                         }
                     } else {

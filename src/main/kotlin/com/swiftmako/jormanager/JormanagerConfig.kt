@@ -21,6 +21,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val incrementPublicIdEnabled: Boolean = properties.getBooleanProperty("jormanager.increment.public_id.enabled")
     val pooltoolEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.enabled")
     val pooltoolJormverEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.jormver.enabled")
+    val pooltoolDelayMs: Long = properties.getLongProperty("jormanager.pooltool.delay_ms")
     val pooltoolPoolId: String = properties.getStringProperty("jormanager.pooltool.poolId")
     val pooltoolUserId: String = properties.getStringProperty("jormanager.pooltool.userId")
     val pooltoolGenesisPref: String = properties.getStringProperty("jormanager.pooltool.genesisPref")
@@ -67,6 +68,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (incrementPublicIdEnabled != other.incrementPublicIdEnabled) return false
         if (pooltoolEnabled != other.pooltoolEnabled) return false
         if (pooltoolJormverEnabled != other.pooltoolJormverEnabled) return false
+        if (pooltoolDelayMs != other.pooltoolDelayMs) return false
         if (pooltoolPoolId != other.pooltoolPoolId) return false
         if (pooltoolUserId != other.pooltoolUserId) return false
         if (pooltoolGenesisPref != other.pooltoolGenesisPref) return false
@@ -111,6 +113,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + incrementPublicIdEnabled.hashCode()
         result = 31 * result + pooltoolEnabled.hashCode()
         result = 31 * result + pooltoolJormverEnabled.hashCode()
+        result = 31 * result + pooltoolDelayMs.hashCode()
         result = 31 * result + pooltoolPoolId.hashCode()
         result = 31 * result + pooltoolUserId.hashCode()
         result = 31 * result + pooltoolGenesisPref.hashCode()
@@ -141,4 +144,6 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + peersOutputLogPath.hashCode()
         return result
     }
+
+
 }
