@@ -312,6 +312,8 @@ class JormanagerController @Autowired constructor(
      */
     private fun scanForReachablePeers(configYamlPath: String) {
         // Fix the config.yaml file so that only reachable peers are uncommented
+        var ignoring = false
+        val ignoreRegex = Regex("^.*JorManager_ignore.*\$")
         val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val idRegex = Regex("^\\s*#?\\s*id:\\s*\"(.*)\".*\$")
@@ -340,18 +342,26 @@ class JormanagerController @Autowired constructor(
                 return@forEachLine
             }
 
-            val matchResult = commentedAddressRegex.matchEntire(line) ?: uncommentedAddressRegex.matchEntire(line)
-            matchResult?.let { match ->
-                val ipAddress = match.groupValues[1]
-                val port = match.groupValues[2].toInt()
-                if (isNodeReachable(ipAddress, port)) {
-                    yamlBuilder.append("  - address: \"/ip4/$ipAddress/tcp/$port\"")
-                    uncommentIdLine = true
-                } else {
-                    yamlBuilder.append("  # - address: \"/ip4/$ipAddress/tcp/$port\"")
-                    commentIdLine = true
-                }
-            } ?: yamlBuilder.append(line)
+            ignoreRegex.matchEntire(line)?.let { _ ->
+                ignoring = !ignoring
+            }
+
+            if (!ignoring) {
+                val matchResult = commentedAddressRegex.matchEntire(line) ?: uncommentedAddressRegex.matchEntire(line)
+                matchResult?.let { match ->
+                    val ipAddress = match.groupValues[1]
+                    val port = match.groupValues[2].toInt()
+                    if (isNodeReachable(ipAddress, port)) {
+                        yamlBuilder.append("  - address: \"/ip4/$ipAddress/tcp/$port\"")
+                        uncommentIdLine = true
+                    } else {
+                        yamlBuilder.append("  # - address: \"/ip4/$ipAddress/tcp/$port\"")
+                        commentIdLine = true
+                    }
+                } ?: yamlBuilder.append(line)
+            } else {
+                yamlBuilder.append(line)
+            }
 
             yamlBuilder.append('\n')
         }
@@ -712,6 +722,10 @@ class JormanagerController @Autowired constructor(
                         leaderId = -1
                     } catch (e: Throwable) {
                         logger.error("Unable to remove leadership from Process${leaderProcessNumber}!")
+                        shutdownProcess(leaderProcessNumber)
+                        oldLeaderProcessNumber = -1
+                        leaderProcessNumber = -1
+                        leaderId = -1
                     }
                 }
 
@@ -938,6 +952,7 @@ class JormanagerController @Autowired constructor(
                                                 logger.warn("PROMOTE LEADER: Process${processNumber}")
                                             } catch (e: Throwable) {
                                                 logger.error("Unable to promote Process${processNumber} to leader", e)
+                                                shutdownProcess(processNumber)
                                             }
                                         }
                                 )
@@ -981,6 +996,7 @@ class JormanagerController @Autowired constructor(
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
                                         } catch (e: Throwable) {
                                             logger.error("Unable to remove leadership from Process${processNumber}!")
+                                            shutdownProcess(processNumber)
                                         }
                                     }
                             )

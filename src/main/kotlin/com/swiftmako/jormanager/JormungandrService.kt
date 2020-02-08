@@ -23,6 +23,9 @@ interface JormungandrService {
     @GET("v0/network/stats")
     suspend fun networkStats(): List<NetworkStat>
 
+    @GET("v0/leaders")
+    suspend fun getLeaders(): List<Int>
+
     @GET("v0/leaders/logs")
     suspend fun getLeaderLog(): List<LeaderBlock>
 

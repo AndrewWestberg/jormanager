@@ -85,6 +85,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.11-SNAPSHOT
+ 
+ * Make an error demoting node after epoch cutover a fatal error to prevent adversarial forks
+ 
 0.1.10-SNAPSHOT
 
  * Add `jormanager.pooltool.delay_ms` configuration option
