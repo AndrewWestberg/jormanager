@@ -1019,6 +1019,26 @@ class JormanagerController @Autowired constructor(
                 // lock the mutex so new nodes can't be spun up
                 mutex.withLock {
                     logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
+
+                    // sanity check to make sure we only have 1 leader
+                    services.forEach { entry ->
+                        val processNumber = entry.key
+                        try {
+                            val service = entry.value
+                            val leaders = service.getLeaders()
+                            if ((config.standbyMode || processNumber != leaderProcessNumber) && leaders.isNotEmpty()) {
+                                logger.error("Process$processNumber is a leader and shouldn't be!")
+                                shutdownProcess(processNumber)
+                            } else if (!config.standbyMode && processNumber == leaderProcessNumber && leaders.isEmpty()) {
+                                logger.error("Process$processNumber should be a leader and isn't. We might miss this block!")
+                                shutdownProcess(processNumber)
+                            }
+                        } catch (e: Throwable) {
+                            logger.error("Error checking leadership on Process$processNumber")
+                            shutdownProcess(processNumber)
+                        }
+                    }
+
                     val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
                     if (fiveSecondsBeforeMinting > 0) {
                         delay(fiveSecondsBeforeMinting)
