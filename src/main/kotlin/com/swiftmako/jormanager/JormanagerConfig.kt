@@ -51,6 +51,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val peersOutputIp: String = properties.getStringProperty("jormanager.peers.output_ip")
     val peersOutputPort: String = properties.getStringProperty("jormanager.peers.output_port")
     val peersOutputLogPath: String = properties.getStringProperty("jormanager.peers.output_log")
+    val killPath: String = properties.getStringProperty("jormanager.kill.path")
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -99,6 +100,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (peersOutputIp != other.peersOutputIp) return false
         if (peersOutputPort != other.peersOutputPort) return false
         if (peersOutputLogPath != other.peersOutputLogPath) return false
+        if (killPath != other.killPath) return false
 
         return true
     }
@@ -145,6 +147,7 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + peersOutputIp.hashCode()
         result = 31 * result + peersOutputPort.hashCode()
         result = 31 * result + peersOutputLogPath.hashCode()
+        result = 31 * result + killPath.hashCode()
         return result
     }
 }

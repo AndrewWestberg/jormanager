@@ -85,6 +85,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.13-SNAPSHOT
+
+ * Config option for Windows user so kill.exe can work
+ 
 0.1.12-SNAPSHOT
 
  * Do an extra sanity-check before block minting to ensure only one node is a leader

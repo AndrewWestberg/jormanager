@@ -443,14 +443,14 @@ class JormanagerController @Autowired constructor(
             logger.warn("TERM Process$processNumber with pid: $pid")
             @Suppress("BlockingMethodInNonBlockingContext")
             ProcessBuilder(
-                    "kill",
+                    config.killPath,
                     "-s", "TERM",
                     "$pid"
             ).start().waitFor()
             logger.warn("KILL Process$processNumber with pid: $pid")
             @Suppress("BlockingMethodInNonBlockingContext")
             ProcessBuilder(
-                    "kill",
+                    config.killPath,
                     "-s", "KILL",
                     "$pid"
             ).start().waitFor()
