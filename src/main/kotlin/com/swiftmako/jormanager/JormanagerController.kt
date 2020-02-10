@@ -41,6 +41,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationContext
 import org.springframework.context.ApplicationContextAware
+import org.springframework.messaging.handler.annotation.SendTo
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -92,6 +94,7 @@ class JormanagerController @Autowired constructor(
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
+    private var outputStats: OutputStats? = null
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -244,6 +247,7 @@ class JormanagerController @Autowired constructor(
     /**
      * Add a shutdown hook to ensure all child process are terminated when this app terminates
      */
+    @Suppress("BlockingMethodInNonBlockingContext")
     @PreDestroy
     fun shutdownCallback() {
         runBlocking {
@@ -926,6 +930,10 @@ class JormanagerController @Autowired constructor(
                 }
 
                 // log our status info
+                outputStats = OutputStats(pooltoolResult, latestStats)
+                // send latest status on the websocket
+                postStatusUpdate()
+
                 val adapter = moshi.adapter(OutputStats::class.java).indent("  ")
                 File(config.statsLogPath).sink().buffer().use { sink ->
                     // output without nodeId for security reasons
@@ -1435,6 +1443,12 @@ class JormanagerController @Autowired constructor(
             return false
         }
     }
+
+    @GetMapping("/status")
+    fun getStatus(): OutputStats? = outputStats
+
+    @SendTo("/topic/status")
+    fun postStatusUpdate(): OutputStats? = outputStats
 
     companion object {
         private val logger = LoggerFactory.getLogger(JormanagerController::class.java)

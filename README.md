@@ -85,6 +85,18 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.1-SNAPSHOT
+
+ * Fix for node probation not displaying correctly in log
+ 
+ * Add logging to shutdown so we can be confident jormungandr instances have shut down
+ 
+ * Add JWT authentication
+  
+ * Add /status REST endpoint (authenticated)
+ 
+ * Add /jormanager-websocket endpoint with /topic/status subscription. (authenticated) 
+ 
 0.2.0-SNAPSHOT
 
  * Allow any duration properties to be specified as ##d ##h ##m ##s or ##ms 

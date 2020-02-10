@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.2.0-SNAPSHOT"
+version = "0.2.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -24,8 +24,14 @@ dependencies {
 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
+    implementation("org.springframework.boot:spring-boot-starter-websocket")
+
     implementation("org.springframework.boot:spring-boot-starter-security")
-    implementation("org.springframework.security:spring-security-test:5.2.2.RELEASE")
+    implementation("org.springframework.security:spring-security-core:5.2.2.RELEASE")
+    implementation("org.springframework.security:spring-security-web:5.2.2.RELEASE")
+    implementation("org.springframework.security:spring-security-config:5.2.2.RELEASE")
+    implementation("io.jsonwebtoken:jjwt:0.9.1")
+
     implementation("org.bouncycastle:bcprov-jdk15on:1.64")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.10.2")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
@@ -38,6 +44,13 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.3.1")
     implementation("joda-time:joda-time:2.10.5")
     implementation("org.apache.commons:commons-math3:3.6.1")
+    implementation("javax.xml.bind:jaxb-api:2.3.1")
+
+    implementation("org.webjars:webjars-locator-core:0.43")
+    implementation("org.webjars:sockjs-client:1.1.2")
+    implementation("org.webjars:stomp-websocket:2.3.3-1")
+    implementation("org.webjars:bootstrap:4.4.1-1")
+    implementation("org.webjars:jquery:3.4.1")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
