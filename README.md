@@ -89,6 +89,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
  * Config option for Windows user so kill.exe can work
  
+ * Additional bug fixes for epoch cutover and nasty ConcurrentModificationException
+ 
 0.1.12-SNAPSHOT
 
  * Do an extra sanity-check before block minting to ensure only one node is a leader

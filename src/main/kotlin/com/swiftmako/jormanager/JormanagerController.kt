@@ -406,7 +406,9 @@ class JormanagerController @Autowired constructor(
                     } catch (e: Throwable) {
                         logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}")
                         if (probationCount > 4) {
-                            shutdownProcess(processNumber)
+                            mutex.withLock {
+                                shutdownProcess(processNumber)
+                            }
                             return@launch
                         } else {
                             probationCount++
@@ -417,7 +419,9 @@ class JormanagerController @Autowired constructor(
                     if (System.currentTimeMillis() - process.startedAt > config.maxBootstrapMs) {
                         // Stale bootstrap. restart it.
                         logger.error("STALE BOOTSTRAP: Will restart Process${processNumber}")
-                        shutdownProcess(processNumber)
+                        mutex.withLock {
+                            shutdownProcess(processNumber)
+                        }
                         return@launch
                     }
                 }
@@ -910,29 +914,27 @@ class JormanagerController @Autowired constructor(
      * nodes get the leader logs.
      */
     private suspend fun handleEpochCutover() = coroutineScope {
-        nextEpochTime?.let { nextEpochTime ->
-            if (DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(nextEpochTime)) {
+        nextEpochTime?.let { epochTime ->
+            if (epochTime.isAfterNow && DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(epochTime)) {
                 // lock the mutex so new nodes can't be spun up
                 mutex.withLock {
                     logger.warn("EPOCH IS ENDING SOON: Pausing Leader Election changes...")
-                    val fiveSecondsBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 5000
+                    val fiveSecondsBeforeEpoch = epochTime.millis - System.currentTimeMillis() - 5000
                     if (fiveSecondsBeforeEpoch > 0) {
                         delay(fiveSecondsBeforeEpoch)
                     }
 
                     // Shutdown any nodes that are still bootstrapping so they don't interfere with epoch cutover
                     bootstrapJobs.forEach { (processNumber, job) ->
-                        launch {
-                            if (job.isActive && processes[processNumber]?.isPassive == false) {
-                                logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
-                                job.cancel()
-                                shutdownProcess(processNumber)
-                            }
+                        if (job.isActive && processes[processNumber]?.isPassive == false) {
+                            logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                            job.cancel()
+                            shutdownProcess(processNumber)
                         }
                     }
 
                     // wait until 1.75 seconds before epoch cutover and make all running nodes into leaders
-                    val justBeforeEpoch = nextEpochTime.millis - System.currentTimeMillis() - 1750
+                    val justBeforeEpoch = epochTime.millis - System.currentTimeMillis() - 1750
                     if (justBeforeEpoch > 0) {
                         delay(justBeforeEpoch)
                     }
@@ -940,6 +942,8 @@ class JormanagerController @Autowired constructor(
                     val leaderInfo = File(config.jormungandrSecretJsonPath).source().buffer().use { source ->
                         moshi.adapter(LeaderInfo::class.java).fromJson(source)
                     }
+
+                    val processesToRemove = Collections.synchronizedSet(mutableSetOf<Int>())
                     leaderInfo?.let { li ->
                         services.forEach { entry ->
                             val processNumber = entry.key
@@ -952,7 +956,7 @@ class JormanagerController @Autowired constructor(
                                                 logger.warn("PROMOTE LEADER: Process${processNumber}")
                                             } catch (e: Throwable) {
                                                 logger.error("Unable to promote Process${processNumber} to leader", e)
-                                                shutdownProcess(processNumber)
+                                                processesToRemove.add(processNumber)
                                             }
                                         }
                                 )
@@ -961,10 +965,12 @@ class JormanagerController @Autowired constructor(
                     }
 
                     awaitAll(*leaderPromotions.toTypedArray())
+                    processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
+                    processesToRemove.clear()
                     logger.warn("EPOCH CUTOVER LEADER PROMOTIONS COMPLETED.")
 
                     // wait until 1.75 seconds after epoch cutover and make all leaders passive
-                    val justAfterEpoch = nextEpochTime.millis - System.currentTimeMillis() + 1750
+                    val justAfterEpoch = epochTime.millis - System.currentTimeMillis() + 1750
                     if (justAfterEpoch > 0) {
                         logger.info("DELAY for ${justAfterEpoch}ms")
                         delay(justAfterEpoch)
@@ -996,14 +1002,17 @@ class JormanagerController @Autowired constructor(
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
                                         } catch (e: Throwable) {
                                             logger.error("Unable to remove leadership from Process${processNumber}!")
-                                            shutdownProcess(processNumber)
+                                            processesToRemove.add(processNumber)
                                         }
                                     }
                             )
                         }
                     }
                     awaitAll(*leaderDemotions.toTypedArray())
+                    processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
+                    processesToRemove.clear()
                     logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
+                    nextEpochTime = null
                 }
             }
         }
@@ -1021,6 +1030,7 @@ class JormanagerController @Autowired constructor(
                     logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
 
                     // sanity check to make sure we only have 1 leader
+                    val processesToRemove = Collections.synchronizedSet(mutableSetOf<Int>())
                     services.forEach { entry ->
                         val processNumber = entry.key
                         try {
@@ -1028,16 +1038,18 @@ class JormanagerController @Autowired constructor(
                             val leaders = service.getLeaders()
                             if ((config.standbyMode || processNumber != leaderProcessNumber) && leaders.isNotEmpty()) {
                                 logger.error("Process$processNumber is a leader and shouldn't be!")
-                                shutdownProcess(processNumber)
+                                processesToRemove.add(processNumber)
                             } else if (!config.standbyMode && processNumber == leaderProcessNumber && leaders.isEmpty()) {
                                 logger.error("Process$processNumber should be a leader and isn't. We might miss this block!")
-                                shutdownProcess(processNumber)
+                                processesToRemove.add(processNumber)
                             }
                         } catch (e: Throwable) {
                             logger.error("Error checking leadership on Process$processNumber")
-                            shutdownProcess(processNumber)
+                            processesToRemove.add(processNumber)
                         }
                     }
+
+                    processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
 
                     val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
                     if (fiveSecondsBeforeMinting > 0) {
@@ -1046,12 +1058,10 @@ class JormanagerController @Autowired constructor(
 
                     // Shutdown any nodes that are still bootstrapping so they don't interfere with minting
                     bootstrapJobs.forEach { (processNumber, job) ->
-                        launch {
-                            if (job.isActive && processes[processNumber]?.isPassive == false) {
-                                logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
-                                job.cancel()
-                                shutdownProcess(processNumber)
-                            }
+                        if (job.isActive && processes[processNumber]?.isPassive == false) {
+                            logger.warn("CANCEL BOOTSTRAP JOB: Process$processNumber")
+                            job.cancel()
+                            shutdownProcess(processNumber)
                         }
                     }
 
