@@ -85,6 +85,12 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.14-SNAPSHOT
+
+ * Remove nodeId from status output json for security reasons
+ 
+ * Cleaner error message when there is a pooltool error
+ 
 0.1.13-SNAPSHOT
 
  * Config option for Windows user so kill.exe can work

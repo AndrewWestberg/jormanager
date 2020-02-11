@@ -826,7 +826,7 @@ class JormanagerController @Autowired constructor(
                                         lastPooltoolTimestamp = System.currentTimeMillis()
                                     }
                                 } catch (e: Throwable) {
-                                    logger.error("Error getting last block or updating pooltool!", e)
+                                    logger.error("Error getting last block or updating pooltool!: ${e.message}")
                                 }
                             } else {
                                 logger.info("Skipping Pooltool: not enough elapsed time since last update")
@@ -835,12 +835,6 @@ class JormanagerController @Autowired constructor(
                     } else {
                         logger.error("NO CURRENT LEADER Process!")
                     }
-                }
-
-                // log our status info
-                val adapter = moshi.adapter(OutputStats::class.java).indent("  ")
-                File(config.statsLogPath).sink().buffer().use { sink ->
-                    adapter.toJson(sink, OutputStats(pooltoolResult, latestStats))
                 }
 
                 if (config.peersOutputEnabled) {
@@ -855,6 +849,13 @@ class JormanagerController @Autowired constructor(
                             }
                         }
                     }
+                }
+
+                // log our status info
+                val adapter = moshi.adapter(OutputStats::class.java).indent("  ")
+                File(config.statsLogPath).sink().buffer().use { sink ->
+                    // output without nodeId for security reasons
+                    adapter.toJson(sink, OutputStats(pooltoolResult, latestStats.mapValues { entry -> entry.value.copy(nodeId = null) }))
                 }
             }
         }

@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.1.13-SNAPSHOT"
+version = "0.1.14-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -24,7 +24,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.springframework.boot:spring-boot-starter-security")
-    implementation("org.springframework.security:spring-security-test")
+    implementation("org.springframework.security:spring-security-test:5.2.2.RELEASE")
     implementation("org.bouncycastle:bcprov-jdk15on:1.64")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.10.2")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
