@@ -1023,8 +1023,8 @@ class JormanagerController @Autowired constructor(
      * block and potentially be without a leader. Otherwise, just wait the normal leader election delay timeperiod.
      */
     private suspend fun handleBlockMinting() = coroutineScope {
-        nextBlockTime?.let {
-            if (DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(it)) {
+        nextBlockTime?.let { blockTime ->
+            if (blockTime.isAfterNow && DateTime.now().plusMillis(2 * config.leaderElectionDelayMs.toInt()).isAfter(blockTime)) {
                 // lock the mutex so new nodes can't be spun up
                 mutex.withLock {
                     logger.warn("BLOCK MINTING SOON: Pausing Leader Election changes...")
@@ -1051,7 +1051,7 @@ class JormanagerController @Autowired constructor(
 
                     processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
 
-                    val fiveSecondsBeforeMinting = it.millis - System.currentTimeMillis() - 5000
+                    val fiveSecondsBeforeMinting = blockTime.millis - System.currentTimeMillis() - 5000
                     if (fiveSecondsBeforeMinting > 0) {
                         delay(fiveSecondsBeforeMinting)
                     }
@@ -1065,8 +1065,9 @@ class JormanagerController @Autowired constructor(
                         }
                     }
 
-                    delay(it.millis - System.currentTimeMillis() + 1500)
+                    delay(blockTime.millis - System.currentTimeMillis() + 1500)
                     logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
+                    nextBlockTime = null
                 }
             } else {
                 delay(config.leaderElectionDelayMs)
