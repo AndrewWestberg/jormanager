@@ -79,7 +79,6 @@ class JormanagerController @Autowired constructor(
     private val configMutex = Mutex()
     private val configYamlMutex = Mutex()
 
-    var leaderId: Int = -1
     var leaderProcessNumber: Int = -1
     var nextBlockTime: DateTime? = null
     var nextEpochTime: DateTime? = null
@@ -113,9 +112,10 @@ class JormanagerController @Autowired constructor(
                         newConfig.nodeCount > config.nodeCount -> {
                             logger.warn("jormanager.nodecount: ${config.nodeCount} -> ${newConfig.nodeCount}")
                             val delta = newConfig.nodeCount - config.nodeCount
+                            val oldNodeCount = config.nodeCount
                             config = newConfig // need to set this early so the new node will actually spin up
                             for (processNumber in 0 until delta) {
-                                processStartQueue.send(newConfig.nodeCount + processNumber - 1)
+                                processStartQueue.send(oldNodeCount + processNumber)
                             }
                         }
                         newConfig.nodeCount < config.nodeCount -> {
@@ -154,13 +154,18 @@ class JormanagerController @Autowired constructor(
                             }
                         }
                         newConfig.standbyMode != config.standbyMode -> {
-                            if (newConfig.standbyMode && leaderProcessNumber > -1) {
-                                services[leaderProcessNumber]?.removeLeadership(leaderId)
-                                logger.warn("DEMOTE LEADER to STANDBY LEADER: Process${leaderProcessNumber}")
-                            } else {
-                                logger.warn("LEAVING STANDBY MODE. New Leader will be promoted soon.")
+                            try {
+                                if (newConfig.standbyMode && leaderProcessNumber > -1) {
+                                    demoteLeader(services[leaderProcessNumber])
+                                    logger.warn("DEMOTE LEADER to STANDBY LEADER: Process${leaderProcessNumber}")
+                                } else {
+                                    logger.warn("LEAVING STANDBY MODE. New Leader will be promoted soon.")
+                                    leaderProcessNumber = -1
+                                }
+                            } catch (e: Throwable) {
+                                logger.error("Unable to remove leadership from Process${leaderProcessNumber}!")
+                                shutdownProcess(leaderProcessNumber)
                                 leaderProcessNumber = -1
-                                leaderId = -1
                             }
                         }
                         else -> {
@@ -382,17 +387,16 @@ class JormanagerController @Autowired constructor(
                             if (!process.isPassive) {
                                 if (leaderProcessNumber > -1) {
                                     // Node came up! Turn off leadership immediately
-                                    service.removeLeadership(1)
+                                    demoteLeader(service)
                                     logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
                                 } else {
                                     if (config.standbyMode) {
-                                        service.removeLeadership(1)
+                                        demoteLeader(service)
                                         logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
                                     } else {
                                         logger.warn("KEEP FIRST LEADER AFTER BOOTSTRAP: Process${processNumber}")
                                     }
                                     leaderProcessNumber = processNumber
-                                    leaderId = 1
                                 }
                             } else {
                                 logger.warn("PASSIVE BOOTSTRAP: Process${processNumber}")
@@ -405,7 +409,7 @@ class JormanagerController @Autowired constructor(
                         return@launch
                     } catch (e: Throwable) {
                         logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}")
-                        if (probationCount > 4) {
+                        if (probationCount > 2) {
                             mutex.withLock {
                                 shutdownProcess(processNumber)
                             }
@@ -577,6 +581,15 @@ class JormanagerController @Autowired constructor(
                                             "---"
                                         }
 
+                                        // Validate we're in the correct leadership state
+                                        if (!config.standbyMode && processNumber == leaderProcessNumber) {
+                                            // Validate that we ARE a leader
+                                            promoteLeader(services[processNumber])
+                                        } else {
+                                            // Validate that we ARE NOT a leader
+                                            demoteLeader(services[processNumber])
+                                        }
+
                                         if (latestStats[processNumber]?.state != "Running") {
                                             // Moving to Running state for the first time. Set the new rest timeouts
                                             logger.debug("Process$processNumber came up. Set REST timeout to ${config.nodeStatsTimeout}ms")
@@ -718,18 +731,16 @@ class JormanagerController @Autowired constructor(
                         if (config.standbyMode) {
                             logger.warn("REMOVE STANDBY LEADER: Process${leaderProcessNumber}")
                         } else {
-                            services[leaderProcessNumber]?.removeLeadership(leaderId)
+                            demoteLeader(services[leaderProcessNumber])
                             logger.warn("REMOVE LEADER: Process${leaderProcessNumber}")
                         }
                         oldLeaderProcessNumber = leaderProcessNumber
                         leaderProcessNumber = -1
-                        leaderId = -1
                     } catch (e: Throwable) {
                         logger.error("Unable to remove leadership from Process${leaderProcessNumber}!")
                         shutdownProcess(leaderProcessNumber)
                         oldLeaderProcessNumber = -1
                         leaderProcessNumber = -1
-                        leaderId = -1
                     }
                 }
 
@@ -743,11 +754,10 @@ class JormanagerController @Autowired constructor(
                                     .fromJson(source)?.let { leaderInfo ->
                                         try {
                                             if (config.standbyMode) {
-                                                leaderId = 1
                                                 leaderProcessNumber = processNumber
                                                 logger.warn("PROMOTE STANDBY LEADER: Process${leaderProcessNumber}")
                                             } else {
-                                                leaderId = services[processNumber]?.promoteToLeader(leaderInfo) ?: -1
+                                                promoteLeader(services[processNumber], leaderInfo)
                                                 leaderProcessNumber = processNumber
                                                 logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
                                             }
@@ -758,12 +768,10 @@ class JormanagerController @Autowired constructor(
                                                 // re-promote last leader
                                                 try {
                                                     if (config.standbyMode) {
-                                                        leaderId = 1
                                                         leaderProcessNumber = oldLeaderProcessNumber
                                                         logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}")
                                                     } else {
-                                                        leaderId = services[oldLeaderProcessNumber]?.promoteToLeader(leaderInfo)
-                                                                ?: -1
+                                                        promoteLeader(services[oldLeaderProcessNumber], leaderInfo)
                                                         leaderProcessNumber = oldLeaderProcessNumber
                                                         logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
                                                     }
@@ -953,7 +961,7 @@ class JormanagerController @Autowired constructor(
                                 leaderPromotions.add(
                                         async(Dispatchers.IO) {
                                             try {
-                                                service.promoteToLeader(li)
+                                                promoteLeader(service, li)
                                                 logger.warn("PROMOTE LEADER: Process${processNumber}")
                                             } catch (e: Throwable) {
                                                 logger.error("Unable to promote Process${processNumber} to leader", e)
@@ -999,10 +1007,10 @@ class JormanagerController @Autowired constructor(
                                                     .build()
                                                     .create(JormungandrService::class.java)
 
-                                            demoteService.removeLeadership(1)
+                                            demoteLeader(demoteService)
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
                                         } catch (e: Throwable) {
-                                            logger.error("Unable to remove leadership from Process${processNumber}!")
+                                            logger.error("Unable to remove leadership from Process${processNumber}!: ${e.message}")
                                             processesToRemove.add(processNumber)
                                         }
                                     }
@@ -1015,6 +1023,44 @@ class JormanagerController @Autowired constructor(
                     logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
                     nextEpochTime = null
                 }
+            }
+        }
+    }
+
+    /**
+     * Demotes a node to no longer be a leader, or validates that is is already not a leader.
+     * Throws an exception if this node is a leader and was not able to be demoted
+     */
+    @Throws(Exception::class)
+    private suspend fun demoteLeader(service: JormungandrService?) {
+        service?.let {
+            val leaders = service.getLeaders()
+            if (leaders.isNotEmpty()) {
+                leaders.forEach { leaderId -> service.removeLeadership(leaderId) }
+                val updatedLeaders = service.getLeaders()
+                if (updatedLeaders.isNotEmpty()) {
+                    throw Exception("Leaders contains $updatedLeaders")
+                }
+            }
+        }
+    }
+
+    /**
+     * Promotes a node to be a leader, or validates that is is already a leader.
+     * Throws an exception if this node is not a leader and was not able to be promoted
+     */
+    @Throws(Exception::class)
+    private suspend fun promoteLeader(service: JormungandrService?, leaderInfo: LeaderInfo? = null) {
+        service?.let {
+            val leaders = service.getLeaders()
+            if (leaders.isEmpty()) {
+                leaderInfo?.let {
+                    val leaderId = service.promoteToLeader(leaderInfo)
+                    val updatedLeaders = service.getLeaders()
+                    if (!updatedLeaders.contains(leaderId)) {
+                        throw Exception("Leaders does not contain $leaderId, instead was '$updatedLeaders'")
+                    }
+                } ?: throw Exception("Expected to be a leader and we weren't")
             }
         }
     }
