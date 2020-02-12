@@ -85,6 +85,14 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.15-SNAPSHOT
+ 
+ * Validate leadership every leader election cycle. Validate leadership with every promote/demote.
+ 
+ * Fix for nodeCount changing by more than increments of 1
+ 
+ * Add `jormanager.node_stagger_by_bootstrap` requiring JorManager to wait for previous node to bootstrap before starting next.
+ 
 0.1.14-SNAPSHOT
 
  * Remove nodeId from status output json for security reasons

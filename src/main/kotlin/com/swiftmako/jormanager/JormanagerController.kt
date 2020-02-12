@@ -186,9 +186,13 @@ class JormanagerController @Autowired constructor(
      */
     private fun manageProcessStartup() = launch {
 
-        // populate initial set of processes
-        for (processNumber in 0 until config.nodeCount) {
-            processStartQueue.send(processNumber)
+        if (config.nodeStaggerByBootstrap) {
+            processStartQueue.send(0)
+        } else {
+            // populate initial set of processes
+            for (processNumber in 0 until config.nodeCount) {
+                processStartQueue.send(processNumber)
+            }
         }
 
         for (processNumber in processStartQueue) {
@@ -221,6 +225,8 @@ class JormanagerController @Autowired constructor(
                         pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
+                    } else {
+                        logger.warn("Tried to start process$processNumber, but it looks to already be running.")
                     }
                 } else {
                     logger.warn("Tried to start process$processNumber, but jormungandr.nodecount = ${config.nodeCount}")
@@ -400,6 +406,10 @@ class JormanagerController @Autowired constructor(
                                 }
                             } else {
                                 logger.warn("PASSIVE BOOTSTRAP: Process${processNumber}")
+                            }
+                            if (config.nodeStaggerByBootstrap && processNumber + 1 < config.nodeCount && processes[processNumber + 1] == null) {
+                                // Launch the next process
+                                processStartQueue.send(processNumber + 1)
                             }
                             return@launch
                         }
