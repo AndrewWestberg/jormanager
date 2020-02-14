@@ -57,6 +57,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.system.measureTimeMillis
 
 
@@ -89,6 +90,7 @@ class JormanagerController @Autowired constructor(
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
+    private val pastLeaderScores = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Double>>())
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -168,11 +170,17 @@ class JormanagerController @Autowired constructor(
                                 leaderProcessNumber = -1
                             }
                         }
+                        newConfig.leaderElectionDelayMs != config.leaderElectionDelayMs || newConfig.leaderscoreHistoryMins != config.leaderscoreHistoryMins -> {
+                            pastLeaderScores.forEach { entry -> entry.value.maxElements = newConfig.leaderscoreHistoryMins * (60_000 / newConfig.leaderElectionDelayMs.toInt()) }
+                        }
                         else -> {
                         }
                     }
 
                     config = newConfig
+                    if (logger.isDebugEnabled) {
+                        logger.debug(config.toString())
+                    }
                 }
             } else {
                 config = applicationContext.getBean(JormanagerConfig::class.java)
@@ -223,6 +231,7 @@ class JormanagerController @Autowired constructor(
                                 .build()
                                 .create(JormungandrService::class.java)
                         pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
+                        pastLeaderScores[processNumber] = CircularQueue(config.leaderscoreHistoryMins * (60_000 / config.leaderElectionDelayMs.toInt()))
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
                     } else {
@@ -430,8 +439,12 @@ class JormanagerController @Autowired constructor(
                         }
                     }
 
-                    if (System.currentTimeMillis() - process.startedAt > config.maxBootstrapMs) {
+                    val now = System.currentTimeMillis()
+                    if (now - process.startedAt > config.maxBootstrapMs) {
                         // Stale bootstrap. restart it.
+                        if (logger.isDebugEnabled) {
+                            logger.debug("process.startedAt: ${process.startedAt}, System.currentTimeMillis(): ${now}, config.maxBootstrapMs: ${config.maxBootstrapMs}")
+                        }
                         logger.error("STALE BOOTSTRAP: Will restart Process${processNumber}")
                         mutex.withLock {
                             shutdownProcess(processNumber)
@@ -460,18 +473,20 @@ class JormanagerController @Autowired constructor(
         if (pid != null && pid > -1) {
             logger.warn("TERM Process$processNumber with pid: $pid")
             @Suppress("BlockingMethodInNonBlockingContext")
-            ProcessBuilder(
-                    config.killPath,
+            val termExitCode = ProcessBuilder(
+                    config.killPath.trim(),
                     "-s", "TERM",
                     "$pid"
             ).start().waitFor()
+            logger.warn("TERM Process$processNumber exited with: $termExitCode")
             logger.warn("KILL Process$processNumber with pid: $pid")
             @Suppress("BlockingMethodInNonBlockingContext")
-            ProcessBuilder(
-                    config.killPath,
+            val killExitCode = ProcessBuilder(
+                    config.killPath.trim(),
                     "-s", "KILL",
                     "$pid"
             ).start().waitFor()
+            logger.warn("KILL Process$processNumber exited with: $killExitCode")
         } else {
             logger.warn("Could not get PID for Process$processNumber shutdown.")
         }
@@ -679,6 +694,23 @@ class JormanagerController @Autowired constructor(
                 }
                 processesToRemove.clear()
 
+                latestStats.forEach { entry ->
+                    val processNumber = entry.key
+                    val stats = entry.value
+                    if (stats.lastBlockHeight?.toLong() == maxBlockHeight) {
+                        // node is ON tip
+                        pastLeaderScores[processNumber]?.add(1.0)
+                    } else {
+                        // node is NOT ON tip
+                        pastLeaderScores[processNumber]?.add(0.0)
+                    }
+                    if (logger.isDebugEnabled) {
+                        pastLeaderScores[processNumber]?.let { leaderScores ->
+                            logger.debug("Process$processNumber leaderscore: ${calculateLeaderscore(leaderScores)}")
+                        }
+                    }
+                }
+
                 // Find the best leader candidate
                 var bestLeaderProcessCandidate: Map.Entry<Int, Stats>? = null
                 latestStats.forEach { entry ->
@@ -877,6 +909,23 @@ class JormanagerController @Autowired constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Calculates a leaderscore based on past on-tip-ness of a node
+     */
+    private fun calculateLeaderscore(pastLeaderScores: CircularQueue<Double>): Double {
+        if (pastLeaderScores.isEmpty()) return 0.0
+
+        return pastLeaderScores.mapIndexed { index, score ->
+            score * (index + 1)
+//            val weightedScore = score * (index + 1)
+//            if (weightedScore == 0.0) {
+//                0.0
+//            } else {
+//                log10(weightedScore)
+//            }
+        }.sum()
     }
 
     /**

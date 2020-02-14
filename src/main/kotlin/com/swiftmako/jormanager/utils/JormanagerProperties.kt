@@ -19,7 +19,7 @@ class JormanagerProperties : ReloadableProperties() {
 
     fun getBooleanListProperty(key: String): List<Boolean> {
         return environment.getProperty(key)?.let { value ->
-            value.split(", ").map { booleanString -> booleanString.toBoolean() }
+            value.split(",").map { booleanString -> booleanString.trim().toBoolean() }
         } ?: emptyList()
     }
 

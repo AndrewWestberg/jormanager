@@ -2,7 +2,7 @@ package com.swiftmako.jormanager.utils
 
 import java.util.*
 
-class CircularQueue<T>(private val maxElements:Int) : LinkedList<T>() {
+class CircularQueue<T>(var maxElements:Int) : LinkedList<T>() {
 
     override fun add(element: T): Boolean {
         val result = super.add(element)
