@@ -296,7 +296,7 @@ class JormanagerController @Autowired constructor(
             for (line in lines) {
                 publicIdRegex.matchEntire(line)?.let { matchResult ->
                     currentPublicId = matchResult.groupValues[1]
-                    newPublicId = BigInteger(currentPublicId, 16).add(BigInteger.ONE).toString(16)
+                    newPublicId = BigInteger(currentPublicId, 16).add(BigInteger.ONE).toString(16).padStart(currentPublicId.length, '0')
                 } ?: continue
                 break
             }
@@ -330,7 +330,7 @@ class JormanagerController @Autowired constructor(
         val ignoreRegex = Regex("^.*JorManager_ignore.*\$")
         val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
-        val idRegex = Regex("^\\s*#?\\s*id:\\s*\"(.*)\".*\$")
+        val idRegex = Regex("^\\s*#?\\s*id:\\s*\"?(.*)\"?.*\$")
 
         val yamlBuilder = StringBuilder()
         var uncommentIdLine = false
@@ -916,23 +916,6 @@ class JormanagerController @Autowired constructor(
                 }
             }
         }
-    }
-
-    /**
-     * Calculates a leaderscore based on past on-tip-ness of a node
-     */
-    private fun calculateLeaderscore(pastLeaderScores: CircularQueue<Double>): Double {
-        if (pastLeaderScores.isEmpty()) return 0.0
-
-        return pastLeaderScores.mapIndexed { index, score ->
-            score * (index + 1)
-//            val weightedScore = score * (index + 1)
-//            if (weightedScore == 0.0) {
-//                0.0
-//            } else {
-//                log10(weightedScore)
-//            }
-        }.sum()
     }
 
     /**

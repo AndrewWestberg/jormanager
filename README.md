@@ -89,6 +89,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
  * Add leadership probation period for nodes falling behind on a leadership election cycle
  
+ * Allow zero-prefixed ids for incrementing. All unquoted ids when pinging peers
+ 
 0.1.16-SNAPSHOT
 
  * Add additional logging & bug fixes
