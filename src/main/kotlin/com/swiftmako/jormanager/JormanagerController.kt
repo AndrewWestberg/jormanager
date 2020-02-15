@@ -57,7 +57,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
-import kotlin.math.log10
 import kotlin.system.measureTimeMillis
 
 
@@ -90,7 +89,6 @@ class JormanagerController @Autowired constructor(
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
-    private val pastLeaderScores = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Double>>())
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -170,9 +168,6 @@ class JormanagerController @Autowired constructor(
                                 leaderProcessNumber = -1
                             }
                         }
-                        newConfig.leaderElectionDelayMs != config.leaderElectionDelayMs || newConfig.leaderscoreHistoryMins != config.leaderscoreHistoryMins -> {
-                            pastLeaderScores.forEach { entry -> entry.value.maxElements = newConfig.leaderscoreHistoryMins * (60_000 / newConfig.leaderElectionDelayMs.toInt()) }
-                        }
                         else -> {
                         }
                     }
@@ -231,7 +226,6 @@ class JormanagerController @Autowired constructor(
                                 .build()
                                 .create(JormungandrService::class.java)
                         pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
-                        pastLeaderScores[processNumber] = CircularQueue(config.leaderscoreHistoryMins * (60_000 / config.leaderElectionDelayMs.toInt()))
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
                     } else {
@@ -632,9 +626,14 @@ class JormanagerController @Autowired constructor(
 
                                         latestStats[processNumber] = stats.copy(
                                                 numberOfPeers = numberOfPeers,
-                                                passive = processes[processNumber]?.isPassive == true
+                                                passive = processes[processNumber]?.isPassive == true,
+                                                leadershipProbationEndTimestamp = if (latestStats[processNumber]?.leadershipProbationEndTimestamp ?: 0 < System.currentTimeMillis()) {
+                                                    0
+                                                } else {
+                                                    latestStats[processNumber]?.leadershipProbationEndTimestamp ?: 0
+                                                }
                                         )
-                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, fw: $fw")
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, probation: ${config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp > System.currentTimeMillis()}, fw: $fw")
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->
@@ -694,26 +693,10 @@ class JormanagerController @Autowired constructor(
                 }
                 processesToRemove.clear()
 
-                latestStats.forEach { entry ->
-                    val processNumber = entry.key
-                    val stats = entry.value
-                    if (stats.lastBlockHeight?.toLong() == maxBlockHeight) {
-                        // node is ON tip
-                        pastLeaderScores[processNumber]?.add(1.0)
-                    } else {
-                        // node is NOT ON tip
-                        pastLeaderScores[processNumber]?.add(0.0)
-                    }
-                    if (logger.isDebugEnabled) {
-                        pastLeaderScores[processNumber]?.let { leaderScores ->
-                            logger.debug("Process$processNumber leaderscore: ${calculateLeaderscore(leaderScores)}")
-                        }
-                    }
-                }
-
                 // Find the best leader candidate
                 var bestLeaderProcessCandidate: Map.Entry<Int, Stats>? = null
-                latestStats.forEach { entry ->
+
+                latestStats.iterator().forEach { entry ->
                     val processNumber = entry.key
                     val stats = entry.value
 
@@ -734,11 +717,17 @@ class JormanagerController @Autowired constructor(
                             bestLeaderProcessCandidate = entry
                             return@forEach
                         } else {
-                            if (!config.minPeersForSDCalculationEnabled || (stats.numberOfPeers!! < config.minPeersForSDCalculation && bestLeaderProcessCandidate?.value?.numberOfPeers!! < config.minPeersForSDCalculation)) {
-                                // Just compare purely based on number of peers
-                                if (stats.numberOfPeers!! > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                            if (!config.minPeersForSDCalculationEnabled || (stats.numberOfPeers ?: 0 < config.minPeersForSDCalculation && bestLeaderProcessCandidate?.value?.numberOfPeers ?: 0 < config.minPeersForSDCalculation)) {
+                                // node not on probation wins or node having probation ending soonest wins
+                                if (config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp < bestLeaderProcessCandidate?.value?.leadershipProbationEndTimestamp ?: 0) {
                                     bestLeaderProcessCandidate = entry
                                     return@forEach
+                                } else {
+                                    // Just compare purely based on number of peers
+                                    if (stats.numberOfPeers ?: 0 > bestLeaderProcessCandidate?.value?.numberOfPeers ?: 0) {
+                                        bestLeaderProcessCandidate = entry
+                                        return@forEach
+                                    }
                                 }
                             } else {
                                 val bestLeaderCandidatePeersStandardDeviation = calculateStandardDeviationOfLastPeerCount(pastPeerCounts[bestLeaderProcessCandidate!!.key]!!)
@@ -751,15 +740,33 @@ class JormanagerController @Autowired constructor(
                                         return@forEach
                                     }
                                 } else if (bestLeaderCandidatePeersStandardDeviation < config.minPeersBadSDLimit && peersStandardDeviation < config.minPeersBadSDLimit) {
-                                    // Just compare purely based on number of peers
-                                    if (stats.numberOfPeers > bestLeaderProcessCandidate?.value?.numberOfPeers!!) {
+                                    // node not on probation wins or node having probation ending soonest wins
+                                    if (config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp < bestLeaderProcessCandidate?.value?.leadershipProbationEndTimestamp ?: 0) {
                                         bestLeaderProcessCandidate = entry
                                         return@forEach
+                                    } else {
+                                        // Just compare purely based on number of peers
+                                        if (stats.numberOfPeers ?: 0 > bestLeaderProcessCandidate?.value?.numberOfPeers ?: 0) {
+                                            bestLeaderProcessCandidate = entry
+                                            return@forEach
+                                        }
                                     }
                                 } else if (peersStandardDeviation < config.minPeersBadSDLimit) {
                                     bestLeaderProcessCandidate = entry
                                     return@forEach
                                 }
+                            }
+                        }
+                    } else {
+                        if (stats.uptime ?: 0 > config.nodeProbationSecs) {
+                            // This node has fallen behind and is now on leadership probation
+                            entry.setValue(
+                                    stats.copy(
+                                            leadershipProbationEndTimestamp = System.currentTimeMillis() + config.leadershipProbationDurationMs
+                                    )
+                            )
+                            if (config.leadershipProbationEnabled) {
+                                logger.warn("Process$processNumber is on Leadership Probation")
                             }
                         }
                     }

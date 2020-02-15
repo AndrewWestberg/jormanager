@@ -53,9 +53,8 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val peersOutputPort: String = properties.getStringProperty("jormanager.peers.output_port")
     val peersOutputLogPath: String = properties.getStringProperty("jormanager.peers.output_log")
     val killPath: String = properties.getStringProperty("jormanager.kill.path")
-    val leaderscoreEnabled: Boolean = properties.getBooleanProperty("jormanager.leaderscore.enabled")
-    val leaderscoreHistoryMins: Int = properties.getIntProperty("jormanager.leaderscore.history_mins")
-    val leaderscoreMinpeers: Int = properties.getIntProperty("jormanager.leaderscore.minpeers")
+    val leadershipProbationEnabled: Boolean = properties.getBooleanProperty("jormanager.leadership.probation.enabled")
+    val leadershipProbationDurationMs: Long = properties.getLongProperty("jormanager.leadership.probation.duration_ms")
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -106,9 +105,8 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (peersOutputPort != other.peersOutputPort) return false
         if (peersOutputLogPath != other.peersOutputLogPath) return false
         if (killPath != other.killPath) return false
-        if (leaderscoreEnabled != other.leaderscoreEnabled) return false
-        if (leaderscoreHistoryMins != other.leaderscoreHistoryMins) return false
-        if (leaderscoreMinpeers != other.leaderscoreMinpeers) return false
+        if (leadershipProbationEnabled != other.leadershipProbationEnabled) return false
+        if (leadershipProbationDurationMs != other.leadershipProbationDurationMs) return false
 
         return true
     }
@@ -157,15 +155,12 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + peersOutputPort.hashCode()
         result = 31 * result + peersOutputLogPath.hashCode()
         result = 31 * result + killPath.hashCode()
-        result = 31 * result + leaderscoreEnabled.hashCode()
-        result = 31 * result + leaderscoreHistoryMins
-        result = 31 * result + leaderscoreMinpeers
+        result = 31 * result + leadershipProbationEnabled.hashCode()
+        result = 31 * result + leadershipProbationDurationMs.hashCode()
         return result
     }
 
     override fun toString(): String {
-        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeout=$nodeStatsTimeout, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolId='$pooltoolPoolId', pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', blockLogPath='$blockLogPath', statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPath='$jormungandrSecretPath', jormungandrSecretJsonPath='$jormungandrSecretJsonPath', jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leaderscoreEnabled=$leaderscoreEnabled, leaderscoreHistoryMins=$leaderscoreHistoryMins, leaderscoreMinpeers=$leaderscoreMinpeers)"
+        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeout=$nodeStatsTimeout, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolId='$pooltoolPoolId', pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', blockLogPath='$blockLogPath', statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPath='$jormungandrSecretPath', jormungandrSecretJsonPath='$jormungandrSecretJsonPath', jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leadershipProbationEnabled=$leadershipProbationEnabled, leadershipProbationDurationMs=$leadershipProbationDurationMs)"
     }
-
-
 }

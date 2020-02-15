@@ -85,6 +85,14 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.1.17-SNAPSHOT
+
+ * Add leadership probation period for nodes falling behind on a leadership election cycle
+ 
+0.1.16-SNAPSHOT
+
+ * Add additional logging & bug fixes
+
 0.1.15-SNAPSHOT
  
  * Validate leadership every leader election cycle. Validate leadership with every promote/demote.

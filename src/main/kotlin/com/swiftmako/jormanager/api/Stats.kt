@@ -24,6 +24,7 @@ data class Stats(
         @Json(name = "uptime") val uptime: Long? = null,
         @Json(name = "version") val version: String,
         val numberOfPeers: Int? = -1,
-        val leader:Boolean = false,
-        val passive:Boolean = false
+        val leader: Boolean = false,
+        val passive: Boolean = false,
+        val leadershipProbationEndTimestamp: Long = 0L
 )
