@@ -136,14 +136,14 @@ class JormanagerController @Autowired constructor(
                                 }
                             }
                         }
-                        newConfig.nodeStatsTimeout != config.nodeStatsTimeout -> {
+                        newConfig.nodeStatsTimeoutMs != config.nodeStatsTimeoutMs -> {
                             // re-create our retrofit service with new okhttp timeouts for Running nodes
                             services.keys.forEach { processNumber ->
                                 if (latestStats[processNumber]?.state == "Running") {
                                     val okHttpClient = okHttpClientBuilder
-                                            .readTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                            .writeTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                            .connectTimeout(newConfig.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                            .readTimeout(newConfig.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
+                                            .writeTimeout(newConfig.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
+                                            .connectTimeout(newConfig.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
                                             .build()
                                     services[processNumber] = retrofitBuilder
                                             .client(okHttpClient)
@@ -330,7 +330,7 @@ class JormanagerController @Autowired constructor(
         val ignoreRegex = Regex("^.*JorManager_ignore.*\$")
         val commentedAddressRegex = Regex("^\\s*#\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
         val uncommentedAddressRegex = Regex("^\\s*- address:.*\"/ip4/(.*)/tcp/(.*)\".*\$")
-        val idRegex = Regex("^\\s*#?\\s*id:\\s*\"?(.*)\"?.*\$")
+        val idRegex = Regex("^\\s*#?\\s*id:\\s*\"?([0-9a-fA-F]{48})\"?\\s*\$")
 
         val yamlBuilder = StringBuilder()
         var uncommentIdLine = false
@@ -611,11 +611,11 @@ class JormanagerController @Autowired constructor(
 
                                         if (latestStats[processNumber]?.state != "Running") {
                                             // Moving to Running state for the first time. Set the new rest timeouts
-                                            logger.debug("Process$processNumber came up. Set REST timeout to ${config.nodeStatsTimeout}ms")
+                                            logger.debug("Process$processNumber came up. Set REST timeout to ${config.nodeStatsTimeoutMs}ms")
                                             val okHttpClient = okHttpClientBuilder
-                                                    .readTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                                    .writeTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
-                                                    .connectTimeout(config.nodeStatsTimeout, TimeUnit.MILLISECONDS)
+                                                    .readTimeout(config.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
+                                                    .writeTimeout(config.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
+                                                    .connectTimeout(config.nodeStatsTimeoutMs, TimeUnit.MILLISECONDS)
                                                     .build()
                                             services[processNumber] = retrofitBuilder
                                                     .client(okHttpClient)
@@ -633,7 +633,7 @@ class JormanagerController @Autowired constructor(
                                                     latestStats[processNumber]?.leadershipProbationEndTimestamp ?: 0
                                                 }
                                         )
-                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, probation: ${config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp > System.currentTimeMillis()}, fw: $fw")
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, probation: ${config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp > System.currentTimeMillis()}, pbe: ${stats.leadershipProbationEndTimestamp}, fw: $fw")
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->

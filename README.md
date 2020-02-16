@@ -85,11 +85,15 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
-0.1.17-SNAPSHOT
+0.2.0-SNAPSHOT
 
+ * Allow any duration properties to be specified as ##d ##h ##m ##s or ##ms 
+ 
  * Add leadership probation period for nodes falling behind on a leadership election cycle
  
- * Allow zero-prefixed ids for incrementing. All unquoted ids when pinging peers
+ * Allow zero-prefixed ids for incrementing. 
+ 
+ * Allow unquoted ids when pinging trusted_peers
  
 0.1.16-SNAPSHOT
 
