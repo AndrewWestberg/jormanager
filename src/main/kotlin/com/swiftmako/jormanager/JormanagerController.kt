@@ -38,6 +38,7 @@ import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormat
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationContext
 import org.springframework.context.ApplicationContextAware
 import org.springframework.web.bind.annotation.RestController
@@ -65,7 +66,8 @@ class JormanagerController @Autowired constructor(
         private val okHttpClientBuilder: OkHttpClient.Builder,
         private val retrofitBuilder: Retrofit.Builder,
         private val moshi: Moshi,
-        private val pooltool: PooltoolService
+        @Qualifier("pooltool") private val pooltool: PooltoolService,
+        @Qualifier("pooltoolstats") private val pooltoolStats: PooltoolService
 ) : CoroutineScope, ApplicationContextAware {
     override val coroutineContext: CoroutineContext = Dispatchers.IO
 
@@ -521,6 +523,18 @@ class JormanagerController @Autowired constructor(
                 logger.info("STARTING Leader Election.")
                 serviceCalls.clear()
                 leaderLogs.clear()
+
+                // Make sure to shut down if our nodes are behind pooltool majority max
+                try {
+                    val pooltoolStats = pooltoolStats.getPooltoolStats()
+                    maxBlockHeight = maxOf(maxBlockHeight, pooltoolStats.majoritymax)
+                    if (!config.pooltoolEnabled) {
+                        pooltoolResult = PooltoolResult(success = true, pooltoolmax = pooltoolStats.max, confidence = true)
+                    }
+                } catch (e: Throwable) {
+                    logger.error("Error getting pooltool stats: ${e.message}")
+                }
+
                 services.forEach { entry ->
                     if (System.currentTimeMillis() - (processes[entry.key]?.startedAt
                                     ?: System.currentTimeMillis()) > 5000) {
@@ -879,7 +893,6 @@ class JormanagerController @Autowired constructor(
                                                 platform = "JorManager",
                                                 jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
                                         )
-                                        logger.info("$pooltoolResult")
                                         lastPooltoolTimestamp = System.currentTimeMillis()
                                     }
                                 } catch (e: Throwable) {
@@ -892,6 +905,10 @@ class JormanagerController @Autowired constructor(
                     } else {
                         logger.error("NO CURRENT LEADER Process!")
                     }
+                }
+
+                if (pooltoolResult.success) {
+                    logger.info(pooltoolResult.toString())
                 }
 
                 if (config.peersOutputEnabled) {

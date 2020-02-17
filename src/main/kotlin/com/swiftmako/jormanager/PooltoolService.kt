@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager
 
 import com.swiftmako.jormanager.api.PooltoolResult
+import com.swiftmako.jormanager.api.PooltoolStatsResult
 import retrofit2.http.GET
 import retrofit2.http.Query
 
@@ -20,4 +21,7 @@ interface PooltoolService {
             @Query("platform") platform: String,
             @Query("jormver") jormVersion: String?
     ): PooltoolResult
+
+    @GET("stats/stats.json")
+    suspend fun getPooltoolStats(): PooltoolStatsResult
 }

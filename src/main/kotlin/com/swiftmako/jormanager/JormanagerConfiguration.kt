@@ -56,4 +56,17 @@ class JormanagerConfiguration {
                     .build()
                     .create(PooltoolService::class.java)
 
+    @Bean("pooltoolstats")
+    @Scope("singleton")
+    fun getPooltoolStatsRetrofit(builder: Retrofit.Builder, okHttpClientBuilder: OkHttpClient.Builder) =
+            builder.baseUrl("https://pooltool.s3-us-west-2.amazonaws.com/")
+                    .client(
+                            okHttpClientBuilder
+                                    .readTimeout(5, TimeUnit.SECONDS)
+                                    .writeTimeout(5, TimeUnit.SECONDS)
+                                    .connectTimeout(5, TimeUnit.SECONDS)
+                                    .build()
+                    )
+                    .build()
+                    .create(PooltoolService::class.java)
 }
