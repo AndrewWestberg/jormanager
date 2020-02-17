@@ -54,6 +54,7 @@ import java.net.SocketTimeoutException
 import java.nio.charset.Charset
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import javax.annotation.PreDestroy
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -101,7 +102,6 @@ class JormanagerController @Autowired constructor(
 
         manageProcessStartup()
         manageLeaderElection()
-        manageProcessShutdown()
     }
 
     private suspend fun refreshConfig() {
@@ -244,14 +244,11 @@ class JormanagerController @Autowired constructor(
     /**
      * Add a shutdown hook to ensure all child process are terminated when this app terminates
      */
-    private fun manageProcessShutdown() {
-        Runtime.getRuntime().addShutdownHook(object : Thread() {
-            override fun run() {
-                processes.forEach {
-                    it.value.process.destroy()
-                }
-            }
-        })
+    @PreDestroy
+    fun shutdownCallback() {
+        runBlocking {
+            processes.keys.toSet().forEach { key -> shutdownProcess(key, false) }
+        }
     }
 
     private suspend fun launchJormungandrProcess(processNumber: Int, isPassive: Boolean): Process {
@@ -638,16 +635,19 @@ class JormanagerController @Autowired constructor(
                                                     .create(JormungandrService::class.java)
                                         }
 
+                                        val leadershipProbationEndTimestamp = latestStats[processNumber]?.leadershipProbationEndTimestamp
+                                                ?: 0
+
                                         latestStats[processNumber] = stats.copy(
                                                 numberOfPeers = numberOfPeers,
                                                 passive = processes[processNumber]?.isPassive == true,
-                                                leadershipProbationEndTimestamp = if (latestStats[processNumber]?.leadershipProbationEndTimestamp ?: 0 < System.currentTimeMillis()) {
-                                                    0
+                                                leadershipProbationEndTimestamp = if (leadershipProbationEndTimestamp < System.currentTimeMillis()) {
+                                                    0L
                                                 } else {
-                                                    latestStats[processNumber]?.leadershipProbationEndTimestamp ?: 0
+                                                    leadershipProbationEndTimestamp
                                                 }
                                         )
-                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, probation: ${config.leadershipProbationEnabled && stats.leadershipProbationEndTimestamp > System.currentTimeMillis()}, pbe: ${stats.leadershipProbationEndTimestamp}, fw: $fw")
+                                        logger.info("Process${processNumber}: ${stats.lastBlockHeight} - ${stats.lastBlockHash?.substring(0, 4)}..., peers: ${numberOfPeers}, avail: ${stats.peerAvailableCnt}, uptime: ${stats.uptime}, probation: ${config.leadershipProbationEnabled && latestStats[processNumber]?.leadershipProbationEndTimestamp != 0L}, fw: $fw")
                                         maxBlockHeight = maxOf(maxBlockHeight, stats.lastBlockHeight?.toLong() ?: 0)
 
                                         stats.uptime?.let { uptime ->

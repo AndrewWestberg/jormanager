@@ -16,6 +16,7 @@ java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
     mavenCentral()
+    jcenter()
 }
 
 dependencies {
@@ -41,6 +42,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
+    testImplementation("junit:junit:4.13")
 }
 
 fun isNonStable(version: String): Boolean {
