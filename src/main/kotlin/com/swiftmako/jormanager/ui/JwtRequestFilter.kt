@@ -22,20 +22,37 @@ class JwtRequestFilter(private val jwtTokenUtil: JwtToken) : OncePerRequestFilte
     @Throws(ServletException::class, IOException::class)
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain) {
         val requestTokenHeader = request.getHeader("Authorization")
-        var username: String? = null
-        var jwtToken: String? = null
-        if (requestTokenHeader != null && requestTokenHeader.startsWith("Bearer ")) {
-            jwtToken = requestTokenHeader.substring(7)
+        val accessTokenParam = request.getParameter("access_token")
+                ?: request.getHeader("sec-websocket-protocol")?.let { header ->
+                    if (header.contains("access_token", ignoreCase = true)) {
+                        header.split(",")[1].trim()
+                    } else {
+                        null
+                    }
+                }
 
-            try {
-                username = jwtTokenUtil.getUsernameFromToken(jwtToken)
-            } catch (e: IllegalArgumentException) {
-                logger.error("Unable to get JWT Token!", e)
-            } catch (e: ExpiredJwtException) {
-                logger.error("JWT Token has expired")
+        var username: String? = null
+
+        val jwtToken: String? = requestTokenHeader?.let {
+            if (requestTokenHeader.startsWith("Bearer ")) {
+                requestTokenHeader.substring(7)
+            } else {
+                logger.warn("JWT Token does not begin with Bearer String")
+                null
             }
-        } else {
-            logger.warn("JWT Token does not begin with Bearer String")
+        } ?: accessTokenParam?.let {
+            it
+        } ?: run {
+            logger.warn("Required Authorization Bearer header or access_token query parameter not found!")
+            null
+        }
+
+        try {
+            username = jwtTokenUtil.getUsernameFromToken(jwtToken)
+        } catch (e: IllegalArgumentException) {
+            logger.error("Unable to get JWT Token!", e)
+        } catch (e: ExpiredJwtException) {
+            logger.error("JWT Token has expired")
         }
 
 

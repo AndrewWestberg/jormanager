@@ -41,7 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationContext
 import org.springframework.context.ApplicationContextAware
-import org.springframework.messaging.handler.annotation.SendTo
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import retrofit2.HttpException
@@ -70,7 +70,8 @@ class JormanagerController @Autowired constructor(
         private val retrofitBuilder: Retrofit.Builder,
         private val moshi: Moshi,
         @Qualifier("pooltool") private val pooltool: PooltoolService,
-        @Qualifier("pooltoolstats") private val pooltoolStats: PooltoolService
+        @Qualifier("pooltoolstats") private val pooltoolStats: PooltoolService,
+        private val simpleMessagingTemplate: SimpMessagingTemplate
 ) : CoroutineScope, ApplicationContextAware {
     override val coroutineContext: CoroutineContext = Dispatchers.IO
 
@@ -1444,11 +1445,14 @@ class JormanagerController @Autowired constructor(
         }
     }
 
-    @GetMapping("/status")
+    @GetMapping("/api/status")
     fun getStatus(): OutputStats? = outputStats
 
-    @SendTo("/topic/status")
-    fun postStatusUpdate(): OutputStats? = outputStats
+    private fun postStatusUpdate() {
+        outputStats?.let {
+            simpleMessagingTemplate.convertAndSend("/topic/status", it)
+        }
+    }
 
     companion object {
         private val logger = LoggerFactory.getLogger(JormanagerController::class.java)
