@@ -4,9 +4,9 @@ log:
     level: info
     output: stderr
 p2p:
-  listen_address: "/ip4/0.0.0.0/tcp/33{pid}"
-  public_address: "/ip4/{public_ip}/tcp/33{pid}"
-  public_id: {public_id_prefix}{public_id_suffix}
+  listen_address: "/ip4/0.0.0.0/tcp/33<pid>"
+  public_address: "/ip4/<public_ip>/tcp/33<pid>"
+  public_id: <public_id_prefix><public_id_suffix>
   topics_of_interest:
     blocks: high
     messages: high
@@ -17,9 +17,10 @@ p2p:
     quarantine_duration: "5m"
   trusted_peers:
     #-----JorManager_ignored-----
-    # My Nodes
-    - address: "/ip4/{public_ip}/tcp/33{pid}"
-      id: "{public_id_prefix}{public_id_suffix}"
+    # Example:
+    #- address: "/ip4/127.0.0.1/tcp/33{pid}"
+    #  id: "{public_id_prefix}{public_id_suffix}"
+    <my_peers>
     #-----JorManager_ignored-----
 
     # IOHK Nodes
@@ -42,4 +43,4 @@ p2p:
     - address: "/ip4/3.125.183.71/tcp/3000"
       id: "9d15a9e2f1336c7acda8ced34e929f697dc24ea0910c3e67"
 rest:
-  listen: 127.0.0.1:34{pid}
+  listen: 127.0.0.1:34<pid>

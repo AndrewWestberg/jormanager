@@ -13,7 +13,13 @@ The health calculation is determined by:
   * The block height of a node. Higher is better.
   * The number of peers a node has.
 
-## Setup
+## Scripted Setup
+
+Ola Ahlman has created an easy to use script to configure JorManager. It is now the recommended way to set things up.
+
+1. Go to https://bitbucket.org/Scitz0/jormanager-installer and follow the instructions there.
+
+## Manual Setup (deprecated)
 
 1. Download and extract `JorManager-#.#.#-SNAPSHOT.tar.bz2` to a folder of your choosing. Rename `jormanager-#.#.#-SNAPSHOT.jar` to simply `jormanager.jar` and copy over any previous version.
 2. Create your config.yaml files. The default uses 10 nodes, so for this setup, create `itn_rewards_v1-config00.yaml` up to `itn_rewards_v1-config09.yaml`
