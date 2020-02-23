@@ -668,18 +668,8 @@ class JormanagerController @Autowired constructor(
                                             }
                                         }
                                     }
-                                    "Bootstrapping" -> {
-                                        latestStats[processNumber] = stats
-                                        logger.info("Process${processNumber}: state: ${stats.state}")
-                                        processes[processNumber]?.let { process ->
-                                            if (System.currentTimeMillis() - process.startedAt > TimeUnit.MINUTES.toMillis(5)) {
-                                                // Stale bootstrap. restart it.
-                                                logger.error("Process${processNumber}: Stale bootstrap, restarting...")
-                                                processesToRemove.add(processNumber)
-                                            }
-                                        }
-                                    }
                                     else -> {
+                                        // Bootstrapping or otherwise
                                         latestStats[processNumber] = stats
                                         logger.info("Process${processNumber}: state: ${stats.state}")
                                     }

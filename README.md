@@ -113,6 +113,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ###### Release Notes
 0.2.2-SNAPSHOT
 
+ * Fix `jormanager.max_bootstrap` not being respected.
+
  * Fixes for JWT authentication
  
  * Added status page at http://localhost:8080/status/index.html
