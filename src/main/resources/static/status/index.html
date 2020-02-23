@@ -1,53 +1,341 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Hello WebSocket</title>
+    <title>JorManager Status</title>
     <link href="/webjars/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/webjars/font-awesome/css/all.min.css" rel="stylesheet">
     <link href="main.css" rel="stylesheet">
     <script src="/webjars/jquery/jquery.min.js"></script>
     <script src="/webjars/sockjs-client/sockjs.min.js"></script>
     <script src="/webjars/stomp-websocket/stomp.min.js"></script>
+    <script src="/webjars/bootstrap/js/bootstrap.min.js"></script>
+    <script src="jquery-dateformat.min.js"></script>
     <script src="app.js"></script>
+
+    <link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="/apple-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="/apple-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="/apple-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/apple-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png">
+    <link rel="icon" type="image/png" sizes="192x192"  href="/android-icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="msapplication-TileImage" content="/ms-icon-144x144.png">
+    <meta name="theme-color" content="#ffffff">
 </head>
 <body>
 <noscript><h2 style="color: #ff0000">Seems your browser doesn't support Javascript! Websocket relies on Javascript being
     enabled. Please enable
     Javascript and reload this page!</h2></noscript>
-<div id="main-content" class="container">
-    <div class="row">
-        <div class="col-md-6">
-            <form class="form-inline">
-                <div class="form-group">
-                    <label for="connect">WebSocket connection:</label>
-                    <button id="connect" class="btn btn-default" type="submit">Connect</button>
-                    <button id="disconnect" class="btn btn-default" type="submit" disabled="disabled">Disconnect
-                    </button>
+
+<div id="page-wrapper">
+    <section id="loginsection" class="wrapper style2 special">
+        <div class="inner">
+            <div class="row">
+                <div class="col-4 off-4">
+                    <form id="loginform" class="form-inline">
+                        <div class="form-group">
+                            <input type="text" id="username" name="username" placeholder="username"/>
+                            <input type="password" id="password" name="password" placeholder="password">
+                            <input type="submit" value="Log In">
+                        </div>
+                    </form>
                 </div>
-            </form>
+            </div>
         </div>
-        <div class="col-md-6">
-            <form class="form-inline">
-                <div class="form-group">
-                    <label for="name">What is your name?</label>
-                    <input type="text" id="name" class="form-control" placeholder="Your name here...">
+    </section>
+
+    <section id="statussection" class="wrapper style2 special" style="display:none">
+        <div class="inner">
+            <div class="row">
+                <div class="col-6">
+                    <h5>PoolTool Max</h5>
                 </div>
-                <button id="send" class="btn btn-default" type="submit">Send</button>
-            </form>
+                <div class="col-6">
+                    &nbsp;
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-6">
+                    <p class="pooltoolmax" style="font-weight: bolder;">---</p>
+                </div>
+                <div class="col-6">
+                    &nbsp;
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-1">
+                    <h6>Name</h6>
+                </div>
+                <div class="col-1">
+                    <h6>State</h6>
+                </div>
+                <div class="col-2">
+                    <h6>Height</h6>
+                </div>
+                <div class="col-2">
+                    <h6>Hash</h6>
+                </div>
+                <div class="col-2">
+                    <h6>Time</h6>
+                </div>
+                <div class="col-2">
+                    <h6>Peers</h6>
+                </div>
+                <div class="col-2">
+                    <h6>Uptime</h6>
+                </div>
+            </div>
+            <div class="row jor0" style="display:none">
+                <div class="col-1">
+                    <p>Jor0</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor0 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor0 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor0 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor0 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor0 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor0 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor1"  style="display:none">
+                <div class="col-1">
+                    <p>Jor1</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor1 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor1 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor1 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor1 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor1 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor1 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor2" style="display:none">
+                <div class="col-1">
+                    <p>Jor2</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor2 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor2 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor2 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor2 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor2 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor2 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor3" style="display:none">
+                <div class="col-1">
+                    <p>Jor3</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor3 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor3 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor3 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor3 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor3 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor3 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor4" style="display:none">
+                <div class="col-1">
+                    <p>Jor4</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor4 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor4 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor4 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor4 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor4 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor4 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor5" style="display:none">
+                <div class="col-1">
+                    <p>Jor5</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor5 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor5 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor5 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor5 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor5 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor5 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor6" style="display:none">
+                <div class="col-1">
+                    <p>Jor6</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor6 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor6 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor6 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor6 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor6 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor6 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor7" style="display:none">
+                <div class="col-1">
+                    <p>Jor7</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor7 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor7 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor7 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor7 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor7 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor7 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor8" style="display:none">
+                <div class="col-1">
+                    <p>Jor8</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor8 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor8 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor8 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor8 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor8 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor8 uptime">---</p>
+                </div>
+            </div>
+            <div class="row jor9" style="display:none">
+                <div class="col-1">
+                    <p>Jor9</p>
+                </div>
+                <div class="col-1">
+                    <!-- fa-hourglass - bootstrapping, fa-flag - leader, fa-dizzy - down -->
+                    <i class="jor9 status icon fa-question-circle fa-2x"></i>
+                </div>
+                <div class="col-2">
+                    <p class="jor9 height">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor9 hash">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor9 time">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor9 peers">---</p>
+                </div>
+                <div class="col-2">
+                    <p class="jor9 uptime">---</p>
+                </div>
+            </div>
         </div>
-    </div>
-    <div class="row">
-        <div class="col-md-12">
-            <table id="conversation" class="table table-striped">
-                <thead>
-                <tr>
-                    <th>Greetings</th>
-                </tr>
-                </thead>
-                <tbody id="greetings">
-                </tbody>
-            </table>
-        </div>
-    </div>
+    </section>
 </div>
+
 </body>
 </html>

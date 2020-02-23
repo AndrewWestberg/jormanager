@@ -34,7 +34,7 @@ class WebSecurityConfig @Autowired constructor(
     override fun configure(httpSecurity: HttpSecurity) {
         httpSecurity.csrf()
                 .disable()
-                .authorizeRequests().antMatchers("/authenticate", "/webjars/**", "/status/**", "/favicon**").permitAll()
+                .authorizeRequests().antMatchers("/authenticate", "/webjars/**", "/status/**", "/**.png", "/**.ico", "**.xml", "**.json").permitAll()
                 .anyRequest().authenticated()
                 .and()
                 .exceptionHandling()

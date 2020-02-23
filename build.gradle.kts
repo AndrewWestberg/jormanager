@@ -4,14 +4,14 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 plugins {
     id("org.springframework.boot") version "2.2.4.RELEASE"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
-    id("com.github.ben-manes.versions") version "0.27.0"
+    id("com.github.ben-manes.versions") version "0.28.0"
     kotlin("jvm") version "1.3.61"
     kotlin("kapt") version "1.3.61"
     kotlin("plugin.spring") version "1.3.61"
 }
 
 group = "com.swiftmako"
-version = "0.2.1-SNAPSHOT"
+version = "0.2.2-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -23,7 +23,6 @@ dependencies {
     kapt("com.squareup.moshi:moshi-kotlin-codegen:1.9.2")
 
     implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
 
     implementation("org.springframework.boot:spring-boot-starter-security")
@@ -40,17 +39,18 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.3.3")
     implementation("com.squareup.moshi:moshi-kotlin:1.9.2")
     implementation("com.squareup.retrofit2:converter-moshi:2.7.1")
-    implementation("com.squareup.okhttp3:okhttp:4.3.1")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.3.1")
+    implementation("com.squareup.okhttp3:okhttp:4.4.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.4.0")
     implementation("joda-time:joda-time:2.10.5")
     implementation("org.apache.commons:commons-math3:3.6.1")
     implementation("javax.xml.bind:jaxb-api:2.3.1")
 
-    implementation("org.webjars:webjars-locator-core:0.43")
+    implementation("org.webjars:webjars-locator-core:0.44")
     implementation("org.webjars:sockjs-client:1.1.2")
     implementation("org.webjars:stomp-websocket:2.3.3-1")
     implementation("org.webjars:bootstrap:4.4.1-1")
     implementation("org.webjars:jquery:3.4.1")
+    implementation("org.webjars:font-awesome:5.12.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")

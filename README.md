@@ -72,6 +72,32 @@ It can be useful to set up jormanager to run automatically from a systemd script
 
         $ sudo systemctl enable jormanager.service       
 
+## Status Monitoring Setup
+
+1. Edit `application.properties` and set `jormanager.admin.username` to `admin` or whatever username you want.
+
+2. Run the following command to enter a password
+
+        $ java -jar jormanager.jar passwd
+        Enter Admin Password: 
+        
+        Encoded Password: $argon2id$v=19$m=4096,t=3,p=1$+sa5GPGEB1DS7NusoYugEA$tyttmQSehVY8rPkV7TfZ10eMNiMG8UiZeNJRwTpS6/g
+        
+3. Run the following command to make sure you entered the password correctly.
+
+        $ java -jar jormanager.jar passwdtest '$argon2id$v=19$m=4096,t=3,p=1$+sa5GPGEB1DS7NusoYugEA$tyttmQSehVY8rPkV7TfZ10eMNiMG8UiZeNJRwTpS6/g'
+        Enter Admin Password: 
+        
+        Password Matches: true
+        
+4. Copy the Encoded Password into `jormanager.admin.password` of `application.properties`.
+
+5. Repeat steps 2 and 3 for `jormanager.jwt.secret`. Note, you will need to prepend `{argon2}` to the hashed value. You do not need to remember this password. It's used internally to generate the JWT login token.
+
+6. Start jormanager and navigate in a browser to `http://localhost:8080/status/index.html`. The port may be different if you have modified `server.port` in `application.properties`
+
+7. Login with your admin user and password (_not the jwt.secret_). The browser will communicate with JorManager via websockets and you should get live updates to this status page.
+
 ## Support
 
 If you need support, the Beta test group meets on this telegram channel -> https://t.me/jormanager
@@ -85,6 +111,12 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.2-SNAPSHOT
+
+ * Fixes for JWT authentication
+ 
+ * Added status page at http://localhost:8080/status/index.html
+ 
 0.2.1-SNAPSHOT
 
  * Fix for node probation not displaying correctly in log
