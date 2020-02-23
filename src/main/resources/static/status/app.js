@@ -1,4 +1,5 @@
 var stompClient = null;
+var jwttoken = null;
 
 function login() {
     var username = $("#username").val();
@@ -13,7 +14,8 @@ function login() {
         contentType: "application/json; charset=utf-8",
         dataType : "json",
         success : function(data){
-            connect(data.jwttoken);
+            jwttoken = data.jwttoken;
+            connect();
         }
     });
 }
@@ -21,18 +23,20 @@ function login() {
 function setConnected(connected) {
     if(connected) {
         $("#loginsection").hide();
+        $("#reconnectsection").hide();
         $("#statussection").show();
     } else {
+        $(".pooltoolmax").html("---");
         var i;
         for(i=0;i<10;i++) {
             $(".jor"+i+".row").hide();
         }
         $("#statussection").hide();
-        $("#loginsection").show();
+        $("#reconnectsection").show();
     }
 }
 
-function connect(jwttoken) {
+function connect() {
     var socket = new SockJS('/jormanager-websocket?access_token=' + jwttoken);
     stompClient = Stomp.over(socket);
     stompClient.connect({}, function (frame) {
@@ -138,17 +142,13 @@ function disconnect() {
     console.log("Disconnected");
 }
 
-//function sendName() {
-//    stompClient.send("/app/hello", {}, JSON.stringify({'name': $("#name").val()}));
-//}
-
-//function showGreeting(message) {
-//    $("#greetings").append("<tr><td>" + message + "</td></tr>");
-//}
-
 $(function () {
     $("#loginform").on('submit', function (e) {
         e.preventDefault();
         login();
+    });
+
+    $("#reconnect").on('click', function(){
+        connect();
     });
 });

@@ -17,6 +17,6 @@ class WebSocketConfig : WebSocketMessageBrokerConfigurer {
     }
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
-        registry.addEndpoint("/jormanager-websocket").withSockJS()
+        registry.addEndpoint("/jormanager-websocket").setAllowedOrigins("*").withSockJS().setSupressCors(true)
     }
 }
