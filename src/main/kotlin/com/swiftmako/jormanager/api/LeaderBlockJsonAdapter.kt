@@ -6,7 +6,6 @@ import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.internal.Util
-import java.io.IOException
 import kotlin.Boolean
 import kotlin.Int
 import kotlin.String
@@ -17,7 +16,7 @@ class LeaderBlockJsonAdapter(
 ) : JsonAdapter<LeaderBlock>() {
     private val options: JsonReader.Options = JsonReader.Options.of("created_at_time",
             "enclave_leader_id", "finished_at_time", "scheduled_at_date", "scheduled_at_time",
-            "wake_at_time", "status", "minted")
+            "wake_at_time", "status", "minted", "processId")
 
     private val statusOptions: JsonReader.Options = JsonReader.Options.of("Block", "Rejected")
 
@@ -39,6 +38,9 @@ class LeaderBlockJsonAdapter(
     private val nullableBooleanAdapter: JsonAdapter<Boolean?> =
             moshi.adapter(Boolean::class.javaObjectType, emptySet(), "minted")
 
+    private val processIdIntAdapter: JsonAdapter<Int?> =
+            moshi.adapter(Int::class.java, emptySet(), "processId")
+
     override fun toString(): String = buildString(27) {
         append("GeneratedJsonAdapter(").append("Block").append(')')
     }
@@ -54,6 +56,7 @@ class LeaderBlockJsonAdapter(
         var statusBlock: BlockStatus? = null
         var statusRejected: RejectedStatus? = null
         var minted: Boolean? = null
+        var processId: Int = -1
         reader.beginObject()
         while (reader.hasNext()) {
             when (reader.selectName(options)) {
@@ -68,16 +71,16 @@ class LeaderBlockJsonAdapter(
                         ?: throw Util.unexpectedNull("scheduledAtTime", "scheduled_at_time", reader)
                 5 -> wakeAtTime = nullableStringAdapter.fromJson(reader)
                 6 -> {
-                    when(reader.peek()) {
+                    when (reader.peek()) {
                         JsonReader.Token.STRING -> statusString = stringAdapter.fromJson(reader)
                                 ?: throw Util.unexpectedNull("status", "status", reader)
                         JsonReader.Token.BEGIN_OBJECT -> {
                             val lookAheadReader = reader.peekJson()
                             lookAheadReader.beginObject()
-                            when(lookAheadReader.selectName(statusOptions)) {
+                            when (lookAheadReader.selectName(statusOptions)) {
                                 0 -> statusBlock = blockStatusJsonAdapter.fromJson(reader)
                                         ?: throw Util.unexpectedNull("status", "status", reader)
-                                1-> statusRejected = rejectedStatusJsonAdapter.fromJson(reader)
+                                1 -> statusRejected = rejectedStatusJsonAdapter.fromJson(reader)
                                         ?: throw Util.unexpectedNull("status", "status", reader)
                             }
                         }
@@ -87,6 +90,7 @@ class LeaderBlockJsonAdapter(
                     }
                 }
                 7 -> minted = nullableBooleanAdapter.fromJson(reader)
+                8 -> processId = processIdIntAdapter.fromJson(reader) ?: -1
                 -1 -> {
                     // Unknown name, skip it.
                     reader.skipName()
@@ -109,7 +113,8 @@ class LeaderBlockJsonAdapter(
                             "scheduled_at_time", reader),
                     wakeAtTime = wakeAtTime,
                     status = statusString,
-                    minted = minted
+                    minted = minted,
+                    processId = processId
             )
             statusBlock != null -> CompletedBlock(
                     createdAtTime = createdAtTime ?: throw Util.missingProperty("createdAtTime",
@@ -123,7 +128,8 @@ class LeaderBlockJsonAdapter(
                             "scheduled_at_time", reader),
                     wakeAtTime = wakeAtTime,
                     status = statusBlock,
-                    minted = minted
+                    minted = minted,
+                    processId = processId
             )
             else -> RejectedBlock(
                     createdAtTime = createdAtTime ?: throw Util.missingProperty("createdAtTime",
@@ -137,7 +143,8 @@ class LeaderBlockJsonAdapter(
                             "scheduled_at_time", reader),
                     wakeAtTime = wakeAtTime,
                     status = statusRejected ?: throw Util.missingProperty("status", "status", reader),
-                    minted = minted
+                    minted = minted,
+                    processId = processId
             )
         }
     }
@@ -165,6 +172,8 @@ class LeaderBlockJsonAdapter(
                 stringAdapter.toJson(writer, value.status)
                 writer.name("minted")
                 nullableBooleanAdapter.toJson(writer, value.minted)
+                writer.name("processId")
+                processIdIntAdapter.toJson(writer, value.processId)
                 writer.endObject()
             }
             is CompletedBlock -> {
@@ -185,6 +194,8 @@ class LeaderBlockJsonAdapter(
                 blockStatusJsonAdapter.toJson(writer, value.status)
                 writer.name("minted")
                 nullableBooleanAdapter.toJson(writer, value.minted)
+                writer.name("processId")
+                processIdIntAdapter.toJson(writer, value.processId)
                 writer.endObject()
             }
             is RejectedBlock -> {
@@ -205,6 +216,8 @@ class LeaderBlockJsonAdapter(
                 rejectedStatusJsonAdapter.toJson(writer, value.status)
                 writer.name("minted")
                 nullableBooleanAdapter.toJson(writer, value.minted)
+                writer.name("processId")
+                processIdIntAdapter.toJson(writer, value.processId)
                 writer.endObject()
             }
         }

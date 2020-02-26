@@ -117,6 +117,14 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.3-SNAPSHOT
+  
+  * Updates to websockets for CORS
+  
+  * Add processId in blocks.json
+  
+  * Adjust some defaults for 0.8.12+
+  
 0.2.2-SNAPSHOT
 
  * Fix `jormanager.max_bootstrap` not being respected.

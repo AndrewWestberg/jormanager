@@ -12,6 +12,7 @@ sealed class LeaderBlock {
     abstract val scheduledAtTime: String
     abstract val wakeAtTime: String?
     abstract val minted: Boolean?
+    abstract val processId: Int
 }
 
 @JsonClass(generateAdapter = false)
@@ -23,6 +24,7 @@ data class PendingBlock(
         @Json(name = "scheduled_at_time") override val scheduledAtTime: String,
         @Json(name = "wake_at_time") override val wakeAtTime: String?,
         @Json(name = "minted") override val minted: Boolean?,
+        @Json(name = "processId") override val processId: Int = -1,
         @Json(name = "status") val status: String
 ) : LeaderBlock()
 
@@ -35,6 +37,7 @@ data class CompletedBlock(
         @Json(name = "scheduled_at_time") override val scheduledAtTime: String,
         @Json(name = "wake_at_time") override val wakeAtTime: String?,
         @Json(name = "minted") override val minted: Boolean?,
+        @Json(name = "processId") override val processId: Int = -1,
         @Json(name = "status") val status: BlockStatus
 ) : LeaderBlock()
 
@@ -47,5 +50,6 @@ data class RejectedBlock(
         @Json(name = "scheduled_at_time") override val scheduledAtTime: String,
         @Json(name = "wake_at_time") override val wakeAtTime: String?,
         @Json(name = "minted") override val minted: Boolean?,
+        @Json(name = "processId") override val processId: Int = -1,
         @Json(name = "status") val status: RejectedStatus
 ) : LeaderBlock()

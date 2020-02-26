@@ -509,7 +509,7 @@ class JormanagerController @Autowired constructor(
         var pooltoolResult = PooltoolResult(success = false)
         val processesToRemove = mutableListOf<Int>()
         val serviceCalls = mutableListOf<Deferred<Any?>>()
-        val leaderLogs = mutableListOf<List<LeaderBlock>>()
+        val leaderLogs = mutableMapOf<Int, List<LeaderBlock>>()
 
         while (true) {
             mutex.withLock {
@@ -562,14 +562,12 @@ class JormanagerController @Autowired constructor(
                                 when (stats.state) {
                                     "Running" -> {
                                         if (processes[processNumber]?.isPassive == false) {
-                                            leaderLogs.add(
-                                                    try {
-                                                        service.getLeaderLog()
-                                                    } catch (e: Throwable) {
-                                                        logger.error("Process${processNumber}: getLeaderLog error!")
-                                                        throw e
-                                                    }
-                                            )
+                                            try {
+                                                leaderLogs[processNumber] = service.getLeaderLog()
+                                            } catch (e: Throwable) {
+                                                logger.error("Process${processNumber}: getLeaderLog error!")
+                                                throw e
+                                            }
                                         }
 
                                         val numberOfPeers = if (config.useLightweightPeerCount) {
@@ -1187,7 +1185,7 @@ class JormanagerController @Autowired constructor(
         } ?: delay(config.leaderElectionDelayMs)
     }
 
-    private fun processLeaderLogs(leaderLogs: List<List<LeaderBlock>>) = launch {
+    private fun processLeaderLogs(leaderLogs: Map<Int, List<LeaderBlock>>) = launch {
         leaderLogMutex.withLock {
             val time = measureTimeMillis {
                 val jsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
@@ -1198,29 +1196,52 @@ class JormanagerController @Autowired constructor(
                     } ?: logger.error("Unable to parse leader json file!!")
                 }
 
-                leaderLogs.forEach { leaderLog ->
+                leaderLogs.forEach { mapEntry ->
+                    val processNumber = mapEntry.key
+                    val leaderLog = mapEntry.value
                     leaderLog.forEach { newBlock ->
                         val historicalBlockIndex = leaderLogHistory.indexOfFirst { historicalBlock -> historicalBlock.scheduledAtDate == newBlock.scheduledAtDate }
                         if (historicalBlockIndex < 0) {
                             // Block was not found. Add it to the history
-                            leaderLogHistory.add(newBlock)
+                            leaderLogHistory.add(
+                                    when (newBlock) {
+                                        is PendingBlock -> newBlock.copy(processId = processNumber)
+                                        is CompletedBlock -> newBlock.copy(processId = processNumber)
+                                        is RejectedBlock -> newBlock.copy(processId = processNumber)
+                                    }
+                            )
                         } else {
                             // Block was found.
                             when (leaderLogHistory[historicalBlockIndex]) {
                                 is PendingBlock -> {
-                                    if (newBlock is RejectedBlock || newBlock is CompletedBlock) {
-                                        // Replace the historical block with this one that has more information
-                                        leaderLogHistory[historicalBlockIndex] = newBlock
+                                    // Replace the historical block with this one that has more information
+                                    when (newBlock) {
+                                        is CompletedBlock -> {
+                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            logger.info("COMPLETED Block ($processNumber): ${newBlock.status.blockDetail}")
+                                        }
+                                        is RejectedBlock -> {
+                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                        }
+                                        else -> {
+                                        }
                                     }
                                 }
                                 is RejectedBlock -> {
-                                    if (newBlock is CompletedBlock) {
-                                        // Replace the historical block that was probably from a demoted leader with this one that has more information
-                                        leaderLogHistory[historicalBlockIndex] = newBlock
-                                        logger.info("COMPLETED Block: ${newBlock.status.blockDetail}")
-                                    } else if (newBlock is RejectedBlock && !newBlock.status.rejectedDetail.reason.contains("enclave")) {
-                                        // Replace with the real rejected reason, not just that this leader was not in the enclave
-                                        leaderLogHistory[historicalBlockIndex] = newBlock
+                                    when (newBlock) {
+                                        is CompletedBlock -> {
+                                            // Replace the historical block that was probably from a demoted leader with this one that has more information
+                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            logger.info("COMPLETED Block ($processNumber): ${newBlock.status.blockDetail}")
+                                        }
+                                        is RejectedBlock -> {
+                                            if (!newBlock.status.rejectedDetail.reason.contains("enclave")) {
+                                                // Replace with the real rejected reason, not just that this leader was not in the enclave
+                                                leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            }
+                                        }
+                                        else -> {
+                                        }
                                     }
                                 }
                                 is CompletedBlock -> {
