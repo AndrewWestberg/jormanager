@@ -27,6 +27,7 @@ function setConnected(connected) {
         $("#statussection").show();
     } else {
         $(".pooltoolmax").html("---");
+        $(".updated").html("---")
         var i;
         for(i=0;i<10;i++) {
             $(".jor"+i+".row").hide();
@@ -53,6 +54,7 @@ function connect() {
 }
 
 function showStatus(data) {
+    $(".updated").html(new Date().toLocaleString())
     if (data.hasOwnProperty("pooltool") && data.pooltool.success == true) {
         if (data.pooltool.hasOwnProperty("pooltoolmax")) {
             $(".pooltoolmax").html(data.pooltool.pooltoolmax);
