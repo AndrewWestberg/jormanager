@@ -23,8 +23,8 @@ function login() {
 function setConnected(connected) {
     if(connected) {
         $("#loginsection").hide();
-        $("#reconnectsection").hide();
         $("#statussection").show();
+        localStorage.jwttoken = jwttoken;
     } else {
         $(".pooltoolmax").html("---");
         $(".updated").html("---")
@@ -33,13 +33,16 @@ function setConnected(connected) {
             $(".jor"+i+".row").hide();
         }
         $("#statussection").hide();
-        $("#reconnectsection").show();
+        $("#loginsection").show();
     }
 }
 
 function connect() {
     var socket = new SockJS('/jormanager-websocket?access_token=' + jwttoken);
     stompClient = Stomp.over(socket);
+    stompClient.debug = function(message) {
+        // console.log(message);
+    };
     stompClient.connect({}, function (frame) {
         setConnected(true);
         console.log('Connected: ' + frame);
@@ -49,6 +52,7 @@ function connect() {
         });
     },
     function (frame) {
+        console.log(frame);
         setConnected(false);
     });
 }
@@ -150,7 +154,26 @@ $(function () {
         login();
     });
 
-    $("#reconnect").on('click', function(){
-        connect();
+    $(".logout").on('click', function(e) {
+        e.preventDefault();
+        if (stompClient !== null) {
+            stompClient.disconnect();
+        }
+        jwttoken = null;
+        localStorage.removeItem('jwttoken');
+
+        $(".pooltoolmax").html("---");
+        $(".updated").html("---")
+        var i;
+        for(i=0;i<10;i++) {
+            $(".jor"+i+".row").hide();
+        }
+        $("#statussection").hide();
+        $("#loginsection").show();
     });
+
+    if(localStorage.jwttoken) {
+        jwttoken = localStorage.jwttoken;
+        connect();
+    }
 });

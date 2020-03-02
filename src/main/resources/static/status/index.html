@@ -7,8 +7,8 @@
     <link href="/webjars/font-awesome/css/all.min.css" rel="stylesheet">
     <link href="main.css" rel="stylesheet">
     <script src="/webjars/jquery/jquery.min.js"></script>
-    <script src="/webjars/sockjs-client/sockjs.js"></script>
-    <script src="/webjars/stomp-websocket/stomp.js"></script>
+    <script src="/webjars/sockjs-client/sockjs.min.js"></script>
+    <script src="/webjars/stomp-websocket/stomp.min.js"></script>
     <script src="/webjars/bootstrap/js/bootstrap.min.js"></script>
     <script src="jquery-dateformat.min.js"></script>
     <script src="app.js"></script>
@@ -53,11 +53,8 @@
         </div>
     </section>
 
-    <section id="reconnectsection" class="wrapper style2 special" style="display: none">
-        <a id="reconnect" class="btn btn-danger" href="#"><i class="fa fa-redo"></i> Reconnect</a>
-    </section>
-
     <section id="statussection" class="wrapper style2 special" style="display:none">
+        <a class="logout" class="btn" href="#" style="position: absolute;top: 1em;left: 1em;"><i class="fa fa-sign-out"></i> Logout</a>
         <div class="inner">
             <div class="row">
                 <div class="col-6">
