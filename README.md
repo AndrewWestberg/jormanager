@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.5-SNAPSHOT
+
+ * Add blocks history page at http://localhost:8080/blocks/index.html
+ 
 0.2.4-SNAPSHOT
  
  * Fix viewport of status website so it looks ok on mobile

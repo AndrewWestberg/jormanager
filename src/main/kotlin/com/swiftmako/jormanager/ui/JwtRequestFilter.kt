@@ -20,7 +20,7 @@ class JwtRequestFilter(private val jwtTokenUtil: JwtToken) : OncePerRequestFilte
     lateinit var jwtUserDetailsService: JwtUserDetailsService
 
     // Ignored paths. These will skip authentication
-    private val ignoredRegex = Regex("/authenticate|/webjars/.*|/status/.*|/.*\\.png|/.*\\.ico|/.*\\.xml|/.*\\.json")
+    private val ignoredRegex = Regex("/authenticate|/webjars/.*|/status/.*|.*blocks.*|/assets/.*|/favicon/.*|/.*\\.png|/.*\\.ico|/.*\\.xml|/.*\\.json")
 
     @Throws(ServletException::class, IOException::class)
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain) {

@@ -90,18 +90,22 @@ class JormanagerController @Autowired constructor(
     var nextEpochTime: DateTime? = null
     var lastPooltoolTimestamp: Long = -1
 
+    private val leaderLogJsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
+
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = mutableMapOf<Int, JormungandrProcess>()
     private val services = mutableMapOf<Int, JormungandrService>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
     private var outputStats: OutputStats? = null
+    private val leaderLogHistory = mutableListOf<LeaderBlock>()
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
         logger.info("JAVA_VERSION: ${System.getProperty("java.version")}")
         runBlocking {
             refreshConfig()
+            readLeaderLogHistory()
         }
 
         manageProcessStartup()
@@ -1185,16 +1189,19 @@ class JormanagerController @Autowired constructor(
         } ?: delay(config.leaderElectionDelayMs)
     }
 
+    private fun readLeaderLogHistory() {
+        leaderLogHistory.clear()
+        File(config.blockLogPath).source().buffer().use { source ->
+            leaderLogJsonAdapter.fromJson(source)?.let { leaderLog ->
+                leaderLogHistory.addAll(leaderLog)
+            } ?: logger.error("Unable to parse leader json file!!")
+        }
+    }
+
     private fun processLeaderLogs(leaderLogs: Map<Int, List<LeaderBlock>>) = launch {
         leaderLogMutex.withLock {
             val time = measureTimeMillis {
-                val jsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
-                val leaderLogHistory = mutableListOf<LeaderBlock>()
-                File(config.blockLogPath).source().buffer().use { source ->
-                    jsonAdapter.fromJson(source)?.let { leaderLog ->
-                        leaderLogHistory.addAll(leaderLog)
-                    } ?: logger.error("Unable to parse leader json file!!")
-                }
+                readLeaderLogHistory()
 
                 leaderLogs.forEach { mapEntry ->
                     val processNumber = mapEntry.key
@@ -1342,7 +1349,7 @@ class JormanagerController @Autowired constructor(
 
                 // overwrite the historical log
                 File(config.blockLogPath).sink().buffer().use { sink ->
-                    jsonAdapter.toJson(sink, leaderLogHistory)
+                    leaderLogJsonAdapter.toJson(sink, leaderLogHistory)
                 }
             }
             logger.info("Updated Leader logs in : $time ms")
@@ -1458,6 +1465,9 @@ class JormanagerController @Autowired constructor(
 
     @GetMapping("/api/status")
     fun getStatus(): OutputStats? = outputStats
+
+    @GetMapping("/api/blocks")
+    fun getBlocks(): List<LeaderBlock> = leaderLogHistory
 
     private fun postStatusUpdate() {
         outputStats?.let {
