@@ -1045,17 +1045,16 @@ class JormanagerController @Autowired constructor(
                     processesToRemove.clear()
                     logger.warn("EPOCH CUTOVER LEADER PROMOTIONS COMPLETED.")
 
-                    // wait until 1.75 seconds after epoch cutover and make all leaders passive
-                    val justAfterEpoch = epochTime.millis - System.currentTimeMillis() + 1750
+                    // wait until 5 seconds after epoch cutover and make all leaders passive
+                    val justAfterEpoch = epochTime.millis - System.currentTimeMillis() + 5000
                     if (justAfterEpoch > 0) {
                         logger.info("DELAY for ${justAfterEpoch}ms")
                         delay(justAfterEpoch)
                         logger.info("DELAY complete")
                     }
+                    val leaderLogsSizeMap = Collections.synchronizedMap(mutableMapOf<Int, Int>())
                     val leaderDemotions = mutableListOf<Deferred<Any?>>()
-                    logger.debug("DELAY complete -1")
-                    services.forEach { entry ->
-                        val processNumber = entry.key
+                    services.forEach { (processNumber, service) ->
                         logger.debug("DELAY complete $processNumber")
                         if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
                             leaderDemotions.add(
@@ -1076,8 +1075,11 @@ class JormanagerController @Autowired constructor(
 
                                             demoteLeader(demoteService)
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
+
+                                            val upcomingBlockCount = service.getLeaderLog().filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.size
+                                            leaderLogsSizeMap[processNumber] = upcomingBlockCount
                                         } catch (e: Throwable) {
-                                            logger.error("Unable to remove leadership from Process${processNumber}!: ${e.message}")
+                                            logger.error("Unable to remove leadership or get leader logs from Process${processNumber}!: ${e.message}")
                                             processesToRemove.add(processNumber)
                                         }
                                     }
@@ -1088,6 +1090,18 @@ class JormanagerController @Autowired constructor(
                     processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
                     processesToRemove.clear()
                     logger.warn("EPOCH CUTOVER LEADER DEMOTIONS COMPLETED.")
+
+                    // See if all nodes have the right size of leader logs
+                    val leaderLogsSize = leaderLogsSizeMap.values.max() ?: 0
+                    leaderLogsSizeMap.forEach { (processNumber, logsSize) ->
+                        if (logsSize < leaderLogsSize) {
+                            logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
+                            processesToRemove.add(processNumber)
+                        }
+                    }
+                    processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
+                    processesToRemove.clear()
+
                     nextEpochTime = null
                 }
             }

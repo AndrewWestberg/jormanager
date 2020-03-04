@@ -2,16 +2,16 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.2.4.RELEASE"
+    id("org.springframework.boot") version "2.2.5.RELEASE"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.github.ben-manes.versions") version "0.28.0"
-    kotlin("jvm") version "1.3.61"
-    kotlin("kapt") version "1.3.61"
-    kotlin("plugin.spring") version "1.3.61"
+    kotlin("jvm") version "1.3.70"
+    kotlin("kapt") version "1.3.70"
+    kotlin("plugin.spring") version "1.3.70"
 }
 
 group = "com.swiftmako"
-version = "0.2.5-SNAPSHOT"
+version = "0.2.6-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -32,13 +32,13 @@ dependencies {
     implementation("io.jsonwebtoken:jjwt:0.9.1")
 
     implementation("org.bouncycastle:bcprov-jdk15on:1.64")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.10.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.10.3")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.3.3")
     implementation("com.squareup.moshi:moshi-kotlin:1.9.2")
-    implementation("com.squareup.retrofit2:converter-moshi:2.7.1")
+    implementation("com.squareup.retrofit2:converter-moshi:2.7.2")
     implementation("com.squareup.okhttp3:okhttp:4.4.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.4.0")
     implementation("joda-time:joda-time:2.10.5")
