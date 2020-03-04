@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.7-SNAPSHOT
+
+ * Fix bug with blocks showing as sniped in blocks history page when they aren't validated yet.
+ 
 0.2.6-SNAPSHOT
 
  * Improve epoch cutover checks to ensure nodes got leader logs

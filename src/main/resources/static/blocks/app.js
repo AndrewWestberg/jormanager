@@ -50,7 +50,7 @@ $(document).ready(function() {
         $.each(data, function(index, block) {
             const scheduledDate = new Date(block.scheduled_at_time);
             const time = $.format.date(scheduledDate, "yyyy-MM-dd h:mm:ss p");
-            const status = (block.finished_at_time == null ? (scheduledDate > now ? block.status : "---") : (block.hasOwnProperty("minted") ? (block.minted?"MINTED!":"Sniped") : (block.status.hasOwnProperty("Rejected") ? "Rejected" : "Completed")));
+            const status = (block.finished_at_time == null ? (scheduledDate > now ? block.status : "---") : ((block.hasOwnProperty("minted") && block.minted != null) ? (block.minted?"MINTED!":"Sniped") : (block.status.hasOwnProperty("Rejected") ? "Rejected" : "Completed")));
             const hash = block && block.status && block.status.Block && block.status.Block.block
             const shortHash = hash != null ? (hash.substring(0, 5) + "...") : "---"
             tbody.append(
