@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.8-SNAPSHOT
+
+ * Add reporting of encrypted block logs to pooltool
+ 
 0.2.7-SNAPSHOT
 
  * Fix bug with blocks showing as sniped in blocks history page when they aren't validated yet.

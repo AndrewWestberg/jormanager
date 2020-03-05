@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="0.2.7-SNAPSHOT"
+VERSION="0.2.8-SNAPSHOT"
 tar -cjvf /home/westbam/Development/jormanager/install/build/JorManager-${VERSION}.tar.bz2 \
 -C /home/westbam/Development/jormanager/build/libs/ jormanager-${VERSION}.jar \
 -C /home/westbam/Development/jormanager/install itn_rewards_v1-configXX.yaml \

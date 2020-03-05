@@ -7,10 +7,13 @@ import com.swiftmako.jormanager.api.LeaderBlock
 import com.swiftmako.jormanager.api.LeaderInfo
 import com.swiftmako.jormanager.api.OutputStats
 import com.swiftmako.jormanager.api.PendingBlock
+import com.swiftmako.jormanager.api.PooltoolLogs
+import com.swiftmako.jormanager.api.PooltoolLogsJsonAdapter
 import com.swiftmako.jormanager.api.PooltoolResult
 import com.swiftmako.jormanager.api.RejectedBlock
 import com.swiftmako.jormanager.api.Stats
 import com.swiftmako.jormanager.utils.CircularQueue
+import com.swiftmako.jormanager.utils.PGPUtil
 import com.swiftmako.jormanager.utils.toHex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +36,7 @@ import okio.sink
 import okio.source
 import org.apache.commons.math3.stat.descriptive.moment.Mean
 import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation
+import org.bouncycastle.util.encoders.Base64
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormat
@@ -61,6 +65,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlin.random.Random
 import kotlin.system.measureTimeMillis
 
 
@@ -89,6 +94,7 @@ class JormanagerController @Autowired constructor(
     var nextBlockTime: DateTime? = null
     var nextEpochTime: DateTime? = null
     var lastPooltoolTimestamp: Long = -1
+    var currentEpoch = "0"
 
     private val leaderLogJsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
 
@@ -854,6 +860,8 @@ class JormanagerController @Autowired constructor(
 
                         latestStats[leaderProcessNumber] = latestStats[leaderProcessNumber]!!.copy(leader = true)
 
+                        val epoch = latestStats[leaderProcessNumber]?.lastBlockDate?.substringBefore('.', "0") ?: "0"
+
                         if (config.pooltoolEnabled) {
                             if (System.currentTimeMillis() - lastPooltoolTimestamp >= config.pooltoolDelayMs) {
                                 // Update pooltool with our info
@@ -897,6 +905,49 @@ class JormanagerController @Autowired constructor(
                                 }
                             } else {
                                 logger.info("Skipping Pooltool: not enough elapsed time since last update")
+                            }
+
+                            if (currentEpoch != epoch) {
+                                try {
+                                    val epochBlocks = leaderLogHistory.filter { block -> block.scheduledAtDate.startsWith("$epoch.") }
+                                    val epochBlocksJson = leaderLogJsonAdapter.toJson(epochBlocks)
+
+                                    val previousEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_${epoch.toInt() - 1}")
+                                    previousEpochKeyFile.parentFile.mkdirs()
+                                    val previousEpochKey = if (previousEpochKeyFile.exists()) {
+                                        previousEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+                                    } else {
+                                        ""
+                                    }
+
+                                    val currentEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_$epoch")
+                                    if (!currentEpochKeyFile.exists()) {
+                                        currentEpochKeyFile.writeBytes(Base64.encode(Random.nextBytes(32)))
+                                    }
+                                    val currentEpochKey = currentEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+
+                                    val encryptedSlots = PGPUtil.encrypt(epochBlocksJson, currentEpochKey)
+
+                                    val pooltoolLogs = PooltoolLogs(
+                                            currentepoch = epoch,
+                                            poolid = config.pooltoolPoolId,
+                                            genesispref = config.pooltoolGenesisPref,
+                                            userid = config.pooltoolUserId,
+                                            assignedSlots = epochBlocks.size.toString(),
+                                            previousEpochKey = previousEpochKey,
+                                            encryptedSlots = encryptedSlots
+                                    )
+                                    if (logger.isDebugEnabled) {
+                                        logger.debug("Sending leader logs to PoolTool: ${PooltoolLogsJsonAdapter(moshi).indent(" ").toJson(pooltoolLogs)}")
+                                    }
+                                    val logsResults = pooltool.sendLogs(pooltoolLogs)
+                                    logger.info("Sent leader Logs to PoolTool: $logsResults")
+                                    if(logsResults.success) {
+                                        currentEpoch = epoch
+                                    }
+                                } catch (e: Throwable) {
+                                    logger.error("Error sending leader logs to pooltool!", e)
+                                }
                             }
                         }
                     } else {

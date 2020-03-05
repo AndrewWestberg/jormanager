@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "0.2.7-SNAPSHOT"
+version = "0.2.8-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {
@@ -51,6 +51,9 @@ dependencies {
     implementation("org.webjars:bootstrap:4.4.1-1")
     implementation("org.webjars:jquery:3.4.1")
     implementation("org.webjars:font-awesome:5.12.0")
+
+    implementation("org.bouncycastle:bcprov-jdk15on:1.64")
+    implementation("org.bouncycastle:bcpg-jdk15on:1.64")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")

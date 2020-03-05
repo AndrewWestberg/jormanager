@@ -9,5 +9,7 @@ data class BlockDetail(
         @JsonProperty("block")
         @Json(name = "block") val block: String,
         @JsonProperty("chain_length")
-        @Json(name = "chain_length") val chainLength: Long
+        @Json(name = "chain_length") val chainLength: Long,
+        @JsonProperty("parent")
+        @Json(name = "parent") val parent: String?
 )
