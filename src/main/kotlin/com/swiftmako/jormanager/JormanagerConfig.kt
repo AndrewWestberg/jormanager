@@ -56,6 +56,9 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val killPath: String = properties.getStringProperty("jormanager.kill.path")
     val leadershipProbationEnabled: Boolean = properties.getBooleanProperty("jormanager.leadership.probation.enabled")
     val leadershipProbationDurationMs: Long = properties.getMillisProperty("jormanager.leadership.probation.duration")
+    val processPriorityEnabled: Boolean = properties.getBooleanProperty("jormanager.processpriority.enabled")
+    val processPriorityHighCmd: String = properties.getStringProperty("jormanager.processpriority.high")
+    val processPriorityNormalCmd: String = properties.getStringProperty("jormanager.processpriority.normal")
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -109,6 +112,9 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (killPath != other.killPath) return false
         if (leadershipProbationEnabled != other.leadershipProbationEnabled) return false
         if (leadershipProbationDurationMs != other.leadershipProbationDurationMs) return false
+        if (processPriorityEnabled != other.processPriorityEnabled) return false
+        if (processPriorityHighCmd != other.processPriorityHighCmd) return false
+        if (processPriorityNormalCmd != other.processPriorityNormalCmd) return false
 
         return true
     }
@@ -160,10 +166,13 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + killPath.hashCode()
         result = 31 * result + leadershipProbationEnabled.hashCode()
         result = 31 * result + leadershipProbationDurationMs.hashCode()
+        result = 31 * result + processPriorityEnabled.hashCode()
+        result = 31 * result + processPriorityHighCmd.hashCode()
+        result = 31 * result + processPriorityNormalCmd.hashCode()
         return result
     }
 
     override fun toString(): String {
-        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeoutMs=$nodeStatsTimeoutMs, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolId='$pooltoolPoolId', pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', pooltoolKeystorage='$pooltoolKeystorage', blockLogPath='$blockLogPath', statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPath='$jormungandrSecretPath', jormungandrSecretJsonPath='$jormungandrSecretJsonPath', jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leadershipProbationEnabled=$leadershipProbationEnabled, leadershipProbationDurationMs=$leadershipProbationDurationMs)"
+        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeoutMs=$nodeStatsTimeoutMs, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolId='$pooltoolPoolId', pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', pooltoolKeystorage='$pooltoolKeystorage', blockLogPath='$blockLogPath', statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPath='$jormungandrSecretPath', jormungandrSecretJsonPath='$jormungandrSecretJsonPath', jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leadershipProbationEnabled=$leadershipProbationEnabled, leadershipProbationDurationMs=$leadershipProbationDurationMs, processPriorityEnabled=$processPriorityEnabled, processPriorityHighCmd='$processPriorityHighCmd', processPriorityNormalCmd='$processPriorityNormalCmd')"
     }
 }

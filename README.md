@@ -121,6 +121,8 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
  * Add reporting of encrypted block logs to pooltool
  
+ * Add renice support for increasing a process's priority during block minting
+ 
 0.2.7-SNAPSHOT
 
  * Fix bug with blocks showing as sniped in blocks history page when they aren't validated yet.

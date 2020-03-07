@@ -942,7 +942,7 @@ class JormanagerController @Autowired constructor(
                                     }
                                     val logsResults = pooltool.sendLogs(pooltoolLogs)
                                     logger.info("Sent leader Logs to PoolTool: $logsResults")
-                                    if(logsResults.success) {
+                                    if (logsResults.success) {
                                         currentEpoch = epoch
                                     }
                                 } catch (e: Throwable) {
@@ -1230,6 +1230,15 @@ class JormanagerController @Autowired constructor(
 
                     processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
 
+                    // Increase process priority if configured
+                    try {
+                        processes[leaderProcessNumber]?.let { leaderProcess ->
+                            setProcessPriorityHigh(leaderProcessNumber, getPidOfProcess(leaderProcess.process))
+                        }
+                    } catch (e: Throwable) {
+                        logger.error("Could not set Process$leaderProcessNumber priority to HIGH")
+                    }
+
                     val fiveSecondsBeforeMinting = blockTime.millis - System.currentTimeMillis() - 5000
                     if (fiveSecondsBeforeMinting > 0) {
                         delay(fiveSecondsBeforeMinting)
@@ -1247,6 +1256,15 @@ class JormanagerController @Autowired constructor(
                     delay(blockTime.millis - System.currentTimeMillis() + 1500)
                     logger.warn("BLOCK SHOULD HAVE MINTED BY NOW: Resuming Leader Election process.")
                     nextBlockTime = null
+
+                    // Reset process priority if configured
+                    try {
+                        processes[leaderProcessNumber]?.let { leaderProcess ->
+                            setProcessPriorityNormal(leaderProcessNumber, getPidOfProcess(leaderProcess.process))
+                        }
+                    } catch (e: Throwable) {
+                        logger.error("Could not set Process$leaderProcessNumber priority to NORMAL")
+                    }
                 }
             } else {
                 delay(config.leaderElectionDelayMs)
@@ -1481,6 +1499,76 @@ class JormanagerController @Autowired constructor(
                     }
                 } catch (e: Throwable) {
                     logger.error("closeFirewall ERROR!", e)
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+    }
+
+    private suspend fun setProcessPriorityHigh(processNumber: Int, pid: Long): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            if (!config.processPriorityEnabled) {
+                continuation.resume(true)
+            } else {
+                try {
+                    val args = config.processPriorityHighCmd.replace("{pid}", "$pid").split(' ')
+                    val process = ProcessBuilder(
+                            *args.toTypedArray()
+                    ).start()
+
+                    continuation.invokeOnCancellation {
+                        try {
+                            process.destroy()
+                        } catch (e: Throwable) {
+                            logger.error("processPriorityHigh Error!", e)
+                        }
+                    }
+
+                    val exitValue = process.waitFor()
+                    if (exitValue == 0) {
+                        logger.warn("Process$processNumber priority set to HIGH")
+                        continuation.resume(true)
+                    } else {
+                        logger.warn("Process$processNumber priority set to HIGH exit code $exitValue")
+                        continuation.resume(false)
+                    }
+                } catch (e: Throwable) {
+                    logger.error("processPriorityHigh ERROR!", e)
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+    }
+
+    private suspend fun setProcessPriorityNormal(processNumber: Int, pid: Long): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            if (!config.processPriorityEnabled) {
+                continuation.resume(true)
+            } else {
+                try {
+                    val args = config.processPriorityNormalCmd.replace("{pid}", "$pid").split(' ')
+                    val process = ProcessBuilder(
+                            *args.toTypedArray()
+                    ).start()
+
+                    continuation.invokeOnCancellation {
+                        try {
+                            process.destroy()
+                        } catch (e: Throwable) {
+                            logger.error("processPriorityNormal Error!", e)
+                        }
+                    }
+
+                    val exitValue = process.waitFor()
+                    if (exitValue == 0) {
+                        logger.warn("Process$processNumber priority set to NORMAL")
+                        continuation.resume(true)
+                    } else {
+                        logger.warn("Process$processNumber priority set to NORMAL exit code $exitValue")
+                        continuation.resume(false)
+                    }
+                } catch (e: Throwable) {
+                    logger.error("processPriorityNormal ERROR!", e)
                     continuation.resumeWithException(e)
                 }
             }

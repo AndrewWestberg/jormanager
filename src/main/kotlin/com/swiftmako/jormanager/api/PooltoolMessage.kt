@@ -7,5 +7,6 @@ import com.squareup.moshi.JsonClass
 data class PooltoolMessage(
         @Json(name = "assigned_slots_saved") val assignedSlotsSaved: String?,
         @Json(name = "encrypted_slots_saved") val encryptedSlotsSaved: Boolean?,
+        @Json(name = "previous_epoch_slots_verified") val previousEpochSlotsVerified: Boolean?,
         @Json(name = "error") val error: String?
 )
