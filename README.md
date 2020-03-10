@@ -118,6 +118,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 
 ###### Release Notes
 0.2.8-SNAPSHOT
+ 
+ * Fix bug related to sending slots to pooltool multiple times
+ 
+0.2.8-SNAPSHOT
 
  * Add reporting of encrypted block logs to pooltool
  

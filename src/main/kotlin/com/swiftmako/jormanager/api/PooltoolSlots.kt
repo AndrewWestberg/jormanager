@@ -4,7 +4,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class PooltoolLogs(
+data class PooltoolSlots(
         @Json(name = "currentepoch") val currentepoch: String,
         @Json(name = "poolid") val poolid: String,
         @Json(name = "genesispref") val genesispref: String,

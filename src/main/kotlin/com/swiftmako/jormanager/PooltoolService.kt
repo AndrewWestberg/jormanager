@@ -1,8 +1,8 @@
 package com.swiftmako.jormanager
 
-import com.swiftmako.jormanager.api.PooltoolLogs
+import com.swiftmako.jormanager.api.PooltoolSlots
 import com.swiftmako.jormanager.api.PooltoolResult
-import com.swiftmako.jormanager.api.PooltoolSendLogsResult
+import com.swiftmako.jormanager.api.PooltoolSendSlotsResult
 import com.swiftmako.jormanager.api.PooltoolStatsResult
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -30,5 +30,5 @@ interface PooltoolService {
     suspend fun getPooltoolStats(): PooltoolStatsResult
 
     @POST("sendlogs")
-    suspend fun sendLogs(@Body logs: PooltoolLogs): PooltoolSendLogsResult
+    suspend fun sendSlots(@Body slots: PooltoolSlots): PooltoolSendSlotsResult
 }

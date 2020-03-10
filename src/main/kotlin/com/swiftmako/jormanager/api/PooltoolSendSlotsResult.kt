@@ -4,7 +4,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class PooltoolSendLogsResult(
+data class PooltoolSendSlotsResult(
         @Json(name = "success") val success: Boolean,
         @Json(name = "message") val message: PooltoolMessage?
 )

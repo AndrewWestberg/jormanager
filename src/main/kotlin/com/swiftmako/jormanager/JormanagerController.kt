@@ -7,9 +7,10 @@ import com.swiftmako.jormanager.api.LeaderBlock
 import com.swiftmako.jormanager.api.LeaderInfo
 import com.swiftmako.jormanager.api.OutputStats
 import com.swiftmako.jormanager.api.PendingBlock
-import com.swiftmako.jormanager.api.PooltoolLogs
-import com.swiftmako.jormanager.api.PooltoolLogsJsonAdapter
 import com.swiftmako.jormanager.api.PooltoolResult
+import com.swiftmako.jormanager.api.PooltoolSendSlotsResultJsonAdapter
+import com.swiftmako.jormanager.api.PooltoolSlots
+import com.swiftmako.jormanager.api.PooltoolSlotsJsonAdapter
 import com.swiftmako.jormanager.api.RejectedBlock
 import com.swiftmako.jormanager.api.Stats
 import com.swiftmako.jormanager.utils.CircularQueue
@@ -95,6 +96,7 @@ class JormanagerController @Autowired constructor(
     var nextEpochTime: DateTime? = null
     var lastPooltoolTimestamp: Long = -1
     var currentEpoch = "0"
+    var pooltoolSlots: PooltoolSlots? = null
 
     private val leaderLogJsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
 
@@ -909,42 +911,50 @@ class JormanagerController @Autowired constructor(
 
                             if (currentEpoch != epoch) {
                                 try {
-                                    val epochBlocks = leaderLogHistory.filter { block -> block.scheduledAtDate.startsWith("$epoch.") }
-                                    val epochBlocksJson = leaderLogJsonAdapter.toJson(epochBlocks)
+                                    if (!File("${config.pooltoolKeystorage}/response_${epoch.toInt()}.json").exists()) {
+                                        val epochBlocks = leaderLogHistory.filter { block -> block.scheduledAtDate.startsWith("$epoch.") }
+                                        val epochBlocksJson = leaderLogJsonAdapter.toJson(epochBlocks)
 
-                                    val previousEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_${epoch.toInt() - 1}")
-                                    previousEpochKeyFile.parentFile.mkdirs()
-                                    val previousEpochKey = if (previousEpochKeyFile.exists()) {
-                                        previousEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+                                        val previousEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_${epoch.toInt() - 1}")
+                                        previousEpochKeyFile.parentFile.mkdirs()
+                                        val previousEpochKey = if (previousEpochKeyFile.exists()) {
+                                            previousEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+                                        } else {
+                                            ""
+                                        }
+
+                                        val currentEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_$epoch")
+                                        if (!currentEpochKeyFile.exists()) {
+                                            currentEpochKeyFile.writeBytes(Base64.encode(Random.nextBytes(32)))
+                                        }
+                                        val currentEpochKey = currentEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+
+                                        val encryptedSlots = PGPUtil.encrypt(epochBlocksJson, currentEpochKey)
+
+                                        pooltoolSlots = PooltoolSlots(
+                                                currentepoch = epoch,
+                                                poolid = config.pooltoolPoolId,
+                                                genesispref = config.pooltoolGenesisPref,
+                                                userid = config.pooltoolUserId,
+                                                assignedSlots = epochBlocks.size.toString(),
+                                                previousEpochKey = previousEpochKey,
+                                                encryptedSlots = encryptedSlots
+                                        )
+                                        val requestJson = PooltoolSlotsJsonAdapter(moshi).indent(" ").toJson(pooltoolSlots)
+                                        File("${config.pooltoolKeystorage}/request_${epoch.toInt()}.json").writeText(requestJson)
+                                        logger.debug("Sending leader logs to PoolTool: $requestJson")
+                                        val slotsResults = pooltool.sendSlots(pooltoolSlots!!)
+                                        val responseJson = PooltoolSendSlotsResultJsonAdapter(moshi).indent(" ").toJson(slotsResults)
+                                        File("${config.pooltoolKeystorage}/response_${epoch.toInt()}.json").writeText(responseJson)
+                                        if (slotsResults.success) {
+                                            logger.info("Sent leader Logs to PoolTool: $responseJson")
+                                        } else {
+                                            logger.error("Error sending leader Logs to PoolTool: $responseJson")
+                                        }
                                     } else {
-                                        ""
+                                        logger.warn("Already sent logs to pooltool for epoch $epoch because ${config.pooltoolKeystorage}/response_${epoch.toInt()}.json exists.")
                                     }
-
-                                    val currentEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_$epoch")
-                                    if (!currentEpochKeyFile.exists()) {
-                                        currentEpochKeyFile.writeBytes(Base64.encode(Random.nextBytes(32)))
-                                    }
-                                    val currentEpochKey = currentEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
-
-                                    val encryptedSlots = PGPUtil.encrypt(epochBlocksJson, currentEpochKey)
-
-                                    val pooltoolLogs = PooltoolLogs(
-                                            currentepoch = epoch,
-                                            poolid = config.pooltoolPoolId,
-                                            genesispref = config.pooltoolGenesisPref,
-                                            userid = config.pooltoolUserId,
-                                            assignedSlots = epochBlocks.size.toString(),
-                                            previousEpochKey = previousEpochKey,
-                                            encryptedSlots = encryptedSlots
-                                    )
-                                    if (logger.isDebugEnabled) {
-                                        logger.debug("Sending leader logs to PoolTool: ${PooltoolLogsJsonAdapter(moshi).indent(" ").toJson(pooltoolLogs)}")
-                                    }
-                                    val logsResults = pooltool.sendLogs(pooltoolLogs)
-                                    logger.info("Sent leader Logs to PoolTool: $logsResults")
-                                    if (logsResults.success) {
-                                        currentEpoch = epoch
-                                    }
+                                    currentEpoch = epoch
                                 } catch (e: Throwable) {
                                     logger.error("Error sending leader logs to pooltool!", e)
                                 }
