@@ -582,20 +582,21 @@ class JormanagerController @Autowired constructor(
                                             }
                                         }
 
-                                        val numberOfPeers = if (config.useLightweightPeerCount) {
-                                            // Another method to get number of peers by by using sockets from ss
-                                            establishedSocketsByProcessId(
-                                                    processes[processNumber]?.process?.let {
-                                                        getPidOfProcess(it)
-                                                    } ?: 0)
-                                        } else {
-                                            try {
-                                                service.networkStats().size
-                                            } catch (e: Throwable) {
-                                                logger.error("Process${processNumber}: getLeaderLog error!")
-                                                throw e
-                                            }
-                                        }
+                                        val numberOfPeers = stats.peerConnectedCnt?.toInt()
+                                                ?: if (config.useLightweightPeerCount) {
+                                                    // Another method to get number of peers by by using sockets from ss
+                                                    establishedSocketsByProcessId(
+                                                            processes[processNumber]?.process?.let {
+                                                                getPidOfProcess(it)
+                                                            } ?: 0)
+                                                } else {
+                                                    try {
+                                                        service.networkStats().size
+                                                    } catch (e: Throwable) {
+                                                        logger.error("Process${processNumber}: getLeaderLog error!")
+                                                        throw e
+                                                    }
+                                                }
 
                                         pastPeerCounts[processNumber]?.add(numberOfPeers)
 
@@ -965,7 +966,7 @@ class JormanagerController @Autowired constructor(
                     }
                 }
 
-                if (pooltoolResult.success) {
+                if (pooltoolResult.success || pooltoolResult.error != null) {
                     logger.info(pooltoolResult.toString())
                 }
 

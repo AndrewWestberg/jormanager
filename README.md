@@ -117,6 +117,14 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.10-SNAPSHOT
+
+ * Use peerConnectedCnt from node stats if available instead of ss command
+ 
+0.2.9-SNAPSHOT
+
+ * Fix pooltool slots send to once per epoch 
+ 
 0.2.8-SNAPSHOT
  
  * Fix bug related to sending slots to pooltool multiple times

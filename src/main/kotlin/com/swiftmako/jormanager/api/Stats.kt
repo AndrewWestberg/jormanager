@@ -17,6 +17,7 @@ data class Stats(
         @Json(name = "lastReceivedBlockTime") val lastReceivedBlockTime: String? = null,
         @Json(name = "nodeId") val nodeId: String? = null,
         @Json(name = "peerAvailableCnt") val peerAvailableCnt: String? = null,
+        @Json(name = "peerConnectedCnt") val peerConnectedCnt: String? = null,
         @Json(name = "peerQuarantinedCnt") val peerQuarantinedCnt: String? = null,
         @Json(name = "peerUnreachableCnt") val peerUnreachableCnt: String? = null,
         @Json(name = "state") val state: String,
