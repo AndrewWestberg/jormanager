@@ -2,12 +2,12 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.2.5.RELEASE"
+    id("org.springframework.boot") version "2.2.6.RELEASE"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.github.ben-manes.versions") version "0.28.0"
-    kotlin("jvm") version "1.3.70"
-    kotlin("kapt") version "1.3.70"
-    kotlin("plugin.spring") version "1.3.70"
+    kotlin("jvm") version "1.3.71"
+    kotlin("kapt") version "1.3.71"
+    kotlin("plugin.spring") version "1.3.71"
 }
 
 object Versions {
@@ -21,12 +21,12 @@ object Versions {
     const val junit = "4.13"
     const val moshi = "1.9.2"
     const val okhttp = "4.4.1"
-    const val retrofit = "2.7.2"
+    const val retrofit = "2.8.1"
     const val sockjs = "1.1.2"
-    const val springSecurity = "5.3.0.RELEASE"
+    const val springSecurity = "5.3.1.RELEASE"
     const val stomp = "2.3.3-1"
     const val webjarsBootstrap = "4.4.1-1"
-    const val webjarsFontAwesome = "5.12.0"
+    const val webjarsFontAwesome = "5.13.0"
     const val webjarsJquery = "3.4.1"
     const val webjarsLocator = "0.44"
 }

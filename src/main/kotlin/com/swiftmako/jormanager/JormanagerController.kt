@@ -1110,9 +1110,9 @@ class JormanagerController @Autowired constructor(
                     // wait until 5 seconds after epoch cutover and make all leaders passive
                     val justAfterEpoch = epochTime.millis - System.currentTimeMillis() + 5000
                     if (justAfterEpoch > 0) {
-                        logger.info("DELAY for ${justAfterEpoch}ms")
+                        logger.debug("DELAY for ${justAfterEpoch}ms")
                         delay(justAfterEpoch)
-                        logger.info("DELAY complete")
+                        logger.debug("DELAY complete")
                     }
                     val leaderLogsSizeMap = Collections.synchronizedMap(mutableMapOf<Int, Int>())
                     val leaderDemotions = mutableListOf<Deferred<Any?>>()
