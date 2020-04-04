@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.11-SNAPSHOT
+
+ * Update installer for Jormungandr 0.8.17 preferred_list peers
+ 
 0.2.10-SNAPSHOT
 
  * Use peerConnectedCnt from node stats if available instead of ss command
