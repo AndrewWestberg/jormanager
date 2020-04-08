@@ -518,6 +518,7 @@ class JormanagerController @Autowired constructor(
      */
     private fun manageLeaderElection() = launch {
         var maxBlockHeight: Long = 0
+        var pooltoolMajorityMax:Long = 0
         var pooltoolResult = PooltoolResult(success = false)
         val processesToRemove = mutableListOf<Int>()
         val serviceCalls = mutableListOf<Deferred<Any?>>()
@@ -541,7 +542,7 @@ class JormanagerController @Autowired constructor(
                 // Make sure to shut down if our nodes are behind pooltool majority max
                 try {
                     val pooltoolStats = pooltoolStats.getPooltoolStats()
-                    maxBlockHeight = maxOf(maxBlockHeight, pooltoolStats.majoritymax)
+                    pooltoolMajorityMax = pooltoolStats.majoritymax
                     if (!config.pooltoolEnabled) {
                         pooltoolResult = PooltoolResult(success = true, pooltoolmax = pooltoolStats.max, confidence = true)
                     }
@@ -670,7 +671,7 @@ class JormanagerController @Autowired constructor(
                                             if (uptime > config.nodeProbationSecs) {
                                                 // We've been up long enough. See if we've fallen behind the maxBlockHeight
                                                 stats.lastBlockHeight?.toLong()?.let { lastBlockHeight ->
-                                                    if (maxBlockHeight - lastBlockHeight > config.maxBlocksBehind) {
+                                                    if (maxOf(maxBlockHeight, pooltoolMajorityMax) - lastBlockHeight > config.maxBlocksBehind) {
                                                         // We're more than the max blocks behind. kill this node.
                                                         logger.error("Process${processNumber}: has fallen behind, restarting...")
                                                         processesToRemove.add(processNumber)

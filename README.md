@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.2.12-SNAPSHOT
+
+ * Ensure there is still a leader even if we are behind pooltool majorityMax
+ 
 0.2.11-SNAPSHOT
 
  * Update installer for Jormungandr 0.8.17 preferred_list peers
