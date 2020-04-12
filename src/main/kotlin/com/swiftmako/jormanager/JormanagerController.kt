@@ -48,6 +48,7 @@ import org.springframework.context.ApplicationContext
 import org.springframework.context.ApplicationContextAware
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -103,10 +104,20 @@ class JormanagerController @Autowired constructor(
     private val latestStats = Collections.synchronizedMap(mutableMapOf<Int, Stats>())
     private val processes = mutableMapOf<Int, JormungandrProcess>()
     private val services = mutableMapOf<Int, JormungandrService>()
+    private val promoteDemoteMutex = mutableMapOf<Int, Mutex>()
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
     private var outputStats: OutputStats? = null
-    private val leaderLogHistory = mutableListOf<LeaderBlock>()
+    private val leaderLogHistory: List<MutableList<LeaderBlock>> = listOf(
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf(),
+            mutableListOf()
+    )
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -174,8 +185,8 @@ class JormanagerController @Autowired constructor(
                         newConfig.standbyMode != config.standbyMode -> {
                             try {
                                 if (newConfig.standbyMode && leaderProcessNumber > -1) {
-                                    demoteLeader(services[leaderProcessNumber])
                                     logger.warn("DEMOTE LEADER to STANDBY LEADER: Process${leaderProcessNumber}")
+                                    demoteLeader(leaderProcessNumber, services[leaderProcessNumber])
                                 } else {
                                     logger.warn("LEAVING STANDBY MODE. New Leader will be promoted soon.")
                                     leaderProcessNumber = -1
@@ -243,6 +254,7 @@ class JormanagerController @Autowired constructor(
                                 .baseUrl(config.restApiUrlPattern.replace("{pid}", "$processNumber".padStart(2, '0')))
                                 .build()
                                 .create(JormungandrService::class.java)
+                        promoteDemoteMutex[processNumber] = Mutex()
                         pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
                         logger.info("Active Jormungandr processes: ${processes.size}")
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
@@ -289,8 +301,10 @@ class JormanagerController @Autowired constructor(
         )
 
         if (!isPassive) {
-            processParams.add("--secret")
-            processParams.add(config.jormungandrSecretPath)
+            config.jormungandrSecretPathList.forEach { jormungandrSecretPath ->
+                processParams.add("--secret")
+                processParams.add(jormungandrSecretPath)
+            }
         }
 
         return ProcessBuilder(
@@ -412,12 +426,12 @@ class JormanagerController @Autowired constructor(
                             if (!process.isPassive) {
                                 if (leaderProcessNumber > -1) {
                                     // Node came up! Turn off leadership immediately
-                                    demoteLeader(service)
                                     logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                    demoteLeader(processNumber, service)
                                 } else {
                                     if (config.standbyMode) {
-                                        demoteLeader(service)
-                                        logger.warn("REMOVE LEADER AFTER BOOTSTRAP: Process${processNumber}")
+                                        logger.warn("REMOVE LEADER AFTER BOOTSTRAP (standby): Process${processNumber}")
+                                        demoteLeader(processNumber, service)
                                     } else {
                                         logger.warn("KEEP FIRST LEADER AFTER BOOTSTRAP: Process${processNumber}")
                                     }
@@ -475,6 +489,8 @@ class JormanagerController @Autowired constructor(
         }
         val process = processes.remove(processNumber)
         services.remove(processNumber)
+        promoteDemoteMutex.remove(processNumber)
+
         val pid = process?.process?.let {
             getPidOfProcess(it)
         }
@@ -518,7 +534,7 @@ class JormanagerController @Autowired constructor(
      */
     private fun manageLeaderElection() = launch {
         var maxBlockHeight: Long = 0
-        var pooltoolMajorityMax:Long = 0
+        var pooltoolMajorityMax: Long = 0
         var pooltoolResult = PooltoolResult(success = false)
         val processesToRemove = mutableListOf<Int>()
         val serviceCalls = mutableListOf<Deferred<Any?>>()
@@ -631,10 +647,14 @@ class JormanagerController @Autowired constructor(
                                         // Validate we're in the correct leadership state
                                         if (!config.standbyMode && processNumber == leaderProcessNumber) {
                                             // Validate that we ARE a leader
-                                            promoteLeader(services[processNumber])
+                                            // logger.debug("Validate that we ARE a leader: Process$processNumber")
+                                            promoteLeader(processNumber, services[processNumber])
+                                            // logger.debug("Validate that we ARE a leader: Process$processNumber, OK")
                                         } else {
                                             // Validate that we ARE NOT a leader
-                                            demoteLeader(services[processNumber])
+                                            // logger.debug("Validate that we ARE NOT a leader: Process$processNumber")
+                                            demoteLeader(processNumber, services[processNumber])
+                                            // logger.debug("Validate that we ARE NOT a leader: Process$processNumber, OK")
                                         }
 
                                         if (latestStats[processNumber]?.state != "Running") {
@@ -801,8 +821,8 @@ class JormanagerController @Autowired constructor(
                         if (config.standbyMode) {
                             logger.warn("REMOVE STANDBY LEADER: Process${leaderProcessNumber}")
                         } else {
-                            demoteLeader(services[leaderProcessNumber])
                             logger.warn("REMOVE LEADER: Process${leaderProcessNumber}")
+                            demoteLeader(leaderProcessNumber, services[leaderProcessNumber])
                         }
                         oldLeaderProcessNumber = leaderProcessNumber
                         leaderProcessNumber = -1
@@ -819,39 +839,41 @@ class JormanagerController @Autowired constructor(
                     val stats = entry.value
 
                     if (shouldPromoteNewLeader) {
-                        File(config.jormungandrSecretJsonPath).source().buffer().use { source ->
-                            moshi.adapter(LeaderInfo::class.java)
-                                    .fromJson(source)?.let { leaderInfo ->
-                                        try {
-                                            if (config.standbyMode) {
-                                                leaderProcessNumber = processNumber
-                                                logger.warn("PROMOTE STANDBY LEADER: Process${leaderProcessNumber}")
-                                            } else {
-                                                promoteLeader(services[processNumber], leaderInfo)
-                                                leaderProcessNumber = processNumber
-                                                logger.warn("PROMOTE LEADER: Process${leaderProcessNumber}")
-                                            }
-                                        } catch (e: Throwable) {
-                                            logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
-                                            shutdownProcess(processNumber)
-                                            if (oldLeaderProcessNumber > -1) {
-                                                // re-promote last leader
-                                                try {
-                                                    if (config.standbyMode) {
-                                                        leaderProcessNumber = oldLeaderProcessNumber
-                                                        logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}")
-                                                    } else {
-                                                        promoteLeader(services[oldLeaderProcessNumber], leaderInfo)
-                                                        leaderProcessNumber = oldLeaderProcessNumber
-                                                        logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
+                        config.jormungandrSecretJsonPathList.forEach { jormungandrSecretJsonPath ->
+                            File(jormungandrSecretJsonPath).source().buffer().use { source ->
+                                moshi.adapter(LeaderInfo::class.java)
+                                        .fromJson(source)?.let { leaderInfo ->
+                                            try {
+                                                if (config.standbyMode) {
+                                                    logger.warn("PROMOTE STANDBY LEADER: Process${processNumber}, $jormungandrSecretJsonPath")
+                                                    leaderProcessNumber = processNumber
+                                                } else {
+                                                    logger.warn("PROMOTE LEADER: Process${processNumber}, $jormungandrSecretJsonPath")
+                                                    promoteLeader(processNumber, services[processNumber], leaderInfo)
+                                                    leaderProcessNumber = processNumber
+                                                }
+                                            } catch (e: Throwable) {
+                                                logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
+                                                shutdownProcess(processNumber)
+                                                if (oldLeaderProcessNumber > -1) {
+                                                    // re-promote last leader
+                                                    try {
+                                                        if (config.standbyMode) {
+                                                            logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}, $jormungandrSecretJsonPath")
+                                                            leaderProcessNumber = oldLeaderProcessNumber
+                                                        } else {
+                                                            logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}, $jormungandrSecretJsonPath")
+                                                            promoteLeader(oldLeaderProcessNumber, services[oldLeaderProcessNumber], leaderInfo)
+                                                            leaderProcessNumber = oldLeaderProcessNumber
+                                                        }
+                                                    } catch (ex: Throwable) {
+                                                        logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
+                                                        shutdownProcess(oldLeaderProcessNumber)
                                                     }
-                                                } catch (ex: Throwable) {
-                                                    logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
-                                                    shutdownProcess(oldLeaderProcessNumber)
                                                 }
                                             }
-                                        }
-                                    } ?: logger.error("Unable to parse leader json file!!")
+                                        } ?: logger.error("Unable to parse leader json file!!")
+                            }
                         }
                     }
 
@@ -886,22 +908,24 @@ class JormanagerController @Autowired constructor(
                                         val lastSlot = blockString.substring(24, 32).toLong(16).toString()
                                         val lastEpoch = blockString.substring(16, 24).toLong(16).toString()
 
-                                        // if (logger.isDebugEnabled) {
-                                        // logger.debug("Sending Pooltool Data:\n\tpoolId = ${config.pooltoolPoolId}\n\tuserId = ${config.pooltoolUserId}\n\tgenesisPref = ${config.pooltoolGenesisPref}\n\tlastBlockHeight = ${stats.lastBlockHeight!!}\n\tlastBlockHash = ${stats.lastBlockHash!!}\n\tlastPoolId = $lastPoolId\n\tlastParent = $lastParent\n\tlastSlot = $lastSlot\n\tlastEpoch = $lastEpoch\n\tjormVersion = ${if (config.pooltoolJormverEnabled) stats.version else null}")
-                                        // }
-                                        pooltoolResult = pooltool.shareMyTip(
-                                                poolId = config.pooltoolPoolId,
-                                                userId = config.pooltoolUserId,
-                                                genesisPref = config.pooltoolGenesisPref,
-                                                lastBlockHeight = stats.lastBlockHeight!!,
-                                                lastBlockHash = stats.lastBlockHash!!,
-                                                lastPoolId = lastPoolId,
-                                                lastParent = lastParent,
-                                                lastSlot = lastSlot,
-                                                lastEpoch = lastEpoch,
-                                                platform = "JorManager",
-                                                jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
-                                        )
+                                        config.pooltoolPoolIdList.forEach { pooltoolPoolId ->
+                                            // if (logger.isDebugEnabled) {
+                                            // logger.debug("Sending Pooltool Data:\n\tpoolId = ${config.pooltoolPoolId}\n\tuserId = ${config.pooltoolUserId}\n\tgenesisPref = ${config.pooltoolGenesisPref}\n\tlastBlockHeight = ${stats.lastBlockHeight!!}\n\tlastBlockHash = ${stats.lastBlockHash!!}\n\tlastPoolId = $lastPoolId\n\tlastParent = $lastParent\n\tlastSlot = $lastSlot\n\tlastEpoch = $lastEpoch\n\tjormVersion = ${if (config.pooltoolJormverEnabled) stats.version else null}")
+                                            // }
+                                            pooltoolResult = pooltool.shareMyTip(
+                                                    poolId = pooltoolPoolId,
+                                                    userId = config.pooltoolUserId,
+                                                    genesisPref = config.pooltoolGenesisPref,
+                                                    lastBlockHeight = stats.lastBlockHeight!!,
+                                                    lastBlockHash = stats.lastBlockHash!!,
+                                                    lastPoolId = lastPoolId,
+                                                    lastParent = lastParent,
+                                                    lastSlot = lastSlot,
+                                                    lastEpoch = lastEpoch,
+                                                    platform = "JorManager",
+                                                    jormVersion = if (config.pooltoolJormverEnabled) stats.version.replace("+", "") else null
+                                            )
+                                        }
                                         lastPooltoolTimestamp = System.currentTimeMillis()
                                     }
                                 } catch (e: Throwable) {
@@ -912,53 +936,55 @@ class JormanagerController @Autowired constructor(
                             }
 
                             if (currentEpoch != epoch) {
-                                try {
-                                    if (!File("${config.pooltoolKeystorage}/response_${epoch.toInt()}.json").exists()) {
-                                        val epochBlocks = leaderLogHistory.filter { block -> block.scheduledAtDate.startsWith("$epoch.") }
-                                        val epochBlocksJson = leaderLogJsonAdapter.toJson(epochBlocks)
+                                config.pooltoolKeystorageList.forEachIndexed { index, pooltoolKeystorage ->
+                                    try {
+                                        if (!File("${pooltoolKeystorage}/response_${epoch.toInt()}.json").exists()) {
+                                            val epochBlocks = leaderLogHistory[index].filter { block -> block.scheduledAtDate.startsWith("$epoch.") }
+                                            val epochBlocksJson = leaderLogJsonAdapter.toJson(epochBlocks)
 
-                                        val previousEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_${epoch.toInt() - 1}")
-                                        previousEpochKeyFile.parentFile.mkdirs()
-                                        val previousEpochKey = if (previousEpochKeyFile.exists()) {
-                                            previousEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+                                            val previousEpochKeyFile = File("${pooltoolKeystorage}/passphrase_${epoch.toInt() - 1}")
+                                            previousEpochKeyFile.parentFile.mkdirs()
+                                            val previousEpochKey = if (previousEpochKeyFile.exists()) {
+                                                previousEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+                                            } else {
+                                                ""
+                                            }
+
+                                            val currentEpochKeyFile = File("${pooltoolKeystorage}/passphrase_$epoch")
+                                            if (!currentEpochKeyFile.exists()) {
+                                                currentEpochKeyFile.writeBytes(Base64.encode(Random.nextBytes(32)))
+                                            }
+                                            val currentEpochKey = currentEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
+
+                                            val encryptedSlots = PGPUtil.encrypt(epochBlocksJson, currentEpochKey)
+
+                                            pooltoolSlots = PooltoolSlots(
+                                                    currentepoch = epoch,
+                                                    poolid = config.pooltoolPoolIdList[index],
+                                                    genesispref = config.pooltoolGenesisPref,
+                                                    userid = config.pooltoolUserId,
+                                                    assignedSlots = epochBlocks.size.toString(),
+                                                    previousEpochKey = previousEpochKey,
+                                                    encryptedSlots = encryptedSlots
+                                            )
+                                            val requestJson = PooltoolSlotsJsonAdapter(moshi).indent(" ").toJson(pooltoolSlots)
+                                            File("${pooltoolKeystorage}/request_${epoch.toInt()}.json").writeText(requestJson)
+                                            logger.debug("Sending leader logs to PoolTool: $requestJson")
+                                            val slotsResults = pooltool.sendSlots(pooltoolSlots!!)
+                                            val responseJson = PooltoolSendSlotsResultJsonAdapter(moshi).indent(" ").toJson(slotsResults)
+                                            File("${pooltoolKeystorage}/response_${epoch.toInt()}.json").writeText(responseJson)
+                                            if (slotsResults.success) {
+                                                logger.info("Sent leader Logs to PoolTool: $responseJson")
+                                            } else {
+                                                logger.error("Error sending leader Logs to PoolTool: $responseJson")
+                                            }
                                         } else {
-                                            ""
+                                            logger.warn("Already sent logs to pooltool for epoch $epoch because ${pooltoolKeystorage}/response_${epoch.toInt()}.json exists.")
                                         }
-
-                                        val currentEpochKeyFile = File("${config.pooltoolKeystorage}/passphrase_$epoch")
-                                        if (!currentEpochKeyFile.exists()) {
-                                            currentEpochKeyFile.writeBytes(Base64.encode(Random.nextBytes(32)))
-                                        }
-                                        val currentEpochKey = currentEpochKeyFile.readText().replace(0.toChar().toString(), "").trim()
-
-                                        val encryptedSlots = PGPUtil.encrypt(epochBlocksJson, currentEpochKey)
-
-                                        pooltoolSlots = PooltoolSlots(
-                                                currentepoch = epoch,
-                                                poolid = config.pooltoolPoolId,
-                                                genesispref = config.pooltoolGenesisPref,
-                                                userid = config.pooltoolUserId,
-                                                assignedSlots = epochBlocks.size.toString(),
-                                                previousEpochKey = previousEpochKey,
-                                                encryptedSlots = encryptedSlots
-                                        )
-                                        val requestJson = PooltoolSlotsJsonAdapter(moshi).indent(" ").toJson(pooltoolSlots)
-                                        File("${config.pooltoolKeystorage}/request_${epoch.toInt()}.json").writeText(requestJson)
-                                        logger.debug("Sending leader logs to PoolTool: $requestJson")
-                                        val slotsResults = pooltool.sendSlots(pooltoolSlots!!)
-                                        val responseJson = PooltoolSendSlotsResultJsonAdapter(moshi).indent(" ").toJson(slotsResults)
-                                        File("${config.pooltoolKeystorage}/response_${epoch.toInt()}.json").writeText(responseJson)
-                                        if (slotsResults.success) {
-                                            logger.info("Sent leader Logs to PoolTool: $responseJson")
-                                        } else {
-                                            logger.error("Error sending leader Logs to PoolTool: $responseJson")
-                                        }
-                                    } else {
-                                        logger.warn("Already sent logs to pooltool for epoch $epoch because ${config.pooltoolKeystorage}/response_${epoch.toInt()}.json exists.")
+                                        currentEpoch = epoch
+                                    } catch (e: Throwable) {
+                                        logger.error("Error sending leader logs to pooltool!", e)
                                     }
-                                    currentEpoch = epoch
-                                } catch (e: Throwable) {
-                                    logger.error("Error sending leader logs to pooltool!", e)
                                 }
                             }
                         }
@@ -1078,28 +1104,32 @@ class JormanagerController @Autowired constructor(
                         delay(justBeforeEpoch)
                     }
                     val leaderPromotions = mutableListOf<Deferred<Any?>>()
-                    val leaderInfo = File(config.jormungandrSecretJsonPath).source().buffer().use { source ->
-                        moshi.adapter(LeaderInfo::class.java).fromJson(source)
+                    val leaderInfoList = config.jormungandrSecretJsonPathList.map { jormungandrSecretJsonPath ->
+                        File(jormungandrSecretJsonPath).source().buffer().use { source ->
+                            moshi.adapter(LeaderInfo::class.java).fromJson(source)
+                        }
                     }
 
                     val processesToRemove = Collections.synchronizedSet(mutableSetOf<Int>())
-                    leaderInfo?.let { li ->
-                        services.forEach { entry ->
-                            val processNumber = entry.key
-                            val service = entry.value
-                            if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
-                                leaderPromotions.add(
-                                        async(Dispatchers.IO) {
-                                            try {
-                                                promoteLeader(service, li)
-                                                logger.warn("PROMOTE LEADER: Process${processNumber}")
-                                            } catch (e: Throwable) {
-                                                logger.error("Unable to promote Process${processNumber} to leader", e)
-                                                processesToRemove.add(processNumber)
+                    services.forEach { entry ->
+                        val processNumber = entry.key
+                        val service = entry.value
+                        if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
+                            leaderPromotions.add(
+                                    async(Dispatchers.IO) {
+                                        leaderInfoList.forEach { leaderInfo ->
+                                            leaderInfo?.let { li ->
+                                                try {
+                                                    logger.warn("PROMOTE LEADER: Process${processNumber}")
+                                                    promoteLeader(processNumber, service, li)
+                                                } catch (e: Throwable) {
+                                                    logger.error("Unable to promote Process${processNumber} to leader", e)
+                                                    processesToRemove.add(processNumber)
+                                                }
                                             }
                                         }
-                                )
-                            }
+                                    }
+                            )
                         }
                     }
 
@@ -1136,7 +1166,7 @@ class JormanagerController @Autowired constructor(
                                                     .build()
                                                     .create(JormungandrService::class.java)
 
-                                            demoteLeader(demoteService)
+                                            demoteLeader(processNumber, demoteService)
                                             logger.warn("REMOVE LEADER: Process${processNumber}")
 
                                             val upcomingBlockCount = service.getLeaderLog().filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.size
@@ -1176,16 +1206,25 @@ class JormanagerController @Autowired constructor(
      * Throws an exception if this node is a leader and was not able to be demoted
      */
     @Throws(Exception::class)
-    private suspend fun demoteLeader(service: JormungandrService?) {
+    private suspend fun demoteLeader(processNumber: Int, service: JormungandrService?) {
         service?.let {
-            val leaders = service.getLeaders()
-            if (leaders.isNotEmpty()) {
-                leaders.forEach { leaderId -> service.removeLeadership(leaderId) }
-                val updatedLeaders = service.getLeaders()
-                if (updatedLeaders.isNotEmpty()) {
-                    throw Exception("Leaders contains $updatedLeaders")
+            promoteDemoteMutex[processNumber]?.withLock {
+                val leaders = service.getLeaders().sortedDescending()
+                if (leaders.isNotEmpty()) {
+                    leaders.forEach { leaderId ->
+                        try {
+                            // logger.debug("Removing leaderId: $leaderId")
+                            service.removeLeadership(leaderId)
+                        } catch (e: Throwable) {
+                            logger.error("Error removing leaderId: $leaderId", e)
+                        }
+                    }
+                    val updatedLeaders = service.getLeaders()
+                    if (updatedLeaders.isNotEmpty()) {
+                        throw Exception("Leaders contains $updatedLeaders")
+                    }
                 }
-            }
+            } ?: throw Exception("Could not obtain promoteDemoteMutex for Process$processNumber")
         }
     }
 
@@ -1194,18 +1233,20 @@ class JormanagerController @Autowired constructor(
      * Throws an exception if this node is not a leader and was not able to be promoted
      */
     @Throws(Exception::class)
-    private suspend fun promoteLeader(service: JormungandrService?, leaderInfo: LeaderInfo? = null) {
+    private suspend fun promoteLeader(processNumber: Int, service: JormungandrService?, leaderInfo: LeaderInfo? = null) {
         service?.let {
-            val leaders = service.getLeaders()
-            if (leaders.isEmpty()) {
-                leaderInfo?.let {
-                    val leaderId = service.promoteToLeader(leaderInfo)
-                    val updatedLeaders = service.getLeaders()
-                    if (!updatedLeaders.contains(leaderId)) {
-                        throw Exception("Leaders does not contain $leaderId, instead was '$updatedLeaders'")
-                    }
-                } ?: throw Exception("Expected to be a leader and we weren't")
-            }
+            promoteDemoteMutex[processNumber]?.withLock {
+                val leaders = service.getLeaders()
+                if (leaders.isEmpty() || leaders.size < config.jormungandrSecretPathList.size) {
+                    leaderInfo?.let {
+                        val leaderId = service.promoteToLeader(leaderInfo)
+                        val updatedLeaders = service.getLeaders()
+                        if (!updatedLeaders.contains(leaderId)) {
+                            throw Exception("Leaders does not contain $leaderId, instead was '$updatedLeaders'")
+                        }
+                    } ?: throw Exception("Expected to be a leader and we weren't")
+                }
+            } ?: throw Exception("Could not obtain promoteDemoteMutex for Process$processNumber")
         }
     }
 
@@ -1285,11 +1326,18 @@ class JormanagerController @Autowired constructor(
     }
 
     private fun readLeaderLogHistory() {
-        leaderLogHistory.clear()
-        File(config.blockLogPath).source().buffer().use { source ->
-            leaderLogJsonAdapter.fromJson(source)?.let { leaderLog ->
-                leaderLogHistory.addAll(leaderLog)
-            } ?: logger.error("Unable to parse leader json file!!")
+        leaderLogHistory.forEach { it.clear() }
+        config.blockLogPathList.forEachIndexed { index, blockLogPath ->
+            val blockLogFile = File(blockLogPath)
+            if (!blockLogFile.exists()) {
+                blockLogFile.parentFile.mkdirs()
+                blockLogFile.writeText("[]")
+            }
+            File(blockLogPath).source().buffer().use { source ->
+                leaderLogJsonAdapter.fromJson(source)?.let { leaderLog ->
+                    leaderLogHistory[index].addAll(leaderLog)
+                } ?: logger.error("Unable to parse leader json file!!")
+            }
         }
     }
 
@@ -1302,10 +1350,11 @@ class JormanagerController @Autowired constructor(
                     val processNumber = mapEntry.key
                     val leaderLog = mapEntry.value
                     leaderLog.forEach { newBlock ->
-                        val historicalBlockIndex = leaderLogHistory.indexOfFirst { historicalBlock -> historicalBlock.scheduledAtDate == newBlock.scheduledAtDate }
+                        val leaderLogIndex = newBlock.enclaveLeaderId - 1
+                        val historicalBlockIndex = leaderLogHistory[leaderLogIndex].indexOfFirst { historicalBlock -> historicalBlock.scheduledAtDate == newBlock.scheduledAtDate }
                         if (historicalBlockIndex < 0) {
                             // Block was not found. Add it to the history
-                            leaderLogHistory.add(
+                            leaderLogHistory[leaderLogIndex].add(
                                     when (newBlock) {
                                         is PendingBlock -> newBlock.copy(processId = processNumber)
                                         is CompletedBlock -> newBlock.copy(processId = processNumber)
@@ -1314,16 +1363,16 @@ class JormanagerController @Autowired constructor(
                             )
                         } else {
                             // Block was found.
-                            when (leaderLogHistory[historicalBlockIndex]) {
+                            when (leaderLogHistory[leaderLogIndex][historicalBlockIndex]) {
                                 is PendingBlock -> {
                                     // Replace the historical block with this one that has more information
                                     when (newBlock) {
                                         is CompletedBlock -> {
-                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            leaderLogHistory[leaderLogIndex][historicalBlockIndex] = newBlock.copy(processId = processNumber)
                                             logger.info("COMPLETED Block ($processNumber): ${newBlock.status.blockDetail}")
                                         }
                                         is RejectedBlock -> {
-                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            leaderLogHistory[leaderLogIndex][historicalBlockIndex] = newBlock.copy(processId = processNumber)
                                         }
                                         else -> {
                                         }
@@ -1333,13 +1382,13 @@ class JormanagerController @Autowired constructor(
                                     when (newBlock) {
                                         is CompletedBlock -> {
                                             // Replace the historical block that was probably from a demoted leader with this one that has more information
-                                            leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                            leaderLogHistory[leaderLogIndex][historicalBlockIndex] = newBlock.copy(processId = processNumber)
                                             logger.info("COMPLETED Block ($processNumber): ${newBlock.status.blockDetail}")
                                         }
                                         is RejectedBlock -> {
                                             if (!newBlock.status.rejectedDetail.reason.contains("enclave")) {
                                                 // Replace with the real rejected reason, not just that this leader was not in the enclave
-                                                leaderLogHistory[historicalBlockIndex] = newBlock.copy(processId = processNumber)
+                                                leaderLogHistory[leaderLogIndex][historicalBlockIndex] = newBlock.copy(processId = processNumber)
                                             }
                                         }
                                         else -> {
@@ -1355,96 +1404,102 @@ class JormanagerController @Autowired constructor(
                     }
                 }
 
-                leaderLogHistory.sortWith(Comparator { block0, block1 ->
-                    val block0Epoch = block0.scheduledAtDate.substringBefore('.').toLong()
-                    val block1Epoch = block1.scheduledAtDate.substringBefore('.').toLong()
-                    when {
-                        block0Epoch > block1Epoch -> -1
-                        block0Epoch < block1Epoch -> 1
-                        else -> {
-                            // compare the slot values in descending order
-                            val block0Slot = block0.scheduledAtDate.substringAfter('.').toLong()
-                            val block1Slot = block1.scheduledAtDate.substringAfter('.').toLong()
-                            -1 * block0Slot.compareTo(block1Slot)
+                leaderLogHistory.forEach { leaderLogHistoryItem ->
+                    leaderLogHistoryItem.sortWith(Comparator { block0, block1 ->
+                        val block0Epoch = block0.scheduledAtDate.substringBefore('.').toLong()
+                        val block1Epoch = block1.scheduledAtDate.substringBefore('.').toLong()
+                        when {
+                            block0Epoch > block1Epoch -> -1
+                            block0Epoch < block1Epoch -> 1
+                            else -> {
+                                // compare the slot values in descending order
+                                val block0Slot = block0.scheduledAtDate.substringAfter('.').toLong()
+                                val block1Slot = block1.scheduledAtDate.substringAfter('.').toLong()
+                                -1 * block0Slot.compareTo(block1Slot)
+                            }
                         }
-                    }
-                })
+                    })
+                }
 
                 // Find next upcoming block time
-                val nextBlock = leaderLogHistory.filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.minBy { block -> block.scheduledAtDate.substringAfter('.').toLong() }
+                val nextBlock = leaderLogHistory.flatten().filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.minBy { block -> block.scheduledAtDate.substringAfter('.').toLong() }
                 nextBlockTime = nextBlock?.let { block ->
                     DateTime.parse(block.scheduledAtTime)
                 }
 
-                // See if there are any CompletedBlocks that we need to check for minting
-                val mintCandidateIndex = leaderLogHistory.indexOfFirst { historicalBlock ->
-                    historicalBlock is CompletedBlock &&
-                            historicalBlock.minted == null &&
-                            DateTime.parse(historicalBlock.finishedAtTime)
-                                    .isBefore(System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(5))
-                }
+                leaderLogHistory.forEachIndexed { index, leaderLogHistoryItem ->
+                    // See if there are any CompletedBlocks that we need to check for minting
+                    val mintCandidateIndex = leaderLogHistoryItem.indexOfFirst { historicalBlock ->
+                        historicalBlock is CompletedBlock &&
+                                historicalBlock.minted == null &&
+                                DateTime.parse(historicalBlock.finishedAtTime)
+                                        .isBefore(System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(5))
+                    }
 
-                if (mintCandidateIndex > -1) {
-                    // Found a block to check for minting
-                    mutex.withLock {
-                        try {
-                            if (leaderProcessNumber > -1) {
-                                val mintCandidateBlock = leaderLogHistory[mintCandidateIndex]
-                                val responseBody = try {
-                                    services[leaderProcessNumber]?.getBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
-                                } catch (e: HttpException) {
-                                    if (e.code() == 404) {
-                                        logger.warn("Completed block not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
-                                        null
-                                    } else {
-                                        throw e
+                    if (mintCandidateIndex > -1) {
+                        // Found a block to check for minting
+                        mutex.withLock {
+                            try {
+                                if (leaderProcessNumber > -1) {
+                                    val mintCandidateBlock = leaderLogHistoryItem[mintCandidateIndex]
+                                    val responseBody = try {
+                                        services[leaderProcessNumber]?.getBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
+                                    } catch (e: HttpException) {
+                                        if (e.code() == 404) {
+                                            logger.warn("Completed block not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
+                                            null
+                                        } else {
+                                            throw e
+                                        }
                                     }
-                                }
-                                responseBody?.bytes()?.let { responseBytes ->
-                                    val blockString = responseBytes.toHex()
-                                    if (blockString.length > 232) {
-                                        val poolId = blockString.substring(168, 232)
-                                        if (config.pooltoolPoolId == poolId) {
-                                            val nextBlockResponseBody = try {
-                                                services[leaderProcessNumber]?.getNextBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
-                                            } catch (e: HttpException) {
-                                                if (e.code() == 404) {
-                                                    logger.warn("Completed block's next_id not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
-                                                    null
-                                                } else {
-                                                    throw e
+                                    responseBody?.bytes()?.let { responseBytes ->
+                                        val blockString = responseBytes.toHex()
+                                        if (blockString.length > 232) {
+                                            val poolId = blockString.substring(168, 232)
+                                            if (config.pooltoolPoolIdList[index] == poolId) {
+                                                val nextBlockResponseBody = try {
+                                                    services[leaderProcessNumber]?.getNextBlock((mintCandidateBlock as CompletedBlock).status.blockDetail.block)
+                                                } catch (e: HttpException) {
+                                                    if (e.code() == 404) {
+                                                        logger.warn("Completed block's next_id not found!: ${(mintCandidateBlock as CompletedBlock).status.blockDetail}")
+                                                        null
+                                                    } else {
+                                                        throw e
+                                                    }
                                                 }
-                                            }
-                                            if (nextBlockResponseBody?.bytes()?.size ?: -1 > 0) {
-                                                leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = true)
-                                                logger.info("MINTED Block: ${mintCandidateBlock.status.blockDetail}")
+                                                if (nextBlockResponseBody?.bytes()?.size ?: -1 > 0) {
+                                                    leaderLogHistoryItem[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = true)
+                                                    logger.info("MINTED Block: ${mintCandidateBlock.status.blockDetail}")
+                                                } else {
+                                                    leaderLogHistoryItem[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                                    logger.info("SNIPED Block (missing nextBlockId): ${mintCandidateBlock.status.blockDetail}")
+                                                }
                                             } else {
-                                                leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
-                                                logger.info("SNIPED Block (missing nextBlockId): ${mintCandidateBlock.status.blockDetail}")
+                                                leaderLogHistoryItem[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                                logger.info("SNIPED Block (poolId didn't match): ${mintCandidateBlock.status.blockDetail}")
                                             }
                                         } else {
-                                            leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
-                                            logger.info("SNIPED Block (poolId didn't match): ${mintCandidateBlock.status.blockDetail}")
+                                            leaderLogHistoryItem[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                            logger.info("SNIPED Block (block length too short): ${mintCandidateBlock.status.blockDetail}")
                                         }
-                                    } else {
-                                        leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
-                                        logger.info("SNIPED Block (block length too short): ${mintCandidateBlock.status.blockDetail}")
                                     }
+                                            ?: run {
+                                                leaderLogHistoryItem[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
+                                                logger.info("SNIPED Block (block not found): ${mintCandidateBlock.status.blockDetail}")
+                                            }
                                 }
-                                        ?: run {
-                                            leaderLogHistory[mintCandidateIndex] = (mintCandidateBlock as CompletedBlock).copy(minted = false)
-                                            logger.info("SNIPED Block (block not found): ${mintCandidateBlock.status.blockDetail}")
-                                        }
+                            } catch (e: Throwable) {
+                                logger.error("Error getting block info!", e)
                             }
-                        } catch (e: Throwable) {
-                            logger.error("Error getting block info!", e)
                         }
                     }
-                }
 
-                // overwrite the historical log
-                File(config.blockLogPath).sink().buffer().use { sink ->
-                    leaderLogJsonAdapter.toJson(sink, leaderLogHistory)
+                    config.blockLogPathList.getOrNull(index)?.let { blockLogPath ->
+                        // overwrite the historical log
+                        File(blockLogPath).sink().buffer().use { sink ->
+                            leaderLogJsonAdapter.toJson(sink, leaderLogHistoryItem)
+                        }
+                    }
                 }
             }
             logger.info("Updated Leader logs in : $time ms")
@@ -1631,8 +1686,8 @@ class JormanagerController @Autowired constructor(
     @GetMapping("/api/status")
     fun getStatus(): OutputStats? = outputStats
 
-    @GetMapping("/api/blocks")
-    fun getBlocks(): List<LeaderBlock> = leaderLogHistory
+    @GetMapping("/api/blocks/{pool_number}")
+    fun getBlocks(@PathVariable(value = "pool_number") poolNumber: Int): List<LeaderBlock> = leaderLogHistory[poolNumber]
 
     private fun postStatusUpdate() {
         outputStats?.let {

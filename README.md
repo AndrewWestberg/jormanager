@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.0-SNAPSHOT
+
+ * Configure multiple pools on one JorManager cluster
+ 
 0.2.12-SNAPSHOT
 
  * Ensure there is still a leader even if we are behind pooltool majorityMax

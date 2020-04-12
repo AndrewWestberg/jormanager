@@ -6,7 +6,11 @@ $.urlParam = function(name) {
 }
 
 $(document).ready(function() {
-    $.getJSON("/api/blocks", function(data) {
+    var pool = $.urlParam('pool');
+    if (pool == false) {
+        pool = "0";
+    }
+    $.getJSON("/api/blocks/" + pool, function(data) {
         console.log(data);
         data.sort(function(a, b) {
             const epochA = parseInt(a.scheduled_at_date);
@@ -20,7 +24,7 @@ $(document).ready(function() {
             epochs.add(parseInt(block.scheduled_at_date));
         });
         var epoch = $.urlParam('epoch');
-        if (epoch == false) {
+        if (epoch == false && data.length > 0) {
             epoch = parseInt(data[0].scheduled_at_date)
         }
         epochs.forEach(function(ep){

@@ -31,6 +31,12 @@ class JormanagerProperties : ReloadableProperties() {
         } ?: emptyList()
     }
 
+    fun getStringListProperty(key: String): List<String> {
+        return environment.getProperty(key)?.let { value ->
+            value.split(",").map { eachString -> eachString.trim() }
+        } ?: emptyList()
+    }
+
     override fun propertiesReloaded() {
 
     }

@@ -24,11 +24,11 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val pooltoolEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.enabled")
     val pooltoolJormverEnabled: Boolean = properties.getBooleanProperty("jormanager.pooltool.jormver.enabled")
     val pooltoolDelayMs: Long = properties.getMillisProperty("jormanager.pooltool.delay")
-    val pooltoolPoolId: String = properties.getStringProperty("jormanager.pooltool.poolId")
+    val pooltoolPoolIdList: List<String> = properties.getStringListProperty("jormanager.pooltool.poolId")
     val pooltoolUserId: String = properties.getStringProperty("jormanager.pooltool.userId")
     val pooltoolGenesisPref: String = properties.getStringProperty("jormanager.pooltool.genesisPref")
-    val pooltoolKeystorage: String = properties.getStringProperty("jormanager.pooltool.keystorage")
-    val blockLogPath: String = properties.getStringProperty("jormanager.block_log")
+    val pooltoolKeystorageList: List<String> = properties.getStringListProperty("jormanager.pooltool.keystorage")
+    val blockLogPathList: List<String> = properties.getStringListProperty("jormanager.block_log")
     val statsLogPath: String = properties.getStringProperty("jormanager.stats_log")
     val restApiUrlPattern: String = properties.getStringProperty("jormanager.jormungandr.rest_api_url")
     val jormungandrLogPath: String = properties.getStringProperty("jormanager.jormungandr.log_location")
@@ -36,8 +36,8 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     val jormungandrStoragePath: String = properties.getStringProperty("jormanager.jormungandr.storage")
     val jormungandrConfigPath: String = properties.getStringProperty("jormanager.jormungandr.config")
     val jormungandrGenesisHash: String = properties.getStringProperty("jormanager.jormungandr.genesis")
-    val jormungandrSecretPath: String = properties.getStringProperty("jormanager.jormungandr.secret")
-    val jormungandrSecretJsonPath: String = properties.getStringProperty("jormanager.jormungandr.secret_json")
+    val jormungandrSecretPathList: List<String> = properties.getStringListProperty("jormanager.jormungandr.secret")
+    val jormungandrSecretJsonPathList: List<String> = properties.getStringListProperty("jormanager.jormungandr.secret_json")
     val jormanagerUfwEnabled: Boolean = properties.getBooleanProperty("jormanager.ufw.enabled")
     val jormanagerUfwPassiveEnabled: Boolean = properties.getBooleanProperty("jormanager.ufw.passive.enabled")
     val jormanagerUfwLowerLimit: Int = properties.getIntProperty("jormanager.ufw.lower_limit")
@@ -80,11 +80,11 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (pooltoolEnabled != other.pooltoolEnabled) return false
         if (pooltoolJormverEnabled != other.pooltoolJormverEnabled) return false
         if (pooltoolDelayMs != other.pooltoolDelayMs) return false
-        if (pooltoolPoolId != other.pooltoolPoolId) return false
+        if (pooltoolPoolIdList != other.pooltoolPoolIdList) return false
         if (pooltoolUserId != other.pooltoolUserId) return false
         if (pooltoolGenesisPref != other.pooltoolGenesisPref) return false
-        if (pooltoolKeystorage != other.pooltoolKeystorage) return false
-        if (blockLogPath != other.blockLogPath) return false
+        if (pooltoolKeystorageList != other.pooltoolKeystorageList) return false
+        if (blockLogPathList != other.blockLogPathList) return false
         if (statsLogPath != other.statsLogPath) return false
         if (restApiUrlPattern != other.restApiUrlPattern) return false
         if (jormungandrLogPath != other.jormungandrLogPath) return false
@@ -92,8 +92,8 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         if (jormungandrStoragePath != other.jormungandrStoragePath) return false
         if (jormungandrConfigPath != other.jormungandrConfigPath) return false
         if (jormungandrGenesisHash != other.jormungandrGenesisHash) return false
-        if (jormungandrSecretPath != other.jormungandrSecretPath) return false
-        if (jormungandrSecretJsonPath != other.jormungandrSecretJsonPath) return false
+        if (jormungandrSecretPathList != other.jormungandrSecretPathList) return false
+        if (jormungandrSecretJsonPathList != other.jormungandrSecretJsonPathList) return false
         if (jormanagerUfwEnabled != other.jormanagerUfwEnabled) return false
         if (jormanagerUfwPassiveEnabled != other.jormanagerUfwPassiveEnabled) return false
         if (jormanagerUfwLowerLimit != other.jormanagerUfwLowerLimit) return false
@@ -134,11 +134,11 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + pooltoolEnabled.hashCode()
         result = 31 * result + pooltoolJormverEnabled.hashCode()
         result = 31 * result + pooltoolDelayMs.hashCode()
-        result = 31 * result + pooltoolPoolId.hashCode()
+        result = 31 * result + pooltoolPoolIdList.hashCode()
         result = 31 * result + pooltoolUserId.hashCode()
         result = 31 * result + pooltoolGenesisPref.hashCode()
-        result = 31 * result + pooltoolKeystorage.hashCode()
-        result = 31 * result + blockLogPath.hashCode()
+        result = 31 * result + pooltoolKeystorageList.hashCode()
+        result = 31 * result + blockLogPathList.hashCode()
         result = 31 * result + statsLogPath.hashCode()
         result = 31 * result + restApiUrlPattern.hashCode()
         result = 31 * result + jormungandrLogPath.hashCode()
@@ -146,8 +146,8 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
         result = 31 * result + jormungandrStoragePath.hashCode()
         result = 31 * result + jormungandrConfigPath.hashCode()
         result = 31 * result + jormungandrGenesisHash.hashCode()
-        result = 31 * result + jormungandrSecretPath.hashCode()
-        result = 31 * result + jormungandrSecretJsonPath.hashCode()
+        result = 31 * result + jormungandrSecretPathList.hashCode()
+        result = 31 * result + jormungandrSecretJsonPathList.hashCode()
         result = 31 * result + jormanagerUfwEnabled.hashCode()
         result = 31 * result + jormanagerUfwPassiveEnabled.hashCode()
         result = 31 * result + jormanagerUfwLowerLimit
@@ -173,6 +173,6 @@ class JormanagerConfig @Autowired constructor(properties: JormanagerProperties) 
     }
 
     override fun toString(): String {
-        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeoutMs=$nodeStatsTimeoutMs, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolId='$pooltoolPoolId', pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', pooltoolKeystorage='$pooltoolKeystorage', blockLogPath='$blockLogPath', statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPath='$jormungandrSecretPath', jormungandrSecretJsonPath='$jormungandrSecretJsonPath', jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leadershipProbationEnabled=$leadershipProbationEnabled, leadershipProbationDurationMs=$leadershipProbationDurationMs, processPriorityEnabled=$processPriorityEnabled, processPriorityHighCmd='$processPriorityHighCmd', processPriorityNormalCmd='$processPriorityNormalCmd')"
+        return "JormanagerConfig(nodeCount=$nodeCount, standbyMode=$standbyMode, leaderElectionDelayMs=$leaderElectionDelayMs, maxBlocksBehind=$maxBlocksBehind, nodeProbationSecs=$nodeProbationSecs, nodeSequentialApiFailuresAllowed=$nodeSequentialApiFailuresAllowed, maxBootstrapMs=$maxBootstrapMs, nodeStaggerByBootstrap=$nodeStaggerByBootstrap, nodeStaggerMs=$nodeStaggerMs, nodeStatsTimeoutMs=$nodeStatsTimeoutMs, incrementPublicIdEnabled=$incrementPublicIdEnabled, pooltoolEnabled=$pooltoolEnabled, pooltoolJormverEnabled=$pooltoolJormverEnabled, pooltoolDelayMs=$pooltoolDelayMs, pooltoolPoolIdList=$pooltoolPoolIdList, pooltoolUserId='$pooltoolUserId', pooltoolGenesisPref='$pooltoolGenesisPref', pooltoolKeystorageList=$pooltoolKeystorageList, blockLogPathList=$blockLogPathList, statsLogPath='$statsLogPath', restApiUrlPattern='$restApiUrlPattern', jormungandrLogPath='$jormungandrLogPath', jormungandrProcessPath='$jormungandrProcessPath', jormungandrStoragePath='$jormungandrStoragePath', jormungandrConfigPath='$jormungandrConfigPath', jormungandrGenesisHash='$jormungandrGenesisHash', jormungandrSecretPathList=$jormungandrSecretPathList, jormungandrSecretJsonPathList=$jormungandrSecretJsonPathList, jormanagerUfwEnabled=$jormanagerUfwEnabled, jormanagerUfwPassiveEnabled=$jormanagerUfwPassiveEnabled, jormanagerUfwLowerLimit=$jormanagerUfwLowerLimit, jormanagerUfwUpperLimit=$jormanagerUfwUpperLimit, jormanagerUfwAllowCmd='$jormanagerUfwAllowCmd', jormanagerUfwDenyCmd='$jormanagerUfwDenyCmd', passiveNodeList=$passiveNodeList, useLightweightPeerCount=$useLightweightPeerCount, minPeersForSDCalculationEnabled=$minPeersForSDCalculationEnabled, minPeersForSDCalculation=$minPeersForSDCalculation, minPeersBadSDLimit=$minPeersBadSDLimit, peersOutputEnabled=$peersOutputEnabled, peersOutputIp='$peersOutputIp', peersOutputPort='$peersOutputPort', peersOutputLogPath='$peersOutputLogPath', killPath='$killPath', leadershipProbationEnabled=$leadershipProbationEnabled, leadershipProbationDurationMs=$leadershipProbationDurationMs, processPriorityEnabled=$processPriorityEnabled, processPriorityHighCmd='$processPriorityHighCmd', processPriorityNormalCmd='$processPriorityNormalCmd')"
     }
 }
