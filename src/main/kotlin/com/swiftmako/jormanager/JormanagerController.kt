@@ -599,8 +599,8 @@ class JormanagerController @Autowired constructor(
                                             }
                                         }
 
-                                        val numberOfPeers = stats.peerConnectedCnt?.toInt()
-                                                ?: if (config.useLightweightPeerCount) {
+                                        val numberOfPeers = // stats.peerConnectedCnt?.toInt() ?:
+                                                if (config.useLightweightPeerCount) {
                                                     // Another method to get number of peers by by using sockets from ss
                                                     establishedSocketsByProcessId(
                                                             processes[processNumber]?.process?.let {
