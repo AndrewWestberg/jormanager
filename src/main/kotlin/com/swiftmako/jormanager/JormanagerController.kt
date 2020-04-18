@@ -108,16 +108,7 @@ class JormanagerController @Autowired constructor(
     private val bootstrapJobs = mutableMapOf<Int, Job>()
     private val pastPeerCounts = Collections.synchronizedMap(mutableMapOf<Int, CircularQueue<Int>>())
     private var outputStats: OutputStats? = null
-    private val leaderLogHistory: List<MutableList<LeaderBlock>> = listOf(
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf(),
-            mutableListOf()
-    )
+    private val leaderLogHistory: MutableList<MutableList<LeaderBlock>> = mutableListOf()
 
     override fun setApplicationContext(applicationContext: ApplicationContext) {
         this.applicationContext = applicationContext
@@ -1332,6 +1323,9 @@ class JormanagerController @Autowired constructor(
             if (!blockLogFile.exists()) {
                 blockLogFile.parentFile.mkdirs()
                 blockLogFile.writeText("[]")
+            }
+            if (leaderLogHistory.size < index + 1) {
+                leaderLogHistory.add(mutableListOf())
             }
             File(blockLogPath).source().buffer().use { source ->
                 leaderLogJsonAdapter.fromJson(source)?.let { leaderLog ->

@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.2-SNAPSHOT
+
+ * Uncap number of pools you can run
+ 
 0.3.1-SNAPSHOT
 
  * Use old method for peer counts since peerConnectedCnt is outgoing-only.
