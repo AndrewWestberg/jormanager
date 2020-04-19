@@ -200,6 +200,24 @@ class JormanagerController @Autowired constructor(
             } else {
                 config = applicationContext.getBean(JormanagerConfig::class.java)
             }
+
+            // Validate multi-pool config
+            val numberOfPools = listOf(config.pooltoolPoolIdList.size, config.pooltoolKeystorageList.size, config.blockLogPathList.size, config.jormungandrSecretPathList.size, config.jormungandrSecretJsonPathList.size).max()
+            if(config.pooltoolPoolIdList.size != numberOfPools) {
+                logger.error("CONFIG ERROR: jormanager.pooltool.poolId length was ${config.pooltoolPoolIdList.size} but expected $numberOfPools!")
+            }
+            if(config.pooltoolKeystorageList.size != numberOfPools) {
+                logger.error("CONFIG ERROR: jormanager.pooltool.keystorage length was ${config.pooltoolKeystorageList.size} but expected $numberOfPools!")
+            }
+            if(config.blockLogPathList.size != numberOfPools) {
+                logger.error("CONFIG ERROR: jormanager.block_log length was ${config.blockLogPathList.size} but expected $numberOfPools!")
+            }
+            if(config.jormungandrSecretPathList.size != numberOfPools) {
+                logger.error("CONFIG ERROR: jormanager.jormungandr.secret length was ${config.jormungandrSecretPathList.size} but expected $numberOfPools!")
+            }
+            if(config.jormungandrSecretJsonPathList.size != numberOfPools) {
+                logger.error("CONFIG ERROR: jormanager.jormungandr.secret_json length was ${config.jormungandrSecretJsonPathList.size} but expected $numberOfPools!")
+            }
         }
     }
 
@@ -1320,7 +1338,7 @@ class JormanagerController @Autowired constructor(
         leaderLogHistory.forEach { it.clear() }
         config.blockLogPathList.forEachIndexed { index, blockLogPath ->
             val blockLogFile = File(blockLogPath)
-            if (!blockLogFile.exists()) {
+            if (!blockLogFile.exists() || blockLogFile.length() == 0L) {
                 blockLogFile.parentFile.mkdirs()
                 blockLogFile.writeText("[]")
             }
@@ -1330,7 +1348,7 @@ class JormanagerController @Autowired constructor(
             File(blockLogPath).source().buffer().use { source ->
                 leaderLogJsonAdapter.fromJson(source)?.let { leaderLog ->
                     leaderLogHistory[index].addAll(leaderLog)
-                } ?: logger.error("Unable to parse leader json file!!")
+                } ?: logger.error("UNABLE TO PARSE BLOCKS JSON FILE!!")
             }
         }
     }
