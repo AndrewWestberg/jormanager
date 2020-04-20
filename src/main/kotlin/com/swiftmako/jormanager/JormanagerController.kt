@@ -203,19 +203,19 @@ class JormanagerController @Autowired constructor(
 
             // Validate multi-pool config
             val numberOfPools = listOf(config.pooltoolPoolIdList.size, config.pooltoolKeystorageList.size, config.blockLogPathList.size, config.jormungandrSecretPathList.size, config.jormungandrSecretJsonPathList.size).max()
-            if(config.pooltoolPoolIdList.size != numberOfPools) {
+            if (config.pooltoolPoolIdList.size != numberOfPools) {
                 logger.error("CONFIG ERROR: jormanager.pooltool.poolId length was ${config.pooltoolPoolIdList.size} but expected $numberOfPools!")
             }
-            if(config.pooltoolKeystorageList.size != numberOfPools) {
+            if (config.pooltoolKeystorageList.size != numberOfPools) {
                 logger.error("CONFIG ERROR: jormanager.pooltool.keystorage length was ${config.pooltoolKeystorageList.size} but expected $numberOfPools!")
             }
-            if(config.blockLogPathList.size != numberOfPools) {
+            if (config.blockLogPathList.size != numberOfPools) {
                 logger.error("CONFIG ERROR: jormanager.block_log length was ${config.blockLogPathList.size} but expected $numberOfPools!")
             }
-            if(config.jormungandrSecretPathList.size != numberOfPools) {
+            if (config.jormungandrSecretPathList.size != numberOfPools) {
                 logger.error("CONFIG ERROR: jormanager.jormungandr.secret length was ${config.jormungandrSecretPathList.size} but expected $numberOfPools!")
             }
-            if(config.jormungandrSecretJsonPathList.size != numberOfPools) {
+            if (config.jormungandrSecretJsonPathList.size != numberOfPools) {
                 logger.error("CONFIG ERROR: jormanager.jormungandr.secret_json length was ${config.jormungandrSecretJsonPathList.size} but expected $numberOfPools!")
             }
         }
@@ -848,40 +848,39 @@ class JormanagerController @Autowired constructor(
                     val stats = entry.value
 
                     if (shouldPromoteNewLeader) {
-                        config.jormungandrSecretJsonPathList.forEach { jormungandrSecretJsonPath ->
+                        val leaderInfoList = config.jormungandrSecretJsonPathList.map { jormungandrSecretJsonPath ->
                             File(jormungandrSecretJsonPath).source().buffer().use { source ->
-                                moshi.adapter(LeaderInfo::class.java)
-                                        .fromJson(source)?.let { leaderInfo ->
-                                            try {
-                                                if (config.standbyMode) {
-                                                    logger.warn("PROMOTE STANDBY LEADER: Process${processNumber}, $jormungandrSecretJsonPath")
-                                                    leaderProcessNumber = processNumber
-                                                } else {
-                                                    logger.warn("PROMOTE LEADER: Process${processNumber}, $jormungandrSecretJsonPath")
-                                                    promoteLeader(processNumber, services[processNumber], leaderInfo)
-                                                    leaderProcessNumber = processNumber
-                                                }
-                                            } catch (e: Throwable) {
-                                                logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
-                                                shutdownProcess(processNumber)
-                                                if (oldLeaderProcessNumber > -1) {
-                                                    // re-promote last leader
-                                                    try {
-                                                        if (config.standbyMode) {
-                                                            logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}, $jormungandrSecretJsonPath")
-                                                            leaderProcessNumber = oldLeaderProcessNumber
-                                                        } else {
-                                                            logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}, $jormungandrSecretJsonPath")
-                                                            promoteLeader(oldLeaderProcessNumber, services[oldLeaderProcessNumber], leaderInfo)
-                                                            leaderProcessNumber = oldLeaderProcessNumber
-                                                        }
-                                                    } catch (ex: Throwable) {
-                                                        logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
-                                                        shutdownProcess(oldLeaderProcessNumber)
-                                                    }
-                                                }
-                                            }
-                                        } ?: logger.error("Unable to parse leader json file!!")
+                                moshi.adapter(LeaderInfo::class.java).fromJson(source)!!
+                            }
+                        }
+
+                        try {
+                            leaderProcessNumber = if (config.standbyMode) {
+                                logger.warn("PROMOTE STANDBY LEADER: Process${processNumber}")
+                                processNumber
+                            } else {
+                                logger.warn("PROMOTE LEADER: Process${processNumber}")
+                                promoteLeader(processNumber, services[processNumber], leaderInfoList)
+                                processNumber
+                            }
+                        } catch (e: Throwable) {
+                            logger.error("Unable to promote Process${processNumber} to leader: ${e.message}")
+                            shutdownProcess(processNumber)
+                            if (oldLeaderProcessNumber > -1) {
+                                // re-promote last leader
+                                try {
+                                    leaderProcessNumber = if (config.standbyMode) {
+                                        logger.warn("RE-PROMOTE STANDBY LEADER: Process${oldLeaderProcessNumber}")
+                                        oldLeaderProcessNumber
+                                    } else {
+                                        logger.warn("RE-PROMOTE LEADER: Process${oldLeaderProcessNumber}")
+                                        promoteLeader(oldLeaderProcessNumber, services[oldLeaderProcessNumber], leaderInfoList)
+                                        oldLeaderProcessNumber
+                                    }
+                                } catch (ex: Throwable) {
+                                    logger.error("Unable to re-promote Process${oldLeaderProcessNumber} to leader: ${e.message}")
+                                    shutdownProcess(oldLeaderProcessNumber)
+                                }
                             }
                         }
                     }
@@ -1115,7 +1114,7 @@ class JormanagerController @Autowired constructor(
                     val leaderPromotions = mutableListOf<Deferred<Any?>>()
                     val leaderInfoList = config.jormungandrSecretJsonPathList.map { jormungandrSecretJsonPath ->
                         File(jormungandrSecretJsonPath).source().buffer().use { source ->
-                            moshi.adapter(LeaderInfo::class.java).fromJson(source)
+                            moshi.adapter(LeaderInfo::class.java).fromJson(source)!!
                         }
                     }
 
@@ -1126,16 +1125,12 @@ class JormanagerController @Autowired constructor(
                         if ((processNumber != leaderProcessNumber || config.standbyMode) && processes[processNumber]?.isPassive == false) {
                             leaderPromotions.add(
                                     async(Dispatchers.IO) {
-                                        leaderInfoList.forEach { leaderInfo ->
-                                            leaderInfo?.let { li ->
-                                                try {
-                                                    logger.warn("PROMOTE LEADER: Process${processNumber}")
-                                                    promoteLeader(processNumber, service, li)
-                                                } catch (e: Throwable) {
-                                                    logger.error("Unable to promote Process${processNumber} to leader", e)
-                                                    processesToRemove.add(processNumber)
-                                                }
-                                            }
+                                        try {
+                                            logger.warn("PROMOTE LEADER: Process${processNumber}")
+                                            promoteLeader(processNumber, service, leaderInfoList)
+                                        } catch (e: Throwable) {
+                                            logger.error("Unable to promote Process${processNumber} to leader", e)
+                                            processesToRemove.add(processNumber)
                                         }
                                     }
                             )
@@ -1242,18 +1237,29 @@ class JormanagerController @Autowired constructor(
      * Throws an exception if this node is not a leader and was not able to be promoted
      */
     @Throws(Exception::class)
-    private suspend fun promoteLeader(processNumber: Int, service: JormungandrService?, leaderInfo: LeaderInfo? = null) {
+    private suspend fun promoteLeader(processNumber: Int, service: JormungandrService?, leaderInfos: List<LeaderInfo>? = null) {
         service?.let {
             promoteDemoteMutex[processNumber]?.withLock {
                 val leaders = service.getLeaders()
-                if (leaders.isEmpty() || leaders.size < config.jormungandrSecretPathList.size) {
-                    leaderInfo?.let {
+                if (leaders.isEmpty()) {
+                    leaderInfos?.forEachIndexed { index, leaderInfo ->
+                        val expectedLeaderId = index + 1
                         val leaderId = service.promoteToLeader(leaderInfo)
                         val updatedLeaders = service.getLeaders()
                         if (!updatedLeaders.contains(leaderId)) {
                             throw Exception("Leaders does not contain $leaderId, instead was '$updatedLeaders'")
                         }
-                    } ?: throw Exception("Expected to be a leader and we weren't")
+                        if (leaderId != expectedLeaderId || !updatedLeaders.contains(expectedLeaderId)) {
+                            throw Exception("Leader promotion expected to contain ${expectedLeaderId}, instead was '$updatedLeaders'")
+                        }
+                    } ?: throw Exception("Expected Process$processNumber to be a leader and it wasn't!")
+                } else {
+                    // Validate we're running the correct secrets
+                    config.jormungandrSecretJsonPathList.forEachIndexed { index, _ ->
+                        if (!leaders.contains(index + 1)) {
+                            throw Exception("Expected leader list to contain ${index + 1}, instead was '$leaders'")
+                        }
+                    }
                 }
             } ?: throw Exception("Could not obtain promoteDemoteMutex for Process$processNumber")
         }
