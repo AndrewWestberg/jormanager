@@ -117,6 +117,11 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.3-SNAPSHOT
+
+ * Update default keystorage path
+ * Change standby leader UI
+
 0.3.2-SNAPSHOT
 
  * Uncap number of pools you can run

@@ -17,7 +17,7 @@ object Versions {
     const val jackson = "2.10.3"
     const val jaxb = "2.3.1"
     const val jjwt = "0.9.1"
-    const val joda = "2.10.5"
+    const val joda = "2.10.6"
     const val junit = "4.13"
     const val moshi = "1.9.2"
     const val okhttp = "4.5.0"
@@ -32,7 +32,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "0.3.2-SNAPSHOT"
+version = "0.3.3-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 
 repositories {

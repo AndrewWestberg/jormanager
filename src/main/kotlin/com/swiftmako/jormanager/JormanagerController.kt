@@ -687,6 +687,7 @@ class JormanagerController @Autowired constructor(
                                         latestStats[processNumber] = stats.copy(
                                                 numberOfPeers = numberOfPeers,
                                                 passive = processes[processNumber]?.isPassive == true,
+                                                standby = config.standbyMode,
                                                 leadershipProbationEndTimestamp = if (leadershipProbationEndTimestamp < System.currentTimeMillis()) {
                                                     0L
                                                 } else {

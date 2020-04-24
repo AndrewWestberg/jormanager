@@ -27,5 +27,6 @@ data class Stats(
         val numberOfPeers: Int? = -1,
         val leader: Boolean = false,
         val passive: Boolean = false,
+        val standby: Boolean = false,
         val leadershipProbationEndTimestamp: Long = 0L
 )

@@ -76,7 +76,7 @@ function showStatus(data) {
             //console.log(data.nodes[i]);
             switch (data.nodes[i].state) {
                 case "Bootstrapping":
-                    $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-dizzy fa-flag").addClass("fa-hourglass");
+                    $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-dizzy fa-flag fa-clock").addClass("fa-hourglass");
                     $(".jor" + i + ".height").html("---");
                     $(".jor" + i + ".hash").html("---");
                     $(".jor" + i + ".time").html("---");
@@ -84,10 +84,13 @@ function showStatus(data) {
                     $(".jor" + i + ".uptime").html("---");
                     break;
                 case "Running":
-                    if (data.nodes[i].leader == true) {
-                        $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-dizzy fa-hourglass").addClass("fa-flag");
+                    if (data.nodes[i].leader == true && data.nodes[i].standby == false) {
+                        $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-dizzy fa-hourglass fa-clock").addClass("fa-flag");
+                    }
+                    else if(data.nodes[i].leader == true) {
+                        $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-dizzy fa-hourglass fa-flag").addClass("fa-clock");
                     } else {
-                        $(".jor" + i + ".status").removeClass("fa-question-circle fa-flag fa-dizzy fa-hourglass").addClass("fa-check-circle");
+                        $(".jor" + i + ".status").removeClass("fa-question-circle fa-flag fa-dizzy fa-hourglass fa-clock").addClass("fa-check-circle");
                     }
                     $(".jor" + i + ".height").html(data.nodes[i].lastBlockHeight);
                     $(".jor" + i + ".hash").html(data.nodes[i].lastBlockHash.substring(0, 4) + "...");
@@ -120,7 +123,7 @@ function showStatus(data) {
                     break;
                 default:
                     // who knows what state
-                    $(".jor" + i + ".status").removeClass("fa-dizzy fa-check-circle fa-hourglass fa-flag").addClass("fa-question-circle");
+                    $(".jor" + i + ".status").removeClass("fa-dizzy fa-check-circle fa-hourglass fa-flag fa-clock").addClass("fa-question-circle");
                     $(".jor" + i + ".height").html("---");
                     $(".jor" + i + ".hash").html("---");
                     $(".jor" + i + ".time").html("---");
@@ -130,7 +133,7 @@ function showStatus(data) {
             }
         } else {
             // node is stopped
-            $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-hourglass fa-flag").addClass("fa-dizzy");
+            $(".jor" + i + ".status").removeClass("fa-question-circle fa-check-circle fa-hourglass fa-flag fa-clock").addClass("fa-dizzy");
             $(".jor" + i + ".height").html("---");
             $(".jor" + i + ".hash").html("---");
             $(".jor" + i + ".time").html("---");
