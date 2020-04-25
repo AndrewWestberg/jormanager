@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.4-SNAPSHOT
+
+ * Send leader block counts to AdaStat.net
+ 
 0.3.3-SNAPSHOT
 
  * Update default keystorage path

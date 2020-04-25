@@ -73,6 +73,20 @@ class JormanagerConfiguration {
                     .build()
                     .create(PooltoolService::class.java)
 
+    @Bean("adastat")
+    @Scope("singleton")
+    fun getAdastatRetrofit(builder: Retrofit.Builder, okHttpClientBuilder: OkHttpClient.Builder) =
+            builder.baseUrl("https://api.adastat.net/rest/v0/")
+                    .client(
+                            okHttpClientBuilder
+                                    .readTimeout(5, TimeUnit.SECONDS)
+                                    .writeTimeout(5, TimeUnit.SECONDS)
+                                    .connectTimeout(5, TimeUnit.SECONDS)
+                                    .build()
+                    )
+                    .build()
+                    .create(AdastatService::class.java)
+
     @Bean
     fun passwordEncoder(): PasswordEncoder {
         return Argon2PasswordEncoder()

@@ -2,6 +2,8 @@ package com.swiftmako.jormanager
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
+import com.swiftmako.jormanager.api.AdastatBlocks
+import com.swiftmako.jormanager.api.AdastatPoolBlocksResult
 import com.swiftmako.jormanager.api.CompletedBlock
 import com.swiftmako.jormanager.api.LeaderBlock
 import com.swiftmako.jormanager.api.LeaderInfo
@@ -78,6 +80,7 @@ class JormanagerController @Autowired constructor(
         private val moshi: Moshi,
         @Qualifier("pooltool") private val pooltool: PooltoolService,
         @Qualifier("pooltoolstats") private val pooltoolStats: PooltoolService,
+        @Qualifier("adastat") private val adastat: AdastatService,
         private val simpleMessagingTemplate: SimpMessagingTemplate
 ) : CoroutineScope, ApplicationContextAware {
     override val coroutineContext: CoroutineContext = Dispatchers.IO
@@ -97,6 +100,7 @@ class JormanagerController @Autowired constructor(
     var nextEpochTime: DateTime? = null
     var lastPooltoolTimestamp: Long = -1
     var currentEpoch = "0"
+    var currentEpochAdastat = "0"
     var pooltoolSlots: PooltoolSlots? = null
 
     private val leaderLogJsonAdapter = moshi.adapter<List<LeaderBlock>>(Types.newParameterizedType(List::class.java, LeaderBlock::class.java)).indent("  ")
@@ -997,6 +1001,46 @@ class JormanagerController @Autowired constructor(
                                 }
                             }
                         }
+
+                        if (config.adastatEnabled) {
+                            if (currentEpochAdastat != epoch) {
+                                config.adastatKeystorageList.forEachIndexed { index, adastatKeystorage ->
+                                    try {
+                                        if (!File("${adastatKeystorage}/adastat_response_${epoch.toInt()}.json").exists()) {
+                                            val epochBlocks = leaderLogHistory[index].filter { block -> block.scheduledAtDate.startsWith("$epoch.") }.size
+                                            val adastatBlocks = AdastatBlocks(
+                                                    pool = config.adastatPoolIdList[index],
+                                                    epoch = epoch.toInt(),
+                                                    blocks = epochBlocks
+                                            )
+
+                                            val adastatJson: String = moshi.adapter(AdastatBlocks::class.java).toJson(adastatBlocks)
+                                            logger.debug("Signing AdaStat blocks: $adastatJson")
+                                            val adastatRequestJsonPath = "${adastatKeystorage}/adastat_request_${epoch.toInt()}.json"
+                                            File(adastatRequestJsonPath).writeText(adastatJson)
+                                            logger.debug("Sending leader blocks to AdaStat: $adastatJson")
+
+                                            val signature = signAdastatBlocks(adastatRequestJsonPath, config.adastatKesPrivateKeyList[index])
+                                            logger.debug("Signature: '$signature'")
+
+                                            val blocksResults = adastat.sendPoolBlocks(signature, adastatBlocks)
+                                            val responseJson = moshi.adapter(AdastatPoolBlocksResult::class.java).indent(" ").toJson(blocksResults)
+                                            File("${adastatKeystorage}/adastat_response_${epoch.toInt()}.json").writeText(responseJson)
+                                            if (blocksResults.res) {
+                                                logger.info("Sent leader blocks to AdaStat: $responseJson")
+                                            } else {
+                                                logger.error("Error sending leader blocks to AdaStat: $responseJson")
+                                            }
+                                        } else {
+                                            logger.warn("Already sent blocks to adastat for epoch $epoch because ${adastatKeystorage}/adastat_response_${epoch.toInt()}.json exists.")
+                                        }
+                                        currentEpochAdastat = epoch
+                                    } catch (e: Throwable) {
+                                        logger.error("Error sending leader logs to adastat!", e)
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         logger.error("NO CURRENT LEADER Process!")
                     }
@@ -1684,6 +1728,30 @@ class JormanagerController @Autowired constructor(
                 continuation.resume(establishedSockets)
             } catch (e: Throwable) {
                 logger.error("establishedSocketsByProcessId ERROR!", e)
+                continuation.resumeWithException(e)
+            }
+        }
+    }
+
+    private suspend fun signAdastatBlocks(adastatJsonPath: String, poolKesPrivateKey: String): String {
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                val process = ProcessBuilder(
+                        config.jcliProcessPath, "key", "sign", "--secret-key", poolKesPrivateKey, adastatJsonPath
+                ).redirectErrorStream(true).start()
+
+                continuation.invokeOnCancellation {
+                    try {
+                        process.destroy()
+                    } catch (e: Throwable) {
+                        logger.error("signAdastatBlocks Error!", e)
+                    }
+                }
+
+                val signature = process.inputStream.source().buffer().use { source -> source.readUtf8() }
+                continuation.resume(signature)
+            } catch (e: Throwable) {
+                logger.error("signAdastatBlocks ERROR!", e)
                 continuation.resumeWithException(e)
             }
         }
