@@ -117,6 +117,11 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.5-SNAPSHOT
+
+ * Add Pool dropdown to block log
+ * Validate upcoming slot counts each leader election cycle
+ 
 0.3.4-SNAPSHOT
 
  * Send leader block counts to AdaStat.net

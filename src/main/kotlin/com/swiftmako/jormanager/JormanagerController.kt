@@ -551,7 +551,7 @@ class JormanagerController @Autowired constructor(
         var pooltoolResult = PooltoolResult(success = false)
         val processesToRemove = mutableListOf<Int>()
         val serviceCalls = mutableListOf<Deferred<Any?>>()
-        val leaderLogs = mutableMapOf<Int, List<LeaderBlock>>()
+        val leaderLogs = Collections.synchronizedMap(mutableMapOf<Int, List<LeaderBlock>>())
 
         while (true) {
             mutex.withLock {
@@ -578,6 +578,8 @@ class JormanagerController @Autowired constructor(
                 } catch (e: Throwable) {
                     logger.error("Error getting pooltool stats: ${e.message}")
                 }
+
+                val leaderLogsSizeMap = Collections.synchronizedMap(mutableMapOf<Int, Int>())
 
                 services.forEach { entry ->
                     if (System.currentTimeMillis() - (processes[entry.key]?.startedAt
@@ -606,6 +608,8 @@ class JormanagerController @Autowired constructor(
                                         if (processes[processNumber]?.isPassive == false) {
                                             try {
                                                 leaderLogs[processNumber] = service.getLeaderLog()
+                                                val upcomingBlockCount = leaderLogs[processNumber]!!.filter { block -> DateTime.parse(block.scheduledAtTime).isAfterNow }.size
+                                                leaderLogsSizeMap[processNumber] = upcomingBlockCount
                                             } catch (e: Throwable) {
                                                 logger.error("Process${processNumber}: getLeaderLog error!")
                                                 throw e
@@ -740,6 +744,16 @@ class JormanagerController @Autowired constructor(
 
                 if (leaderLogs.isNotEmpty()) {
                     processLeaderLogs(leaderLogs)
+
+                    // See if all nodes have the right size of leader logs
+                    val leaderLogsSize = leaderLogsSizeMap.values.max() ?: 0
+                    leaderLogsSizeMap.forEach { (processNumber, logsSize) ->
+                        logger.debug("Slots Process${processNumber}: $logsSize")
+                        if (logsSize < leaderLogsSize) {
+                            logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
+                            processesToRemove.add(processNumber)
+                        }
+                    }
                 }
 
                 processesToRemove.forEach { processNumber ->
