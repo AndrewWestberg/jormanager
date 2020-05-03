@@ -256,11 +256,11 @@ class JormanagerController @Autowired constructor(
                                 firewallOpen = firewallOpen,
                                 isPassive = config.passiveNodeList[processNumber]
                         )
-                        // new nodes get 15 second timeouts while bootstrapping
+                        // new nodes get 30 second timeouts while bootstrapping
                         val okHttpClient = okHttpClientBuilder
-                                .readTimeout(15, TimeUnit.SECONDS)
-                                .writeTimeout(15, TimeUnit.SECONDS)
-                                .connectTimeout(15, TimeUnit.SECONDS)
+                                .readTimeout(30, TimeUnit.SECONDS)
+                                .writeTimeout(30, TimeUnit.SECONDS)
+                                .connectTimeout(30, TimeUnit.SECONDS)
                                 .build()
                         services[processNumber] = retrofitBuilder
                                 .client(okHttpClient)
@@ -270,6 +270,13 @@ class JormanagerController @Autowired constructor(
                         promoteDemoteMutex[processNumber] = Mutex()
                         pastPeerCounts[processNumber] = CircularQueue(60) // 20 minutes worth of peer counts
                         logger.info("Active Jormungandr processes: ${processes.size}")
+                        if (bootstrapJobs[processNumber]?.isActive == true) {
+                            logger.warn("Bootstrap job for Process$processNumber already running.")
+                            try {
+                                bootstrapJobs[processNumber]?.cancel()
+                            } catch (ignored: Throwable) {
+                            }
+                        }
                         bootstrapJobs[processNumber] = manageBootstrap(processNumber)
                     } else {
                         logger.warn("Tried to start process$processNumber, but it looks to already be running.")
@@ -427,7 +434,6 @@ class JormanagerController @Autowired constructor(
     }
 
     private fun manageBootstrap(processNumber: Int) = launch {
-        var probationCount = 0
         processes[processNumber]?.let { process ->
             services[processNumber]?.let { service ->
                 delay(4000)
@@ -465,15 +471,10 @@ class JormanagerController @Autowired constructor(
                         return@launch
                     } catch (e: Throwable) {
                         logger.error("Error waiting for Process$processNumber to bootstrap!: ${e.message}")
-                        if (probationCount > 2) {
-                            mutex.withLock {
-                                shutdownProcess(processNumber)
-                            }
-                            return@launch
-                        } else {
-                            probationCount++
-                            logger.warn("Process$processNumber is now on bootstrap probation: $probationCount")
+                        mutex.withLock {
+                            shutdownProcess(processNumber)
                         }
+                        return@launch
                     }
 
                     val now = System.currentTimeMillis()

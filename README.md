@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.6-SNAPSHOT
+
+ * Tweaks to bootstrap
+ 
 0.3.5-SNAPSHOT
 
  * Add Pool dropdown to block log
