@@ -10,6 +10,13 @@ $(document).ready(function() {
     if (pool == false) {
         pool = "0";
     }
+
+    for(var i = 0; i < 20; i++) {
+        $(".pool_select").append(
+            "<option value='"+i+"' "+(i==pool?"selected":"")+">Pool "+i+"</option"
+        );
+    }
+
     $.getJSON("/api/blocks/" + pool, function(data) {
         console.log(data);
         data.sort(function(a, b) {

@@ -1774,7 +1774,13 @@ class JormanagerController @Autowired constructor(
     fun getStatus(): OutputStats? = outputStats
 
     @GetMapping("/api/blocks/{pool_number}")
-    fun getBlocks(@PathVariable(value = "pool_number") poolNumber: Int): List<LeaderBlock> = leaderLogHistory[poolNumber]
+    fun getBlocks(@PathVariable(value = "pool_number") poolNumber: Int): List<LeaderBlock> {
+        return if (leaderLogHistory.size > poolNumber) {
+            leaderLogHistory[poolNumber]
+        } else {
+            emptyList()
+        }
+    }
 
     private fun postStatusUpdate() {
         outputStats?.let {
