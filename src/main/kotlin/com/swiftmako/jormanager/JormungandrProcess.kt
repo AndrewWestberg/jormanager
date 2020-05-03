@@ -5,5 +5,6 @@ data class JormungandrProcess(
         val process: Process,
         var firewallOpen: Boolean,
         val isPassive: Boolean,
-        var apiFailureCount: Int = 0
+        var apiFailureCount: Int = 0,
+        var isOnLeaderLogProbation: Boolean = false
 )

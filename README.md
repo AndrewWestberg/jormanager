@@ -120,6 +120,7 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 0.3.6-SNAPSHOT
 
  * Tweaks to bootstrap
+ * Don't shutdown node due to leader log mismatch until second attempt.
  
 0.3.5-SNAPSHOT
 

@@ -751,8 +751,15 @@ class JormanagerController @Autowired constructor(
                     leaderLogsSizeMap.forEach { (processNumber, logsSize) ->
                         logger.debug("Slots Process${processNumber}: $logsSize")
                         if (logsSize < leaderLogsSize) {
-                            logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
-                            processesToRemove.add(processNumber)
+                            if (processes[processNumber]?.isOnLeaderLogProbation == true) {
+                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
+                                processesToRemove.add(processNumber)
+                            } else {
+                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
+                                processes[processNumber]?.isOnLeaderLogProbation = true
+                            }
+                        } else {
+                            processes[processNumber]?.isOnLeaderLogProbation = false
                         }
                     }
                 }
@@ -1252,8 +1259,15 @@ class JormanagerController @Autowired constructor(
                     val leaderLogsSize = leaderLogsSizeMap.values.max() ?: 0
                     leaderLogsSizeMap.forEach { (processNumber, logsSize) ->
                         if (logsSize < leaderLogsSize) {
-                            logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
-                            processesToRemove.add(processNumber)
+                            if (processes[processNumber]?.isOnLeaderLogProbation == true) {
+                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
+                                processesToRemove.add(processNumber)
+                            } else {
+                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
+                                processes[processNumber]?.isOnLeaderLogProbation = true
+                            }
+                        } else {
+                            processes[processNumber]?.isOnLeaderLogProbation = false
                         }
                     }
                     processesToRemove.forEach { processNumber -> shutdownProcess(processNumber) }
