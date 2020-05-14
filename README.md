@@ -117,6 +117,10 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+0.3.7-SNAPSHOT
+
+ * Allow two attempts to demote a leader
+ 
 0.3.6-SNAPSHOT
 
  * Tweaks to bootstrap

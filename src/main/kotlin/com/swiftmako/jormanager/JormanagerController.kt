@@ -755,7 +755,7 @@ class JormanagerController @Autowired constructor(
                                 logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
                                 processesToRemove.add(processNumber)
                             } else {
-                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
+                                logger.warn("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
                                 processes[processNumber]?.isOnLeaderLogProbation = true
                             }
                         } else {
@@ -1263,7 +1263,7 @@ class JormanagerController @Autowired constructor(
                                 logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize!")
                                 processesToRemove.add(processNumber)
                             } else {
-                                logger.error("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
+                                logger.warn("Process${processNumber} only had $logsSize leader slots, but should have been $leaderLogsSize! On Probation.")
                                 processes[processNumber]?.isOnLeaderLogProbation = true
                             }
                         } else {
@@ -1291,8 +1291,14 @@ class JormanagerController @Autowired constructor(
                 if (leaders.isNotEmpty()) {
                     leaders.forEach { leaderId ->
                         try {
-                            // logger.debug("Removing leaderId: $leaderId")
-                            service.removeLeadership(leaderId)
+                            try {
+                                // logger.debug("Removing leaderId: $leaderId")
+                                service.removeLeadership(leaderId)
+                            } catch(e:Throwable) {
+                                logger.warn("Error removing leaderId: $leaderId. try again in 2s...")
+                                delay(2000)
+                                service.removeLeadership(leaderId)
+                            }
                         } catch (e: Throwable) {
                             logger.error("Error removing leaderId: $leaderId", e)
                         }
@@ -1646,7 +1652,7 @@ class JormanagerController @Autowired constructor(
                         try {
                             process.destroy()
                         } catch (e: Throwable) {
-                            logger.error("openFirewall Error!", e)
+                            logger.error("closeFirewall Error!", e)
                         }
                     }
 
