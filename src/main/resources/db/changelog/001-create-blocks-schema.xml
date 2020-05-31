@@ -5,7 +5,7 @@
     <changeSet id="001" author="Andrew Westberg">
         <createSequence catalogName="cat" cycle="false"
                         incrementBy="1" ordered="true" schemaName="public"
-                        sequenceName="hibernate_sequence" startValue="0" />
+                        sequenceName="hibernate_sequence" startValue="0"/>
         <createTable tableName="blocks">
             <column name="id" type="int">
                 <constraints nullable="false" primaryKey="true"/>
@@ -17,10 +17,10 @@
                 <constraints nullable="false"/>
             </column>
             <column name="slot" type="int">
-                <constraints nullable="false"/>
+                <constraints nullable="false" unique="true"/>
             </column>
             <column name="hash" type="varchar(255)">
-                <constraints nullable="false"/>
+                <constraints nullable="false" unique="true"/>
             </column>
         </createTable>
     </changeSet>

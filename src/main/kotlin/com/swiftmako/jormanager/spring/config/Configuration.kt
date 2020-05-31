@@ -1,14 +1,20 @@
 package com.swiftmako.jormanager.spring.config
 
-import org.h2.server.web.WebServlet
-import org.springframework.boot.web.servlet.ServletRegistrationBean
+import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import javax.servlet.Servlet
+import org.springframework.context.annotation.Scope
 
 
 @Configuration
 class Configuration {
 
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getMoshi(): Moshi {
+        return Moshi.Builder().add(JodaDateTimeAdapter()).build()
+    }
 
 }
