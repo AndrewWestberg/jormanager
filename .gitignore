@@ -4,8 +4,6 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**
 !**/src/test/**
-local.properties
-JorManager-*.tar.bz2
 
 ### STS ###
 .apt_generated
