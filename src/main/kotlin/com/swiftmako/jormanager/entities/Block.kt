@@ -10,6 +10,7 @@ data class Block(
         @Id
         @GeneratedValue(strategy = GenerationType.AUTO)
         val id: Long? = null,
+        val at: String,
         val pool: String,
         val host: String,
         val slot: Long,

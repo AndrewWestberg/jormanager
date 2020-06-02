@@ -13,8 +13,10 @@ data class TraceAdoptedBlock(
         @Json(name = "data") val block: Block,
         @Json(name = "host") val host: String
 ) {
+    fun localAtTime(): String = localDateTimeFormat.print(at.withZone(DateTimeZone.getDefault()))
+
     override fun toString(): String {
-        return "AdoptedBlock(at=${localDateTimeFormat.print(at.withZone(DateTimeZone.getDefault()))}, env='$env', block=$block, host='$host')"
+        return "AdoptedBlock(at=${localAtTime()}, env='$env', block=$block, host='$host')"
     }
 
     companion object {

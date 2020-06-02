@@ -4,70 +4,113 @@ import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.repositories.BlockRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import org.springframework.context.SmartLifecycle
+import org.springframework.context.annotation.Lazy
+import org.springframework.context.annotation.Scope
+import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.stereotype.Component
 import java.io.File
+import java.io.Reader
+import kotlin.coroutines.CoroutineContext
 
-@RestController
+@Component("blockController")
+@Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+@Lazy(false)
 class BlockController @Autowired constructor(
         private val blockRepository: BlockRepository,
         private val moshi: Moshi
-) {
+) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
 
-    @GetMapping("/api/makeblocks")
-    fun makeBlocks(): List<Block> {
-        blockRepository.save(
-                Block(
-                        pool = "bcsh", host = "papa", slot = 123, hash = "lskjdflskjdflksjdflskdjf"
-                )
-        )
-
-        return blockRepository.findAll()
+    private val job = SupervisorJob()
+    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+        if (throwable !is CancellationException) {
+            log.error("Uncaught coroutine exception!", throwable)
+        }
     }
 
-    @GetMapping("/api/logs")
-    fun printLogs(): String {
-        GlobalScope.launch(Dispatchers.IO) {
-            val ssh = SSHClient()
-            ssh.loadKnownHosts()
-            ssh.addHostKeyVerifier(PromiscuousVerifier())
-            ssh.connect("papa", 15795)
-            try {
-                val base = "${System.getProperty("user.home")}${File.separator}.ssh${File.separator}"
-                ssh.authPublickey("westbam", "$base/tux_private.pem")
-                ssh.startSession().use { session ->
-                    val cmd = session.exec("tail -f --retry -n +0 /home/westbam/haskell/bcsh/logs/node.json | grep --line-buffered \"TraceAdoptedBlock\"")
-                    cmd.inputStream.bufferedReader().use {
-                        val adapter = moshi.adapter(TraceAdoptedBlock::class.java)
-                        it.forEachLine { line ->
-                            adapter.fromJson(line)?.let { traceAdoptedBlock ->
-                                log.error("$traceAdoptedBlock")
-                                blockRepository.save(
-                                        Block(
-                                                pool = "bcsh",
-                                                host = traceAdoptedBlock.host,
-                                                slot = traceAdoptedBlock.block.slot,
-                                                hash = traceAdoptedBlock.block.rawHash()
-                                        )
-                                )
-                            }
+    private val adapter = moshi.adapter(TraceAdoptedBlock::class.java)
+
+    override fun isAutoStartup() = true
+
+    override fun isRunning(): Boolean {
+        val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
+        log.info("BlockController isRunning: $isRunning")
+        return isRunning
+    }
+
+    override fun start() {
+        log.info("Starting BlockController...")
+        listOf("bcsh", "bcsh0").forEach { node ->
+            launch {
+                val ssh = SSHClient()
+                ssh.loadKnownHosts()
+                ssh.addHostKeyVerifier(PromiscuousVerifier())
+                ssh.connect("papa", 15795)
+                try {
+                    val base = "${System.getProperty("user.home")}${File.separator}.ssh${File.separator}"
+                    ssh.authPublickey("westbam", "$base/tux_private.pem")
+                    ssh.startSession().use { session ->
+                        val cmd = session.exec("cat /home/westbam/haskell/${node}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                        cmd.inputStream.bufferedReader().use { reader ->
+                            saveBlocksFromRemoteNode(node, reader)
                         }
+                        cmd.join()
                     }
+                    ssh.startSession().use { session ->
+                        val cmd = session.exec("tail -F -n +0 /home/westbam/haskell/${node}/logs/node.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                        cmd.inputStream.bufferedReader().use { reader ->
+                            saveBlocksFromRemoteNode(node, reader)
+                        }
+                        cmd.join()
+                        log.info("Done tailing logs!")
+                    }
+                } finally {
+                    ssh.disconnect()
                 }
-            } finally {
-                ssh.disconnect()
             }
         }
-        return "OK"
+    }
+
+    private fun saveBlocksFromRemoteNode(node: String, reader: Reader) {
+        reader.use {
+            it.forEachLine { line ->
+                adapter.fromJson(line)?.let { traceAdoptedBlock ->
+                    try {
+                        val block = Block(
+                                at = traceAdoptedBlock.localAtTime(),
+                                pool = node,
+                                host = traceAdoptedBlock.host,
+                                slot = traceAdoptedBlock.block.slot,
+                                hash = traceAdoptedBlock.block.rawHash()
+                        )
+
+                        blockRepository.save(block)
+                        log.info(block.toString())
+                    } catch (e: DataIntegrityViolationException) {
+                        log.error("Error inserting block: $traceAdoptedBlock")
+                    }
+                }
+            }
+        }
+    }
+
+    override fun stop() {
+        job.cancelChildren()
+        log.info("BlockController stopped.")
     }
 
 }

@@ -10,6 +10,9 @@
             <column name="id" type="int">
                 <constraints nullable="false" primaryKey="true"/>
             </column>
+            <column name="at" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
             <column name="pool" type="varchar(255)">
                 <constraints nullable="false"/>
             </column>
