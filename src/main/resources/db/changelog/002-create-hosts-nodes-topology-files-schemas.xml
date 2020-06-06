@@ -1,0 +1,116 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+    <changeSet id="002" author="Andrew Westberg">
+        <!-- contains linux server hosts on which we will run our nodes -->
+        <createTable tableName="hosts">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <!-- local or remote -->
+            <column name="type" type="varchar(10)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- path to cardano-cli executable on the target host -->
+            <column name="cardano_cli_path" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- path to cardano-node executable on the target host -->
+            <column name="cardano_node_path" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hostname" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ssh_user" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ssh_port" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ssh_pem_path" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- this is the home folder under which we'll create a folder for each node. relay0, relay1, bcsh, etc... -->
+            <column name="node_home_path" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- nodes table contains either a relay or core node configuration to start the node -->
+        <createTable tableName="nodes">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="host_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <!-- core/relay -->
+            <column name="type" type="varchar(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="listen" type="varchar(255)" defaultValue="0.0.0.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="port" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="genesis_file_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="config_file_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="cold_node_skey_file_id" type="int"/>
+            <column name="cold_node_vkey_file_id" type="int"/>
+            <column name="hot_node_kes_skey_file_id" type="int"/>
+            <column name="hot_node_vrf_skey_file_id" type="int"/>
+            <column name="opcert_file_id" type="int"/>
+            <column name="opcert_expiration" type="int"/>
+            <!-- if this is the default node, transactions are sent to the chain through this node -->
+            <column name="is_default" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- a single topology entry. Many of these reference one node to build up its topology file -->
+        <createTable tableName="topology_entries">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="node_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="addr" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="port" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="valency" type="int" defaultValue="1">
+                <constraints nullable="false"/>
+            </column>
+            <!-- ticker of the node -->
+            <column name="node" type="varchar(255)"/>
+            <column name="operator" type="varchar(255)"/>
+        </createTable>
+
+        <!-- holds the various files required by the system -->
+        <createTable tableName="files">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="content" type="clob">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+    </changeSet>
+</databaseChangeLog>

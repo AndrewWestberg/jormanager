@@ -101,7 +101,7 @@ class BlockController @Autowired constructor(
                         blockRepository.save(block)
                         log.info(block.toString())
                     } catch (e: DataIntegrityViolationException) {
-                        log.error("Error inserting block: $traceAdoptedBlock")
+                        log.warn("Block Exists!: $traceAdoptedBlock")
                     }
                 }
             }
