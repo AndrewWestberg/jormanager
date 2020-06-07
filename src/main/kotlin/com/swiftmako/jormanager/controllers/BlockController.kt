@@ -54,7 +54,7 @@ class BlockController @Autowired constructor(
 
     override fun start() {
         log.info("Starting BlockController...")
-        listOf("bcsh", "bcsh0").forEach { node ->
+        listOf("bcsh", "bcsh0", "bcsh1").forEach { node ->
             launch {
                 val ssh = SSHClient()
                 ssh.loadKnownHosts()
@@ -98,8 +98,12 @@ class BlockController @Autowired constructor(
                                 hash = traceAdoptedBlock.block.rawHash()
                         )
 
-                        blockRepository.save(block)
-                        log.info(block.toString())
+                        val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
+
+                        if(existingBlock == null) {
+                            blockRepository.save(block)
+                            log.info(block.toString())
+                        }
                     } catch (e: DataIntegrityViolationException) {
                         log.warn("Block Exists!: $traceAdoptedBlock")
                     }
