@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.controllers
 
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Block
+import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.repositories.BlockRepository
 import kotlinx.coroutines.CancellationException
@@ -20,6 +21,7 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import java.io.File
 import java.io.Reader
@@ -30,7 +32,8 @@ import kotlin.coroutines.CoroutineContext
 @Lazy(false)
 class BlockMonitor @Autowired constructor(
         private val blockRepository: BlockRepository,
-        private val moshi: Moshi
+        private val moshi: Moshi,
+        private val webSocketTemplate: SimpMessagingTemplate
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -100,9 +103,10 @@ class BlockMonitor @Autowired constructor(
 
                         val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
 
-                        if(existingBlock == null) {
+                        if (existingBlock == null) {
                             blockRepository.save(block)
                             log.info(block.toString())
+                            webSocketTemplate.convertAndSend("/topic/blocks", SocketResponse.Success(block))
                         }
                     } catch (e: DataIntegrityViolationException) {
                         log.warn("Block Exists!: $traceAdoptedBlock")
