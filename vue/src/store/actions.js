@@ -42,6 +42,9 @@ export default {
                 case "block":
                     commit('addBlock', message.data)
                     break
+                case "hosts":
+                    commit('setHosts', message.data)
+                    break
             }
         });
         commit('setConnected', true)
@@ -62,5 +65,20 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    requestHosts: ({
+        state,
+        commit
+    }) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Request Hosts");
+            state.stompClient.send("/jormanager/hosts");
+        } else {
+            commit('toastError', {
+                title: "Error getting hosts!",
+                message: "stompClient not connected!"
+            })
+        }
     }
+
 }

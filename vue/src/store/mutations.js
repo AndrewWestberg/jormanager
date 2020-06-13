@@ -16,6 +16,32 @@ export default {
     addBlock: (state, block) => {
         state.blocks.unshift(block)
     },
+    setHosts: (state, hosts) => {
+        state.hosts = hosts
+        state.hosts = [{
+                id: 0,
+                type: 'local',
+                cardanoCliPath: '/home/westbam/.local/bin/cardano-cli',
+                cardanoNodePath: '/home/westbam/.local/bin/cardano-node',
+                hostname: 'brainy',
+                sshUser: 'westbam',
+                sshPort: 15795,
+                sshPemPath: '/home/westbam/.ssh/tux_private.pem',
+                nodeHomeFolder: '/home/westbam/haskell'
+            },
+            {
+                id: 1,
+                type: 'remote',
+                cardanoCliPath: '/home/westbam/.local/bin/cardano-cli',
+                cardanoNodePath: '/home/westbam/.local/bin/cardano-node',
+                hostname: 'papa',
+                sshUser: 'westbam',
+                sshPort: 15795,
+                sshPemPath: '/home/westbam/.ssh/tux_private.pem',
+                nodeHomeFolder: '/home/westbam/haskell'
+            },
+        ]
+    },
     toastError: (state, toast) => {
         state.toastError = toast
     },

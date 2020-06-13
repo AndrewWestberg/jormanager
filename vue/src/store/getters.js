@@ -1,7 +1,4 @@
 export default {
-    blocksCount: (state) => {
-        return state.blocks.length
-    },
     isDebug: () => {
         if (window.webpackHotUpdate) {
             return true
@@ -15,5 +12,11 @@ export default {
             "http://localhost:8787/jormanager-websocket" :
             // release mode
             "/jormanager-websocket"
+    },
+    blocksCount: (state) => {
+        return state.blocks.length
+    },
+    hostsCount: (state) => {
+        return state.hosts.length
     }
 }

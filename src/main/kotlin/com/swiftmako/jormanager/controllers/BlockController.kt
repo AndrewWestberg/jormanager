@@ -9,14 +9,13 @@ import org.springframework.boot.info.BuildProperties
 import org.springframework.data.domain.Sort
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
-import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 
 @Controller
 class BlockController @Autowired constructor(
         private val buildProperties: BuildProperties,
-        private val blockRepository: BlockRepository,
-        private val webSocketTemplate: SimpMessagingTemplate
+        private val blockRepository: BlockRepository
+//        ,private val webSocketTemplate: SimpMessagingTemplate
 ) {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)

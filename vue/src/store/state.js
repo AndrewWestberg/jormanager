@@ -6,10 +6,12 @@ export default {
     // jormanager version string
     appVersion: "---",
 
-    blocks: [],
-
     toastError: null,
     toastWarn: null,
     toastInfo: null,
-    toastSuccess: null
+    toastSuccess: null,
+
+    hosts: [],
+    blocks: [],
+
 }

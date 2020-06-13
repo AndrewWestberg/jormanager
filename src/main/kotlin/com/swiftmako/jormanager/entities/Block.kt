@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.entities
 
+import javax.persistence.Column
 import javax.persistence.Entity
 import javax.persistence.GeneratedValue
 import javax.persistence.GenerationType
@@ -12,9 +13,14 @@ data class Block(
         @Id
         @GeneratedValue(strategy = GenerationType.AUTO)
         val id: Long? = null,
+        @Column(name = "at")
         val at: String,
+        @Column(name = "pool")
         val pool: String,
+        @Column(name = "host")
         val host: String,
+        @Column(name = "slot")
         val slot: Long,
+        @Column(name = "hash")
         val hash: String
 )

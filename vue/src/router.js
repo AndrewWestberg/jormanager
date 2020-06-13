@@ -16,6 +16,11 @@ export default new Router({
             path: '/hosts',
             name: 'hosts',
             component: () => import('./views/Hosts.vue') // lazy load
+        },
+        {
+            path: '/nodes',
+            name: 'nodes',
+            component: () => import('./views/Nodes.vue')
         }
     ]
 })
