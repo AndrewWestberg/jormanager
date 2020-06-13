@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -24,7 +25,9 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import java.io.File
+import java.io.IOException
 import java.io.Reader
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 @Component("blockMonitor")
@@ -59,30 +62,40 @@ class BlockMonitor @Autowired constructor(
         log.info("Starting BlockMonitor...")
         listOf("bcsh", "bcsh0", "bcsh1").forEach { node ->
             launch {
-                val ssh = SSHClient()
-                ssh.loadKnownHosts()
-                ssh.addHostKeyVerifier(PromiscuousVerifier())
-                ssh.connect("papa", 15795)
-                try {
-                    val base = "${System.getProperty("user.home")}${File.separator}.ssh${File.separator}"
-                    ssh.authPublickey("westbam", "$base/tux_private.pem")
-                    ssh.startSession().use { session ->
-                        val cmd = session.exec("cat /home/westbam/haskell/${node}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
-                        cmd.inputStream.bufferedReader().use { reader ->
-                            saveBlocksFromRemoteNode(node, reader)
+                var retry = true
+                while (retry) {
+                    retry = false
+                    delay(TimeUnit.SECONDS.toMillis(10))
+                    val ssh = SSHClient()
+                    ssh.loadKnownHosts()
+                    ssh.addHostKeyVerifier(PromiscuousVerifier())
+                    ssh.connect("papa", 15795)
+                    try {
+                        val base = "${System.getProperty("user.home")}${File.separator}.ssh${File.separator}"
+                        ssh.authPublickey("westbam", "$base/tux_private.pem")
+                        ssh.startSession().use { session ->
+                            val cmd = session.exec("cat /home/westbam/haskell/${node}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                            cmd.inputStream.bufferedReader().use { reader ->
+                                saveBlocksFromRemoteNode(node, reader)
+                            }
+                            cmd.join()
                         }
-                        cmd.join()
-                    }
-                    ssh.startSession().use { session ->
-                        val cmd = session.exec("tail -F -n +0 /home/westbam/haskell/${node}/logs/node.json | grep --line-buffered \"TraceAdoptedBlock\"")
-                        cmd.inputStream.bufferedReader().use { reader ->
-                            saveBlocksFromRemoteNode(node, reader)
+                        ssh.startSession().use { session ->
+                            val cmd = session.exec("tail -F -n +0 /home/westbam/haskell/${node}/logs/node.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                            cmd.inputStream.bufferedReader().use { reader ->
+                                saveBlocksFromRemoteNode(node, reader)
+                            }
+                            cmd.join()
+                            log.info("Done tailing logs!")
                         }
-                        cmd.join()
-                        log.info("Done tailing logs!")
+                    } catch (e: IOException) {
+                        log.error("IOException communicating with $node", e)
+                        retry = true
+                    } catch (e: Throwable) {
+                        log.error("Fatal error communicating with $node!", e)
+                    } finally {
+                        ssh.disconnect()
                     }
-                } finally {
-                    ssh.disconnect()
                 }
             }
         }
