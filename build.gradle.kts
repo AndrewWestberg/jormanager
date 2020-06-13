@@ -2,7 +2,7 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.3.0.RELEASE"
+    id("org.springframework.boot") version "2.3.1.RELEASE"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.github.ben-manes.versions") version "0.28.0"
     kotlin("jvm") version "1.3.72"
@@ -15,8 +15,8 @@ object Versions {
     const val bouncycastle = "1.65.01"
     const val coroutines = "1.3.7"
     const val joda = "2.10.6"
-    const val liquibase = "3.9.0"
-    const val moshi = "1.9.2"
+    const val liquibase = "3.10.0"
+    const val moshi = "1.9.3"
     const val sshj = "0.29.0"
 }
 
