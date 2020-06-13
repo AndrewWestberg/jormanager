@@ -65,7 +65,7 @@ class BlockMonitor @Autowired constructor(
                 var retry = true
                 while (retry) {
                     retry = false
-                    delay(TimeUnit.SECONDS.toMillis(10))
+                    delay(RECONNECT_DELAY_MS)
                     val ssh = SSHClient()
                     ssh.loadKnownHosts()
                     ssh.addHostKeyVerifier(PromiscuousVerifier())
@@ -119,7 +119,7 @@ class BlockMonitor @Autowired constructor(
                         if (existingBlock == null) {
                             blockRepository.save(block)
                             log.info(block.toString())
-                            webSocketTemplate.convertAndSend("/topic/blocks", SocketResponse.Success(block))
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = block))
                         }
                     } catch (e: DataIntegrityViolationException) {
                         log.warn("Block Exists!: $traceAdoptedBlock")
@@ -134,4 +134,7 @@ class BlockMonitor @Autowired constructor(
         log.info("BlockMonitor stopped.")
     }
 
+    companion object {
+        const val RECONNECT_DELAY_MS = 5000L
+    }
 }

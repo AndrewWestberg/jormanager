@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.controllers
 
+import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.repositories.BlockRepository
 import org.slf4j.LoggerFactory
@@ -21,16 +22,17 @@ class BlockController @Autowired constructor(
     private val log = LoggerFactory.getLogger(BlockController::class.java)
 
     @MessageMapping("/version")
-    @SendTo("/topic/version")
+    @SendTo("/topic/messages")
     fun getVersion(): SocketResponse<String> {
-        return SocketResponse.Success("JorManager ${buildProperties.version.split('-')[0]}")
+        return SocketResponse.Success(type = "version", data = "JorManager ${buildProperties.version.split('-')[0]}")
     }
 
     @MessageMapping("/blocks")
-    fun getBlocks() {
-        blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot")).forEach { block ->
-            webSocketTemplate.convertAndSend("/topic/blocks", SocketResponse.Success(block))
-        }
+    @SendTo("/topic/messages")
+    fun getBlocks(): SocketResponse<List<Block>> {
+        val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
+        return SocketResponse.Success(type = "blocks", data = blocks)
+//            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success<Block>(type = "blocks", data = block))
     }
 
 }
