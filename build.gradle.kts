@@ -99,11 +99,19 @@ tasks.withType<KotlinCompile> {
     }
 }
 
+tasks.register("buildVue") {
+    project.exec {
+        commandLine = listOf("/bin/bash", "./vue/deploy.sh")
+    }
+}
+
 tasks {
     springBoot {
        buildInfo()
     }
     bootJar {
         launchScript()
+        dependsOn("buildVue")
     }
 }
+
