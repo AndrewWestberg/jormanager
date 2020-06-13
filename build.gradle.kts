@@ -100,6 +100,9 @@ tasks.withType<KotlinCompile> {
 }
 
 tasks {
+    springBoot {
+       buildInfo()
+    }
     bootJar {
         launchScript()
     }
