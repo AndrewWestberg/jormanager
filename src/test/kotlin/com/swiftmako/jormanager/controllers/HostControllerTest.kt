@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test
 class HostControllerTest {
 
     @Test
-    fun `test host controller connection success`() {
+    fun `test host controller remote connection success`() {
         val host = Host(
                 type = "remote",
                 hostname = "papa",
@@ -31,4 +31,26 @@ class HostControllerTest {
         println("-----")
         assertThat(response).isInstanceOf(SocketResponse.Success::class.java)
     }
+
+    @Test
+    fun `test host controller local connection success`() {
+        val host = Host(
+                type = "local",
+                hostname = "brainy",
+                sshUser = "westbam",
+                cardanoCliPath = "/home/westbam/.local/bin/cardano-cli",
+                cardanoNodePath = "/home/westbam/.local/bin/cardano-node",
+                nodeHomePath = "/home/westbam/haskell"
+        )
+        val target = HostController(mockk {
+            every { save<Host>(any()) } returns host
+        })
+        val response = target.addHost(host)
+        Thread.sleep(1000)
+        println("-----")
+        println(response)
+        println("-----")
+        assertThat(response).isInstanceOf(SocketResponse.Success::class.java)
+    }
+
 }

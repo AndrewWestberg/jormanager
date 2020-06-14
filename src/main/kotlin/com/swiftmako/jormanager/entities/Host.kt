@@ -24,9 +24,9 @@ data class Host(
         @Column(name = "ssh_user")
         val sshUser: String,
         @Column(name = "ssh_port")
-        val sshPort: Int,
+        val sshPort: Int = 22,
         @Column(name = "ssh_pem_path")
-        val sshPemPath: String,
+        val sshPemPath: String = "",
         @Column(name = "node_home_path")
         val nodeHomePath: String
 )
