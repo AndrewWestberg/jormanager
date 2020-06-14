@@ -14,8 +14,10 @@ plugins {
 object Versions {
     const val bouncycastle = "1.65.01"
     const val coroutines = "1.3.7"
+    const val googleTruth = "1.0.1"
     const val joda = "2.10.6"
     const val liquibase = "3.10.0"
+    const val mockk = "1.10.0"
     const val moshi = "1.9.3"
     const val sshj = "0.29.0"
 }
@@ -43,11 +45,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.coroutines}")
 
     implementation("com.hierynomus:sshj:${Versions.sshj}")
+
     implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
     implementation("joda-time:joda-time:${Versions.joda}")
 
     implementation("org.bouncycastle:bcprov-jdk15on:${Versions.bouncycastle}")
-//    implementation("org.bouncycastle:bcpg-jdk15on:${Versions.bouncycastle}")
 
     implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
@@ -56,6 +58,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
+    testImplementation("io.mockk:mockk:${Versions.mockk}")
+    testImplementation("com.google.truth:truth:${Versions.googleTruth}")
 }
 
 fun isNonStable(version: String): Boolean {

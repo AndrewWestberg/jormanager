@@ -7,7 +7,7 @@ import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
 
 @Repository
-interface BlockRepository : JpaRepository<Block, Int> {
+interface BlockRepository : JpaRepository<Block, Long> {
 
     @Query("SELECT b FROM Block b WHERE b.slot = :slot")
     fun findBySlot(@Param("slot") slot: Long): Block?

@@ -28,5 +28,5 @@ data class Host(
         @Column(name = "ssh_pem_path")
         val sshPemPath: String,
         @Column(name = "node_home_path")
-        val nodeHomeFolder: String
+        val nodeHomePath: String
 )

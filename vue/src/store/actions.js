@@ -15,8 +15,7 @@ export default {
         commit('setStompClient', stompClient)
 
         stompClient.connect({},
-            frame => {
-                console.log(frame);
+            () => {
                 dispatch('subscribeToMessages')
             },
             error => {
@@ -45,6 +44,20 @@ export default {
                 case "hosts":
                     commit('setHosts', message.data)
                     break
+                case "addhost":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Host Saved",
+                            message: message.data
+                        })
+
+                    } else {
+                        commit('toastError', {
+                            title: "Host Save Error",
+                            message: message.exception.message
+                        })
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -54,14 +67,10 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request version");
-            // const msg = { name: this.send_message };
-            // console.log(JSON.stringify(msg));
-            // this.stompClient.send("/jormanager/version", JSON.stringify(msg))
             state.stompClient.send("/jormanager/version");
         } else {
             commit('toastError', {
-                title: "Error getting version!",
+                title: "Communication Error!",
                 message: "stompClient not connected!"
             })
         }
@@ -76,6 +85,20 @@ export default {
         } else {
             commit('toastError', {
                 title: "Error getting hosts!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    addHost: ({
+        state,
+        commit
+    }, host) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Add Host: " + JSON.stringify(host));
+            state.stompClient.send("/jormanager/addhost", JSON.stringify(host));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
                 message: "stompClient not connected!"
             })
         }

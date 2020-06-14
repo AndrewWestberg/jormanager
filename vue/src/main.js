@@ -18,6 +18,29 @@ Vue.component('BIconPencilSquare', BIconPencilSquare)
 Vue.component('BIconHexagonHalf', BIconHexagonHalf)
 
 import App from './App.vue'
+
+import {
+  library
+} from '@fortawesome/fontawesome-svg-core'
+import {
+  faWallet,
+  faDiceD20,
+  faEdit,
+  faServer,
+  faChartLine
+} from '@fortawesome/free-solid-svg-icons'
+import {
+  FontAwesomeIcon
+} from '@fortawesome/vue-fontawesome'
+
+library.add(faWallet)
+library.add(faDiceD20)
+library.add(faEdit)
+library.add(faServer)
+library.add(faChartLine)
+
+Vue.component('font-awesome-icon', FontAwesomeIcon)
+
 import router from './router'
 import store from './store/index'
 

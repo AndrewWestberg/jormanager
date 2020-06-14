@@ -6,13 +6,16 @@
           <b>{{ appVersion }}</b>
         </b-nav-item>
         <b-nav-item to="/" exact exact-active-class="active">
-          <b-icon-graph-up />&nbsp;Dashboard
+          <font-awesome-icon :icon="['fas', 'chart-line']" />&nbsp;Dashboard
         </b-nav-item>
         <b-nav-item to="/hosts" exact exact-active-class="active">
-          <b-icon-server />&nbsp;Hosts
+          <font-awesome-icon :icon="['fas', 'server']" />&nbsp;Hosts
         </b-nav-item>
         <b-nav-item to="/nodes" exact exact-active-class="active">
-          <b-icon-hexagon-half />&nbsp;Nodes
+          <font-awesome-icon :icon="['fas', 'dice-d20']" />&nbsp;Nodes
+        </b-nav-item>
+        <b-nav-item to="/wallet" exact exact-active-class="active">
+          <font-awesome-icon :icon="['fas', 'wallet']" />&nbsp;Wallet
         </b-nav-item>
       </b-nav>
     </b-navbar>
