@@ -3,7 +3,7 @@
     <div>
       <b-button
         variant="outline-primary"
-        @click="addHost()"
+        @click="$root.$emit('add-host')"
         v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
       >
         <b-icon-plus />&nbsp;Host
@@ -22,7 +22,7 @@
             :icon="['fas','edit']"
             class="text-warning"
             v-b-tooltip.hover.v-warning.right="'Edit this Host'"
-            @click="editHost(data.index)"
+            @click="$root.$emit('edit-host', hosts[data.index])"
           />
         </template>
       </b-table>
@@ -54,13 +54,7 @@ export default {
     };
   },
   methods: {
-    ...mapActions(["requestHosts"]),
-    addHost() {
-      this.$emit("addHost");
-    },
-    editHost(index) {
-      this.$emit("editHost", this.hosts[index]);
-    }
+    ...mapActions(["requestHosts"])
   },
   computed: {
     ...mapState(["hosts"])

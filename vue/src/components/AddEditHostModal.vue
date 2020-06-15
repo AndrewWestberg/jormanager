@@ -109,7 +109,7 @@ export default {
       this.clearFormHost();
       this.$bvModal.show("modal-edit-host");
     },
-    editHost(host) {
+    clickEditHost(host) {
       this.clearFormHost();
       this.formHost = _.cloneDeep(host);
       this.$bvModal.show("modal-edit-host");
@@ -146,11 +146,11 @@ export default {
   },
   mounted() {
     this.clearFormHost();
-    this.$on("editHost", host => {
+    this.$root.$on("edit-host", host => {
       // received edit host message from parent component
-      this.editHost(host);
+      this.clickEditHost(host);
     });
-    this.$on("addHost", () => {
+    this.$root.$on("add-host", () => {
       // received add host message from parent component
       this.clickAddHost();
     });

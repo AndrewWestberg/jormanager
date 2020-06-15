@@ -21,6 +21,11 @@ export default new Router({
             path: '/nodes',
             name: 'nodes',
             component: () => import('./views/Nodes.vue')
+        },
+        {
+            path: '/wallet',
+            name: 'wallet',
+            component: () => import('./views/Wallet.vue')
         }
     ]
 })
