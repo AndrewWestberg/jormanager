@@ -1,5 +1,78 @@
 <template>
   <div>
-    <h1>Nodes</h1>
+    <div>
+      <b-button variant="outline-primary" v-b-tooltip.hover.bottom="'Add a new cardano-node.'">
+        <b-icon-plus />&nbsp;Node
+      </b-button>
+    </div>
+    <hr />
+    <div>
+      <b-row>
+        <b-col cols="2">
+          <b-form-select id="node-select" v-model="selected" :options="nodeSelectOptions" />
+        </b-col>
+      </b-row>
+    </div>
+    <div>
+      <b-table bordered striped head-variant="light" :items="nodes" :fields="fields">
+        <template v-slot:cell(type)="data">
+          <div v-if="data.value==='relay'">
+            <font-awesome-icon
+              :icon="['fas', 'dice-d20']"
+              v-b-tooltip.hover.right="'Relay Node'"
+              class="text-danger"
+            />
+          </div>
+          <div v-if="data.value==='core'">
+            <font-awesome-icon
+              :icon="['fas', 'dice-d20']"
+              v-b-tooltip.hover.right="'Core Node'"
+              class="text-success"
+            />
+          </div>
+        </template>
+        <!-- A custom formatted column -->
+        <template v-slot:cell(edit)="data">
+          <font-awesome-icon
+            :icon="['fas','edit']"
+            class="text-warning"
+            v-b-tooltip.hover.v-warning.right="'Edit this Node'"
+            @click="$root.$emit('edit-node', nodes[data.index])"
+          />
+        </template>
+      </b-table>
+    </div>
   </div>
 </template>
+
+<script>
+import { mapState } from "vuex";
+import _ from "lodash";
+
+export default {
+  name: "Nodes",
+  data() {
+    return {
+      selected: 0,
+      fields: [
+        { key: "id", sortable: true },
+        { key: "name", sortable: true },
+        { key: "hostId", sortable: true },
+        { key: "type", sortable: true },
+        { key: "edit", label: "" }
+      ]
+    };
+  },
+  computed: {
+    ...mapState(["nodes"]),
+    nodeSelectOptions() {
+      return _.map(this.nodes, node => {
+        return {
+          value: node.id,
+          text: node.name
+        };
+      });
+    }
+  }
+};
+</script>

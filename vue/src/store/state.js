@@ -1,7 +1,7 @@
 export default {
     // Are we connected to the websocket?
     connected: false,
-    stompClient: null,
+    // stompClient: null,
 
     // jormanager version string
     appVersion: "---",
@@ -12,6 +12,74 @@ export default {
     toastSuccess: null,
 
     hosts: [],
+    nodes: [{
+            id: 0,
+            hostId: 0,
+            type: "relay",
+            name: "node",
+            listen: "127.0.0.1",
+            port: 6000,
+            genesisFileId: 0,
+            configFileId: 1,
+            coldNodeSkeyFileId: null,
+            coldNodeVkeyFileId: null,
+            hotNodeKesSkeyFileId: null,
+            hotNodeKesVkeyFileId: null,
+            opcertFileId: null,
+            opcertExpiration: null,
+            isDefault: true
+        },
+        {
+            id: 1,
+            hostId: 1,
+            type: "relay",
+            name: "relay0",
+            listen: "0.0.0.0",
+            port: 5001,
+            genesisFileId: 0,
+            configFileId: 2,
+            coldNodeSkeyFileId: 3,
+            coldNodeVkeyFileId: 4,
+            hotNodeKesSkeyFileId: 5,
+            hotNodeKesVkeyFileId: 6,
+            opcertFileId: 7,
+            opcertExpiration: 8,
+            isDefault: false
+        },
+        {
+            id: 2,
+            hostId: 2,
+            type: "relay",
+            name: "relay1",
+            listen: "0.0.0.0",
+            port: 5002,
+            genesisFileId: 0,
+            configFileId: 3,
+            coldNodeSkeyFileId: 9,
+            coldNodeVkeyFileId: 10,
+            hotNodeKesSkeyFileId: 11,
+            hotNodeKesVkeyFileId: 12,
+            opcertFileId: 13,
+            opcertExpiration: 14,
+            isDefault: false
+        },
+        {
+            id: 3,
+            hostId: 3,
+            type: "core",
+            name: "bcsh",
+            listen: "127.0.0.1",
+            port: 5000,
+            genesisFileId: 0,
+            configFileId: 4,
+            coldNodeSkeyFileId: 15,
+            coldNodeVkeyFileId: 16,
+            hotNodeKesSkeyFileId: 17,
+            hotNodeKesVkeyFileId: 18,
+            opcertFileId: 19,
+            opcertExpiration: 20,
+            isDefault: false
+        }
+    ],
     blocks: [],
-
 }
