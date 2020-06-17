@@ -17,6 +17,7 @@
     "lodash": "^4.17.15",
     "sockjs-client": "^1.4.0",
     "vue": "^2.6.11",
+    "vue-good-wizard": "^1.4.1",
     "vue-lodash": "^2.1.2",
     "vue-router": "^3.3.2",
     "vuex": "^3.4.0",
