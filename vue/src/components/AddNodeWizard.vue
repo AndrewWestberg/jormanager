@@ -11,7 +11,7 @@
             :state="nameState"
             maxlength="6"
             aria-describedby="name-input-live-feedback"
-            placeholder="e.g. bcsh1, relay2, etc..."
+            placeholder="e.g. tickr, relay2, etc..."
             trim
           ></b-form-input>
           <b-form-invalid-feedback id="name-input-live-feedback">Enter at least 3 letters</b-form-invalid-feedback>
@@ -59,6 +59,13 @@
             id="port-input-live-feedback"
           >The port number the node will listen for connections on</b-form-invalid-feedback>
         </b-form-group>
+        <b-form-group label="Genesis" label-for="genesis-select" label-cols-md="2">
+          <b-form-select id="genesis-select" v-model="formNode.genesis" :state="genesisState">
+            <b-form-select-option :value="null">Please select an option</b-form-select-option>
+            <b-form-select-option value="htn">Haskell Testnet</b-form-select-option>
+            <b-form-select-option value="mainnet">Mainnet</b-form-select-option>
+          </b-form-select>
+        </b-form-group>
       </div>
       <div slot="page2">
         <h4>Core Node Keys</h4>
@@ -78,6 +85,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
+import { mapMutations } from "vuex";
 
 export default {
   name: "AddNodeWizard",
@@ -91,32 +99,51 @@ export default {
         isDefault: false,
         type: null,
         listen: "",
-        port: ""
-      },
-      steps: [
-        {
-          label: "Node Basics",
-          slot: "page1"
-        },
-        {
-          label: "Core Node Keys",
-          slot: "page2"
-        },
-        {
-          label: "Owners & Rewards",
-          slot: "page3"
-        },
-        {
-          label: "Confirmation",
-          slot: "page4",
-          options: {
-            nextDisabled: true // control whether next is disabled or not
-          }
-        }
-      ]
+        port: "",
+        genesis: null
+      }
     };
   },
   computed: {
+    steps() {
+      if (this.formNode.type === "core") {
+        return [
+          {
+            label: "Node Basics",
+            slot: "page1",
+            options: {
+              backEnabled: true
+            }
+          },
+          {
+            label: "Core Node Keys",
+            slot: "page2"
+          },
+          {
+            label: "Owners & Rewards",
+            slot: "page3"
+          },
+          {
+            label: "Confirmation",
+            slot: "page4"
+          }
+        ];
+      }
+
+      return [
+        {
+          label: "Node Basics",
+          slot: "page1",
+          options: {
+            backEnabled: true
+          }
+        },
+        {
+          label: "Confirmation",
+          slot: "page4"
+        }
+      ];
+    },
     nameState() {
       return this.formNode.name.length > 2;
     },
@@ -129,10 +156,32 @@ export default {
     },
     portState() {
       return this.formNode.port > 0;
+    },
+    genesisState() {
+      return this.formNode.genesis != null;
     }
   },
   methods: {
+    ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
+      if (currentPage === 0) {
+        // validate form
+        if (
+          this.nameState &&
+          this.typeState &&
+          this.listenState &&
+          this.portState &&
+          this.genesisState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields."
+          });
+          return false;
+        }
+      }
       console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
