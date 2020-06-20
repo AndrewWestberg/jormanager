@@ -227,7 +227,7 @@
           <b-form-group label="Pledge &amp; Fees">
             <b-form-group
               label="Pledge (lovelace)"
-              label-form="pledge-input"
+              label-for="pledge-input"
               label-cols-md="1"
               label-align="right"
             >
@@ -242,7 +242,7 @@
             </b-form-group>
             <b-form-group
               label="Cost (lovelace)"
-              label-form="cost-input"
+              label-for="cost-input"
               label-cols-md="1"
               label-align="right"
             >
@@ -255,12 +255,37 @@
                 trim
               />
             </b-form-group>
+            <b-form-group
+              label="Margin"
+              label-for="margin-input"
+              label-cols-md="1"
+              label-align="right"
+            >
+              <b-form-input
+                id="margin-input"
+                v-model="formNode.poolMargin"
+                :state="poolMarginState"
+                placeholder="e.g. 0.06"
+                type="range"
+                min="0.0"
+                max="1.0"
+                step="0.005"
+                trim
+              />
+              <p class="text-center">{{(formNode.poolMargin * 100).toFixed(1)}}%</p>
+            </b-form-group>
           </b-form-group>
         </b-form-group>
       </div>
       <div slot="page4">
         <h4>Confirmation</h4>
-        <p>This is step 4</p>
+        <p>
+          Creating a node requires
+          <b>sudo</b> privileges to configure the systemd and rsyslog scripts. Leave empty if your host does not require a sudo password.
+        </p>
+        <b-form-group label="SUDO Password" label-for="sudo-input">
+          <b-form-input id="sudo-input" type="password" v-model="formNode.sudoPassword" />
+        </b-form-group>
       </div>
     </vue-good-wizard>
   </div>
@@ -296,7 +321,9 @@ export default {
         ownerStakingSKey: null,
         ownerStakingVKey: null,
         poolPledge: null,
-        poolCost: null
+        poolCost: null,
+        poolMargin: 0.1,
+        sudoPassword: null
       }
     };
   },
@@ -391,52 +418,70 @@ export default {
     },
     poolCostState() {
       return this.formNode.poolCost > 0;
+    },
+    poolMarginState() {
+      return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
     }
   },
   methods: {
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
-      //   if (currentPage === 0) {
-      //     // validate form
-      //     if (
-      //       this.nameState &&
-      //       this.typeState &&
-      //       this.listenState &&
-      //       this.portState &&
-      //       this.genesisState
-      //     ) {
-      //       return true;
-      //     } else {
-      //       this.toastError({
-      //         title: "Error",
-      //         message: "You must fill out all fields."
-      //       });
-      //       return false;
-      //     }
-      //   } else if (currentPage === 1) {
-      // // validate form
-      // if (
-      //   this.coldSKeyState &&
-      //   this.coldVKeyState &&
-      //   this.vrfSKeyState &&
-      //   this.vrfVKeyState &&
-      //   this.kesSKeyState &&
-      //   this.kesVKeyState
-      // ) {
-      //   return true;
-      // } else {
-      //   this.toastError({
-      //     title: "Error",
-      //     message: "You must fill out all fields."
-      //   });
-      //   return false;
-      // }
+      if (currentPage === 0) {
+        if (
+          this.nameState &&
+          this.typeState &&
+          this.listenState &&
+          this.portState &&
+          this.genesisState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields."
+          });
+          return false;
+        }
+      } else if (currentPage === 1) {
+        if (
+          this.coldSKeyState &&
+          this.coldVKeyState &&
+          this.vrfSKeyState &&
+          this.vrfVKeyState &&
+          this.kesSKeyState &&
+          this.kesVKeyState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields."
+          });
+          return false;
+        }
+      } else if (currentPage === 2) {
+        if (
+          this.ownerStakingSKeyState &&
+          this.ownerStakingVKeyState &&
+          this.poolPledgeState &&
+          this.poolCostState &&
+          this.poolMarginState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields."
+          });
+          return false;
+        }
+      }
 
-      console.log("next clicked", currentPage);
+      // console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
-    backClicked(currentPage) {
-      console.log("back clicked", currentPage);
+    backClicked(/*currentPage*/) {
+      // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
     }
   }
