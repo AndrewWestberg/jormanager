@@ -69,7 +69,120 @@
       </div>
       <div slot="page2">
         <h4>Core Node Keys</h4>
-        <p>This is step 2</p>
+        <b-form-group label="Pool COLD Keys">
+          <b-form-checkbox
+            id="cold-skey-generate-checkbox"
+            v-model="formNode.generateColdKeys"
+          >Generate</b-form-checkbox>
+          <b-form-group
+            label="skey"
+            label-for="cold-skey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="cold-skey-file"
+              :disabled="formNode.generateColdKeys"
+              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.coldSKey"
+              :state="coldSKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="vkey"
+            label-for="cold-vkey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="cold-vkey-file"
+              :disabled="formNode.generateColdKeys"
+              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.coldVKey"
+              :state="coldVKeyState"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
+        <b-form-group label="Pool VRF Keys">
+          <b-form-checkbox
+            id="vrf-skey-generate-checkbox"
+            v-model="formNode.generateVRFKeys"
+          >Generate</b-form-checkbox>
+          <b-form-group
+            label="skey"
+            label-for="vrf-skey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="vrf-skey-file"
+              :disabled="formNode.generateVRFKeys"
+              :placeholder="formNode.generateVRFKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.vrfSKey"
+              :state="vrfSKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="vkey"
+            label-for="vrf-vkey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="vrf-vkey-file"
+              :disabled="formNode.generateVRFKeys"
+              :placeholder="formNode.generateVRFKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.vrfVKey"
+              :state="vrfVKeyState"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
+        <b-form-group label="Pool KES Keys">
+          <b-form-checkbox
+            id="kes-skey-generate-checkbox"
+            v-model="formNode.generateKESKeys"
+          >Generate</b-form-checkbox>
+          <b-form-group
+            label="skey"
+            label-for="kes-skey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="kes-skey-file"
+              :disabled="formNode.generateKESKeys"
+              :placeholder="formNode.generateKESKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.kesSKey"
+              :state="kesSKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="vkey"
+            label-for="kes-vkey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="kes-vkey-file"
+              :disabled="formNode.generateKESKeys"
+              :placeholder="formNode.generateKESKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.kesVKey"
+              :state="kesVKeyState"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
       </div>
       <div slot="page3">
         <h4>Owners &amp; Rewards</h4>
@@ -100,7 +213,16 @@ export default {
         type: null,
         listen: "",
         port: "",
-        genesis: null
+        genesis: null,
+        generateColdKeys: false,
+        coldSKey: null,
+        coldVKey: null,
+        generateVRFKeys: false,
+        vrfSKey: null,
+        vrfVKey: null,
+        generateKESKeys: false,
+        kesSKey: null,
+        kesVKey: null
       }
     };
   },
@@ -159,29 +281,65 @@ export default {
     },
     genesisState() {
       return this.formNode.genesis != null;
+    },
+    coldSKeyState() {
+      return this.formNode.generateColdKeys || this.formNode.coldSKey != null;
+    },
+    coldVKeyState() {
+      return this.formNode.generateColdKeys || this.formNode.coldVKey != null;
+    },
+    vrfSKeyState() {
+      return this.formNode.generateVRFKeys || this.formNode.vrfSKey != null;
+    },
+    vrfVKeyState() {
+      return this.formNode.generateVRFKeys || this.formNode.vrfVKey != null;
+    },
+    kesSKeyState() {
+      return this.formNode.generateKESKeys || this.formNode.kesSKey != null;
+    },
+    kesVKeyState() {
+      return this.formNode.generateKESKeys || this.formNode.kesVKey != null;
     }
   },
   methods: {
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
-      if (currentPage === 0) {
-        // validate form
-        if (
-          this.nameState &&
-          this.typeState &&
-          this.listenState &&
-          this.portState &&
-          this.genesisState
-        ) {
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields."
-          });
-          return false;
-        }
-      }
+      //   if (currentPage === 0) {
+      //     // validate form
+      //     if (
+      //       this.nameState &&
+      //       this.typeState &&
+      //       this.listenState &&
+      //       this.portState &&
+      //       this.genesisState
+      //     ) {
+      //       return true;
+      //     } else {
+      //       this.toastError({
+      //         title: "Error",
+      //         message: "You must fill out all fields."
+      //       });
+      //       return false;
+      //     }
+      //   } else if (currentPage === 1) {
+      // // validate form
+      // if (
+      //   this.coldSKeyState &&
+      //   this.coldVKeyState &&
+      //   this.vrfSKeyState &&
+      //   this.vrfVKeyState &&
+      //   this.kesSKeyState &&
+      //   this.kesVKeyState
+      // ) {
+      //   return true;
+      // } else {
+      //   this.toastError({
+      //     title: "Error",
+      //     message: "You must fill out all fields."
+      //   });
+      //   return false;
+      // }
+
       console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
