@@ -1,3 +1,5 @@
+import _ from 'lodash'
+
 export default {
     isDebug: () => {
         if (window.webpackHotUpdate) {
@@ -18,5 +20,55 @@ export default {
     },
     hostsCount: (state) => {
         return state.hosts.length
+    },
+    stakingSKeys: (state) => {
+        return _.sortBy(_.map(
+            _.filter(state.files, (file) => {
+                return file.name.match(/.*\.staking\.skey/i) != null
+            }), (file) => {
+                return {
+                    value: file.id,
+                    text: file.name
+                }
+            }
+        ), ['text'])
+    },
+    stakingVKeys: (state) => {
+        return _.sortBy(_.map(
+            _.filter(state.files, (file) => {
+                return file.name.match(/.*\.staking\.vkey/i) != null
+            }), (file) => {
+                return {
+                    value: file.id,
+                    text: file.name
+                }
+            }
+        ), ['text'])
+    },
+    paymentSKeys: (state) => {
+        return _.sortBy(_.map(
+            _.filter(state.files, (file) => {
+                // match enterprise and regular payment skeys
+                return file.name.match(/^[a-z0-9]*\.skey|.*\.payment\.skey/i) != null
+            }), (file) => {
+                return {
+                    value: file.id,
+                    text: file.name
+                }
+            }
+        ), ['text'])
+    },
+    paymentVKeys: (state) => {
+        return _.sortBy(_.map(
+            _.filter(state.files, (file) => {
+                // match enterprise and regular payment vkeys
+                return file.name.match(/^[a-z0-9]*\.vkey|.*\.payment\.vkey/i) != null
+            }), (file) => {
+                return {
+                    value: file.id,
+                    text: file.name
+                }
+            }
+        ), ['text'])
     }
 }

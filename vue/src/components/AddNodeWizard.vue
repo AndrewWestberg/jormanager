@@ -49,6 +49,9 @@
           <b-form-input
             id="port-input"
             type="number"
+            step="1"
+            min="1024"
+            max="65535"
             :state="portState"
             placeholder="e.g. 3001"
             aria-describedby="port-input-live-feedback"
@@ -185,8 +188,75 @@
         </b-form-group>
       </div>
       <div slot="page3">
-        <h4>Owners &amp; Rewards</h4>
-        <p>This is step 3</p>
+        <h4>Pool Config</h4>
+        <b-form-group label="Owner STAKING Keys">
+          <b-form-group
+            label="skey"
+            label-for="owner-staking-skey-select"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-select
+              id="owner-staking-skey-select"
+              v-model="formNode.ownerStakingSKey"
+              :options="stakingSKeys"
+              :state="ownerStakingSKeyState"
+            >
+              <template v-slot:first>
+                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              </template>
+            </b-form-select>
+          </b-form-group>
+          <b-form-group
+            label="vkey"
+            label-for="owner-staking-vkey-select"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-select
+              id="owner-staking-vkey-select"
+              v-model="formNode.ownerStakingVKey"
+              :options="stakingVKeys"
+              :state="ownerStakingVKeyState"
+            >
+              <template v-slot:first>
+                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              </template>
+            </b-form-select>
+          </b-form-group>
+          <b-form-group label="Pledge &amp; Fees">
+            <b-form-group
+              label="Pledge (lovelace)"
+              label-form="pledge-input"
+              label-cols-md="1"
+              label-align="right"
+            >
+              <b-form-input
+                id="pledge-input"
+                v-model="formNode.poolPledge"
+                placeholder="e.g. 250000000000"
+                :state="poolPledgeState"
+                type="number"
+                trim
+              />
+            </b-form-group>
+            <b-form-group
+              label="Cost (lovelace)"
+              label-form="cost-input"
+              label-cols-md="1"
+              label-align="right"
+            >
+              <b-form-input
+                id="cost-input"
+                v-model="formNode.poolCost"
+                :state="poolCostState"
+                placeholder="e.g. 200000000"
+                type="number"
+                trim
+              />
+            </b-form-group>
+          </b-form-group>
+        </b-form-group>
       </div>
       <div slot="page4">
         <h4>Confirmation</h4>
@@ -198,7 +268,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
-import { mapMutations } from "vuex";
+import { mapMutations, mapGetters } from "vuex";
 
 export default {
   name: "AddNodeWizard",
@@ -222,11 +292,21 @@ export default {
         vrfVKey: null,
         generateKESKeys: false,
         kesSKey: null,
-        kesVKey: null
+        kesVKey: null,
+        ownerStakingSKey: null,
+        ownerStakingVKey: null,
+        poolPledge: null,
+        poolCost: null
       }
     };
   },
   computed: {
+    ...mapGetters([
+      "stakingSKeys",
+      "stakingVKeys",
+      "paymentSKeys",
+      "paymentVKeys"
+    ]),
     steps() {
       if (this.formNode.type === "core") {
         return [
@@ -242,7 +322,7 @@ export default {
             slot: "page2"
           },
           {
-            label: "Owners & Rewards",
+            label: "Pool Config",
             slot: "page3"
           },
           {
@@ -277,7 +357,7 @@ export default {
       return this.formNode.listen.match(/(\d{1,3}\.){3}\d{1,3}/) != null;
     },
     portState() {
-      return this.formNode.port > 0;
+      return this.formNode.port > 1023;
     },
     genesisState() {
       return this.formNode.genesis != null;
@@ -299,6 +379,18 @@ export default {
     },
     kesVKeyState() {
       return this.formNode.generateKESKeys || this.formNode.kesVKey != null;
+    },
+    ownerStakingSKeyState() {
+      return this.formNode.ownerStakingSKey != null;
+    },
+    ownerStakingVKeyState() {
+      return this.formNode.ownerStakingVKey != null;
+    },
+    poolPledgeState() {
+      return this.formNode.poolPledge > 0;
+    },
+    poolCostState() {
+      return this.formNode.poolCost > 0;
     }
   },
   methods: {
