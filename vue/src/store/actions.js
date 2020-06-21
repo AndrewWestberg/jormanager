@@ -56,10 +56,26 @@ export default {
                             title: "Host Save Error",
                             message: message.exception.message
                         })
+                        console.log(message.exception)
                     }
                     break
-                case "genesis_file_options":
-                    commit('setGenesisOptions', message.data)
+                case "file_options":
+                    commit('setFileOptions', message.data)
+                    break
+                case "createnode":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Node Created",
+                            message: message.data
+                        })
+
+                    } else {
+                        commit('toastError', {
+                            title: "Node Save Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
                     break
             }
         });
@@ -106,16 +122,30 @@ export default {
             })
         }
     },
-    requestGenesisFileOptions: ({
+    requestFileOptions: ({
         state,
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request genesisFileOptions");
-            state.stompClient.send("/jormanager/genesis_file_options");
+            console.log("Request fileOptions");
+            state.stompClient.send("/jormanager/file_options");
         } else {
             commit('toastError', {
-                title: "Error getting genesis_file_options!",
+                title: "Error getting file_options!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    createNode: ({
+        state,
+        commit
+    }, formNode) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Create Node: " + JSON.stringify(formNode));
+            state.stompClient.send("/jormanager/createnode", JSON.stringify(formNode));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
                 message: "stompClient not connected!"
             })
         }

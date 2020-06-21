@@ -11,7 +11,4 @@ interface FileRepository : JpaRepository<File, Long> {
 
     @Query("SELECT f FROM File f WHERE f.name = :name")
     fun findByName(@Param("name") name: String): File?
-
-    @Query("SELECT f FROM File f WHERE f.name LIKE '%genesis.json'")
-    fun findGenesisFiles(): List<File>
 }

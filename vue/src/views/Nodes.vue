@@ -41,7 +41,7 @@
         </b-table>
       </div>
     </div>
-    <AddNodeWizard v-if="showAddNodeWizard" />
+    <AddNodeWizard v-if="showAddNodeWizard" @hideAddNodeWizard="showAddNodeWizard = false" />
   </div>
 </template>
 

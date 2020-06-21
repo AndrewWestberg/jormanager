@@ -79,7 +79,7 @@
             id="genesis-select"
             v-model="formNode.genesis"
             :state="genesisState"
-            :options="genesisFileOptions"
+            :options="genesisFiles"
           >
             <template v-slot:first>
               <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
@@ -310,7 +310,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
-import { mapMutations, mapGetters, mapActions, mapState } from "vuex";
+import { mapMutations, mapGetters, mapActions } from "vuex";
 
 export default {
   name: "AddNodeWizard",
@@ -351,9 +351,9 @@ export default {
       "stakingSKeys",
       "stakingVKeys",
       "paymentSKeys",
-      "paymentVKeys"
+      "paymentVKeys",
+      "genesisFiles"
     ]),
-    ...mapState(["genesisFileOptions"]),
     steps() {
       if (this.formNode.type === "core") {
         return [
@@ -447,7 +447,7 @@ export default {
     }
   },
   methods: {
-    ...mapActions(["requestHosts", "requestGenesisFileOptions"]),
+    ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
       if (currentPage === 0) {
@@ -468,21 +468,27 @@ export default {
           return false;
         }
       } else if (currentPage === 1) {
-        if (
-          this.coldSKeyState &&
-          this.coldVKeyState &&
-          this.vrfSKeyState &&
-          this.vrfVKeyState &&
-          this.kesSKeyState &&
-          this.kesVKeyState
-        ) {
-          return true;
+        if (this.formNode.type === "core") {
+          if (
+            this.coldSKeyState &&
+            this.coldVKeyState &&
+            this.vrfSKeyState &&
+            this.vrfVKeyState &&
+            this.kesSKeyState &&
+            this.kesVKeyState
+          ) {
+            return true;
+          } else {
+            this.toastError({
+              title: "Error",
+              message: "You must fill out all fields."
+            });
+            return false;
+          }
         } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields."
-          });
-          return false;
+          // relay node save!
+          this.createNode(this.formNode);
+          this.$emit("hideAddNodeWizard");
         }
       } else if (currentPage === 2) {
         if (
@@ -500,6 +506,10 @@ export default {
           });
           return false;
         }
+      } else if (currentPage === 3) {
+        // core node save!
+        this.createNode(this.formNode);
+        this.$emit("hideAddNodeWizard");
       }
 
       // console.log("next clicked", currentPage);
@@ -511,12 +521,8 @@ export default {
     }
   },
   mounted() {
-    if (this.hostSelectOptions.length == 0) {
-      this.requestHosts();
-    }
-    if (this.genesisFileOptions.length == 0) {
-      this.requestGenesisFileOptions();
-    }
+    this.requestHosts();
+    this.requestFileOptions();
   }
 };
 </script>

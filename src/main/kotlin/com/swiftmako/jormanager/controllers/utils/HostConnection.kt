@@ -5,12 +5,18 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.Session
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+
 
 class HostConnection(private val host: Host) : Closeable {
+
+    private val log = LoggerFactory.getLogger("HostConnection")
 
     private val isRemote = host.type == "remote"
     private val sshDelegate = lazy {
@@ -32,7 +38,12 @@ class HostConnection(private val host: Host) : Closeable {
     }
 
     fun command(command: String): String {
-        return command(command.split(" "))
+        val commandList = mutableListOf<String>()
+        val m: Matcher = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
+        while (m.find()) {
+            commandList.add(m.group(1))
+        }
+        return command(commandList)
     }
 
     fun command(command: List<String>): String {
@@ -69,9 +80,23 @@ class HostConnection(private val host: Host) : Closeable {
         lateinit var process: Process
         lateinit var output: String
         lateinit var errorOutput: String
+        lateinit var commandList: List<String>
         val command = c.joinToString(" ").trim()
+        val redirectIndex = c.lastIndexOf(">>")
+        var redirectAppendFile = ""
+        if (redirectIndex > -1) {
+            redirectAppendFile = c[redirectIndex + 1]
+            commandList = c.subList(0, redirectIndex)
+        } else {
+            commandList = c
+        }
+        commandList = commandList.map { clause -> clause.trim('\'') }
         try {
-            process = ProcessBuilder(c).start()
+            process = ProcessBuilder(commandList).also {
+                if (redirectAppendFile.isNotBlank()) {
+                    it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
+                }
+            }.start()
             output = process.inputStream.bufferedReader().use(BufferedReader::readText)
             errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
             process.waitFor(5, TimeUnit.SECONDS)
@@ -88,6 +113,17 @@ class HostConnection(private val host: Host) : Closeable {
         if (sshDelegate.isInitialized()) {
             ssh.close()
         }
+    }
+
+    fun commandWriteFile(fileName: String, content: String): String {
+        command("touch $fileName")
+        command("truncate -s 0 $fileName")
+        content.split('\n').forEach { line ->
+            val cmd = "printf '$line\\n' >> $fileName"
+            log.info(cmd)
+            command(cmd)
+        }
+        return "" // none of these command should have any output
     }
 
 }

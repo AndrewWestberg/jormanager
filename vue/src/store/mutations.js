@@ -19,8 +19,8 @@ export default {
     setHosts: (state, hosts) => {
         state.hosts = hosts
     },
-    setGenesisOptions: (state, genesisOptions) => {
-        state.genesisFileOptions = genesisOptions
+    setFileOptions: (state, fileOptions) => {
+        state.files = fileOptions
     },
 
     toastError: (state, toast) => {

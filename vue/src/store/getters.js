@@ -31,53 +31,28 @@ export default {
             }), ['text'])
     },
     stakingSKeys: (state) => {
-        return _.sortBy(_.map(
-            _.filter(state.files, (file) => {
-                return file.name.match(/.*\.staking\.skey/i) != null
-            }), (file) => {
-                return {
-                    value: file.id,
-                    text: file.name
-                }
-            }
-        ), ['text'])
+        return _.sortBy(_.filter(state.files, (file) => {
+            return file.text.match(/.*\.staking\.skey/i) != null
+        }), ['text'])
     },
     stakingVKeys: (state) => {
-        return _.sortBy(_.map(
-            _.filter(state.files, (file) => {
-                return file.name.match(/.*\.staking\.vkey/i) != null
-            }), (file) => {
-                return {
-                    value: file.id,
-                    text: file.name
-                }
-            }
-        ), ['text'])
+        return _.sortBy(_.filter(state.files, (file) => {
+            return file.text.match(/.*\.staking\.vkey/i) != null
+        }), ['text'])
     },
     paymentSKeys: (state) => {
-        return _.sortBy(_.map(
-            _.filter(state.files, (file) => {
-                // match enterprise and regular payment skeys
-                return file.name.match(/^[a-z0-9]*\.skey|.*\.payment\.skey/i) != null
-            }), (file) => {
-                return {
-                    value: file.id,
-                    text: file.name
-                }
-            }
-        ), ['text'])
+        return _.sortBy(_.filter(state.files, (file) => {
+            return file.text.match(/^[a-z0-9]*\.skey|.*\.payment\.skey/i) != null
+        }), ['text'])
     },
     paymentVKeys: (state) => {
-        return _.sortBy(_.map(
-            _.filter(state.files, (file) => {
-                // match enterprise and regular payment vkeys
-                return file.name.match(/^[a-z0-9]*\.vkey|.*\.payment\.vkey/i) != null
-            }), (file) => {
-                return {
-                    value: file.id,
-                    text: file.name
-                }
-            }
-        ), ['text'])
+        return _.sortBy(_.filter(state.files, (file) => {
+            return file.text.match(/^[a-z0-9]*\.vkey|.*\.payment\.vkey/i) != null
+        }), ['text'])
+    },
+    genesisFiles: (state) => {
+        return _.sortBy(_.filter(state.files, (file) => {
+            return file.text.match(/.*genesis\.json/i) != null
+        }), ['text'])
     }
 }

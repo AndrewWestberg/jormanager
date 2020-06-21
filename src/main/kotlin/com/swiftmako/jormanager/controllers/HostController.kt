@@ -12,6 +12,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.stereotype.Controller
+import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
 
 @Controller
@@ -30,6 +31,7 @@ class HostController @Autowired constructor(
 
     @MessageMapping("/addhost")
     @SendTo("/topic/messages")
+    @Transactional
     fun addHost(host: Host): SocketResponse<String> {
         // test the host connectivity
         try {
