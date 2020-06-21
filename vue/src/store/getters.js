@@ -21,6 +21,15 @@ export default {
     hostsCount: (state) => {
         return state.hosts.length
     },
+    hostSelectOptions: (state) => {
+        return _.sortBy(
+            _.map(state.hosts, (host) => {
+                return {
+                    value: host.id,
+                    text: host.hostname
+                }
+            }), ['text'])
+    },
     stakingSKeys: (state) => {
         return _.sortBy(_.map(
             _.filter(state.files, (file) => {

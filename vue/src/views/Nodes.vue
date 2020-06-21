@@ -12,13 +12,6 @@
       </div>
       <hr />
       <div>
-        <b-row>
-          <b-col cols="2">
-            <b-form-select id="node-select" v-model="selected" :options="nodeSelectOptions" />
-          </b-col>
-        </b-row>
-      </div>
-      <div>
         <b-table bordered striped head-variant="light" :items="nodes" :fields="fields">
           <template v-slot:cell(type)="data">
             <div v-if="data.value==='relay'">
@@ -55,7 +48,6 @@
 <script>
 import { mapState } from "vuex";
 import AddNodeWizard from "@/components/AddNodeWizard";
-import _ from "lodash";
 
 export default {
   name: "Nodes",
@@ -64,7 +56,6 @@ export default {
   },
   data() {
     return {
-      selected: 0,
       fields: [
         { key: "id", sortable: true },
         { key: "name", sortable: true },
@@ -76,15 +67,7 @@ export default {
     };
   },
   computed: {
-    ...mapState(["nodes"]),
-    nodeSelectOptions() {
-      return _.map(this.nodes, node => {
-        return {
-          value: node.id,
-          text: node.name
-        };
-      });
-    }
+    ...mapState(["nodes"])
   }
 };
 </script>

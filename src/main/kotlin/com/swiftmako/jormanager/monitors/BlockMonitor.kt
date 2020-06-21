@@ -1,4 +1,4 @@
-package com.swiftmako.jormanager.controllers
+package com.swiftmako.jormanager.monitors
 
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Block
@@ -27,7 +27,6 @@ import org.springframework.stereotype.Component
 import java.io.File
 import java.io.IOException
 import java.io.Reader
-import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 @Component("blockMonitor")

@@ -58,6 +58,9 @@ export default {
                         })
                     }
                     break
+                case "genesis_file_options":
+                    commit('setGenesisOptions', message.data)
+                    break
             }
         });
         commit('setConnected', true)
@@ -102,6 +105,19 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    requestGenesisFileOptions: ({
+        state,
+        commit
+    }) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Request genesisFileOptions");
+            state.stompClient.send("/jormanager/genesis_file_options");
+        } else {
+            commit('toastError', {
+                title: "Error getting genesis_file_options!",
+                message: "stompClient not connected!"
+            })
+        }
     }
-
 }

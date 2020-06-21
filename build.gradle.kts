@@ -16,9 +16,11 @@ object Versions {
     const val coroutines = "1.3.7"
     const val googleTruth = "1.0.1"
     const val joda = "2.10.6"
+    const val jsoup = "1.13.1"
     const val liquibase = "3.10.0"
     const val mockk = "1.10.0"
     const val moshi = "1.9.3"
+    const val okhttp = "4.7.2"
     const val sshj = "0.29.0"
 }
 
@@ -45,6 +47,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.coroutines}")
 
     implementation("com.hierynomus:sshj:${Versions.sshj}")
+    implementation("org.jsoup:jsoup:${Versions.jsoup}")
+    implementation("com.squareup.okhttp3:okhttp:${Versions.okhttp}")
 
     implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
     implementation("joda-time:joda-time:${Versions.joda}")
@@ -111,7 +115,7 @@ tasks.register("buildVue") {
 
 tasks {
     springBoot {
-       buildInfo()
+        buildInfo()
     }
     bootJar {
         launchScript()

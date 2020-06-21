@@ -4,6 +4,18 @@
     <vue-good-wizard :steps="steps" :onNext="nextClicked" :onBack="backClicked">
       <div slot="page1">
         <h4>Node Basics</h4>
+        <b-form-group label="Host" label-for="host-select" label-cols-md="2">
+          <b-form-select
+            id="host-select"
+            v-model="formNode.host"
+            :state="hostState"
+            :options="hostSelectOptions"
+          >
+            <template v-slot:first>
+              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+            </template>
+          </b-form-select>
+        </b-form-group>
         <b-form-group label="Name (TICKER)" label-for="name-input" label-cols-md="2">
           <b-form-input
             id="name-input"
@@ -63,10 +75,15 @@
           >The port number the node will listen for connections on</b-form-invalid-feedback>
         </b-form-group>
         <b-form-group label="Genesis" label-for="genesis-select" label-cols-md="2">
-          <b-form-select id="genesis-select" v-model="formNode.genesis" :state="genesisState">
-            <b-form-select-option :value="null">Please select an option</b-form-select-option>
-            <b-form-select-option value="htn">Haskell Testnet</b-form-select-option>
-            <b-form-select-option value="mainnet">Mainnet</b-form-select-option>
+          <b-form-select
+            id="genesis-select"
+            v-model="formNode.genesis"
+            :state="genesisState"
+            :options="genesisFileOptions"
+          >
+            <template v-slot:first>
+              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+            </template>
           </b-form-select>
         </b-form-group>
       </div>
@@ -293,7 +310,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
-import { mapMutations, mapGetters } from "vuex";
+import { mapMutations, mapGetters, mapActions, mapState } from "vuex";
 
 export default {
   name: "AddNodeWizard",
@@ -303,6 +320,7 @@ export default {
   data() {
     return {
       formNode: {
+        host: null,
         name: "",
         isDefault: false,
         type: null,
@@ -329,11 +347,13 @@ export default {
   },
   computed: {
     ...mapGetters([
+      "hostSelectOptions",
       "stakingSKeys",
       "stakingVKeys",
       "paymentSKeys",
       "paymentVKeys"
     ]),
+    ...mapState(["genesisFileOptions"]),
     steps() {
       if (this.formNode.type === "core") {
         return [
@@ -372,6 +392,9 @@ export default {
           slot: "page4"
         }
       ];
+    },
+    hostState() {
+      return this.formNode.host != null;
     },
     nameState() {
       return this.formNode.name.length > 2;
@@ -424,10 +447,12 @@ export default {
     }
   },
   methods: {
+    ...mapActions(["requestHosts", "requestGenesisFileOptions"]),
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
       if (currentPage === 0) {
         if (
+          this.hostState &&
           this.nameState &&
           this.typeState &&
           this.listenState &&
@@ -483,6 +508,14 @@ export default {
     backClicked(/*currentPage*/) {
       // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
+    }
+  },
+  mounted() {
+    if (this.hostSelectOptions.length == 0) {
+      this.requestHosts();
+    }
+    if (this.genesisFileOptions.length == 0) {
+      this.requestGenesisFileOptions();
     }
   }
 };

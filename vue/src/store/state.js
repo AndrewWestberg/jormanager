@@ -141,5 +141,6 @@ export default {
             content: `0003997af2c86db7dac20fb6f3ce398da57d298aaf3967804b2b9955423f4dbc38e6e03b9c199b3bbeafa73cdc4b1a5c6fa95bda9bcf86649af042f0b6a1abb10c`
         }
     ],
+    genesisFileOptions: []
 
 }
