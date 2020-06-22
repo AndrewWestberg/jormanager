@@ -39,9 +39,12 @@ class NodeController @Autowired constructor(
                             // Create genesis file
                             fileRepository.findByIdOrNull(request.genesisFileId)?.let { genesisFile ->
                                 hostConnection.commandWriteFile("${host.nodeHomePath}${File.separator}${request.name}${File.separator}genesis.json", genesisFile.content)
+                                // Create the
                             } ?: throw IOException("Genesis file not found in db!")
+                            // Create the topology file
 
-//                            ***
+
+
                         }
                         NODE_TYPE_CORE -> {
                             TODO("Not yet implemented")
