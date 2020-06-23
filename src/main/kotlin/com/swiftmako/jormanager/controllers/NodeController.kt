@@ -37,13 +37,39 @@ class NodeController @Autowired constructor(
                             // Create Node folder
                             hostConnection.command("mkdir -p ${host.nodeHomePath}${File.separator}${request.name}")
                             // Create genesis file
-                            fileRepository.findByIdOrNull(request.genesisFileId)?.let { genesisFile ->
+                            val genesisFile = fileRepository.findByIdOrNull(request.genesisFileId)
+                            genesisFile?.let {
                                 hostConnection.commandWriteFile("${host.nodeHomePath}${File.separator}${request.name}${File.separator}genesis.json", genesisFile.content)
-                                // Create the
                             } ?: throw IOException("Genesis file not found in db!")
                             // Create the topology file
-
-
+                            val topologyFile = fileRepository.findByName(genesisFile.name.substringBefore('-') + "-topology.json")
+                            topologyFile?.let {
+                                hostConnection.commandWriteFile("${host.nodeHomePath}${File.separator}${request.name}${File.separator}topology.json", topologyFile.content)
+                            } ?: throw IOException("Topology file not found in db!")
+                            val nodeCount = nodeRepository.countForHost(request.hostId)
+                            val ekgPort = 12788 + (2 * nodeCount)
+                            val prometheusPort = 12789 + (2 * nodeCount)
+                            val configFile = fileRepository.findByName(genesisFile.name.substringBefore('-') + "-config.json")
+                            val configFileContent = configFile?.content
+                                    ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
+                                    ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
+                                            """
+                                            |  "defaultScribes": [
+                                            |    [
+                                            |      "FileSK",
+                                            |      "logs/node.json"
+                                            |    ]
+                                            |  ],
+                                            """.trimMargin("|"))
+                                    ?.replace(Regex(""""rpLogLimitBytes": .*,"""), """"rpLogLimitBytes": 20000000,""")
+                                    ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
+                                    ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
+                                    ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
+                                    ?.replace("12788", "$ekgPort")
+                                    ?.replace("12798", "$prometheusPort")
+                            configFileContent?.let {
+                                hostConnection.commandWriteFile("${host.nodeHomePath}${File.separator}${request.name}${File.separator}config.json", it)
+                            } ?: throw IOException("Config file not found in db!")
 
                         }
                         NODE_TYPE_CORE -> {

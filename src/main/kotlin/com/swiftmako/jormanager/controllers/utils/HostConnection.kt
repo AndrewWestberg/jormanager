@@ -119,9 +119,7 @@ class HostConnection(private val host: Host) : Closeable {
         command("touch $fileName")
         command("truncate -s 0 $fileName")
         content.split('\n').forEach { line ->
-            val cmd = "printf '$line\\n' >> $fileName"
-            log.info(cmd)
-            command(cmd)
+            command("printf '$line\\n' >> $fileName")
         }
         return "" // none of these command should have any output
     }
