@@ -59,7 +59,7 @@ class BlockMonitor @Autowired constructor(
 
     override fun start() {
         log.info("Starting BlockMonitor...")
-        listOf("bcsh", "bcsh0", "bcsh1", "bcsh2").forEach { node ->
+        listOf("bcsh").forEach { node ->
             launch {
                 var retry = true
                 while (retry) {
