@@ -76,12 +76,12 @@ class NodeController @Autowired constructor(
                             // Output env file for the node
                             hostConnection.commandWriteFile("${nodeFolder}${File.separator}env",
                                     """
-                                    |TOPOLOGY=${host.nodeHomePath}${File.separator}topology.json
-                                    |DATABASE_PATH=${host.nodeHomePath}${File.separator}db
-                                    |SOCKET_PATH=${host.nodeHomePath}${File.separator}db/socket
+                                    |TOPOLOGY=${nodeFolder}${File.separator}topology.json
+                                    |DATABASE_PATH=${nodeFolder}${File.separator}db
+                                    |SOCKET_PATH=${nodeFolder}${File.separator}db/socket
                                     |HOST_ADDR=${request.listen}
                                     |PORT=${request.port}
-                                    |CONFIG=${host.nodeHomePath}${File.separator}config.json
+                                    |CONFIG=${nodeFolder}${File.separator}config.json
                                     """.trimMargin()
                             )
 
