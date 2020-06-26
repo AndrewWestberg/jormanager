@@ -27,64 +27,20 @@ class NodeController @Autowired constructor(
     @MessageMapping("/createnode")
     @SendTo("/topic/messages")
     @Transactional
-    fun createNode(request: CreateNodeRequest): SocketResponse<Boolean> {
+    fun createNode(request: CreateNodeRequest): SocketResponse<String> {
         try {
-            log.info("CreateNodeRequest: $request")
             hostRepository.findByIdOrNull(request.hostId)?.let { host ->
                 HostConnection(host).use { hostConnection ->
                     when (request.type) {
                         NODE_TYPE_RELAY -> {
-                            // Create Node folder
                             val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
-                            hostConnection.command("mkdir -p ${nodeFolder}${File.separator}db")
-                            hostConnection.command("mkdir -p ${nodeFolder}${File.separator}logs")
-                            // Create genesis file
-                            val genesisFile = fileRepository.findByIdOrNull(request.genesisFileId)
-                            genesisFile?.let {
-                                hostConnection.commandWriteFile("${nodeFolder}${File.separator}genesis.json", genesisFile.content)
-                            } ?: throw IOException("Genesis file not found in db!")
-                            // Create the topology file
-                            val topologyFile = fileRepository.findByName(genesisFile.name.substringBeforeLast('-') + "-topology.json")
-                            topologyFile?.let {
-                                hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}topology.json", topologyFile.content)
-                            } ?: throw IOException("Topology file not found in db!")
-                            val nodeCount = nodeRepository.countForHost(request.hostId)
-                            val ekgPort = 12788 + (2 * nodeCount)
-                            val prometheusPort = 12789 + (2 * nodeCount)
-                            val configFile = fileRepository.findByName(genesisFile.name.substringBeforeLast('-') + "-config.json")
-                            val configFileContent = configFile?.content
-                                    ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
-                                    ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
-                                            """
-                                            |  "defaultScribes": [
-                                            |    [
-                                            |      "FileSK",
-                                            |      "logs/node.json"
-                                            |    ]
-                                            |  ],
-                                            """.trimMargin())
-                                    ?.replace(Regex(""""rpLogLimitBytes": .*,"""), """"rpLogLimitBytes": 20000000,""")
-                                    ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
-                                    ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
-                                    ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
-                                    ?.replace("12788", "$ekgPort")
-                                    ?.replace("12798", "$prometheusPort")
-                            configFileContent?.let {
-                                hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}config.json", it)
-                            } ?: throw IOException("Config file not found in db!")
+                            createNodeFolders(hostConnection, nodeFolder)
+                            val genesisFile = createGenesisFile(request.genesisFileId, hostConnection, nodeFolder)
+                            createTopologyFile(genesisFile.name, hostConnection, nodeFolder)
+                            createConfigFile(request.hostId, genesisFile.name, hostConnection, nodeFolder)
+                            createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
 
-                            // Output env file for the node
-                            hostConnection.commandWriteFile("${nodeFolder}${File.separator}env",
-                                    """
-                                    |TOPOLOGY=${nodeFolder}${File.separator}topology.json
-                                    |DATABASE_PATH=${nodeFolder}${File.separator}db
-                                    |SOCKET_PATH=${nodeFolder}${File.separator}db/socket
-                                    |HOST_ADDR=${request.listen}
-                                    |PORT=${request.port}
-                                    |CONFIG=${nodeFolder}${File.separator}config.json
-                                    """.trimMargin()
-                            )
-
+//                            hostConnection.sudoCommandWriteFile(, request.sudoPassword)
                         }
                         NODE_TYPE_CORE -> {
                             TODO("Not yet implemented")
@@ -95,12 +51,73 @@ class NodeController @Autowired constructor(
                     }
                 }
 
-                return SocketResponse.Success("createnode", true)
+                return SocketResponse.Success("createnode", "${request.name} created successfully!")
             } ?: throw IOException("Invalid HostId: ${request.hostId}")
         } catch (e: Throwable) {
             log.error("Error Creating Node!", e)
             return SocketResponse.Error(type = "createnode", exception = e)
         }
+    }
+
+    private fun createEnvFile(hostConnection: HostConnection, nodeFolder: String, listen: String, port: Int): String {
+        hostConnection.commandWriteFile("${nodeFolder}${File.separator}env",
+                """
+                                        |TOPOLOGY=${nodeFolder}${File.separator}topology.json
+                                        |DATABASE_PATH=${nodeFolder}${File.separator}db
+                                        |SOCKET_PATH=${nodeFolder}${File.separator}db/socket
+                                        |HOST_ADDR=${listen}
+                                        |PORT=${port}
+                                        |CONFIG=${nodeFolder}${File.separator}config.json
+                                        """.trimMargin()
+        )
+        return hostConnection.command("chmod 400 ${nodeFolder}${File.separator}env")
+    }
+
+    private fun createConfigFile(hostId: Long, genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
+        val nodeCount = nodeRepository.countForHost(hostId)
+        val ekgPort = 12788 + (2 * nodeCount)
+        val prometheusPort = 12789 + (2 * nodeCount)
+        val configFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-config.json")
+        val configFileContent = configFile?.content
+                ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
+                ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
+                        """
+                                                |  "defaultScribes": [
+                                                |    [
+                                                |      "FileSK",
+                                                |      "logs/node.json"
+                                                |    ]
+                                                |  ],
+                                                """.trimMargin())
+                ?.replace(Regex(""""rpLogLimitBytes": .*,"""), """"rpLogLimitBytes": 20000000,""")
+                ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
+                ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
+                ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
+                ?.replace("12788", "$ekgPort")
+                ?.replace("12798", "$prometheusPort")
+        configFileContent?.let {
+            hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}config.json", it)
+        } ?: throw IOException("Config file not found in db!")
+    }
+
+    private fun createTopologyFile(genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
+        val topologyFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-topology.json")
+        topologyFile?.let {
+            hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}topology.json", topologyFile.content)
+        } ?: throw IOException("Topology file not found in db!")
+    }
+
+    private fun createGenesisFile(genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
+        val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
+        genesisFile?.let {
+            hostConnection.commandWriteFile("${nodeFolder}${File.separator}genesis.json", genesisFile.content)
+            return genesisFile
+        } ?: throw IOException("Genesis file not found in db!")
+    }
+
+    private fun createNodeFolders(hostConnection: HostConnection, nodeFolder: String) {
+        hostConnection.command("mkdir -p ${nodeFolder}${File.separator}db")
+        hostConnection.command("mkdir -p ${nodeFolder}${File.separator}logs")
     }
 
     companion object {
