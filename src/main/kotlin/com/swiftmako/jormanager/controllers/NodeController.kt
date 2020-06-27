@@ -40,7 +40,42 @@ class NodeController @Autowired constructor(
                             createConfigFile(request.hostId, genesisFile.name, hostConnection, nodeFolder)
                             createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
 
-//                            hostConnection.sudoCommandWriteFile(, request.sudoPassword)
+                            val systemdContent = """
+                                |[Unit]
+                                |Description=Cardano Haskell Node - ${request.name}
+                                |After=syslog.target
+                                |StartLimitIntervalSec=0
+                                |
+                                |[Service]
+                                |Type=simple
+                                |Restart=always
+                                |RestartSec=5
+                                |User=${host.sshUser}
+                                |LimitNOFILE=131072
+                                |WorkingDirectory=${host.nodeHomePath}/${request.name}
+                                |EnvironmentFile=${host.nodeHomePath}/${request.name}/env
+                                |ExecStart=${host.cardanoNodePath} \
+                                |  +RTS -N8 -RTS run \
+                                |  --topology ${'$'}{TOPOLOGY} \
+                                |  --database-path ${'$'}{DATABASE_PATH} \
+                                |  --socket-path ${'$'}{SOCKET_PATH} \
+                                |  --host-addr ${'$'}{HOST_ADDR} \
+                                |  --port ${'$'}{PORT} \
+                                |  --config ${'$'}{CONFIG}
+                                |KillSignal="SIGINT"
+                                |RestartKillSignal="SIGINT"
+                                |StandardOutput=syslog
+                                |StandardError=syslog
+                                |SyslogIdentifier=${request.name}-node
+                                |
+                                |[Install]
+                                |WantedBy=multi-user.target
+                            """.trimMargin()
+
+                            hostConnection.sudoCommandWriteFile("/etc/systemd/system/${request.name}-node.service", systemdContent, request.sudoPassword)
+
+                            hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
+                            hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
                         }
                         NODE_TYPE_CORE -> {
                             TODO("Not yet implemented")
@@ -60,17 +95,17 @@ class NodeController @Autowired constructor(
     }
 
     private fun createEnvFile(hostConnection: HostConnection, nodeFolder: String, listen: String, port: Int): String {
-        hostConnection.commandWriteFile("${nodeFolder}${File.separator}env",
+        hostConnection.commandWriteFile("${nodeFolder}/env",
                 """
-                                        |TOPOLOGY=${nodeFolder}${File.separator}topology.json
-                                        |DATABASE_PATH=${nodeFolder}${File.separator}db
-                                        |SOCKET_PATH=${nodeFolder}${File.separator}db/socket
-                                        |HOST_ADDR=${listen}
-                                        |PORT=${port}
-                                        |CONFIG=${nodeFolder}${File.separator}config.json
-                                        """.trimMargin()
+                |TOPOLOGY=${nodeFolder}/topology.json
+                |DATABASE_PATH=${nodeFolder}/db
+                |SOCKET_PATH=${nodeFolder}/db/socket
+                |HOST_ADDR=${listen}
+                |PORT=${port}
+                |CONFIG=${nodeFolder}/config.json
+                """.trimMargin()
         )
-        return hostConnection.command("chmod 400 ${nodeFolder}${File.separator}env")
+        return hostConnection.command("chmod 400 ${nodeFolder}/env")
     }
 
     private fun createConfigFile(hostId: Long, genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
@@ -96,28 +131,28 @@ class NodeController @Autowired constructor(
                 ?.replace("12788", "$ekgPort")
                 ?.replace("12798", "$prometheusPort")
         configFileContent?.let {
-            hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}config.json", it)
+            hostConnection.commandWriteFile("${nodeFolder}/config.json", it)
         } ?: throw IOException("Config file not found in db!")
     }
 
     private fun createTopologyFile(genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
         val topologyFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-topology.json")
         topologyFile?.let {
-            hostConnection.commandWriteFile("${nodeFolder}${File.separator}${File.separator}topology.json", topologyFile.content)
+            hostConnection.commandWriteFile("${nodeFolder}/topology.json", topologyFile.content)
         } ?: throw IOException("Topology file not found in db!")
     }
 
     private fun createGenesisFile(genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
         val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
         genesisFile?.let {
-            hostConnection.commandWriteFile("${nodeFolder}${File.separator}genesis.json", genesisFile.content)
+            hostConnection.commandWriteFile("${nodeFolder}/genesis.json", genesisFile.content)
             return genesisFile
         } ?: throw IOException("Genesis file not found in db!")
     }
 
     private fun createNodeFolders(hostConnection: HostConnection, nodeFolder: String) {
-        hostConnection.command("mkdir -p ${nodeFolder}${File.separator}db")
-        hostConnection.command("mkdir -p ${nodeFolder}${File.separator}logs")
+        hostConnection.command("mkdir -p ${nodeFolder}/db")
+        hostConnection.command("mkdir -p ${nodeFolder}/logs")
     }
 
     companion object {

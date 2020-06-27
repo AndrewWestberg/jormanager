@@ -55,7 +55,7 @@ class HostConnection(private val host: Host) : Closeable {
         }
     }
 
-    fun sudoCommand(command: String, sudoPassword: String): String {
+    fun sudoCommand(command: String, sudoPassword: String?): String {
         val commandList = mutableListOf<String>()
         val m: Matcher = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
         while (m.find()) {
@@ -64,7 +64,7 @@ class HostConnection(private val host: Host) : Closeable {
         return sudoCommand(commandList, sudoPassword)
     }
 
-    fun sudoCommand(command: List<String>, sudoPassword: String): String {
+    fun sudoCommand(command: List<String>, sudoPassword: String?): String {
         return if (isRemote) {
             remoteSudoCommand(command, sudoPassword)
         } else {
@@ -94,11 +94,15 @@ class HostConnection(private val host: Host) : Closeable {
         return output
     }
 
-    private fun remoteSudoCommand(c: List<String>, sudoPassword: String): String {
+    private fun remoteSudoCommand(c: List<String>, sudoPassword: String?): String {
         lateinit var cmd: Session.Command
         lateinit var output: String
         lateinit var errorOutput: String
-        val command = " sudo -S -k " + c.joinToString(" ").trim() + " <<< '${sudoPassword}'"
+        val command = if (sudoPassword?.isNotBlank() == true) {
+            " sudo -S -k " + c.joinToString(" ").trim() + " <<< '${sudoPassword}'"
+        } else {
+            " sudo -S -k \" + c.joinToString(\" \").trim()"
+        }
         try {
             ssh.startSession().use { session ->
                 session.exec(command).use { cmd ->
@@ -149,7 +153,7 @@ class HostConnection(private val host: Host) : Closeable {
         return output
     }
 
-    private fun localSudoCommand(c: List<String>, sudoPassword: String): String {
+    private fun localSudoCommand(c: List<String>, sudoPassword: String?): String {
         lateinit var process: Process
         lateinit var output: String
         lateinit var errorOutput: String
@@ -171,7 +175,9 @@ class HostConnection(private val host: Host) : Closeable {
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
                 }
             }.start()
-            PrintWriter(process.outputStream.bufferedWriter()).use { it.println(sudoPassword) }
+            if (sudoPassword?.isNotBlank() == true) {
+                PrintWriter(process.outputStream.bufferedWriter()).use { it.println(sudoPassword) }
+            }
             output = process.inputStream.bufferedReader().use(BufferedReader::readText)
             errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
             process.waitFor(5, TimeUnit.SECONDS)
@@ -199,12 +205,12 @@ class HostConnection(private val host: Host) : Closeable {
         return "" // none of these command should have any output
     }
 
-    fun sudoCommandWriteFile(fileName: String, content: String, sudoPassword: String): String {
+    fun sudoCommandWriteFile(fileName: String, content: String, sudoPassword: String?): String {
         val tempFileName = "/tmp/jormanager.tmp"
         commandWriteFile(tempFileName, content)
         command("chmod 644 $tempFileName")
-        sudoCommand("chown root:root $tempFileName", sudoPassword)
-        sudoCommand("mv -f $tempFileName $fileName", sudoPassword)
+        sudoCommand("chown root:root $tempFileName", sudoPassword ?: "")
+        sudoCommand("mv -f $tempFileName $fileName", sudoPassword ?: "")
         return "" // none of these command should have any output
     }
 
