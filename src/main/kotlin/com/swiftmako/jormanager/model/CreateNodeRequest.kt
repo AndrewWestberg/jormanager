@@ -6,10 +6,12 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class CreateNodeRequest(
+        @JsonProperty("color") @Json(name = "color") val color: String,
         @JsonProperty("host") @Json(name = "host") val hostId: Long,
         @JsonProperty("name") @Json(name = "name") val name: String,
         @JsonProperty("isDefault") @Json(name = "isDefault") val isDefault: Boolean,
         @JsonProperty("type") @Json(name = "type") val type: String,
+        @JsonProperty("processorThreads") @Json(name = "processorThreads") val processorThreads: Int,
         @JsonProperty("listen") @Json(name = "listen") val listen: String,
         @JsonProperty("port") @Json(name = "port") val port: Int,
         @JsonProperty("genesis") @Json(name = "genesis") val genesisFileId: Long,

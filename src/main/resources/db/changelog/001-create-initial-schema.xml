@@ -2,7 +2,11 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
-    <changeSet id="002" author="Andrew Westberg">
+    <changeSet id="001" author="Andrew Westberg">
+        <createSequence catalogName="cat" cycle="false"
+                        incrementBy="1" ordered="true" schemaName="public"
+                        sequenceName="hibernate_sequence" startValue="0"/>
+
         <!-- contains linux server hosts on which we will run our nodes -->
         <createTable tableName="hosts">
             <column name="id" type="int">
@@ -46,8 +50,14 @@
             <column name="host_id" type="int">
                 <constraints nullable="false"/>
             </column>
+            <column name="color" type="varchar(10)">
+                <constraints nullable="false"/>
+            </column>
             <!-- core/relay -->
             <column name="type" type="varchar(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processor_threads" type="int">
                 <constraints nullable="false"/>
             </column>
             <column name="name" type="varchar(255)">
@@ -57,6 +67,9 @@
                 <constraints nullable="false"/>
             </column>
             <column name="port" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ekg_port" type="int">
                 <constraints nullable="false"/>
             </column>
             <column name="genesis_file_id" type="int">
@@ -109,6 +122,28 @@
             </column>
             <column name="content" type="clob">
                 <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- holds the blocks we've made -->
+        <createTable tableName="blocks">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="at" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pool" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="host" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="slot" type="int">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="hash" type="varchar(255)">
+                <constraints nullable="false" unique="true"/>
             </column>
         </createTable>
 

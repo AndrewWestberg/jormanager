@@ -11,7 +11,14 @@
     </div>
     <hr />
     <div>
-      <b-table bordered striped head-variant="light" :items="hosts" :fields="fields">
+      <b-table
+        bordered
+        striped
+        head-variant="light"
+        :items="hosts"
+        :fields="fields"
+        v-if="hosts.length > 0"
+      >
         <template v-slot:cell(sshPort)="data">
           <div v-if="data.item.type==='remote'">{{data.value}}</div>
           <div v-if="data.item.type!=='remote'">---</div>

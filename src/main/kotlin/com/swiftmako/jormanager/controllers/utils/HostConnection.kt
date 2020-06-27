@@ -198,6 +198,7 @@ class HostConnection(private val host: Host) : Closeable {
 
     fun commandWriteFile(fileName: String, content: String): String {
         command("touch $fileName")
+        command("chmod u+w $fileName")
         command("truncate -s 0 $fileName")
         content.split('\n').forEach { line ->
             command("printf '$line\\n' >> $fileName")

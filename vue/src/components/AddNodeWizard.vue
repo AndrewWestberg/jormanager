@@ -4,6 +4,9 @@
     <vue-good-wizard :steps="steps" :onNext="nextClicked" :onBack="backClicked">
       <div slot="page1">
         <h4>Node Basics</h4>
+        <b-form-group label="Color" label-for="color-input" label-cols-md="2">
+          <b-form-input v-model="formNode.color" type="color"></b-form-input>
+        </b-form-group>
         <b-form-group label="Host" label-for="host-select" label-cols-md="2">
           <b-form-select
             id="host-select"
@@ -43,6 +46,20 @@
               <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success" />&nbsp;Core
             </b-form-radio>
           </b-form-radio-group>
+        </b-form-group>
+        <b-form-group label="Processor Threads" label-for="threads-input" label-cols-md="2">
+          <b-form-input
+            id="threads-input"
+            v-model="formNode.processorThreads"
+            :state="processorThreadsState"
+            placeholder="e.g. 2"
+            type="range"
+            min="0"
+            max="8"
+            step="1"
+            trim
+          />
+          <p class="text-center">{{formNode.processorThreads}} Threads</p>
         </b-form-group>
         <b-form-group label="Listen Address" label-for="listen-input" label-cols-md="2">
           <b-form-input
@@ -320,10 +337,12 @@ export default {
   data() {
     return {
       formNode: {
+        color: "#4A412A",
         host: null,
         name: "",
         isDefault: false,
         type: null,
+        processorThreads: 0,
         listen: "",
         port: "",
         genesis: null,
@@ -401,6 +420,9 @@ export default {
     },
     typeState() {
       return this.formNode.type != null;
+    },
+    processorThreadsState() {
+      return this.formNode.processorThreads > 1;
     },
     listenState() {
       // matches an ip address

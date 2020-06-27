@@ -12,7 +12,20 @@
       </div>
       <hr />
       <div>
-        <b-table bordered striped head-variant="light" :items="nodes" :fields="fields">
+        <b-table
+          bordered
+          striped
+          head-variant="light"
+          :items="displayNodes"
+          :fields="fields"
+          v-if="displayNodes.length > 0"
+        >
+          <template v-slot:cell(name)="data">
+            <div>
+              <font-awesome-icon :style="{color: data.item.color}" :icon="['fas','circle']" />
+              &nbsp;{{data.value}}
+            </div>
+          </template>
           <template v-slot:cell(type)="data">
             <div v-if="data.value==='relay'">
               <font-awesome-icon
@@ -35,7 +48,7 @@
               :icon="['fas','edit']"
               class="text-warning"
               v-b-tooltip.hover.v-warning.right="'Edit this Node'"
-              @click="$root.$emit('edit-node', nodes[data.index])"
+              @click="$root.$emit('edit-node', displayNodes[data.index])"
             />
           </template>
         </b-table>
@@ -46,7 +59,7 @@
 </template>
 
 <script>
-import { mapState } from "vuex";
+import { mapActions, mapGetters } from "vuex";
 import AddNodeWizard from "@/components/AddNodeWizard";
 
 export default {
@@ -57,17 +70,30 @@ export default {
   data() {
     return {
       fields: [
-        { key: "id", sortable: true },
         { key: "name", sortable: true },
-        { key: "hostId", sortable: true },
+        { key: "host", sortable: true },
         { key: "type", sortable: true },
         { key: "edit", label: "" }
       ],
       showAddNodeWizard: false
     };
   },
+  methods: {
+    ...mapActions(["requestHosts", "requestNodes"])
+  },
   computed: {
-    ...mapState(["nodes"])
+    ...mapGetters(["displayNodes"])
+  },
+  watch: {
+    toastSuccess(toast) {
+      if (toast.title === "Node Created") {
+        this.requestNodes();
+      }
+    }
+  },
+  mounted() {
+    this.requestHosts();
+    this.requestNodes();
   }
 };
 </script>

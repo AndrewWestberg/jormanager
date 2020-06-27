@@ -19,6 +19,9 @@ export default {
     setHosts: (state, hosts) => {
         state.hosts = hosts
     },
+    setNodes: (state, nodes) => {
+        state.nodes = nodes
+    },
     setFileOptions: (state, fileOptions) => {
         state.files = fileOptions
     },

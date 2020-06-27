@@ -44,6 +44,9 @@ export default {
                 case "hosts":
                     commit('setHosts', message.data)
                     break
+                case "nodes":
+                    commit('setNodes', message.data)
+                    break
                 case "addhost":
                     if (message.data) {
                         commit('toastSuccess', {
@@ -104,6 +107,20 @@ export default {
         } else {
             commit('toastError', {
                 title: "Error getting hosts!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    requestNodes: ({
+        state,
+        commit
+    }) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Request Nodes");
+            state.stompClient.send("/jormanager/nodes");
+        } else {
+            commit('toastError', {
+                title: "Error getting nodes!",
                 message: "stompClient not connected!"
             })
         }

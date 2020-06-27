@@ -87,7 +87,7 @@ export default {
     };
   },
   methods: {
-    ...mapActions(["addHost"]),
+    ...mapActions(["addHost", "requestHosts"]),
     clearFormHost() {
       this.formState = null;
       this.formHost = {

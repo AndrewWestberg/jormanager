@@ -27,7 +27,8 @@ import {
   faDiceD20,
   faEdit,
   faServer,
-  faChartLine
+  faChartLine,
+  faCircle
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -38,6 +39,7 @@ library.add(faDiceD20)
 library.add(faEdit)
 library.add(faServer)
 library.add(faChartLine)
+library.add(faCircle)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

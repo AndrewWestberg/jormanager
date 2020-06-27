@@ -1,6 +1,8 @@
 package com.swiftmako.jormanager.controllers
 
 import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.swiftmako.jormanager.entities.Host
+import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.repositories.FileRepository
@@ -8,6 +10,7 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
@@ -24,6 +27,13 @@ class NodeController @Autowired constructor(
 ) {
     private val log = LoggerFactory.getLogger(NodeController::class.java)
 
+    @MessageMapping("/nodes")
+    @SendTo("/topic/messages")
+    fun getHosts(): SocketResponse<List<Node>> {
+        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+        return SocketResponse.Success(type = "nodes", data = nodes)
+    }
+
     @MessageMapping("/createnode")
     @SendTo("/topic/messages")
     @Transactional
@@ -37,45 +47,34 @@ class NodeController @Autowired constructor(
                             createNodeFolders(hostConnection, nodeFolder)
                             val genesisFile = createGenesisFile(request.genesisFileId, hostConnection, nodeFolder)
                             createTopologyFile(genesisFile.name, hostConnection, nodeFolder)
-                            createConfigFile(request.hostId, genesisFile.name, hostConnection, nodeFolder)
+                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisFile.name, hostConnection, nodeFolder)
                             createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
+                            createSystemdFile(request, host, hostConnection)
 
-                            val systemdContent = """
-                                |[Unit]
-                                |Description=Cardano Haskell Node - ${request.name}
-                                |After=syslog.target
-                                |StartLimitIntervalSec=0
-                                |
-                                |[Service]
-                                |Type=simple
-                                |Restart=always
-                                |RestartSec=5
-                                |User=${host.sshUser}
-                                |LimitNOFILE=131072
-                                |WorkingDirectory=${host.nodeHomePath}/${request.name}
-                                |EnvironmentFile=${host.nodeHomePath}/${request.name}/env
-                                |ExecStart=${host.cardanoNodePath} \
-                                |  +RTS -N8 -RTS run \
-                                |  --topology ${'$'}{TOPOLOGY} \
-                                |  --database-path ${'$'}{DATABASE_PATH} \
-                                |  --socket-path ${'$'}{SOCKET_PATH} \
-                                |  --host-addr ${'$'}{HOST_ADDR} \
-                                |  --port ${'$'}{PORT} \
-                                |  --config ${'$'}{CONFIG}
-                                |KillSignal="SIGINT"
-                                |RestartKillSignal="SIGINT"
-                                |StandardOutput=syslog
-                                |StandardError=syslog
-                                |SyslogIdentifier=${request.name}-node
-                                |
-                                |[Install]
-                                |WantedBy=multi-user.target
-                            """.trimMargin()
+                            if(request.isDefault) {
+                                val oldDefault = nodeRepository.findDefault()
+                                oldDefault?.let {
+                                    // Make old default no longer the default
+                                    nodeRepository.save(oldDefault.copy(isDefault = false))
+                                }
+                            }
 
-                            hostConnection.sudoCommandWriteFile("/etc/systemd/system/${request.name}-node.service", systemdContent, request.sudoPassword)
+                            val node = Node(
+                                    hostId = host.id!!,
+                                    color = request.color,
+                                    type = request.type,
+                                    processorThreads = request.processorThreads,
+                                    name = request.name,
+                                    listen = request.listen,
+                                    port = request.port,
+                                    ekgPort = ekgPort,
+                                    genesisFileId = request.genesisFileId,
+                                    configFileId = configFileId,
+                                    isDefault = request.isDefault
+                            )
+                            nodeRepository.save(node)
 
-                            hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
-                            hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
+                            // TODO send a message to monitoring so this node gets picked up
                         }
                         NODE_TYPE_CORE -> {
                             TODO("Not yet implemented")
@@ -94,6 +93,45 @@ class NodeController @Autowired constructor(
         }
     }
 
+    private fun createSystemdFile(request: CreateNodeRequest, host: Host, hostConnection: HostConnection) {
+        val systemdContent = """
+            |[Unit]
+            |Description=Cardano Haskell Node - ${request.name}
+            |After=syslog.target
+            |StartLimitIntervalSec=0
+            |
+            |[Service]
+            |Type=simple
+            |Restart=always
+            |RestartSec=5
+            |User=${host.sshUser}
+            |LimitNOFILE=131072
+            |WorkingDirectory=${host.nodeHomePath}/${request.name}
+            |EnvironmentFile=${host.nodeHomePath}/${request.name}/env
+            |ExecStart=${host.cardanoNodePath} \\
+            |  +RTS -N${request.processorThreads} -RTS run \\
+            |  --topology ${'$'}{TOPOLOGY} \\
+            |  --database-path ${'$'}{DATABASE_PATH} \\
+            |  --socket-path ${'$'}{SOCKET_PATH} \\
+            |  --host-addr ${'$'}{HOST_ADDR} \\
+            |  --port ${'$'}{PORT} \\
+            |  --config ${'$'}{CONFIG}
+            |KillSignal="SIGINT"
+            |RestartKillSignal="SIGINT"
+            |StandardOutput=syslog
+            |StandardError=syslog
+            |SyslogIdentifier=${request.name}-node
+            |
+            |[Install]
+            |WantedBy=multi-user.target
+        """.trimMargin()
+
+        hostConnection.sudoCommandWriteFile("/etc/systemd/system/${request.name}-node.service", systemdContent, request.sudoPassword)
+
+        hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
+        hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
+    }
+
     private fun createEnvFile(hostConnection: HostConnection, nodeFolder: String, listen: String, port: Int): String {
         hostConnection.commandWriteFile("${nodeFolder}/env",
                 """
@@ -108,12 +146,13 @@ class NodeController @Autowired constructor(
         return hostConnection.command("chmod 400 ${nodeFolder}/env")
     }
 
-    private fun createConfigFile(hostId: Long, genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
+    private fun createConfigFile(hostId: Long, genesisFileName: String, hostConnection: HostConnection, nodeFolder: String): Pair<Long, Int> {
         val nodeCount = nodeRepository.countForHost(hostId)
         val ekgPort = 12788 + (2 * nodeCount)
         val prometheusPort = 12789 + (2 * nodeCount)
         val configFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-config.json")
         val configFileContent = configFile?.content
+                ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "genesis.json",""")
                 ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
                 ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
                         """
@@ -133,6 +172,8 @@ class NodeController @Autowired constructor(
         configFileContent?.let {
             hostConnection.commandWriteFile("${nodeFolder}/config.json", it)
         } ?: throw IOException("Config file not found in db!")
+
+        return Pair(configFile.id!!, ekgPort)
     }
 
     private fun createTopologyFile(genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {

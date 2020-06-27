@@ -54,5 +54,19 @@ export default {
         return _.sortBy(_.filter(state.files, (file) => {
             return file.text.match(/.*genesis\.json/i) != null
         }), ['text'])
+    },
+    displayNodes: (state) => {
+        return _.map(state.nodes, (node) => {
+            let host = _.find(state.hosts, (host) => {
+                return node.hostId === host.id
+            })
+            return {
+                color: node.color,
+                name: node.name,
+                type: node.type,
+                host: host ? host.hostname : "",
+                isDefault: node.isDefault
+            }
+        })
     }
 }

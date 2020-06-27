@@ -11,4 +11,7 @@ interface NodeRepository : JpaRepository<Node, Long> {
 
     @Query("SELECT COUNT(n) FROM Node n WHERE n.hostId = :hostId")
     fun countForHost(@Param("hostId") hostId: Long): Int
+
+    @Query("SELECT n FROM Node n WHERE n.isDefault = true")
+    fun findDefault(): Node?
 }
