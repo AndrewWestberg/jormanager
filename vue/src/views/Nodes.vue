@@ -22,7 +22,16 @@
         >
           <template v-slot:cell(name)="data">
             <div>
-              <font-awesome-icon :style="{color: data.item.color}" :icon="['fas','circle']" />
+              <font-awesome-icon
+                :style="{color: data.item.color}"
+                :icon="['fas','circle']"
+                v-if="!data.item.isDefault"
+              />
+              <font-awesome-icon
+                :style="{color: data.item.color}"
+                :icon="['fas','check-circle']"
+                v-if="data.item.isDefault"
+              />
               &nbsp;{{data.value}}
             </div>
           </template>
