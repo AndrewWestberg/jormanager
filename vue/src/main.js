@@ -45,6 +45,9 @@ library.add(faCheckCircle)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
+import VueApexCharts from 'vue-apexcharts'
+Vue.component('apexchart', VueApexCharts)
+
 import router from './router'
 import store from './store/index'
 

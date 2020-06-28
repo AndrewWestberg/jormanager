@@ -51,9 +51,8 @@ export default {
   data() {
     return {
       fields: [
-        { key: "id", sortable: true },
-        { key: "type", sortable: true },
         { key: "hostname", sortable: true },
+        { key: "type", sortable: true },
         { key: "sshUser", label: "User" },
         { key: "sshPort" },
         { key: "edit", label: "" }
