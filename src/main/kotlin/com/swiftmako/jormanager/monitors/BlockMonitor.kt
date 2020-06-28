@@ -46,7 +46,7 @@ class BlockMonitor @Autowired constructor(
         private val blockRepository: BlockRepository,
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
-        private val moshi: Moshi,
+        moshi: Moshi,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>
 ) : SmartLifecycle, CoroutineScope {

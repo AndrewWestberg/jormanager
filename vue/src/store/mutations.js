@@ -25,6 +25,24 @@ export default {
     setFileOptions: (state, fileOptions) => {
         state.files = fileOptions
     },
+    saveNodeStats: (state, nodeStats) => {
+        let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName])
+        if (index > -1) {
+            state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
+            state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-720) // keep 1 hours worth of data
+            state.nodeColors[index] = nodeStats.color
+        } else {
+            state.blockHeightSeries.push({
+                name: nodeStats.nodeName,
+                data: [
+                    [nodeStats.timestamp, nodeStats.blockHeight]
+                ]
+            })
+            state.nodeColors[state.blockHeightSeries.length - 1] = nodeStats.color
+        }
+        // This is a terrible code smell, but I can't get the charts to update otherwise
+        state.blockHeightSeries.__ob__.dep.notify()
+    },
 
     toastError: (state, toast) => {
         state.toastError = toast

@@ -14,5 +14,9 @@ export default {
     hosts: [],
     nodes: [],
     blocks: [],
-    files: []
+    files: [],
+
+    // chart data
+    nodeColors: [],
+    blockHeightSeries: []
 }

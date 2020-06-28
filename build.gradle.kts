@@ -15,12 +15,14 @@ object Versions {
     const val bouncycastle = "1.65.01"
     const val coroutines = "1.3.7"
     const val googleTruth = "1.0.1"
+    const val jackson = "2.11.1"
     const val joda = "2.10.6"
     const val jsoup = "1.13.1"
     const val liquibase = "3.10.0"
     const val mockk = "1.10.0"
     const val moshi = "1.9.3"
     const val okhttp = "4.7.2"
+    const val retrofit = "2.9.0"
     const val sshj = "0.29.0"
 }
 
@@ -39,7 +41,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${Versions.jackson}")
 
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
@@ -49,8 +51,10 @@ dependencies {
     implementation("com.hierynomus:sshj:${Versions.sshj}")
     implementation("org.jsoup:jsoup:${Versions.jsoup}")
     implementation("com.squareup.okhttp3:okhttp:${Versions.okhttp}")
+    implementation("com.squareup.okhttp3:logging-interceptor:${Versions.okhttp}")
 
     implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
+    implementation("com.squareup.retrofit2:converter-moshi:${Versions.retrofit}")
     implementation("joda-time:joda-time:${Versions.joda}")
 
     implementation("org.bouncycastle:bcprov-jdk15on:${Versions.bouncycastle}")

@@ -17,6 +17,8 @@ Vue.component('BIconGraphUp', BIconGraphUp)
 Vue.component('BIconPencilSquare', BIconPencilSquare)
 Vue.component('BIconHexagonHalf', BIconHexagonHalf)
 
+Vue.use(require('vue-moment'));
+
 import App from './App.vue'
 
 import {

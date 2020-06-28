@@ -80,6 +80,9 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "nodestats":
+                    commit('saveNodeStats', message.data)
+                    break
             }
         });
         commit('setConnected', true)
