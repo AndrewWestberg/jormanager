@@ -8,12 +8,15 @@ import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import kotlinx.coroutines.channels.BroadcastChannel
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.io.File
@@ -23,7 +26,9 @@ import java.io.IOException
 class NodeController @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,
-        private val fileRepository: FileRepository
+        private val fileRepository: FileRepository,
+        private val webSocketTemplate: SimpMessagingTemplate,
+        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>
 ) {
     private val log = LoggerFactory.getLogger(NodeController::class.java)
 
@@ -51,7 +56,7 @@ class NodeController @Autowired constructor(
                             createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
                             createSystemdFile(request, host, hostConnection)
 
-                            if(request.isDefault) {
+                            if (request.isDefault) {
                                 val oldDefault = nodeRepository.findDefault()
                                 oldDefault?.let {
                                     // Make old default no longer the default
@@ -72,9 +77,14 @@ class NodeController @Autowired constructor(
                                     configFileId = configFileId,
                                     isDefault = request.isDefault
                             )
-                            nodeRepository.save(node)
+                            val savedNode = nodeRepository.save(node)
 
-                            // TODO send a message to monitoring so this node gets picked up
+                            // send it to the channel for monitoring
+                            nodesChannel.offer(savedNode)
+
+                            // send all to the client for ui updates
+                            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                         }
                         NODE_TYPE_CORE -> {
                             TODO("Not yet implemented")

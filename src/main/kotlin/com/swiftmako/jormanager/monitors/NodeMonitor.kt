@@ -33,6 +33,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import retrofit2.Retrofit
 import java.io.IOException
+import java.net.ConnectException
 import kotlin.coroutines.CoroutineContext
 
 @Component("nodeMonitor")
@@ -124,8 +125,12 @@ class NodeMonitor @Autowired constructor(
                 val now = System.currentTimeMillis()
                 val ekgMetrics = ekgService.getNodeMetrics(now)
 
-//                log.info(ekgMetrics.toString())
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = ekgMetrics.toNodeStats(now, node)))
+                if (ekgMetrics.cardano.node.chainDB.metrics.blockNum.intX.valX > 0) {
+                    // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = ekgMetrics.toNodeStats(now, node)))
+                }
+            } catch (e: ConnectException) {
+                log.error(e.message)
             } catch (e: IOException) {
                 log.error("Error communicating with Ekg!", e)
             }
