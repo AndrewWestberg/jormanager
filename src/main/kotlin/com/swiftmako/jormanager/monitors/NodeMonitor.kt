@@ -121,8 +121,10 @@ class NodeMonitor @Autowired constructor(
         while (true) {
             try {
                 // delay until the next 5-second interval
-                delay(5000 - (System.currentTimeMillis() % 5000))
-                val now = System.currentTimeMillis()
+                val before = System.currentTimeMillis()
+                val delay = 5000 - (before % 5000)
+                delay(delay)
+                val now = before + delay
                 val ekgMetrics = ekgService.getNodeMetrics(now)
 
                 if (ekgMetrics.cardano.node.chainDB.metrics.blockNum.intX.valX > 0) {
