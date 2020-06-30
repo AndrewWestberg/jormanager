@@ -44,10 +44,12 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getRetrofit(client: OkHttpClient, moshi: Moshi): Retrofit.Builder {
+    fun getRetrofit(client: OkHttpClient, moshi: Moshi): Retrofit {
         return Retrofit.Builder()
+                .baseUrl("http://127.0.0.1")
                 .client(client)
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
+                .build()
     }
 
     @Bean("nodesChannel")

@@ -42,7 +42,7 @@ import kotlin.coroutines.CoroutineContext
 class NodeMonitor @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
-        private val retrofitBuilder: Retrofit.Builder,
+        private val retrofit: Retrofit,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>
 ) : SmartLifecycle, CoroutineScope {
@@ -117,24 +117,29 @@ class NodeMonitor @Autowired constructor(
     }
 
     private suspend fun monitorNodeLocal(node: Node) {
-        val ekgService = retrofitBuilder.baseUrl("http://127.0.0.1:${node.ekgPort}").build().create(EkgService::class.java)
+        val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${node.ekgPort}").build().create(EkgService::class.java)
         while (true) {
+            // delay until the next 5-second interval
+            val before = System.currentTimeMillis()
+            val delay = 5000 - (before % 5000)
+            val now = before + delay
             try {
-                // delay until the next 5-second interval
-                val before = System.currentTimeMillis()
-                val delay = 5000 - (before % 5000)
                 delay(delay)
-                val now = before + delay
                 val ekgMetrics = ekgService.getNodeMetrics(now)
 
                 if (ekgMetrics.cardano.node.chainDB.metrics.blockNum.intX.valX > 0) {
                     // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = ekgMetrics.toNodeStats(now, node)))
+                    val nodeStats = ekgMetrics.toNodeStats(now, node)
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStats))
+                }else {
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now,node.name, node.color, null, null)))
                 }
             } catch (e: ConnectException) {
                 log.error(e.message)
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now,node.name, node.color, null, null)))
             } catch (e: IOException) {
                 log.error("Error communicating with Ekg!", e)
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now,node.name, node.color, null, null)))
             }
         }
     }
@@ -148,6 +153,7 @@ class NodeMonitor @Autowired constructor(
                 timestamp = timestamp,
                 nodeName = node.name,
                 color = node.color,
+                peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
                 blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX
         )
     }

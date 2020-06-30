@@ -18,5 +18,6 @@ export default {
 
     // chart data
     nodeColors: [],
+    peersSeries: [],
     blockHeightSeries: []
 }

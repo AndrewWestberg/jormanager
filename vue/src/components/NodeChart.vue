@@ -16,7 +16,7 @@
 import moment from "moment-timezone";
 export default {
   name: "NodeChart",
-  props: ["title", "series", "colors"],
+  props: ["title", "series", "colors", "min"],
   data() {
     return {
       options: {
@@ -48,6 +48,7 @@ export default {
           }
         },
         yaxis: {
+          min: this.min,
           labels: {
             style: {
               colors: "#6c757d"
@@ -83,11 +84,6 @@ export default {
         }
       }
     };
-  },
-  watch: {
-    nodeColors(value) {
-      this.options.colors = value;
-    }
   }
 };
 </script>

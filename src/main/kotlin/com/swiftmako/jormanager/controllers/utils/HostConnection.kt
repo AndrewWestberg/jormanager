@@ -9,10 +9,14 @@ import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
+import java.io.IOException
 import java.io.PrintWriter
+import java.net.DatagramSocket
+import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
 import java.util.regex.Matcher
 import java.util.regex.Pattern
+import kotlin.random.Random
 
 
 class HostConnection(private val host: Host) : Closeable {
@@ -215,4 +219,21 @@ class HostConnection(private val host: Host) : Closeable {
         return "" // none of these command should have any output
     }
 
+    /**
+     * Find a local available port to bind to for port forwarding.
+     */
+    private fun availableLocalPort(): Int {
+        val random = Random(System.currentTimeMillis())
+        while (true) {
+            val port = random.nextInt(13000, 65534)
+            try {
+                ServerSocket(port).apply { reuseAddress = true }.use {
+                    DatagramSocket(port).apply { reuseAddress = true }.use {
+                        return port
+                    }
+                }
+            } catch (e: IOException) {
+            }
+        }
+    }
 }

@@ -4,5 +4,6 @@ data class NodeStats(
         val timestamp: Long,
         val nodeName: String,
         val color: String,
-        val blockHeight: Long
+        val peers:Int?,
+        val blockHeight: Long?
 )

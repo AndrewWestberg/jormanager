@@ -1,30 +1,58 @@
 <template>
   <div>
-    <div>
+    <b-container>
       <b-card-group deck>
+        <NodeChart title="Connected Peers" :series="peersSeries" :colors="nodeColors" :min="0" />
         <NodeChart title="Block Height" :series="blockHeightSeries" :colors="nodeColors" />
       </b-card-group>
-    </div>
-    <div></div>
-    <h1>Total Blocks: {{ blocksCount }}</h1>
+    </b-container>
+    <hr />
+    <b-container>
+      <b-table
+        bordered
+        striped
+        head-variant="light"
+        :items="blocks"
+        :fields="fields"
+        v-if="blocks.length > 0"
+      ></b-table>
+    </b-container>
   </div>
 </template>
 
 <script>
-import { mapGetters, mapState } from "vuex";
+import { mapGetters, mapState, mapActions } from "vuex";
 import NodeChart from "@/components/NodeChart";
 
 export default {
   data() {
-    return {};
+    return {
+      fields: [
+        { key: "at", label: "Timestamp" },
+        { key: "pool", sortable: true },
+        { key: "host", sortable: true },
+        { key: "slot", sortable: true },
+        {
+          key: "hash",
+          formatter: value => {
+            return value.substring(0, 6) + "...";
+          }
+        }
+      ]
+    };
   },
-  methods: {},
+  methods: {
+    ...mapActions(["requestBlocks"])
+  },
   computed: {
     ...mapGetters(["blocksCount"]),
-    ...mapState(["blockHeightSeries", "nodeColors"])
+    ...mapState(["blocks", "peersSeries", "blockHeightSeries", "nodeColors"])
   },
   components: {
     NodeChart
+  },
+  mounted() {
+    this.requestBlocks();
   }
 };
 </script>

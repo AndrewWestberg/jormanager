@@ -169,5 +169,19 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    requestBlocks: ({
+        state,
+        commit
+    }) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Request blocks");
+            state.stompClient.send("/jormanager/blocks");
+        } else {
+            commit('toastError', {
+                title: "Error getting blocks!",
+                message: "stompClient not connected!"
+            })
+        }
     }
 }

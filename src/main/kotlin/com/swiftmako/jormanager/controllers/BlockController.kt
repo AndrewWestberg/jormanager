@@ -15,7 +15,6 @@ import org.springframework.stereotype.Controller
 class BlockController @Autowired constructor(
         private val buildProperties: BuildProperties,
         private val blockRepository: BlockRepository
-//        ,private val webSocketTemplate: SimpMessagingTemplate
 ) {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
@@ -31,7 +30,6 @@ class BlockController @Autowired constructor(
     fun getBlocks(): SocketResponse<List<Block>> {
         val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
         return SocketResponse.Success(type = "blocks", data = blocks)
-//            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success<Block>(type = "blocks", data = block))
     }
 
 }
