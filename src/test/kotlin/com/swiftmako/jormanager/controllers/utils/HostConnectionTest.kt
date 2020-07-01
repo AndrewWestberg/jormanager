@@ -41,6 +41,5 @@ class HostConnectionTest {
 
         val hostConnection = HostConnection(Host(0, "local", "","","","",22,"",""))
         hostConnection.sudoCommandWriteFile("/home/westbam/haskell/tickr-node.service", systemdContent, "******************")
-
     }
 }

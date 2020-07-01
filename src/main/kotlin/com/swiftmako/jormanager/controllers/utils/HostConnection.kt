@@ -218,22 +218,4 @@ class HostConnection(private val host: Host) : Closeable {
         sudoCommand("mv -f $tempFileName $fileName", sudoPassword ?: "")
         return "" // none of these command should have any output
     }
-
-    /**
-     * Find a local available port to bind to for port forwarding.
-     */
-    private fun availableLocalPort(): Int {
-        val random = Random(System.currentTimeMillis())
-        while (true) {
-            val port = random.nextInt(13000, 65534)
-            try {
-                ServerSocket(port).apply { reuseAddress = true }.use {
-                    DatagramSocket(port).apply { reuseAddress = true }.use {
-                        return port
-                    }
-                }
-            } catch (e: IOException) {
-            }
-        }
-    }
 }

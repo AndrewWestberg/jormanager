@@ -84,6 +84,7 @@ class EnvironmentMonitor @Autowired constructor(
                         }
                     }
                 }
+                log.info("Fetching environments done.")
 
                 delay(RECONNECT_DELAY_MS)
             }

@@ -49,6 +49,7 @@ export default {
         },
         yaxis: {
           min: this.min,
+          forceNiceScale: true,
           labels: {
             style: {
               colors: "#6c757d"
