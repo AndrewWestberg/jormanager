@@ -1,6 +1,10 @@
 package com.swiftmako.jormanager.monitors
 
 import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.model.Utxo
+import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
@@ -66,13 +70,41 @@ class WalletMonitor @Autowired constructor(
                 // A new block has arrived.
                 nodeRepository.findDefault()?.let { defaultNode ->
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                        HostConnection(host).use { hostConnection ->
-                            walletRepository.findAll(Sort.by("id")).forEach { walletEntry->
+                        HostConnection(host, defaultNode).use { hostConnection ->
+                            val walletItems = mutableListOf<WalletItem>()
+                            walletRepository.findAll(Sort.by("id")).forEach { walletEntry ->
                                 //find payment_addr balance
+                                val addressInfoString = when {
+                                    walletEntry.paymentAddr.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) -> {
+                                        hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --testnet-magic 42")
+                                    }
+                                    walletEntry.paymentAddr.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) -> {
+                                        hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --mainnet")
+                                    }
+                                    else -> {
+                                        log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
+                                        return@forEach
+                                    }
+                                }
 
-                                //find staking_addr balance
+                                val utxos = mutableListOf<Utxo>()
+                                UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
+                                    utxos.add(
+                                            Utxo(
+                                                    hash = matchResult.groupValues[1],
+                                                    ix = matchResult.groupValues[2].toLong(),
+                                                    lovelace = matchResult.groupValues[3].toLong()
+                                            )
+                                    )
+                                }
 
-                                //todo return result if different from last time
+                                // TODO: find staking_addr balance
+
+                                walletItems.add(
+                                        WalletItem(walletEntry.id!!, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, null)
+                                )
+
+                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
                             }
                         }
                     } ?: log.error("Host for default node not found!")
@@ -84,5 +116,11 @@ class WalletMonitor @Autowired constructor(
     override fun stop() {
         job.cancelChildren()
         log.info("BlockMonitor stopped.")
+    }
+
+    companion object {
+        private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60|00)[0-9a-fA-F]{56}")
+        private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61|01)[0-9a-fA-F]{56}")
+        private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
     }
 }

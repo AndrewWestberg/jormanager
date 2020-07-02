@@ -58,6 +58,9 @@ export default {
         // This is a terrible code smell, but I can't get the charts to update otherwise
         state.peersSeries.__ob__.dep.notify()
     },
+    saveWallet: (state, walletItems) => {
+        state.walletItems = walletItems
+    },
 
     toastError: (state, toast) => {
         state.toastError = toast

@@ -83,6 +83,9 @@ export default {
                 case "nodestats":
                     commit('saveNodeStats', message.data)
                     break
+                case "wallet":
+                    commit('saveWallet', message.data)
+                    break
             }
         });
         commit('setConnected', true)

@@ -72,6 +72,17 @@ export default {
         dataLabels: {
           enabled: false
         },
+        fill: {
+          opacity: 0.1,
+          type: "gradient",
+          gradient: {
+            shade: "light",
+            shadeIntensity: 0.2,
+            opacityFrom: 0.5,
+            opacityTo: 0.3,
+            stops: [0, 90, 100]
+          }
+        },
         stroke: {
           curve: "straight",
           width: 1

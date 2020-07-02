@@ -15,6 +15,7 @@ export default {
     nodes: [],
     blocks: [],
     files: [],
+    walletItems: [],
 
     // chart data
     nodeColors: [],

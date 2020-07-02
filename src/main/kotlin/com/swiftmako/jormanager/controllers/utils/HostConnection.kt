@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.swiftmako.jormanager.entities.Host
+import com.swiftmako.jormanager.entities.Node
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.Session
@@ -9,17 +10,13 @@ import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
-import java.io.IOException
 import java.io.PrintWriter
-import java.net.DatagramSocket
-import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
 import java.util.regex.Matcher
 import java.util.regex.Pattern
-import kotlin.random.Random
 
 
-class HostConnection(private val host: Host) : Closeable {
+class HostConnection(private val host: Host, private val defaultNode: Node? = null) : Closeable {
 
     private val log = LoggerFactory.getLogger("HostConnection")
 
@@ -140,6 +137,10 @@ class HostConnection(private val host: Host) : Closeable {
         commandList = commandList.map { clause -> clause.trim('\'') }
         try {
             process = ProcessBuilder(commandList).also {
+                defaultNode?.let { node ->
+                    println("${host.nodeHomePath}/${node.name}/db/socket")
+                    it.environment().put("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
+                }
                 if (redirectAppendFile.isNotBlank()) {
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
                 }
