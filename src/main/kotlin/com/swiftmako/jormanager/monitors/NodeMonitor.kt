@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.monitors
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.model.ekg.EkgMetrics
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -138,9 +139,9 @@ class NodeMonitor @Autowired constructor(
             val ssh = SSHClient()
             ssh.loadKnownHosts()
             ssh.addHostKeyVerifier(PromiscuousVerifier())
-            ssh.connect(host.hostname, host.sshPort)
             var localPortForwarder: LocalPortForwarder? = null
             try {
+                ssh.connect(host.hostname, host.sshPort)
                 ssh.authPublickey(host.sshUser, host.sshPemPath)
 
                 val localPort = availableLocalPort()
@@ -167,11 +168,12 @@ class NodeMonitor @Autowired constructor(
             } catch (e: Throwable) {
                 log.error("Fatal error communicating with ${node.name}!", e)
             } finally {
-                try {
+                ignoreExceptions {
                     localPortForwarder?.close()
-                } catch (e: Throwable) {
                 }
-                ssh.disconnect()
+                ignoreExceptions {
+                    ssh.disconnect()
+                }
             }
         }
     }

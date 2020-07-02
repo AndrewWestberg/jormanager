@@ -5,6 +5,7 @@ import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.repositories.BlockRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -123,6 +124,7 @@ class BlockMonitor @Autowired constructor(
         TODO("Not implemented yet!")
     }
 
+    @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorBlocksRemote(host: Host, node: Node) {
         var retry = true
         while (retry) {
@@ -132,8 +134,8 @@ class BlockMonitor @Autowired constructor(
             val ssh = SSHClient()
             ssh.loadKnownHosts()
             ssh.addHostKeyVerifier(PromiscuousVerifier())
-            ssh.connect(host.hostname, host.sshPort)
             try {
+                ssh.connect(host.hostname, host.sshPort)
                 ssh.authPublickey(host.sshUser, host.sshPemPath)
                 ssh.startSession().use { session ->
                     val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
@@ -158,7 +160,9 @@ class BlockMonitor @Autowired constructor(
             } catch (e: Throwable) {
                 log.error("Fatal error communicating with ${node.name}!", e)
             } finally {
-                ssh.disconnect()
+                ignoreExceptions {
+                    ssh.disconnect()
+                }
             }
         }
     }

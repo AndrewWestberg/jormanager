@@ -29,7 +29,7 @@ export default {
         let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName])
         if (index > -1) {
             state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
-            state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-120) // keep 10 minutes worth of data
+            state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60) // keep 5 minutes worth of data
             state.nodeColors[index] = nodeStats.color
         } else {
             state.blockHeightSeries.push({
@@ -46,7 +46,7 @@ export default {
         let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName])
         if (index1 > -1) {
             state.peersSeries[index].data.push([nodeStats.timestamp, nodeStats.peers])
-            state.peersSeries[index].data = state.peersSeries[index].data.slice(-120) // keep 10 minutes worth of data
+            state.peersSeries[index].data = state.peersSeries[index].data.slice(-160) // keep 5 minutes worth of data
         } else {
             state.peersSeries.push({
                 name: nodeStats.nodeName,
