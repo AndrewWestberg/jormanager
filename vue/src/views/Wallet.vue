@@ -1,5 +1,18 @@
 <template>
   <div>
-    <h1>Wallet</h1>
+    <div>
+      <b-button
+        variant="outline-primary"
+        @click="$root.$emit('add-wallet-entry')"
+        v-b-tooltip.hover.bottom="'Create a new wallet entry.'"
+      >
+        <b-icon-plus />&nbsp;Create Entry
+      </b-button>
+    </div>
+    <hr />
   </div>
 </template>
+
+<script>
+export default {};
+</script>

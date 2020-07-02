@@ -54,7 +54,8 @@ class NodeMonitor @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val retrofit: Retrofit,
         private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>
+        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(NodeMonitor::class.java)
@@ -180,6 +181,7 @@ class NodeMonitor @Autowired constructor(
 
     private suspend fun monitorNode(node: Node, ekgService: EkgService, rethrowExceptions: Boolean = false) {
         log.info("Start NodeMonitor for: ${node.name}")
+        var lastBlockHeight = -1L
         while (true) {
             // delay until the next 5-second interval
             val before = System.currentTimeMillis()
@@ -193,6 +195,14 @@ class NodeMonitor @Autowired constructor(
                     // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
                     val nodeStats = ekgMetrics.toNodeStats(now, node)
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStats))
+                    if (node.isDefault) {
+                        nodeStats.blockHeight?.let { newBlockHeight ->
+                            if (newBlockHeight > lastBlockHeight) {
+                                newBlockChannel.offer(newBlockHeight)
+                                lastBlockHeight = newBlockHeight
+                            }
+                        }
+                    }
                 } else {
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now, node.name, node.color, null, null)))
                 }

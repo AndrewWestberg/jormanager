@@ -1,11 +1,13 @@
 package com.swiftmako.jormanager.entities
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import javax.persistence.Column
 import javax.persistence.Entity
 import javax.persistence.GeneratedValue
 import javax.persistence.GenerationType
 import javax.persistence.Id
 import javax.persistence.Table
+import javax.persistence.Transient
 
 @Entity
 @Table(name = "hosts")
@@ -29,4 +31,10 @@ data class Host(
         val sshPemPath: String = "",
         @Column(name = "node_home_path")
         val nodeHomePath: String
-)
+) {
+    @get:JsonIgnore
+    @delegate:JsonIgnore
+    @delegate:Transient
+    @get:Transient
+    val isRemote: Boolean by lazy { type == "remote" }
+}

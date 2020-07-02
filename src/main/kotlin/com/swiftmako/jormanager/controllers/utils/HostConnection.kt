@@ -23,7 +23,6 @@ class HostConnection(private val host: Host) : Closeable {
 
     private val log = LoggerFactory.getLogger("HostConnection")
 
-    private val isRemote = host.type == "remote"
     private val sshDelegate = lazy {
         SSHClient().apply {
             loadKnownHosts()
@@ -35,7 +34,7 @@ class HostConnection(private val host: Host) : Closeable {
     private val ssh by sshDelegate
 
     fun commandFileExists(filePath: String): Boolean {
-        return if (isRemote) {
+        return if (host.isRemote) {
             command("if test -f $filePath; then echo true; fi").trim().toBoolean()
         } else {
             File(filePath).exists()
@@ -52,7 +51,7 @@ class HostConnection(private val host: Host) : Closeable {
     }
 
     fun command(command: List<String>): String {
-        return if (isRemote) {
+        return if (host.isRemote) {
             remoteCommand(command)
         } else {
             localCommand(command)
@@ -69,7 +68,7 @@ class HostConnection(private val host: Host) : Closeable {
     }
 
     fun sudoCommand(command: List<String>, sudoPassword: String?): String {
-        return if (isRemote) {
+        return if (host.isRemote) {
             remoteSudoCommand(command, sudoPassword)
         } else {
             localSudoCommand(command, sudoPassword)

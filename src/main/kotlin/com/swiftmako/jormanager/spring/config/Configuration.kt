@@ -56,6 +56,12 @@ class Configuration {
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getNodesBroadcastChannel(): BroadcastChannel<Node> {
         // Channel which broadcasts nodeIds to start monitoring for blocks
-        return BroadcastChannel(Channel.Factory.BUFFERED)
+        return BroadcastChannel(Channel.BUFFERED)
+    }
+
+    @Bean("newBlockChannel")
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getNewBlockChannel(): BroadcastChannel<Long> {
+        return BroadcastChannel(Channel.CONFLATED)
     }
 }
