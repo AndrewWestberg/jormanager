@@ -33,8 +33,7 @@ data class Host(
         val nodeHomePath: String
 ) {
     @get:JsonIgnore
-    @delegate:JsonIgnore
-    @delegate:Transient
     @get:Transient
-    val isRemote: Boolean by lazy { type == "remote" }
+    val isRemote: Boolean
+        get() = this.type == "remote"
 }
