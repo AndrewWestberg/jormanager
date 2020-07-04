@@ -86,6 +86,36 @@ export default {
                 case "wallet":
                     commit('saveWallet', message.data)
                     break
+                case "createwalletentry":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Success",
+                            message: message.data
+                        })
+
+                    } else {
+                        commit('toastError', {
+                            title: "WalletEntry Save Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
+                case "deletewalletentry":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Success",
+                            message: message.data
+                        })
+
+                    } else {
+                        commit('toastError', {
+                            title: "Delete WalletEntry Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -173,6 +203,20 @@ export default {
             })
         }
     },
+    createWalletEntry: ({
+        state,
+        commit
+    }, formWallet) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Create WalletEntry: " + JSON.stringify(formWallet));
+            state.stompClient.send("/jormanager/createwalletentry", JSON.stringify(formWallet));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
     requestBlocks: ({
         state,
         commit
@@ -186,5 +230,21 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    deleteWalletItem: ({
+        state,
+        commit
+    }, walletItem) => {
+        commit('saveWallet', [])
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Delete WalletItem: " + JSON.stringify(walletItem.id));
+            state.stompClient.send("/jormanager/deletewalletentry", JSON.stringify(walletItem.id));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
     }
+
 }

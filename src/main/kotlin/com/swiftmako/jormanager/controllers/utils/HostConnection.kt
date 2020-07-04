@@ -73,12 +73,15 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
 
     private fun remoteCommand(c: List<String>): String {
-        lateinit var cmd: Session.Command
         lateinit var output: String
         lateinit var errorOutput: String
         val command = c.joinToString(" ").trim()
         try {
             ssh.startSession().use { session ->
+                // TODO set CARDANO_NODE_SOCKET_PATH
+                defaultNode?.let { node ->
+                    session.setEnvVar("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
+                }
                 session.exec(command).use { cmd ->
                     output = cmd.inputStream.bufferedReader().use(BufferedReader::readText)
                     errorOutput = cmd.errorStream.bufferedReader().use(BufferedReader::readText)
@@ -89,7 +92,10 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 }
             }
         } catch (e: Throwable) {
-            throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput", e)
+            if (e is SSHRuntimeException) {
+                throw e
+            }
+            throw SSHRuntimeException("Error communicating with remote server!", e)
         }
         return output
     }
@@ -138,7 +144,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         try {
             process = ProcessBuilder(commandList).also {
                 defaultNode?.let { node ->
-                    println("${host.nodeHomePath}/${node.name}/db/socket")
                     it.environment().put("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
                 }
                 if (redirectAppendFile.isNotBlank()) {

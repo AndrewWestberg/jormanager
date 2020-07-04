@@ -24,7 +24,6 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
-import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
@@ -72,7 +71,7 @@ class WalletMonitor @Autowired constructor(
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                         HostConnection(host, defaultNode).use { hostConnection ->
                             val walletItems = mutableListOf<WalletItem>()
-                            walletRepository.findAll(Sort.by("id")).forEach { walletEntry ->
+                            walletRepository.findAllNotDeleted().forEach { walletEntry ->
                                 //find payment_addr balance
                                 val addressInfoString = when {
                                     walletEntry.paymentAddr.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) -> {
@@ -101,11 +100,10 @@ class WalletMonitor @Autowired constructor(
                                 // TODO: find staking_addr balance
 
                                 walletItems.add(
-                                        WalletItem(walletEntry.id!!, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, null)
+                                        WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, null)
                                 )
-
-                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
                             }
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
                         }
                     } ?: log.error("Host for default node not found!")
                 } ?: log.error("No default node set! Cannot monitor wallet for updates!")
@@ -119,8 +117,8 @@ class WalletMonitor @Autowired constructor(
     }
 
     companion object {
-        private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60|00)[0-9a-fA-F]{56}")
-        private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61|01)[0-9a-fA-F]{56}")
+        private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60[0-9a-fA-F]{56}|00[0-9a-fA-F]{112})")
+        private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
         private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
     }
 }

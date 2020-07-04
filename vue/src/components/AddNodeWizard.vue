@@ -572,5 +572,4 @@ export default {
   border-top-style: hidden;
   border-bottom-style: hidden;
 }
-/* #007bff */
 </style>

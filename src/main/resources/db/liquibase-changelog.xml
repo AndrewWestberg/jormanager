@@ -7,5 +7,7 @@
 
     <include file="changelog/001-create-initial-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/002-create-wallet-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/003-update-wallet-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/004-update-wallet-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

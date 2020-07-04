@@ -31,7 +31,8 @@ import {
   faServer,
   faChartLine,
   faCircle,
-  faCheckCircle
+  faCheckCircle,
+  faTrashAlt
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -44,6 +45,7 @@ library.add(faServer)
 library.add(faChartLine)
 library.add(faCircle)
 library.add(faCheckCircle)
+library.add(faTrashAlt)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

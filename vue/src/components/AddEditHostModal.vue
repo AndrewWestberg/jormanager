@@ -4,6 +4,7 @@
       id="modal-edit-host"
       title="Add/Edit Host"
       scrollable
+      no-close-on-backdrop
       ok-title="Validate &amp; Save"
       @ok="handleValidateAndSave"
     >

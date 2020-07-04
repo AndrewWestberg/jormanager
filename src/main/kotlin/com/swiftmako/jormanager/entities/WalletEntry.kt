@@ -16,6 +16,8 @@ data class WalletEntry(
         @Id
         @GeneratedValue(strategy = GenerationType.AUTO)
         val id: Long? = null,
+        @Column(name = "name")
+        val name: String,
         @Column(name = "type")
         val type: String, // payment, stake, address
         @Column(name = "payment_addr")
@@ -33,5 +35,8 @@ data class WalletEntry(
         val stakingSkey: File?,
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "staking_vkey", referencedColumnName = "id")
-        val stakingVkey: File?
-)
+        val stakingVkey: File?,
+        @Column(name = "deleted")
+        val deleted: Boolean = false
+) {
+}
