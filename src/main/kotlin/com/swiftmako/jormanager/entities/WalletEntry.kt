@@ -24,18 +24,18 @@ data class WalletEntry(
         val paymentAddr: String,
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "payment_skey", referencedColumnName = "id")
-        val paymentSkey: File?,
+        val paymentSkey: File?=null,
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "payment_vkey", referencedColumnName = "id")
-        val paymentVkey: File?,
+        val paymentVkey: File?=null,
         @Column(name = "staking_addr")
-        val stakingAddr: String?,
+        val stakingAddr: String?=null,
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "staking_skey", referencedColumnName = "id")
-        val stakingSkey: File?,
+        val stakingSkey: File?=null,
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "staking_vkey", referencedColumnName = "id")
-        val stakingVkey: File?,
+        val stakingVkey: File?=null,
         @Column(name = "deleted")
         val deleted: Boolean = false
 ) {

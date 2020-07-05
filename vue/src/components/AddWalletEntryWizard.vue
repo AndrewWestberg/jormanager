@@ -42,6 +42,75 @@
             id="address-input-live-feedback"
           >Wallet address that can only receive payments or monitor funds it holds</b-form-invalid-feedback>
         </b-form-group>
+        <b-form-group label="Keys" v-if="formWallet.type=='payment' || formWallet.type=='stake'">
+          <b-form-checkbox id="keys-generate-checkbox" v-model="formWallet.generateKeys">Generate</b-form-checkbox>
+          <b-form-group
+            label="payment skey"
+            label-for="payment-skey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="payment-skey-file"
+              :disabled="formWallet.generateKeys"
+              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formWallet.paymentSKey"
+              :state="paymentSKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="payment vkey"
+            label-for="payment-vkey-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="payment-vkey-file"
+              :disabled="formWallet.generateKeys"
+              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formWallet.paymentVKey"
+              :state="paymentVKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="staking skey"
+            label-for="staking-skey-file"
+            label-cols-md="1"
+            label-align="right"
+            v-if="formWallet.type=='stake'"
+          >
+            <b-form-file
+              id="staking-skey-file"
+              :disabled="formWallet.generateKeys"
+              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formWallet.stakingSKey"
+              :state="stakingSKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="staking vkey"
+            label-for="staking-vkey-file"
+            label-cols-md="1"
+            label-align="right"
+            v-if="formWallet.type=='stake'"
+          >
+            <b-form-file
+              id="staking-vkey-file"
+              :disabled="formWallet.generateKeys"
+              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formWallet.stakingVKey"
+              :state="stakingVKeyState"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
       </div>
     </vue-good-wizard>
   </div>
@@ -49,7 +118,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
-import { mapActions } from "vuex";
+import { mapActions, mapMutations } from "vuex";
 
 export default {
   name: "AddWalletEntryWizard",
@@ -61,7 +130,12 @@ export default {
       formWallet: {
         name: "",
         type: null,
-        paymentAddr: ""
+        paymentAddr: "",
+        generateKeys: false,
+        paymentSKey: null,
+        paymentVKey: null,
+        stakingSKey: null,
+        stakingVKey: null
       },
       steps: [
         {
@@ -76,10 +150,42 @@ export default {
   },
   methods: {
     ...mapActions(["createWalletEntry"]),
-    nextClicked(currentPage) {
+    ...mapMutations(["toastError"]),
+    async nextClicked(currentPage) {
       if (currentPage === 0) {
-        if (this.nameState && this.typeState && this.paymentAddrState) {
+        if (
+          this.nameState &&
+          this.typeState &&
+          this.paymentAddrState &&
+          this.paymentSKeyState &&
+          this.paymentVKeyState &&
+          this.stakingSKeyState &&
+          this.stakingVKeyState
+        ) {
+          if (this.formWallet.generateKeys) {
+            this.formWallet.paymentSKey = null;
+            this.formWallet.paymentVKey = null;
+            this.formWallet.stakingSKey = null;
+            this.formWallet.stakingVKey = null;
+          }
+          if (this.formWallet.type === "payment") {
+            this.formWallet.stakingSKey = null;
+            this.formWallet.stakingVKey = null;
+          }
           // core node save!
+          if (this.formWallet.paymentSKey != null) {
+            this.formWallet.paymentSKey = await this.formWallet.paymentSKey.text();
+          }
+          if (this.formWallet.paymentVKey != null) {
+            this.formWallet.paymentVKey = await this.formWallet.paymentVKey.text();
+          }
+          if (this.formWallet.stakingSKey != null) {
+            this.formWallet.stakingSKey = await this.formWallet.stakingSKey.text();
+          }
+          if (this.formWallet.stakingVKey != null) {
+            this.formWallet.stakingVKey = await this.formWallet.stakingVKey.text();
+          }
+
           this.createWalletEntry(this.formWallet);
           this.$emit("hideWalletEntryWizard");
           return true;
@@ -106,9 +212,41 @@ export default {
     },
     paymentAddrState() {
       return (
+        this.formWallet.type === "payment" ||
+        this.formWallet.type === "stake" ||
         this.formWallet.paymentAddr.match(
           /^((60|61)[0-9a-fA-F]{56}|(00|01)[0-9a-fA-F]{112})$/
         ) != null
+      );
+    },
+    paymentSKeyState() {
+      return (
+        this.formWallet.type === "address" ||
+        this.formWallet.generateKeys ||
+        this.formWallet.paymentSKey != null
+      );
+    },
+    paymentVKeyState() {
+      return (
+        this.formWallet.type === "address" ||
+        this.formWallet.generateKeys ||
+        this.formWallet.paymentVKey != null
+      );
+    },
+    stakingSKeyState() {
+      return (
+        this.formWallet.type === "address" ||
+        this.formWallet.type === "payment" ||
+        this.formWallet.generateKeys ||
+        this.formWallet.stakingSKey != null
+      );
+    },
+    stakingVKeyState() {
+      return (
+        this.formWallet.type === "address" ||
+        this.formWallet.type === "payment" ||
+        this.formWallet.generateKeys ||
+        this.formWallet.stakingVKey != null
       );
     }
   }

@@ -26,7 +26,8 @@ export default {
     },
     subscribeToMessages: ({
         state,
-        commit
+        commit,
+        dispatch
     }) => {
         state.stompClient.subscribe("/topic/messages", tick => {
             console.log(tick);
@@ -92,7 +93,7 @@ export default {
                             title: "Success",
                             message: message.data
                         })
-
+                        dispatch('fetchWalletItems')
                     } else {
                         commit('toastError', {
                             title: "WalletEntry Save Error",
@@ -107,7 +108,7 @@ export default {
                             title: "Success",
                             message: message.data
                         })
-
+                        dispatch('fetchWalletItems')
                     } else {
                         commit('toastError', {
                             title: "Delete WalletEntry Error",
@@ -245,6 +246,19 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    fetchWalletItems: ({
+        state,
+        commit
+    }) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Request wallet");
+            state.stompClient.send("/jormanager/wallet");
+        } else {
+            commit('toastError', {
+                title: "Error getting wallet!",
+                message: "stompClient not connected!"
+            })
+        }
     }
-
 }

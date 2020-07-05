@@ -30,11 +30,6 @@
             />
           </template>
         </b-table>
-        <b-progress animated :max="1" height="3rem" v-if="walletItems.length == 0">
-          <b-progress-bar :value="1">
-            <p style="font-size:2rem">Waiting for next block...</p>
-          </b-progress-bar>
-        </b-progress>
       </b-container>
     </div>
     <AddWalletEntryWizard
@@ -71,7 +66,7 @@ export default {
     ...mapState(["walletItems"])
   },
   methods: {
-    ...mapActions(["deleteWalletItem"]),
+    ...mapActions(["fetchWalletItems", "deleteWalletItem"]),
     deleteItem(walletItem) {
       this.$bvModal.msgBoxConfirm("Are you sure?").then(value => {
         if (value) {
@@ -79,6 +74,9 @@ export default {
         }
       });
     }
+  },
+  mounted() {
+    this.fetchWalletItems();
   }
 };
 </script>

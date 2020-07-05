@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.monitors
 
 import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.Utxo
@@ -33,9 +34,7 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class WalletMonitor @Autowired constructor(
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val walletRepository: WalletRepository,
+        private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>
 ) : SmartLifecycle, CoroutineScope {
@@ -67,46 +66,8 @@ class WalletMonitor @Autowired constructor(
         launch {
             newBlockChannel.openSubscription().consumeEach {
                 // A new block has arrived.
-                nodeRepository.findDefault()?.let { defaultNode ->
-                    hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                        HostConnection(host, defaultNode).use { hostConnection ->
-                            val walletItems = mutableListOf<WalletItem>()
-                            walletRepository.findAllNotDeleted().forEach { walletEntry ->
-                                //find payment_addr balance
-                                val addressInfoString = when {
-                                    walletEntry.paymentAddr.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) -> {
-                                        hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --testnet-magic 42")
-                                    }
-                                    walletEntry.paymentAddr.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) -> {
-                                        hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --mainnet")
-                                    }
-                                    else -> {
-                                        log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
-                                        return@forEach
-                                    }
-                                }
-
-                                val utxos = mutableListOf<Utxo>()
-                                UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
-                                    utxos.add(
-                                            Utxo(
-                                                    hash = matchResult.groupValues[1],
-                                                    ix = matchResult.groupValues[2].toLong(),
-                                                    lovelace = matchResult.groupValues[3].toLong()
-                                            )
-                                    )
-                                }
-
-                                // TODO: find staking_addr balance
-
-                                walletItems.add(
-                                        WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, null)
-                                )
-                            }
-                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
-                        }
-                    } ?: log.error("Host for default node not found!")
-                } ?: log.error("No default node set! Cannot monitor wallet for updates!")
+                val walletItems = walletUtils.getWalletItems()
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
             }
         }
     }
@@ -116,9 +77,4 @@ class WalletMonitor @Autowired constructor(
         log.info("BlockMonitor stopped.")
     }
 
-    companion object {
-        private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60[0-9a-fA-F]{56}|00[0-9a-fA-F]{112})")
-        private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
-        private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
-    }
 }
