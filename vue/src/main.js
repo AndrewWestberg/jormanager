@@ -1,4 +1,5 @@
 import Vue from 'vue'
+import Vue2Filters from 'vue2-filters'
 import {
   BootstrapVue,
   BIcon,
@@ -17,7 +18,8 @@ Vue.component('BIconGraphUp', BIconGraphUp)
 Vue.component('BIconPencilSquare', BIconPencilSquare)
 Vue.component('BIconHexagonHalf', BIconHexagonHalf)
 
-Vue.use(require('vue-moment'));
+Vue.use(require('vue-moment'))
+Vue.use(Vue2Filters)
 
 import App from './App.vue'
 

@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.controllers.utils
 
+import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
@@ -13,12 +14,14 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 
+
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class WalletUtils @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
-        private val walletRepository: WalletRepository
+        private val walletRepository: WalletRepository,
+        moshi: Moshi
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
 
@@ -28,7 +31,7 @@ class WalletUtils @Autowired constructor(
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 HostConnection(host, defaultNode).use { hostConnection ->
                     walletRepository.findAllNotDeleted().forEach { walletEntry ->
-                        //find payment_addr balance
+                        // find payment_addr balance
                         val addressInfoString = when {
                             walletEntry.paymentAddr.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) -> {
                                 hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --testnet-magic 42")
@@ -53,10 +56,31 @@ class WalletUtils @Autowired constructor(
                             )
                         }
 
-                        // TODO: find staking_addr balance
+                        // find staking_addr balance
+                        val stakingInfoString = if (walletEntry.type == "stake") {
+                            when {
+                                walletEntry.stakingAddr?.matches(TESTNET_STAKING_ADDRESS) == true -> {
+                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --testnet-magic 42")
+                                }
+                                walletEntry.stakingAddr?.matches(MAINNET_STAKING_ADDRESS) == true -> {
+                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --mainnet")
+                                }
+                                else -> {
+                                    log.error("Invalid staking address format: ${walletEntry.paymentAddr}")
+                                    return@forEach
+                                }
+                            }
+                        } else {
+                            null
+                        }
+                        val stakingAddrLovelace = stakingInfoString?.let { json ->
+                            Regex("\"rewardAccountBalance\": (\\d+)").find(json)?.let { matchResult ->
+                                matchResult.groupValues[1].toLong()
+                            }
+                        }
 
                         walletItems.add(
-                                WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, null)
+                                WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrLovelace)
                         )
                     }
                 }
@@ -69,6 +93,8 @@ class WalletUtils @Autowired constructor(
     companion object {
         private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60[0-9a-fA-F]{56}|00[0-9a-fA-F]{112})")
         private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
+        private val TESTNET_STAKING_ADDRESS = Regex("58[0-9a-fA-F]{60}")
+        private val MAINNET_STAKING_ADDRESS = Regex("e1[0-9a-fA-F]{60}")
         private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
     }
 

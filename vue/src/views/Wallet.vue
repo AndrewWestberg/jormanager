@@ -21,6 +21,20 @@
           v-if="walletItems.length > 0"
         >
           <template v-slot:cell(paymentAddr)="data">{{data.value.substring(0,10)}}...</template>
+          <template v-slot:cell(paymentAddrLovelace)="data">
+            <div class="text-right">{{data.value / 1000000 | currency('₳', 6)}}</div>
+          </template>
+          <template v-slot:cell(stakingAddr)="data">
+            <div v-if="data.value.length>0">{{data.value.substring(0,10)}}...</div>
+            <div v-else class="text-center">---</div>
+          </template>
+          <template v-slot:cell(stakingAddrLovelace)="data">
+            <div
+              class="text-right"
+              v-if="data.item.type==='stake'"
+            >{{data.value / 1000000 | currency('₳', 6)}}</div>
+            <div class="text-center" v-else>---</div>
+          </template>
           <template v-slot:cell(edit)="data">
             <font-awesome-icon
               :icon="['fas','trash-alt']"
@@ -54,7 +68,7 @@ export default {
         { key: "name", label: "Name", sortable: true },
         { key: "type", label: "Item Type", sortable: true },
         { key: "paymentAddr", label: "Payment Address" },
-        { key: "paymentAddrLovelace", label: "Lovelace" },
+        { key: "paymentAddrLovelace", label: "Balance", class: "text-right" },
         { key: "stakingAddr", label: "Reward Address" },
         { key: "stakingAddrLovelace", label: "Rewards" },
         { key: "edit", label: "" }

@@ -138,7 +138,7 @@ class WalletController @Autowired constructor(
                                     hostConnection.commandWriteFile("/tmp/jormanager-pvkey", request.paymentVKey)
                                     hostConnection.commandWriteFile("/tmp/jormanager-svkey", request.stakingVKey)
                                     val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
-                                    val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                                    val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                                     hostConnection.command("rm /tmp/jormanager-pvkey")
                                     hostConnection.command("rm /tmp/jormanager-svkey")
                                     WalletEntry(
