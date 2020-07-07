@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.controllers
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
+import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.model.CreateWalletEntryRequest
@@ -59,102 +60,11 @@ class WalletController @Autowired constructor(
                     )
                 }
                 "payment" -> {
-                    val savedPaymentSKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.payment.skey",
-                                    content = request.paymentSKey!!
-                            )
-                    )
-                    val savedPaymentVKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.payment.vkey",
-                                    content = request.paymentVKey!!
-                            )
-                    )
-
-                    nodeRepository.findDefault()?.let { defaultNode ->
-                        fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
-                            val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                            val magicString = if (genesis?.networkMagic != null) {
-                                "--testnet-magic ${genesis.networkMagic}"
-                            } else {
-                                "--mainnet"
-                            }
-                            hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                                HostConnection(host, defaultNode).use { hostConnection ->
-                                    hostConnection.commandWriteFile("/tmp/jormanager-pvkey", request.paymentVKey)
-                                    val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString").trim()
-                                    hostConnection.command("rm /tmp/jormanager-pvkey")
-                                    WalletEntry(
-                                            name = request.name,
-                                            type = request.type,
-                                            paymentAddr = paymentAddr,
-                                            paymentSkey = savedPaymentSKeyFile,
-                                            paymentVkey = savedPaymentVKeyFile
-                                    )
-                                }
-                            } ?: throw IOException("Host not found for default node!")
-                        } ?: throw IOException("Genesis file for default node not found!")
-                    } ?: throw IOException("No default node!")
+                    createPaymentWalletEntry(request)
                 }
                 else -> {
                     // "stake"
-                    val savedPaymentSKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.payment.skey",
-                                    content = request.paymentSKey!!
-                            )
-                    )
-                    val savedPaymentVKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.payment.vkey",
-                                    content = request.paymentVKey!!
-                            )
-                    )
-
-                    val savedStakingSKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.staking.skey",
-                                    content = request.stakingSKey!!
-                            )
-                    )
-                    val savedStakingVKeyFile = fileRepository.save(
-                            com.swiftmako.jormanager.entities.File(
-                                    name = "${request.name}.staking.vkey",
-                                    content = request.stakingVKey!!
-                            )
-                    )
-
-                    nodeRepository.findDefault()?.let { defaultNode ->
-                        fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
-                            val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                            val magicString = if (genesis?.networkMagic != null) {
-                                "--testnet-magic ${genesis.networkMagic}"
-                            } else {
-                                "--mainnet"
-                            }
-                            hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                                HostConnection(host, defaultNode).use { hostConnection ->
-                                    hostConnection.commandWriteFile("/tmp/jormanager-pvkey", request.paymentVKey)
-                                    hostConnection.commandWriteFile("/tmp/jormanager-svkey", request.stakingVKey)
-                                    val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
-                                    val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
-                                    hostConnection.command("rm /tmp/jormanager-pvkey")
-                                    hostConnection.command("rm /tmp/jormanager-svkey")
-                                    WalletEntry(
-                                            name = request.name,
-                                            type = "stake",
-                                            paymentAddr = paymentAddr,
-                                            paymentSkey = savedPaymentSKeyFile,
-                                            paymentVkey = savedPaymentVKeyFile,
-                                            stakingAddr = stakingAddr,
-                                            stakingSkey = savedStakingSKeyFile,
-                                            stakingVkey = savedStakingVKeyFile
-                                    )
-                                }
-                            } ?: throw IOException("Host not found for default node!")
-                        } ?: throw IOException("Genesis file for default node not found!")
-                    } ?: throw IOException("No default node!")
+                    createStakeWalletEntry(request)
                 }
             }
 
@@ -165,6 +75,138 @@ class WalletController @Autowired constructor(
             log.error(error, e)
             SocketResponse.Error(type = "createwalletentry", exception = e)
         }
+    }
+
+    private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
+        return nodeRepository.findDefault()?.let { defaultNode ->
+            fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
+                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
+                val magicString = if (genesis?.networkMagic != null) {
+                    "--testnet-magic ${genesis.networkMagic}"
+                } else {
+                    "--mainnet"
+                }
+                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
+                    HostConnection(host, defaultNode).use { hostConnection ->
+                        val (pskeyContent, pvkeyContent) = if (request.generateKeys) {
+                            hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                            Pair(
+                                    java.io.File("/tmp/jormanager-pskey").inputStream().bufferedReader().use { it.readText() },
+                                    java.io.File("/tmp/jormanager-pvkey").inputStream().bufferedReader().use { it.readText() }
+                            )
+                        } else {
+                            Pair(request.paymentSKey!!, request.paymentVKey!!)
+                        }
+
+                        val savedPaymentSKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.payment.skey",
+                                        content = pskeyContent
+                                )
+                        )
+                        val savedPaymentVKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.payment.vkey",
+                                        content = pvkeyContent
+                                )
+                        )
+
+                        val (sskeyContent, svkeyContent) = if (request.generateKeys) {
+                            hostConnection.command("${host.cardanoCliPath} shelley stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
+                            Pair(
+                                    java.io.File("/tmp/jormanager-sskey").inputStream().bufferedReader().use { it.readText() },
+                                    java.io.File("/tmp/jormanager-svkey").inputStream().bufferedReader().use { it.readText() }
+                            )
+                        } else {
+                            Pair(request.stakingSKey!!, request.stakingVKey!!)
+                        }
+
+                        val savedStakingSKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.staking.skey",
+                                        content = sskeyContent
+                                )
+                        )
+                        val savedStakingVKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.staking.vkey",
+                                        content = svkeyContent
+                                )
+                        )
+
+                        hostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
+                        hostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
+                        val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                        val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                        hostConnection.command("rm -f /tmp/jormanager-pskey")
+                        hostConnection.command("rm -f /tmp/jormanager-pvkey")
+                        hostConnection.command("rm -f /tmp/jormanager-sskey")
+                        hostConnection.command("rm -f /tmp/jormanager-svkey")
+                        WalletEntry(
+                                name = request.name,
+                                type = "stake",
+                                paymentAddr = paymentAddr,
+                                paymentSkey = savedPaymentSKeyFile,
+                                paymentVkey = savedPaymentVKeyFile,
+                                stakingAddr = stakingAddr,
+                                stakingSkey = savedStakingSKeyFile,
+                                stakingVkey = savedStakingVKeyFile
+                        )
+                    }
+                } ?: throw IOException("Host not found for default node!")
+            } ?: throw IOException("Genesis file for default node not found!")
+        } ?: throw IOException("No default node!")
+    }
+
+    private fun createPaymentWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
+        return nodeRepository.findDefault()?.let { defaultNode ->
+            fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
+                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
+                val magicString = if (genesis?.networkMagic != null) {
+                    "--testnet-magic ${genesis.networkMagic}"
+                } else {
+                    "--mainnet"
+                }
+                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
+                    HostConnection(host, defaultNode).use { hostConnection ->
+                        val (skeyContent, vkeyContent) = if (request.generateKeys) {
+                            hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                            Pair(
+                                    java.io.File("/tmp/jormanager-pskey").inputStream().bufferedReader().use { it.readText() },
+                                    java.io.File("/tmp/jormanager-pvkey").inputStream().bufferedReader().use { it.readText() }
+                            )
+                        } else {
+                            Pair(request.paymentSKey!!, request.paymentVKey!!)
+                        }
+
+                        val savedPaymentSKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.payment.skey",
+                                        content = skeyContent
+                                )
+                        )
+                        val savedPaymentVKeyFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.payment.vkey",
+                                        content = vkeyContent
+                                )
+                        )
+
+                        hostConnection.commandWriteFile("/tmp/jormanager-pvkey", vkeyContent)
+                        val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString").trim()
+                        hostConnection.command("rm -f /tmp/jormanager-pskey")
+                        hostConnection.command("rm -f /tmp/jormanager-pvkey")
+                        WalletEntry(
+                                name = request.name,
+                                type = request.type,
+                                paymentAddr = paymentAddr,
+                                paymentSkey = savedPaymentSKeyFile,
+                                paymentVkey = savedPaymentVKeyFile
+                        )
+                    }
+                } ?: throw IOException("Host not found for default node!")
+            } ?: throw IOException("Genesis file for default node not found!")
+        } ?: throw IOException("No default node!")
     }
 
     @MessageMapping("/deletewalletentry")

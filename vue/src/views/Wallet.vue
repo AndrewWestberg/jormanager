@@ -20,7 +20,15 @@
           :fields="fields"
           v-if="walletItems.length > 0"
         >
-          <template v-slot:cell(paymentAddr)="data">{{data.value.substring(0,10)}}...</template>
+          <template v-slot:cell(paymentAddr)="data">
+            {{data.value.substring(0,10)}}...
+            <font-awesome-icon
+              :icon="['fas','copy']"
+              class="text-secondary"
+              v-b-tooltip.hover.v-secondary.right="'Copy to clipboard'"
+              @click="copyToClipboard(data.value)"
+            />
+          </template>
           <template v-slot:cell(paymentAddrLovelace)="data">
             <div class="text-right">{{data.value / 1000000 | currency('₳', 6)}}</div>
           </template>
@@ -54,7 +62,7 @@
 </template>
 
 <script>
-import { mapState, mapActions } from "vuex";
+import { mapState, mapActions, mapMutations } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
 
 export default {
@@ -81,12 +89,29 @@ export default {
   },
   methods: {
     ...mapActions(["fetchWalletItems", "deleteWalletItem"]),
+    ...mapMutations(["toastInfo", "toastError"]),
     deleteItem(walletItem) {
       this.$bvModal.msgBoxConfirm("Are you sure?").then(value => {
         if (value) {
           this.deleteWalletItem(walletItem);
         }
       });
+    },
+    copyToClipboard(value) {
+      this.$copyText(value).then(
+        () => {
+          this.toastInfo({
+            title: "Payment Address",
+            message: "Copied to clipboard"
+          });
+        },
+        () => {
+          this.toastError({
+            title: "Payment Address",
+            message: "Copy to clipboard failed."
+          });
+        }
+      );
     }
   },
   mounted() {

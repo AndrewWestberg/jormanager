@@ -1,5 +1,6 @@
 import Vue from 'vue'
 import Vue2Filters from 'vue2-filters'
+import VueClipboard from 'vue-clipboard2'
 import {
   BootstrapVue,
   BIcon,
@@ -20,6 +21,7 @@ Vue.component('BIconHexagonHalf', BIconHexagonHalf)
 
 Vue.use(require('vue-moment'))
 Vue.use(Vue2Filters)
+Vue.use(VueClipboard)
 
 import App from './App.vue'
 
@@ -34,7 +36,8 @@ import {
   faChartLine,
   faCircle,
   faCheckCircle,
-  faTrashAlt
+  faTrashAlt,
+  faCopy
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -48,6 +51,7 @@ library.add(faChartLine)
 library.add(faCircle)
 library.add(faCheckCircle)
 library.add(faTrashAlt)
+library.add(faCopy)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
