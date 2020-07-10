@@ -17,6 +17,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.BroadcastChannel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.Channel.Factory.BUFFERED
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,6 +69,7 @@ class NodeMonitor @Autowired constructor(
         }
     }
 
+    private val eventsChannel = Channel<NodeStats>(BUFFERED)
     private val mutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
 
@@ -89,6 +92,7 @@ class NodeMonitor @Autowired constructor(
 //        }
 
         monitorNodes()
+        collectAndGroupStats()
     }
 
     override fun stop() {
@@ -162,7 +166,7 @@ class NodeMonitor @Autowired constructor(
                 val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${localPort}").build().create(EkgService::class.java)
                 monitorNode(node, ekgService, true)
             } catch (e: IOException) {
-                log.error("IOException communicating with ${node.name}", e)
+                log.error("IOException communicating with ${node.name}")
                 retry = true
             } catch (e: CancellationException) {
                 log.warn("Monitoring job canceled: ${node.name}")
@@ -194,7 +198,7 @@ class NodeMonitor @Autowired constructor(
                 if (ekgMetrics.cardano.node.chainDB.metrics.blockNum.intX.valX > 0) {
                     // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
                     val nodeStats = ekgMetrics.toNodeStats(now, node)
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStats))
+                    eventsChannel.send(nodeStats)
                     if (node.isDefault) {
                         nodeStats.blockHeight?.let { newBlockHeight ->
                             if (newBlockHeight > lastBlockHeight) {
@@ -204,17 +208,16 @@ class NodeMonitor @Autowired constructor(
                         }
                     }
                 } else {
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now, node.name, node.color, null, null)))
+                    eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
                 }
             } catch (e: ConnectException) {
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now, node.name, node.color, null, null)))
+                eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
-
             } catch (e: IOException) {
-                log.error("Error communicating with Ekg!", e)
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = NodeStats(now, node.name, node.color, null, null)))
+                log.error("Error communicating with Ekg!")
+                eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
@@ -230,6 +233,31 @@ class NodeMonitor @Autowired constructor(
                 peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
                 blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX
         )
+    }
+
+    private fun collectAndGroupStats() {
+        val collectMutex = Mutex()
+        val nodeStatEvents = mutableListOf<NodeStats>()
+        launch {
+            eventsChannel.consumeEach { nodeStats ->
+                collectMutex.withLock {
+                    nodeStatEvents.add(nodeStats)
+                }
+            }
+        }
+
+        launch {
+            while (true) {
+                // delay until the next 5-second interval + 3 sec
+                val before = System.currentTimeMillis()
+                val delay = 5000 - (before % 5000)
+                delay(delay + 3000)
+                collectMutex.withLock {
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStatEvents))
+                    nodeStatEvents.clear()
+                }
+            }
+        }
     }
 
     /**

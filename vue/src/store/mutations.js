@@ -25,37 +25,40 @@ export default {
     setFileOptions: (state, fileOptions) => {
         state.files = fileOptions
     },
-    saveNodeStats: (state, nodeStats) => {
-        let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName])
-        if (index > -1) {
-            state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
-            state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60) // keep 5 minutes worth of data
-            state.nodeColors[index] = nodeStats.color
-        } else {
-            state.blockHeightSeries.push({
-                name: nodeStats.nodeName,
-                data: [
-                    [nodeStats.timestamp, nodeStats.blockHeight]
-                ]
-            })
-            state.nodeColors[state.blockHeightSeries.length - 1] = nodeStats.color
+    saveNodeStats: (state, nodeStatEvents) => {
+        for (var i = 0; i < nodeStatEvents.length; i++) {
+            let nodeStats = nodeStatEvents[i];
+            let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName])
+            if (index > -1) {
+                state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
+                state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60) // keep 5 minutes worth of data
+                state.nodeColors[index] = nodeStats.color
+            } else {
+                state.blockHeightSeries.push({
+                    name: nodeStats.nodeName,
+                    data: [
+                        [nodeStats.timestamp, nodeStats.blockHeight]
+                    ]
+                })
+                state.nodeColors[state.blockHeightSeries.length - 1] = nodeStats.color
+            }
+
+            let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName])
+            if (index1 > -1) {
+                state.peersSeries[index].data.push([nodeStats.timestamp, nodeStats.peers])
+                state.peersSeries[index].data = state.peersSeries[index].data.slice(-160) // keep 5 minutes worth of data
+            } else {
+                state.peersSeries.push({
+                    name: nodeStats.nodeName,
+                    data: [
+                        [nodeStats.timestamp, nodeStats.peers]
+                    ]
+                })
+            }
         }
+
         // This is a terrible code smell, but I can't get the charts to update otherwise
         state.blockHeightSeries.__ob__.dep.notify()
-
-        let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName])
-        if (index1 > -1) {
-            state.peersSeries[index].data.push([nodeStats.timestamp, nodeStats.peers])
-            state.peersSeries[index].data = state.peersSeries[index].data.slice(-160) // keep 5 minutes worth of data
-        } else {
-            state.peersSeries.push({
-                name: nodeStats.nodeName,
-                data: [
-                    [nodeStats.timestamp, nodeStats.peers]
-                ]
-            })
-        }
-        // This is a terrible code smell, but I can't get the charts to update otherwise
         state.peersSeries.__ob__.dep.notify()
     },
     saveWallet: (state, walletItems) => {

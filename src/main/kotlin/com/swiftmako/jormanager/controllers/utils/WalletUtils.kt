@@ -85,7 +85,7 @@ class WalletUtils @Autowired constructor(
                     }
                 }
             } ?: log.error("Host for default node not found!")
-        } ?: log.error("No default node set! Cannot check wallet for updates!")
+        } ?: log.warn("No default node set! Cannot check wallet for updates!")
 
         return walletItems
     }
