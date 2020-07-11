@@ -12,13 +12,13 @@ plugins {
 }
 
 object Versions {
-    const val bouncycastle = "1.65.01"
+    const val bouncycastle = "1.66"
     const val coroutines = "1.3.7"
     const val googleTruth = "1.0.1"
     const val jackson = "2.11.1"
     const val joda = "2.10.6"
     const val jsoup = "1.13.1"
-    const val liquibase = "3.10.0"
+    const val liquibase = "3.10.1"
     const val mockk = "1.10.0"
     const val moshi = "1.9.3"
     const val okhttp = "4.7.2"
@@ -110,7 +110,7 @@ tasks.withType<KotlinCompile> {
                 "-Xjsr305=strict",
                 "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi"
         )
-        jvmTarget = "1.8"
+        jvmTarget = "13"
     }
 }
 
@@ -120,13 +120,20 @@ tasks.register("buildVue") {
     }
 }
 
+//tasks.register("jvmOptsConfFile") {
+//    doFirst {
+//        File("${project.buildDir.absolutePath}/libs/jormanager-${version}.conf")
+//                .writeText("JAVA_OPTS=-XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m")
+//    }
+//}
+
 tasks {
     springBoot {
         buildInfo()
     }
     bootJar {
         launchScript()
-        dependsOn("buildVue")
+        dependsOn("buildVue" /*, "jvmOptsConfFile"*/)
     }
 }
 

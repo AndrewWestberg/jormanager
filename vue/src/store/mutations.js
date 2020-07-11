@@ -57,9 +57,13 @@ export default {
             }
         }
 
-        // This is a terrible code smell, but I can't get the charts to update otherwise
-        state.blockHeightSeries.__ob__.dep.notify()
-        state.peersSeries.__ob__.dep.notify()
+        if (state.blockHeightSeries.length > 0) {
+            // This is a terrible code smell, but I can't get the charts to update otherwise
+            state.blockHeightSeries.__ob__.dep.notify()
+        }
+        if (state.peersSeries.length > 0) {
+            state.peersSeries.__ob__.dep.notify()
+        }
     },
     saveWallet: (state, walletItems) => {
         state.walletItems = walletItems

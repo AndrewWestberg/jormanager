@@ -29,8 +29,10 @@ data class Node(
         val port: Int,
         @Column(name = "ekg_port")
         val ekgPort: Int,
-        @Column(name = "genesis_file_id")
-        val genesisFileId: Long,
+        @Column(name = "genesis_byron_file_id")
+        val genesisByronFileId: Long,
+        @Column(name = "genesis_shelley_file_id")
+        val genesisShelleyFileId: Long,
         @Column(name = "config_file_id")
         val configFileId: Long,
         @Column(name = "cold_node_skey_file_id")

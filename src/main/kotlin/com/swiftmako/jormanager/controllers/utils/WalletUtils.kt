@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.controllers.utils
 
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.model.AddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -24,6 +25,7 @@ class WalletUtils @Autowired constructor(
         moshi: Moshi
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
+    private val addressInfoAdapter = moshi.adapter(AddressInfo::class.java)
 
     fun getWalletItems(): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
@@ -32,11 +34,13 @@ class WalletUtils @Autowired constructor(
                 HostConnection(host, defaultNode).use { hostConnection ->
                     walletRepository.findAllNotDeleted().forEach { walletEntry ->
                         // find payment_addr balance
+                        val addressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.paymentAddr}")
+                        val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
                         val addressInfoString = when {
-                            walletEntry.paymentAddr.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) -> {
+                            addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
                                 hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --testnet-magic 42")
                             }
-                            walletEntry.paymentAddr.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) -> {
+                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
                                 hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --mainnet")
                             }
                             else -> {
@@ -57,12 +61,15 @@ class WalletUtils @Autowired constructor(
                         }
 
                         // find staking_addr balance
+                        val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
+                        val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
+
                         val stakingInfoString = if (walletEntry.type == "stake") {
                             when {
-                                walletEntry.stakingAddr?.matches(TESTNET_STAKING_ADDRESS) == true -> {
+                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
                                     hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --testnet-magic 42")
                                 }
-                                walletEntry.stakingAddr?.matches(MAINNET_STAKING_ADDRESS) == true -> {
+                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
                                     hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --mainnet")
                                 }
                                 else -> {
@@ -93,7 +100,7 @@ class WalletUtils @Autowired constructor(
     companion object {
         private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60[0-9a-fA-F]{56}|00[0-9a-fA-F]{112})")
         private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
-        private val TESTNET_STAKING_ADDRESS = Regex("58[0-9a-fA-F]{60}")
+        private val TESTNET_STAKING_ADDRESS = Regex("e0[0-9a-fA-F]{60}")
         private val MAINNET_STAKING_ADDRESS = Regex("e1[0-9a-fA-F]{60}")
         private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
     }

@@ -50,9 +50,10 @@ class NodeController @Autowired constructor(
                         NODE_TYPE_RELAY -> {
                             val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
                             createNodeFolders(hostConnection, nodeFolder)
-                            val genesisFile = createGenesisFile(request.genesisFileId, hostConnection, nodeFolder)
-                            createTopologyFile(genesisFile.name, hostConnection, nodeFolder)
-                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisFile.name, hostConnection, nodeFolder)
+                            val genesisByronFile = createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
+                            createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
+                            createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
+                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
                             createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
                             createSystemdFile(request, host, hostConnection)
 
@@ -73,7 +74,8 @@ class NodeController @Autowired constructor(
                                     listen = request.listen,
                                     port = request.port,
                                     ekgPort = ekgPort,
-                                    genesisFileId = request.genesisFileId,
+                                    genesisByronFileId = request.genesisByronFileId,
+                                    genesisShelleyFileId = request.genesisShelleyFileId,
                                     configFileId = configFileId,
                                     isDefault = request.isDefault
                             )
@@ -140,6 +142,7 @@ class NodeController @Autowired constructor(
 
         hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
         hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
+        hostConnection.sudoCommand("systemctl enable ${request.name}-node.service", request.sudoPassword)
     }
 
     private fun createEnvFile(hostConnection: HostConnection, nodeFolder: String, listen: String, port: Int): String {
@@ -156,13 +159,14 @@ class NodeController @Autowired constructor(
         return hostConnection.command("chmod 400 ${nodeFolder}/env")
     }
 
-    private fun createConfigFile(hostId: Long, genesisFileName: String, hostConnection: HostConnection, nodeFolder: String): Pair<Long, Int> {
+    private fun createConfigFile(hostId: Long, genesisByronFileName: String, hostConnection: HostConnection, nodeFolder: String): Pair<Long, Int> {
         val nodeCount = nodeRepository.countForHost(hostId)
         val ekgPort = 12788 + (2 * nodeCount)
         val prometheusPort = 12789 + (2 * nodeCount)
-        val configFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-config.json")
+        val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
         val configFileContent = configFile?.content
-                ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "genesis.json",""")
+                ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
+                ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
                 ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
                 ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
                         """
@@ -186,17 +190,17 @@ class NodeController @Autowired constructor(
         return Pair(configFile.id!!, ekgPort)
     }
 
-    private fun createTopologyFile(genesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
-        val topologyFile = fileRepository.findByName(genesisFileName.substringBeforeLast('-') + "-topology.json")
+    private fun createTopologyFile(byronGenesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
+        val topologyFile = fileRepository.findByName(byronGenesisFileName.substringBeforeLast("-byron") + "-topology.json")
         topologyFile?.let {
             hostConnection.commandWriteFile("${nodeFolder}/topology.json", topologyFile.content)
         } ?: throw IOException("Topology file not found in db!")
     }
 
-    private fun createGenesisFile(genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
+    private fun createGenesisFile(prefix:String, genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
         val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
         genesisFile?.let {
-            hostConnection.commandWriteFile("${nodeFolder}/genesis.json", genesisFile.content)
+            hostConnection.commandWriteFile("${nodeFolder}/$prefix-genesis.json", genesisFile.content)
             return genesisFile
         } ?: throw IOException("Genesis file not found in db!")
     }

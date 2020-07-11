@@ -43,7 +43,7 @@
         <b-form-group label="SSH Key" label-for="ssh-key-input" v-if="isFormRemote">
           <b-form-input
             id="ssh-key-input"
-            placeholder="e.g. ~/.ssh/id_rsa"
+            placeholder="e.g. /home/<username>/.ssh/id_rsa"
             v-model="formHost.sshPemPath"
             :required="isFormRemote"
           />
@@ -96,7 +96,7 @@ export default {
         hostname: "",
         sshUser: "",
         sshPort: 22,
-        sshPemPath: "~/.ssh/id_rsa",
+        sshPemPath: "",
         cardanoCliPath: "",
         cardanoNodePath: "",
         nodeHomePath: ""

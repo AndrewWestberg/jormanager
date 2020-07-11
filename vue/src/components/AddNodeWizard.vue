@@ -91,11 +91,23 @@
             id="port-input-live-feedback"
           >The port number the node will listen for connections on</b-form-invalid-feedback>
         </b-form-group>
-        <b-form-group label="Genesis" label-for="genesis-select" label-cols-md="2">
+        <b-form-group label="Genesis Byron" label-for="genesis-byron-select" label-cols-md="2">
           <b-form-select
-            id="genesis-select"
-            v-model="formNode.genesis"
-            :state="genesisState"
+            id="genesis-byron-select"
+            v-model="formNode.genesisByron"
+            :state="genesisByronState"
+            :options="genesisFiles"
+          >
+            <template v-slot:first>
+              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+            </template>
+          </b-form-select>
+        </b-form-group>
+        <b-form-group label="Genesis Shelley" label-for="genesis-shelley-select" label-cols-md="2">
+          <b-form-select
+            id="genesis-shelley-select"
+            v-model="formNode.genesisShelley"
+            :state="genesisShelleyState"
             :options="genesisFiles"
           >
             <template v-slot:first>
@@ -345,7 +357,8 @@ export default {
         processorThreads: 0,
         listen: "",
         port: "",
-        genesis: null,
+        genesisByron: null,
+        genesisShelley: null,
         generateColdKeys: false,
         coldSKey: null,
         coldVKey: null,
@@ -431,8 +444,11 @@ export default {
     portState() {
       return this.formNode.port > 1023;
     },
-    genesisState() {
-      return this.formNode.genesis != null;
+    genesisByronState() {
+      return this.formNode.genesisByron != null;
+    },
+    genesisShelleyState() {
+      return this.formNode.genesisShelley != null;
     },
     coldSKeyState() {
       return this.formNode.generateColdKeys || this.formNode.coldSKey != null;
@@ -479,7 +495,8 @@ export default {
           this.typeState &&
           this.listenState &&
           this.portState &&
-          this.genesisState
+          this.genesisByronState &&
+          this.genesisShelleyState
         ) {
           return true;
         } else {

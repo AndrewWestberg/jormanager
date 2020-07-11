@@ -79,7 +79,7 @@ class WalletController @Autowired constructor(
 
     private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
-            fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
+            fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                 val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
                 val magicString = if (genesis?.networkMagic != null) {
                     "--testnet-magic ${genesis.networkMagic}"
@@ -160,7 +160,7 @@ class WalletController @Autowired constructor(
 
     private fun createPaymentWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
-            fileRepository.findByIdOrNull(defaultNode.genesisFileId)?.let { genesisFile ->
+            fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                 val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
                 val magicString = if (genesis?.networkMagic != null) {
                     "--testnet-magic ${genesis.networkMagic}"
