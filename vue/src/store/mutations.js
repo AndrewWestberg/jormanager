@@ -34,13 +34,15 @@ export default {
                 state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60) // keep 5 minutes worth of data
                 state.nodeColors[index] = nodeStats.color
             } else {
-                state.blockHeightSeries.push({
+                let heightData = {
                     name: nodeStats.nodeName,
                     data: [
                         [nodeStats.timestamp, nodeStats.blockHeight]
                     ]
-                })
-                state.nodeColors[state.blockHeightSeries.length - 1] = nodeStats.color
+                };
+                state.blockHeightSeries.push(heightData)
+                state.blockHeightSeries = _.sortBy(state.blockHeightSeries, ["name"])
+                state.nodeColors[_.indexOf(state.blockHeightSeries, heightData)] = nodeStats.color
             }
 
             let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName])
@@ -54,6 +56,7 @@ export default {
                         [nodeStats.timestamp, nodeStats.peers]
                     ]
                 })
+                state.peersSeries = _.sortBy(state.peersSeries, ["name"])
             }
         }
 
