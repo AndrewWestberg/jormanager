@@ -36,18 +36,18 @@ class WalletUtils @Autowired constructor(
                         // find payment_addr balance
                         val addressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.paymentAddr}")
                         val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
-                        val addressInfoString = when {
-                            addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --testnet-magic 42")
-                            }
-                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --mainnet")
-                            }
-                            else -> {
-                                log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
-                                return@forEach
-                            }
-                        }
+                        val addressInfoString = //when {
+                            //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
+                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --cardano-mode --testnet-magic 42")
+//                            }
+//                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
+//                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --cardano-mode --mainnet")
+//                            }
+//                            else -> {
+//                                log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
+//                                return@forEach
+//                            }
+//                        }
 
                         val utxos = mutableListOf<Utxo>()
                         UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
@@ -61,22 +61,21 @@ class WalletUtils @Autowired constructor(
                         }
 
                         // find staking_addr balance
-                        val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
-                        val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
-
                         val stakingInfoString = if (walletEntry.type == "stake") {
-                            when {
-                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
-                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --testnet-magic 42")
-                                }
-                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
-                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --mainnet")
-                                }
-                                else -> {
-                                    log.error("Invalid staking address format: ${walletEntry.paymentAddr}")
-                                    return@forEach
-                                }
-                            }
+                            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
+                            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
+//                            when {
+//                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
+                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+//                                }
+//                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
+//                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
+//                                }
+//                                else -> {
+//                                    log.error("Invalid staking address format: ${walletEntry.paymentAddr}")
+//                                    return@forEach
+//                                }
+//                            }
                         } else {
                             null
                         }

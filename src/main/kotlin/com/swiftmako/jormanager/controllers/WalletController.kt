@@ -81,11 +81,11 @@ class WalletController @Autowired constructor(
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                 val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                val magicString = if (genesis?.networkMagic != null) {
-                    "--testnet-magic ${genesis.networkMagic}"
-                } else {
-                    "--mainnet"
-                }
+                val magicString = //if (genesis?.networkMagic != null) {
+//                    "--testnet-magic ${genesis.networkMagic}"
+//                } else {
+                        "--mainnet"
+//                }
                 hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                     HostConnection(host, defaultNode).use { hostConnection ->
                         val (pskeyContent, pvkeyContent) = if (request.generateKeys) {
@@ -136,12 +136,22 @@ class WalletController @Autowired constructor(
 
                         hostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
                         hostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
+                        hostConnection.command("${host.cardanoCliPath} shelley stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert").trim()
+                        val regcertContent = java.io.File("/tmp/jormanager-regcert").inputStream().bufferedReader().use { it.readText() }
+                        val savedRegcertFile = fileRepository.save(
+                                File(
+                                        name = "${request.name}.staking.cert",
+                                        content = regcertContent
+                                )
+                        )
+
                         val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                         val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                         hostConnection.command("rm -f /tmp/jormanager-pskey")
                         hostConnection.command("rm -f /tmp/jormanager-pvkey")
                         hostConnection.command("rm -f /tmp/jormanager-sskey")
                         hostConnection.command("rm -f /tmp/jormanager-svkey")
+                        hostConnection.command("rm -f /tmp/jormanager-regcert")
                         WalletEntry(
                                 name = request.name,
                                 type = "stake",
@@ -150,7 +160,8 @@ class WalletController @Autowired constructor(
                                 paymentVkey = savedPaymentVKeyFile,
                                 stakingAddr = stakingAddr,
                                 stakingSkey = savedStakingSKeyFile,
-                                stakingVkey = savedStakingVKeyFile
+                                stakingVkey = savedStakingVKeyFile,
+                                stakingRegCert = savedRegcertFile
                         )
                     }
                 } ?: throw IOException("Host not found for default node!")
@@ -161,12 +172,12 @@ class WalletController @Autowired constructor(
     private fun createPaymentWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                val magicString = if (genesis?.networkMagic != null) {
+//                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
+                val magicString = /*if (genesis?.networkMagic != null) {
                     "--testnet-magic ${genesis.networkMagic}"
-                } else {
-                    "--mainnet"
-                }
+                } else {*/
+                        "--mainnet"
+//                }
                 hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                     HostConnection(host, defaultNode).use { hostConnection ->
                         val (skeyContent, vkeyContent) = if (request.generateKeys) {

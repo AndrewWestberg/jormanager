@@ -35,7 +35,7 @@
             v-model="formWallet.paymentAddr"
             :state="paymentAddrState"
             aria-describedby="address-input-live-feedback"
-            placeholder="e.g. 60f9a5546c..., 003159a5bc7489bbdd..."
+            placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
             trim
           ></b-form-input>
           <b-form-invalid-feedback
@@ -215,7 +215,7 @@ export default {
         this.formWallet.type === "payment" ||
         this.formWallet.type === "stake" ||
         this.formWallet.paymentAddr.match(
-          /^((60|61)[0-9a-fA-F]{56}|(00|01)[0-9a-fA-F]{112})$/
+          /^.*1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53}|.{98})$/
         ) != null
       );
     },

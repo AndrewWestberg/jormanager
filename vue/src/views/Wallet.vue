@@ -30,17 +30,29 @@
             />
           </template>
           <template v-slot:cell(paymentAddrLovelace)="data">
-            <div class="text-right">{{data.value / 1000000 | currency('₳', 6)}}</div>
+            <div class="text-right">
+              {{data.value / 1000000 | currency('₳', 6)}}
+              <span
+                class="text-success"
+                v-if="data.item.type != 'address' && data.value > 0"
+                v-b-tooltip.hover.v-success.bottom="'Send Ada'"
+              >₳»</span>
+            </div>
           </template>
           <template v-slot:cell(stakingAddr)="data">
             <div v-if="data.value.length>0">{{data.value.substring(0,10)}}...</div>
             <div v-else class="text-center">---</div>
           </template>
           <template v-slot:cell(stakingAddrLovelace)="data">
-            <div
-              class="text-right"
-              v-if="data.item.type==='stake'"
-            >{{data.value / 1000000 | currency('₳', 6)}}</div>
+            <div class="text-right" v-if="data.item.type==='stake'">
+              {{data.value / 1000000 | currency('₳', 6)}}
+              <font-awesome-icon
+                :icon="['fas','cash-register']"
+                class="text-success"
+                v-if="data.value > 0"
+                v-b-tooltip.hover.v-success.bottom="'Claim Rewards'"
+              />
+            </div>
             <div class="text-center" v-else>---</div>
           </template>
           <template v-slot:cell(edit)="data">
@@ -119,3 +131,11 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.fa-trash-alt:hover,
+.fa-cash-register:hover,
+span.text-success:hover {
+  cursor: pointer;
+}
+</style>

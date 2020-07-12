@@ -37,7 +37,8 @@ import {
   faCircle,
   faCheckCircle,
   faTrashAlt,
-  faCopy
+  faCopy,
+  faCashRegister
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -52,6 +53,7 @@ library.add(faCircle)
 library.add(faCheckCircle)
 library.add(faTrashAlt)
 library.add(faCopy)
+library.add(faCashRegister)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

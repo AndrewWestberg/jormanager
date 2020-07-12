@@ -36,6 +36,9 @@ data class WalletEntry(
         @OneToOne(cascade = [CascadeType.ALL])
         @JoinColumn(name = "staking_vkey", referencedColumnName = "id")
         val stakingVkey: File?=null,
+        @OneToOne(cascade = [CascadeType.ALL])
+        @JoinColumn(name = "staking_reg_cert", referencedColumnName = "id")
+        val stakingRegCert: File?=null,
         @Column(name = "deleted")
         val deleted: Boolean = false
 ) {

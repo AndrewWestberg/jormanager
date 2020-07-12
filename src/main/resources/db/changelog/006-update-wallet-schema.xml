@@ -2,15 +2,11 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
-    <changeSet id="005" author="Andrew Westberg">
+    <changeSet id="006" author="Andrew Westberg">
 
-        <addColumn tableName="nodes">
-            <column name="genesis_shelley_file_id" type="int" afterColumn="genesis_file_id">
-                <constraints nullable="false"/>
-            </column>
+        <addColumn tableName="wallet">
+            <column name="staking_reg_cert" type="int" afterColumn="staking_vkey"/>
         </addColumn>
-
-        <renameColumn tableName="nodes" oldColumnName="genesis_file_id" newColumnName="genesis_byron_file_id"/>
 
     </changeSet>
 </databaseChangeLog>
