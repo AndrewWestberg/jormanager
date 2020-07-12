@@ -68,5 +68,19 @@ export default {
                 isDefault: node.isDefault
             }
         })
+    },
+    paymentSelectOptions: (state) => (currency) => {
+        return _.sortBy(
+            _.map(state.walletItems, (walletItem) => {
+                return {
+                    value: walletItem.id,
+                    text: walletItem.name + " - " +
+                        currency(
+                            walletItem.paymentAddrLovelace / 1000000,
+                            "₳",
+                            6
+                        )
+                }
+            }), ['text'])
     }
 }

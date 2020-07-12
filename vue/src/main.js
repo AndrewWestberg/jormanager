@@ -38,7 +38,8 @@ import {
   faCheckCircle,
   faTrashAlt,
   faCopy,
-  faCashRegister
+  faCashRegister,
+  faHandHoldingUsd
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -54,11 +55,30 @@ library.add(faCheckCircle)
 library.add(faTrashAlt)
 library.add(faCopy)
 library.add(faCashRegister)
+library.add(faHandHoldingUsd)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
 import VueApexCharts from 'vue-apexcharts'
 Vue.component('apexchart', VueApexCharts)
+
+import VueCurrencyInput from 'vue-currency-input'
+const pluginOptions = {
+  globalOptions: {
+    currency: {
+      prefix: '₳'
+    },
+    precision: 6,
+    valueAsInteger: true,
+    allowNegative: false,
+    distractionFree: {
+      hideNegligibleDecimalDigits: true,
+      hideCurrencySymbol: false,
+      hideGroupingSymbol: true
+    }
+  }
+}
+Vue.use(VueCurrencyInput, pluginOptions)
 
 import router from './router'
 import store from './store/index'

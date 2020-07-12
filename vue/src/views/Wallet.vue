@@ -32,11 +32,13 @@
           <template v-slot:cell(paymentAddrLovelace)="data">
             <div class="text-right">
               {{data.value / 1000000 | currency('₳', 6)}}
-              <span
+              <font-awesome-icon
+                :icon="['fas','hand-holding-usd']"
                 class="text-success"
                 v-if="data.item.type != 'address' && data.value > 0"
                 v-b-tooltip.hover.v-success.bottom="'Send Ada'"
-              >₳»</span>
+                @click="$root.$emit('send-ada', walletItems[data.index])"
+              />
             </div>
           </template>
           <template v-slot:cell(stakingAddr)="data">
@@ -70,17 +72,20 @@
       v-if="showAddWalletEntryWizard"
       @hideWalletEntryWizard="showAddWalletEntryWizard = false"
     />
+    <SendAdaModal />
   </div>
 </template>
 
 <script>
 import { mapState, mapActions, mapMutations } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
+import SendAdaModal from "@/components/SendAdaModal";
 
 export default {
   name: "Wallet",
   components: {
-    AddWalletEntryWizard
+    AddWalletEntryWizard,
+    SendAdaModal
   },
   data() {
     return {
@@ -93,7 +98,8 @@ export default {
         { key: "stakingAddrLovelace", label: "Rewards" },
         { key: "edit", label: "" }
       ],
-      showAddWalletEntryWizard: false
+      showAddWalletEntryWizard: false,
+      sendAdaFrom: null
     };
   },
   computed: {
@@ -133,8 +139,10 @@ export default {
 </script>
 
 <style scoped>
+.fa-copy:hover,
 .fa-trash-alt:hover,
 .fa-cash-register:hover,
+.fa-hand-holding-usd:hover,
 span.text-success:hover {
   cursor: pointer;
 }
