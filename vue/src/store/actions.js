@@ -10,7 +10,7 @@ export default {
         let socket = new SockJS(getters.websocketUrl)
 
         let stompClient = Stomp.over(socket, {
-            debug: getters.isDebug
+            debug: false /*getters.isDebug*/
         })
         commit('setStompClient', stompClient)
 
@@ -30,7 +30,6 @@ export default {
         dispatch
     }) => {
         state.stompClient.subscribe("/topic/messages", tick => {
-            console.log(tick);
             let message = JSON.parse(tick.body)
             switch (message.type) {
                 case "version":
