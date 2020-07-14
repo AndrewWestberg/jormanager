@@ -60,11 +60,14 @@ export default {
             }
         }
 
-        if (state.blockHeightSeries.length > 0) {
+        if (state.nodeColors.length > 1) {
+            state.nodeColors.__ob__.dep.notify()
+        }
+        if (state.blockHeightSeries.length > 1) {
             // This is a terrible code smell, but I can't get the charts to update otherwise
             state.blockHeightSeries.__ob__.dep.notify()
         }
-        if (state.peersSeries.length > 0) {
+        if (state.peersSeries.length > 1) {
             state.peersSeries.__ob__.dep.notify()
         }
     },

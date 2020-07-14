@@ -39,7 +39,9 @@ import {
   faTrashAlt,
   faCopy,
   faCashRegister,
-  faHandHoldingUsd
+  faHandHoldingUsd,
+  faWeightHanging,
+  faBalanceScaleRight
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -56,6 +58,8 @@ library.add(faTrashAlt)
 library.add(faCopy)
 library.add(faCashRegister)
 library.add(faHandHoldingUsd)
+library.add(faWeightHanging)
+library.add(faBalanceScaleRight)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

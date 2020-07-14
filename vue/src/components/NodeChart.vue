@@ -21,7 +21,7 @@ export default {
     return {
       options: {
         chart: {
-          id: "vuechart-example",
+          id: "vuechart",
           toolbar: {
             show: false,
             tools: {

@@ -167,6 +167,7 @@ class NodeController @Autowired constructor(
         val configFileContent = configFile?.content
                 ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
                 ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
+                ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "shelley-genesis.json",""")
                 ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
                 ?.replace(Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
                         """
@@ -197,7 +198,7 @@ class NodeController @Autowired constructor(
         } ?: throw IOException("Topology file not found in db!")
     }
 
-    private fun createGenesisFile(prefix:String, genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
+    private fun createGenesisFile(prefix: String, genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
         val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
         genesisFile?.let {
             hostConnection.commandWriteFile("${nodeFolder}/$prefix-genesis.json", genesisFile.content)

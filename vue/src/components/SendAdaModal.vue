@@ -10,69 +10,70 @@
       @ok="handleValidateAndSend"
     >
       <b-form ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
-        <b-card
-          border-variant="secondary"
-          v-for="(toAccount, index) in formSendAda.toAccounts"
-          :key="index"
-        >
-          <b-form-group label="Account">
-            <b-form-select
-              v-model="toAccount.account"
-              :state="accountState(toAccount.account)"
-              :options="paymentSelectOptions($options.filters.currency)"
+        <div v-for="(toAccount, index) in formSendAda.toAccounts" :key="index">
+          <b-card border-variant="secondary">
+            <b-form-group label="Account" label-cols-md="2">
+              <b-form-select
+                v-model="toAccount.account"
+                :state="accountState(toAccount.account)"
+                :options="paymentSelectOptions($options.filters.currency)"
+              >
+                <template v-slot:first>
+                  <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+                </template>
+              </b-form-select>
+            </b-form-group>
+            <b-form-group label="Entry Type" label-cols-md="2">
+              <b-form-radio-group v-model="toAccount.type" :state="typeState(toAccount.type)">
+                <b-form-radio value="amount">
+                  <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
+                </b-form-radio>
+                <b-form-radio value="percent">
+                  <font-awesome-icon :icon="['fas', 'balance-scale-right']" />&nbsp;Percent
+                </b-form-radio>
+              </b-form-radio-group>
+            </b-form-group>
+            <b-form-group
+              label="Amount"
+              label-for="amount-input"
+              label-cols-md="2"
+              v-if="toAccount.type === 'amount'"
             >
-              <template v-slot:first>
-                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
-              </template>
-            </b-form-select>
-          </b-form-group>
-          <b-form-group label="Entry Type" label-for="type-radio">
-            <b-form-radio-group
-              id="type-radio"
-              v-model="toAccount.type"
-              :state="typeState(toAccount.type)"
+              <b-form-input
+                id="amount-input"
+                :state="amountState(index, toAccount.amount)"
+                aria-describedby="amount-input-live-feedback"
+                v-model="toAccount.amount"
+                placeholder="e.g. ₳1,230.987000"
+                trim
+                v-currency
+              />
+              <b-form-invalid-feedback
+                id="amount-input-live-feedback"
+              >Enter a non-zero amount up to {{calculateMaxLovelace(index) / 1000000 | currency('₳', 6)}}</b-form-invalid-feedback>
+            </b-form-group>
+            <b-form-group
+              label="Percent"
+              label-for="percent-input"
+              label-cols-md="2"
+              v-if="toAccount.type === 'percent'"
             >
-              <b-form-radio value="amount">
-                <font-awesome-icon :icon="['fas', 'dice-d20']" />&nbsp;Amount
-              </b-form-radio>
-              <b-form-radio value="percent">
-                <font-awesome-icon :icon="['fas', 'dice-d20']" />&nbsp;Percent
-              </b-form-radio>
-            </b-form-radio-group>
-          </b-form-group>
-          <b-form-group label="Amount" label-for="amount-input" v-if="toAccount.type === 'amount'">
-            <b-form-input
-              id="amount-input"
-              :state="amountState(toAccount.amount)"
-              aria-describedby="amount-input-live-feedback"
-              v-model="toAccount.amount"
-              placeholder="e.g. ₳1,230.987000"
-              trim
-              v-currency
-            />
-            <b-form-invalid-feedback
-              id="amount-input-live-feedback"
-            >Enter a non-zero amount up to {{fromWalletItem.paymentAddrLovelace / 1000000 | currency('₳', 6)}}</b-form-invalid-feedback>
-          </b-form-group>
-          <b-form-group
-            label="Percent"
-            label-for="percent-input"
-            v-if="toAccount.type === 'percent'"
-          >
-            <b-form-input
-              id="percent-input"
-              v-model="toAccount.percent"
-              :state="percentState(toAccount.percent)"
-              placeholder="e.g. 2"
-              type="range"
-              min="0"
-              max="100"
-              step="0.5"
-              trim
-            />
-            <p class="text-center">{{toAccount.percent}} %</p>
-          </b-form-group>
-        </b-card>
+              <b-form-input
+                id="percent-input"
+                v-model="toAccount.percent"
+                :state="percentState(index, toAccount.percent)"
+                placeholder="e.g. 2"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                trim
+              />
+              <p class="text-center">{{percentLabel(index, toAccount.percent)}}</p>
+            </b-form-group>
+          </b-card>
+          <hr />
+        </div>
       </b-form>
       <b-button
         variant="primary"
@@ -119,17 +120,20 @@ export default {
     typeState(type) {
       return type != null;
     },
-    amountState(amount) {
-      return amount != null;
-      //   return (
-      //     this.formSendAda.amount != null &&
-      //     this.$root.$parseCurrency(this.formSendAda.amount) > 0 &&
-      //     this.$root.$parseCurrency(this.formSendAda.amount) <=
-      //       this.fromWalletItem.paymentAddrLovelace
-      //   );
+    amountState(index, amount) {
+      if (amount != null) {
+        let lovelaces = this.$root.$parseCurrency(amount);
+        return lovelaces > 0 && lovelaces <= this.calculateMaxLovelace(index);
+      }
+      return false;
     },
-    percentState(percent) {
-      return percent != null;
+    percentState(index, percent) {
+      if (percent != null && percent > 0) {
+        let maxLovelace = this.calculateMaxLovelace(index);
+        let lovelaces = Math.floor(maxLovelace * (percent / 100.0));
+        return lovelaces <= this.calculateSpentLovelace(index);
+      }
+      return false;
     },
     modalTitle() {
       return (
@@ -141,7 +145,13 @@ export default {
           "₳",
           6
         ) +
-        ")"
+        "), Remaining: " +
+        this.$options.filters.currency(
+          this.calculateSpentLovelace(this.formSendAda.toAccounts.length) /
+            1000000,
+          "₳",
+          6
+        )
       );
     },
     addPaymentEntry() {
@@ -177,6 +187,70 @@ export default {
     handleValidateAndSend(bvModalEvt) {
       bvModalEvt.preventDefault();
       console.log("Saving...");
+    },
+    calculateMaxLovelace(index) {
+      let baseAmount = this.fromWalletItem.paymentAddrLovelace;
+      let alreadySpentPercentages = 0;
+      for (let i = 0; i < index; i++) {
+        let account = this.formSendAda.toAccounts[i];
+        if (account.type === "amount" && account.amount != null) {
+          let alreadySpent = this.$root.$parseCurrency(account.amount);
+          if (alreadySpent) {
+            baseAmount -= alreadySpent;
+          }
+          if (alreadySpentPercentages > 0) {
+            baseAmount -= alreadySpentPercentages;
+            alreadySpentPercentages = 0;
+          }
+        } else if (
+          account.type === "percent" &&
+          account.percent != null &&
+          account.percent > 0
+        ) {
+          alreadySpentPercentages += Math.floor(
+            baseAmount * (account.percent / 100.0)
+          );
+        }
+      }
+      return baseAmount;
+    },
+    calculateSpentLovelace(index) {
+      let baseAmount = this.fromWalletItem.paymentAddrLovelace;
+      let alreadySpentPercentages = 0;
+      for (let i = 0; i < index; i++) {
+        let account = this.formSendAda.toAccounts[i];
+        if (account.type === "amount" && account.amount != null) {
+          let alreadySpent = this.$root.$parseCurrency(account.amount);
+          if (alreadySpent) {
+            baseAmount -= alreadySpent;
+          }
+          if (alreadySpentPercentages > 0) {
+            baseAmount -= alreadySpentPercentages;
+            alreadySpentPercentages = 0;
+          }
+        } else if (
+          account.type === "percent" &&
+          account.percent != null &&
+          account.percent > 0
+        ) {
+          alreadySpentPercentages += Math.floor(
+            baseAmount * (account.percent / 100.0)
+          );
+        }
+      }
+      return baseAmount - alreadySpentPercentages;
+    },
+    percentLabel(index, percent) {
+      let maxLovelace = this.calculateMaxLovelace(index);
+      return (
+        percent +
+        "% - " +
+        this.$options.filters.currency(
+          Math.floor(maxLovelace * (percent / 100.0)) / 1000000,
+          "₳",
+          6
+        )
+      );
     }
   },
   mounted() {
