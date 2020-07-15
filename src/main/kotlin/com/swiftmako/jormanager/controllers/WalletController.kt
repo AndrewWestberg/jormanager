@@ -49,6 +49,7 @@ class WalletController @Autowired constructor(
 
     @MessageMapping("/calculatefee")
     @SendTo("/topic/messages")
+    @Synchronized
     fun calculateTxFee(request: CalculateFeeRequest): SocketResponse<Int> {
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->

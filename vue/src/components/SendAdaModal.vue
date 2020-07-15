@@ -94,6 +94,7 @@ export default {
   name: "SendAdaModal",
   data() {
     return {
+      remainingLovelace: 1,
       fromWalletItem: { name: null, paymentAddrLovelace: null },
       formSendAda: {
         fromId: null,
@@ -131,11 +132,29 @@ export default {
       if (percent != null && percent > 0) {
         let maxLovelace = this.calculateMaxLovelace(index);
         let lovelaces = Math.floor(maxLovelace * (percent / 100.0));
-        return lovelaces <= this.calculateSpentLovelace(index);
+        let spentLovelace = this.calculateSpentLovelace(index);
+        return lovelaces <= spentLovelace;
       }
       return false;
     },
     modalTitle() {
+      let wasMaxed = this.remainingLovelace == 0;
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      if (
+        (wasMaxed && this.remainingLovelace > 0) ||
+        (!wasMaxed && this.remainingLovelace == 0)
+      ) {
+        // re-calculate fees because we have a change in number of output transactions
+        this.calculateSendAdaFees({
+          fromAddress: this.fromWalletItem.paymentAddr,
+          txOut:
+            this.formSendAda.toAccounts.length +
+            (this.remainingLovelace == 0 ? 0 : 1)
+        });
+      }
+
       return (
         "Send Ada (" +
         this.fromWalletItem.name +
@@ -148,12 +167,7 @@ export default {
         "), Fee: " +
         this.$options.filters.currency(this.txFee / 1000000, "₳", 6) +
         ", Remaining: " +
-        this.$options.filters.currency(
-          this.calculateSpentLovelace(this.formSendAda.toAccounts.length) /
-            1000000,
-          "₳",
-          6
-        )
+        this.$options.filters.currency(this.remainingLovelace / 1000000, "₳", 6)
       );
     },
     addPaymentEntry() {
@@ -164,10 +178,10 @@ export default {
         percent: 0
       });
 
-      let returnChangeTxOut =
-        this.calculateSpentLovelace(this.formSendAda.toAccounts.length) > 0
-          ? 1
-          : 0;
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
       this.calculateSendAdaFees({
         fromAddress: this.fromWalletItem.paymentAddr,
         txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
@@ -195,10 +209,10 @@ export default {
       this.fromWalletItem = _.cloneDeep(walletItem);
       this.$bvModal.show("modal-send-ada");
 
-      let returnChangeTxOut =
-        this.calculateSpentLovelace(this.formSendAda.toAccounts.length) > 0
-          ? 1
-          : 0;
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
       this.calculateSendAdaFees({
         fromAddress: this.fromWalletItem.paymentAddr,
         txOut: this.formSendAda.toAccounts.length + returnChangeTxOut

@@ -275,7 +275,6 @@ export default {
         state,
         commit
     }, request) => {
-        commit('saveTxFee', 0)
         if (state.stompClient && state.stompClient.connected) {
             console.log("Calculate txfee: " + JSON.stringify(request));
             state.stompClient.send("/jormanager/calculatefee", JSON.stringify(request));
