@@ -6,6 +6,7 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.WalletEntry
+import com.swiftmako.jormanager.model.CalculateFeeRequest
 import com.swiftmako.jormanager.model.CreateWalletEntryRequest
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.WalletItem
@@ -43,6 +44,53 @@ class WalletController @Autowired constructor(
             val error = "Fatal error getting wallet entries!"
             log.error(error, e)
             SocketResponse.Error(type = "wallet", exception = e)
+        }
+    }
+
+    @MessageMapping("/calculatefee")
+    @SendTo("/topic/messages")
+    fun calculateTxFee(request: CalculateFeeRequest): SocketResponse<Int> {
+        return try {
+            nodeRepository.findDefault()?.let { defaultNode ->
+                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                    val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
+                    val magicString = if (genesis?.networkMagic != null) {
+                        "--testnet-magic ${genesis.networkMagic}"
+                    } else {
+                        "--mainnet"
+                    }
+                    hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
+                        HostConnection(host, defaultNode).use { hostConnection ->
+                            val protocolParams = hostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
+                            log.error("protocolParams: $protocolParams")
+                            hostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParams)
+
+                            val utxos = walletUtils.getUtxos(host, hostConnection, request.fromAddress)
+                            val dummyTransaction = StringBuilder()
+                            dummyTransaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
+                            utxos.forEach { utxo ->
+                                dummyTransaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                            }
+                            repeat(request.txOut) {
+                                dummyTransaction.append("--tx-out addr1vyde3cg6cccdzxf4szzpswgz53p8m3r4hu76j3zw0tagyvgdy3s4p+10 ")
+                            }
+                            dummyTransaction.append("--ttl 0 --fee 0 --out-file /tmp/dummy.txbody")
+                            hostConnection.command(dummyTransaction.toString())
+
+                            val fee = hostConnection.command("${host.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0").trim()
+                            hostConnection.command("rm -f /tmp/protocol-parameters.json")
+                            hostConnection.command("rm -f /tmp/dummy.txbody")
+                            val lovelace = fee.split(" ")[0].toInt()
+                            log.error("fee: '$lovelace'")
+                            SocketResponse.Success(type = "calculatefee", data = lovelace)
+                        }
+                    } ?: throw IOException("Host not found for default node!")
+                } ?: throw IOException("Genesis file for default node not found!")
+            } ?: throw IOException("No default node!")
+        } catch (e: Throwable) {
+            val error = "Fatal error getting wallet entries!"
+            log.error(error, e)
+            SocketResponse.Error(type = "calculatefee", exception = e)
         }
     }
 

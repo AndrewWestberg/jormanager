@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.AddressInfo
 import com.swiftmako.jormanager.model.Utxo
@@ -33,32 +34,7 @@ class WalletUtils @Autowired constructor(
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 HostConnection(host, defaultNode).use { hostConnection ->
                     walletRepository.findAllNotDeleted().forEach { walletEntry ->
-                        // find payment_addr balance
-                        val addressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.paymentAddr}")
-                        val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
-                        val addressInfoString = //when {
-                            //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --cardano-mode --testnet-magic 42")
-//                            }
-//                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-//                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address ${walletEntry.paymentAddr} --cardano-mode --mainnet")
-//                            }
-//                            else -> {
-//                                log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
-//                                return@forEach
-//                            }
-//                        }
-
-                        val utxos = mutableListOf<Utxo>()
-                        UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
-                            utxos.add(
-                                    Utxo(
-                                            hash = matchResult.groupValues[1],
-                                            ix = matchResult.groupValues[2].toLong(),
-                                            lovelace = matchResult.groupValues[3].toLong()
-                                    )
-                            )
-                        }
+                        val utxos = getUtxos(host, hostConnection, walletEntry.paymentAddr)
 
                         // find staking_addr balance
                         val stakingInfoString = if (walletEntry.type == "stake") {
@@ -66,7 +42,7 @@ class WalletUtils @Autowired constructor(
                             val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
 //                            when {
 //                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
-                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+                            hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
 //                                }
 //                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
 //                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
@@ -94,6 +70,36 @@ class WalletUtils @Autowired constructor(
         } ?: log.warn("No default node set! Cannot check wallet for updates!")
 
         return walletItems
+    }
+
+    fun getUtxos(host: Host, hostConnection: HostConnection, paymentAddr: String): List<Utxo> {
+        // find payment_addr balance
+        val addressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address $paymentAddr")
+        val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
+        val addressInfoString = //when {
+                //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
+                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
+//                            }
+//                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
+//                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --mainnet")
+//                            }
+//                            else -> {
+//                                log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
+//                                return@forEach
+//                            }
+//                        }
+        val utxos = mutableListOf<Utxo>()
+        UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
+            utxos.add(
+                    Utxo(
+                            hash = matchResult.groupValues[1],
+                            ix = matchResult.groupValues[2].toLong(),
+                            lovelace = matchResult.groupValues[3].toLong()
+                    )
+            )
+        }
+
+        return utxos
     }
 
     companion object {

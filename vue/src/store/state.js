@@ -17,6 +17,8 @@ export default {
     files: [],
     walletItems: [],
 
+    txFee: 0,
+
     // chart data
     nodeColors: [],
     peersSeries: [],

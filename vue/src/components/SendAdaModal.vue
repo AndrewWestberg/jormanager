@@ -109,7 +109,7 @@ export default {
     };
   },
   computed: {
-    ...mapState(["walletItems"]),
+    ...mapState(["walletItems", "txFee"]),
     ...mapGetters(["paymentSelectOptions"])
   },
   methods: {
@@ -145,7 +145,9 @@ export default {
           "₳",
           6
         ) +
-        "), Remaining: " +
+        "), Fee: " +
+        this.$options.filters.currency(this.txFee / 1000000, "₳", 6) +
+        ", Remaining: " +
         this.$options.filters.currency(
           this.calculateSpentLovelace(this.formSendAda.toAccounts.length) /
             1000000,
@@ -160,6 +162,15 @@ export default {
         type: null,
         amount: null,
         percent: 0
+      });
+
+      let returnChangeTxOut =
+        this.calculateSpentLovelace(this.formSendAda.toAccounts.length) > 0
+          ? 1
+          : 0;
+      this.calculateSendAdaFees({
+        fromAddress: this.fromWalletItem.paymentAddr,
+        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
       });
     },
     clearFormSendAda() {
@@ -183,13 +194,22 @@ export default {
       this.formSendAda.fromId = walletItem.id;
       this.fromWalletItem = _.cloneDeep(walletItem);
       this.$bvModal.show("modal-send-ada");
+
+      let returnChangeTxOut =
+        this.calculateSpentLovelace(this.formSendAda.toAccounts.length) > 0
+          ? 1
+          : 0;
+      this.calculateSendAdaFees({
+        fromAddress: this.fromWalletItem.paymentAddr,
+        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
+      });
     },
     handleValidateAndSend(bvModalEvt) {
       bvModalEvt.preventDefault();
       console.log("Saving...");
     },
     calculateMaxLovelace(index) {
-      let baseAmount = this.fromWalletItem.paymentAddrLovelace;
+      let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
@@ -215,7 +235,7 @@ export default {
       return baseAmount;
     },
     calculateSpentLovelace(index) {
-      let baseAmount = this.fromWalletItem.paymentAddrLovelace;
+      let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
@@ -253,12 +273,17 @@ export default {
       );
     }
   },
-  mounted() {
-    this.clearFormSendAda();
+  beforeCreate() {
     this.$root.$on("send-ada", walletItem => {
       // received send-ada message from parent component
       this.clickSendAda(walletItem);
     });
+  },
+  mounted() {
+    this.clearFormSendAda();
+  },
+  beforeDestroy() {
+    this.$root.$off("send-ada");
   }
 };
 </script>

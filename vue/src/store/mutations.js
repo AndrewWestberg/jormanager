@@ -74,6 +74,9 @@ export default {
     saveWallet: (state, walletItems) => {
         state.walletItems = walletItems
     },
+    saveTxFee: (state, fee) => {
+        state.txFee = fee
+    },
 
     toastError: (state, toast) => {
         state.toastError = toast

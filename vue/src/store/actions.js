@@ -116,6 +116,17 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "calculatefee":
+                    if (message.data) {
+                        commit('saveTxFee', message.data)
+                    } else {
+                        commit('toastError', {
+                            title: "CalculateFee Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -259,5 +270,21 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    calculateSendAdaFees: ({
+        state,
+        commit
+    }, request) => {
+        commit('saveTxFee', 0)
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Calculate txfee: " + JSON.stringify(request));
+            state.stompClient.send("/jormanager/calculatefee", JSON.stringify(request));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+
     }
 }
