@@ -10,6 +10,7 @@ import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CalculateFeeRequest
 import com.swiftmako.jormanager.model.CreateWalletEntryRequest
 import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.SubmitTransactionRequest
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.repositories.FileRepository
@@ -37,6 +38,7 @@ class WalletController @Autowired constructor(
 ) {
 
     private val log = LoggerFactory.getLogger(WalletController::class.java)
+    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
 
     @MessageMapping("/wallet")
     @SendTo("/topic/messages")
@@ -341,14 +343,22 @@ class WalletController @Autowired constructor(
                                 transaction.append("--tx-out ${fromAccount.paymentAddr}+$remaining ")
                             }
 
+                            val queryTipString = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
                             transaction.append("--ttl $ttl ")
                             transaction.append("--fee ${request.txFee} ")
                             transaction.append("--out-file /tmp/transaction.txbody")
+                            // build the transaction
                             hostConnection.command(transaction.toString())
+                            // sign the transaction
+                            fromAccount.paymentSkey?.let { skey ->
+                                hostConnection.commandWriteFile("/tmp/signing.skey", skey.content)
+                            } ?: throw IllegalArgumentException("Couldn't find signing key for transaction")
+                            hostConnection.command("${host.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $magicString --out-file /tmp/transaction.txsigned")
+                            // submit the transaction
+                            hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
 
-                            // ${cardanocli} shelley transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file ${fromAddr}.skey ${magicparam} --out-file /tmp/transaction.txsigned
-                            // ${cardanocli} shelley transaction submit --tx-file ${txFile} --cardano-mode ${magicparam}
-
+                            hostConnection.command("rm -f /tmp/signing.skey")
                             hostConnection.command("rm -f /tmp/transaction.txbody")
                             hostConnection.command("rm -f /tmp/transaction.txsigned")
 
