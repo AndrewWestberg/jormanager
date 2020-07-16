@@ -127,6 +127,20 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "submittransaction":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Ada Sent",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Submit Transaction Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -284,6 +298,19 @@ export default {
                 message: "stompClient not connected!"
             })
         }
-
+    },
+    submitTransaction: ({
+        state,
+        commit
+    }, formSendAda) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Submit transaction: " + JSON.stringify(formSendAda));
+            state.stompClient.send("/jormanager/submittransaction", JSON.stringify(formSendAda));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
     }
 }
