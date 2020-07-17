@@ -55,7 +55,7 @@ class WalletController @Autowired constructor(
     @MessageMapping("/calculatefee")
     @SendTo("/topic/messages")
     @Synchronized
-    fun calculateTxFee(request: CalculateFeeRequest): SocketResponse<Int> {
+    fun calculateTxFee(request: CalculateFeeRequest): SocketResponse<Long> {
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
@@ -85,7 +85,7 @@ class WalletController @Autowired constructor(
                             val fee = hostConnection.command("${host.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0").trim()
                             hostConnection.command("rm -f /tmp/protocol-parameters.json")
                             hostConnection.command("rm -f /tmp/dummy.txbody")
-                            val lovelace = fee.split(" ")[0].toInt()
+                            val lovelace = fee.split(" ")[0].toLong()
                             SocketResponse.Success(type = "calculatefee", data = lovelace)
                         }
                     } ?: throw IOException("Host not found for default node!")
@@ -316,7 +316,7 @@ class WalletController @Autowired constructor(
                             }
 
                             var baseAmount = utxos.sumByLong { it.lovelace } - request.txFee
-                            var alreadySpentPercentages = 0
+                            var alreadySpentPercentages = 0L
                             request.toAccounts.forEach { account ->
                                 val walletEntry = walletRepository.findByIdOrNull(account.account)!!
                                 when (account.type) {
@@ -329,7 +329,7 @@ class WalletController @Autowired constructor(
                                         }
                                     }
                                     "percent" -> {
-                                        val amount = floor(baseAmount * (account.percent!! / 100.0)).toInt()
+                                        val amount = floor(baseAmount * (account.percent!! / 100.0)).toLong()
                                         transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount} ")
                                         alreadySpentPercentages += amount
                                     }
@@ -358,6 +358,7 @@ class WalletController @Autowired constructor(
                             // submit the transaction
                             hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
 
+                            hostConnection.command("rm -f /tmp/protocol-parameters.json")
                             hostConnection.command("rm -f /tmp/signing.skey")
                             hostConnection.command("rm -f /tmp/transaction.txbody")
                             hostConnection.command("rm -f /tmp/transaction.txsigned")

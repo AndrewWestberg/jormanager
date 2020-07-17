@@ -50,7 +50,7 @@
               />
               <b-form-invalid-feedback
                 id="amount-input-live-feedback"
-              >Enter a non-zero amount up to {{calculateMaxLovelace(index) / 1000000 | currency('₳', 6)}}</b-form-invalid-feedback>
+              >Enter a non-zero amount up to {{calculateSpentLovelace(index) / 1000000 | currency('₳', 6)}}</b-form-invalid-feedback>
             </b-form-group>
             <b-form-group
               label="Percent"
@@ -140,7 +140,7 @@ export default {
     percentState(index, percent) {
       if (percent != null && percent > 0) {
         let maxLovelace = this.calculateMaxLovelace(index);
-        let lovelaces = Math.floor(maxLovelace * (percent / 100.0));
+        let lovelaces = Math.round(maxLovelace * (percent / 100.0));
         let spentLovelace = this.calculateSpentLovelace(index);
         return lovelaces <= spentLovelace;
       }
@@ -160,7 +160,7 @@ export default {
           fromAddress: this.fromWalletItem.paymentAddr,
           txOut:
             this.formSendAda.toAccounts.length +
-            (this.remainingLovelace == 0 ? 0 : 1)
+            (this.remainingLovelace > 0 ? 1 : 0)
         };
         if (request.fromAddress) {
           this.calculateSendAdaFees(request);
@@ -284,25 +284,31 @@ export default {
     calculateMaxLovelace(index) {
       let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
+      let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
         if (account.type === "amount" && account.amount != null) {
+          if (alreadySpentPercentageAmounts > 0) {
+            baseAmount -= alreadySpentPercentageAmounts;
+            alreadySpentPercentageAmounts = 0;
+            alreadySpentPercentages = 0;
+          }
           let alreadySpent = this.$root.$parseCurrency(account.amount);
           if (alreadySpent) {
             baseAmount -= alreadySpent;
-          }
-          if (alreadySpentPercentages > 0) {
-            baseAmount -= alreadySpentPercentages;
-            alreadySpentPercentages = 0;
           }
         } else if (
           account.type === "percent" &&
           account.percent != null &&
           account.percent > 0
         ) {
-          alreadySpentPercentages += Math.floor(
-            baseAmount * (account.percent / 100.0)
-          );
+          let percent = parseInt(account.percent);
+          let amount =
+            Math.round(
+              baseAmount * ((percent + alreadySpentPercentages) / 100.0)
+            ) - alreadySpentPercentageAmounts;
+          alreadySpentPercentageAmounts += amount;
+          alreadySpentPercentages += percent;
         }
       }
       return baseAmount;
@@ -310,28 +316,34 @@ export default {
     calculateSpentLovelace(index) {
       let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
+      let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
         if (account.type === "amount" && account.amount != null) {
+          if (alreadySpentPercentageAmounts > 0) {
+            baseAmount -= alreadySpentPercentageAmounts;
+            alreadySpentPercentageAmounts = 0;
+            alreadySpentPercentages = 0;
+          }
           let alreadySpent = this.$root.$parseCurrency(account.amount);
           if (alreadySpent) {
             baseAmount -= alreadySpent;
-          }
-          if (alreadySpentPercentages > 0) {
-            baseAmount -= alreadySpentPercentages;
-            alreadySpentPercentages = 0;
           }
         } else if (
           account.type === "percent" &&
           account.percent != null &&
           account.percent > 0
         ) {
-          alreadySpentPercentages += Math.floor(
-            baseAmount * (account.percent / 100.0)
-          );
+          let percent = parseInt(account.percent);
+          let amount =
+            Math.round(
+              baseAmount * ((percent + alreadySpentPercentages) / 100.0)
+            ) - alreadySpentPercentageAmounts;
+          alreadySpentPercentageAmounts += amount;
+          alreadySpentPercentages += percent;
         }
       }
-      return baseAmount - alreadySpentPercentages;
+      return baseAmount - alreadySpentPercentageAmounts;
     },
     percentLabel(index, percent) {
       let maxLovelace = this.calculateMaxLovelace(index);
