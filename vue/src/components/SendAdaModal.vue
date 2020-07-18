@@ -2,7 +2,7 @@
   <div>
     <b-modal
       id="modal-send-ada"
-      :title="modalTitle()"
+      :title="modalTitle"
       size="lg"
       scrollable
       no-close-on-backdrop
@@ -24,7 +24,10 @@
               </b-form-select>
             </b-form-group>
             <b-form-group label="Entry Type" label-cols-md="2">
-              <b-form-radio-group v-model="toAccount.type" :state="typeState(toAccount.type)">
+              <b-form-radio-group
+                v-model="toAccount.type"
+                :state="typeState(index, toAccount.type)"
+              >
                 <b-form-radio value="amount">
                   <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
                 </b-form-radio>
@@ -37,7 +40,7 @@
               label="Amount"
               label-for="amount-input"
               label-cols-md="2"
-              v-if="toAccount.type === 'amount'"
+              v-show="toAccount.type === 'amount'"
             >
               <b-form-input
                 id="amount-input"
@@ -56,7 +59,7 @@
               label="Percent"
               label-for="percent-input"
               label-cols-md="2"
-              v-if="toAccount.type === 'percent'"
+              v-show="toAccount.type === 'percent'"
             >
               <b-form-input
                 id="percent-input"
@@ -115,58 +118,22 @@ export default {
         this.$bvModal.hide("modal-send-ada");
         this.clearFormSendAda();
       }
+    },
+    remainingLovelace(newValue, oldValue) {
+      if (
+        (oldValue == 0 && newValue != 0) ||
+        (oldValue != 0 && newValue == 0)
+      ) {
+        // Recalculate fees anytime we have no change to return or
+        // if we previously had no change to return.
+        this.prepareCalculateSendAdaFees();
+      }
     }
   },
   computed: {
     ...mapState(["walletItems", "txFee", "toastSuccess"]),
-    ...mapGetters(["paymentSelectOptions"])
-  },
-  methods: {
-    ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
-    ...mapMutations(["toastError"]),
-    accountState(account) {
-      return account != null;
-    },
-    typeState(type) {
-      return type != null;
-    },
-    amountState(index, amount) {
-      if (amount != null) {
-        let lovelaces = this.$root.$parseCurrency(amount);
-        return lovelaces > 0 && lovelaces <= this.calculateMaxLovelace(index);
-      }
-      return false;
-    },
-    percentState(index, percent) {
-      if (percent != null && percent > 0) {
-        let maxLovelace = this.calculateMaxLovelace(index);
-        let lovelaces = Math.round(maxLovelace * (percent / 100.0));
-        let spentLovelace = this.calculateSpentLovelace(index);
-        return lovelaces <= spentLovelace;
-      }
-      return false;
-    },
+    ...mapGetters(["paymentSelectOptions"]),
     modalTitle() {
-      let wasMaxed = this.remainingLovelace == 0;
-      this.remainingLovelace = this.calculateSpentLovelace(
-        this.formSendAda.toAccounts.length
-      );
-      if (
-        (wasMaxed && this.remainingLovelace > 0) ||
-        (!wasMaxed && this.remainingLovelace == 0)
-      ) {
-        // re-calculate fees because we have a change in number of output transactions
-        let request = {
-          fromAddress: this.fromWalletItem.paymentAddr,
-          txOut:
-            this.formSendAda.toAccounts.length +
-            (this.remainingLovelace > 0 ? 1 : 0)
-        };
-        if (request.fromAddress) {
-          this.calculateSendAdaFees(request);
-        }
-      }
-
       return (
         "Send Ada (" +
         this.fromWalletItem.name +
@@ -181,6 +148,47 @@ export default {
         ", Remaining: " +
         this.$options.filters.currency(this.remainingLovelace / 1000000, "₳", 6)
       );
+    }
+  },
+  methods: {
+    ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
+    ...mapMutations(["toastError"]),
+    accountState(account) {
+      return account != null;
+    },
+    typeState(index, type) {
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      if (type !== "amount") {
+        this.formSendAda.toAccounts[index].amount = null;
+      }
+      if (type !== "percent") {
+        this.formSendAda.toAccounts[index].percent = 0;
+      }
+      return type != null;
+    },
+    amountState(index, amount) {
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      if (amount != null) {
+        let lovelaces = this.$root.$parseCurrency(amount);
+        return lovelaces > 0 && lovelaces <= this.calculateMaxLovelace(index);
+      }
+      return false;
+    },
+    percentState(index, percent) {
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+      if (percent != null && percent > 0) {
+        let maxLovelace = this.calculateMaxLovelace(index);
+        let lovelaces = Math.round(maxLovelace * (percent / 100.0));
+        let spentLovelace = this.calculateSpentLovelace(index);
+        return lovelaces <= spentLovelace;
+      }
+      return false;
     },
     addPaymentEntry() {
       this.formSendAda.toAccounts.push({
@@ -190,17 +198,7 @@ export default {
         percent: 0
       });
 
-      this.remainingLovelace = this.calculateSpentLovelace(
-        this.formSendAda.toAccounts.length
-      );
-      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
-      let request = {
-        fromAddress: this.fromWalletItem.paymentAddr,
-        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
-      };
-      if (request.fromAddress) {
-        this.calculateSendAdaFees(request);
-      }
+      this.prepareCalculateSendAdaFees();
     },
     clearFormSendAda() {
       this.fromWalletItem = { name: null, paymentAddrLovelace: null };
@@ -222,18 +220,6 @@ export default {
       this.formSendAda.fromId = walletItem.id;
       this.fromWalletItem = _.cloneDeep(walletItem);
       this.$bvModal.show("modal-send-ada");
-
-      this.remainingLovelace = this.calculateSpentLovelace(
-        this.formSendAda.toAccounts.length
-      );
-      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
-      let request = {
-        fromAddress: this.fromWalletItem.paymentAddr,
-        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
-      };
-      if (request.fromAddress) {
-        this.calculateSendAdaFees(request);
-      }
     },
     handleValidateAndSend(bvModalEvt) {
       bvModalEvt.preventDefault();
@@ -280,6 +266,43 @@ export default {
           });
         }
       });
+    },
+    prepareCalculateSendAdaFees() {
+      this.remainingLovelace = this.calculateSpentLovelace(
+        this.formSendAda.toAccounts.length
+      );
+
+      if (
+        this.remainingLovelace == 0 &&
+        this.formSendAda.toAccounts[this.formSendAda.toAccounts.length - 1]
+          .type === "amount"
+      ) {
+        // We're trying to spend everything with an amount value. Change it to a percentage
+        let percent = 100;
+        let i = this.formSendAda.toAccounts.length - 2;
+        while (i >= 0 && this.formSendAda.toAccounts[i].type === "percent") {
+          percent -= this.formSendAda.toAccounts[i].percent;
+          i--;
+        }
+        this.formSendAda.toAccounts[
+          this.formSendAda.toAccounts.length - 1
+        ].amount = null;
+        this.formSendAda.toAccounts[
+          this.formSendAda.toAccounts.length - 1
+        ].percent = percent;
+        this.formSendAda.toAccounts[
+          this.formSendAda.toAccounts.length - 1
+        ].type = "percent";
+      }
+
+      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
+      let request = {
+        fromAddress: this.fromWalletItem.paymentAddr,
+        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
+      };
+      if (request.fromAddress) {
+        this.calculateSendAdaFees(request);
+      }
     },
     calculateMaxLovelace(index) {
       let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
@@ -351,7 +374,7 @@ export default {
         percent +
         "% - " +
         this.$options.filters.currency(
-          Math.floor(maxLovelace * (percent / 100.0)) / 1000000,
+          Math.round(maxLovelace * (percent / 100.0)) / 1000000,
           "₳",
           6
         )
