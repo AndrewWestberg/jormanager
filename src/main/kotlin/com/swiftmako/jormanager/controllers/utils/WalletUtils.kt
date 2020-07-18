@@ -42,7 +42,14 @@ class WalletUtils @Autowired constructor(
                             val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
 //                            when {
 //                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
-                            hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+                            try {
+                                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+                            } catch (t: Throwable) {
+                                if (t.message?.contains("EraMismatch") == false) {
+                                    log.error("Error getting stake addr info!", t)
+                                }
+                                ""
+                            }
 //                                }
 //                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
 //                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
@@ -78,7 +85,14 @@ class WalletUtils @Autowired constructor(
         val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
         val addressInfoString = //when {
                 //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
+                try {
+                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
+                } catch (t: Throwable) {
+                    if (t.message?.contains("EraMismatch") == false) {
+                        log.error("Error getting payment addr info!", t)
+                    }
+                    ""
+                }
 //                            }
 //                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
 //                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --mainnet")
