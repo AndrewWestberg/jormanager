@@ -8,6 +8,13 @@
           v-b-tooltip.hover.bottom="'Create a new wallet entry.'"
         >
           <b-icon-plus />&nbsp;Create Entry
+        </b-button>&nbsp;
+        <b-button
+          variant="outline-primary"
+          @click="downloadKeys()"
+          v-b-tooltip.hover.bottom="'Download all of your wallet keys.'"
+        >
+          <font-awesome-icon :icon="['fas','file-archive']" />&nbsp;Save Wallet Backup
         </b-button>
       </div>
       <hr />
@@ -77,7 +84,7 @@
 </template>
 
 <script>
-import { mapState, mapActions, mapMutations } from "vuex";
+import { mapState, mapActions, mapMutations, mapGetters } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
 import SendAdaModal from "@/components/SendAdaModal";
 
@@ -103,7 +110,8 @@ export default {
     };
   },
   computed: {
-    ...mapState(["walletItems"])
+    ...mapState(["walletItems"]),
+    ...mapGetters(["walletDownloadUrl"])
   },
   methods: {
     ...mapActions(["fetchWalletItems", "deleteWalletItem"]),
@@ -130,6 +138,9 @@ export default {
           });
         }
       );
+    },
+    downloadKeys() {
+      window.open(this.walletDownloadUrl, "_jm_download");
     }
   },
   mounted() {

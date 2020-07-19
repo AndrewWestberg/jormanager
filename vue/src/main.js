@@ -42,7 +42,8 @@ import {
   faHandHoldingUsd,
   faWeightHanging,
   faBalanceScaleRight,
-  faPowerOff
+  faPowerOff,
+  faFileArchive
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -62,6 +63,7 @@ library.add(faHandHoldingUsd)
 library.add(faWeightHanging)
 library.add(faBalanceScaleRight)
 library.add(faPowerOff)
+library.add(faFileArchive)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

@@ -2,13 +2,12 @@
 
 The OG releases are for early adopters and *original gansters* only for helping test. It is **NOT READY** for general use. 
 
+## Requirements
+ * Java 14 or higher
+ 
 ## Running
 
-    $ java -jar jormanager.jar
-
-or
-
-    $ ./jormanager.jar
+    $ java -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m -jar jormanager.jar
     
 Open a browser to http://localhost:8787
 
@@ -65,6 +64,17 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+1.0.0_OG_3-SNAPSHOT
+ 
+ * Apply Apache 2.0 license since this is a derivative work of cardano-cli and cardano-node which is licensed under Apache 2.0
+ * Working Wallet and transactions
+ * Wallet Backup support
+ * Support for mainnet_candidate releases
+ 
+1.0.0_OG_2-SNAPSHOT
+
+ * Some basic wallet functionality 
+ 
 1.0.0_OG_1-SNAPSHOT
 
  * The First OG pre-release for the haskell node. 
