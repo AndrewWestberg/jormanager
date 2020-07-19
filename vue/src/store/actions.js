@@ -1,5 +1,6 @@
 import SockJS from "sockjs-client";
 import Stomp from "webstomp-client";
+import _ from 'lodash';
 
 export default {
     connectToServer: ({
@@ -131,6 +132,20 @@ export default {
                     if (message.data) {
                         commit('toastSuccess', {
                             title: "Ada Sent",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Submit Transaction Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
+                case "restartnode":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Node Restart...",
                             message: message.data
                         })
                     } else {
@@ -312,5 +327,23 @@ export default {
                 message: "stompClient not connected!"
             })
         }
+    },
+    restartNodeByName: ({
+        state,
+        commit
+    }, nodeName) => {
+        if (state.stompClient && state.stompClient.connected) {
+            let node = _.find(state.nodes, ["name", nodeName]);
+            if (node) {
+                console.log("Restart Node: " + JSON.stringify(node));
+                state.stompClient.send("/jormanager/restartnode", JSON.stringify(node.id));
+            }
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+
     }
 }

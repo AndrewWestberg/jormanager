@@ -39,6 +39,34 @@ class NodeController @Autowired constructor(
         return SocketResponse.Success(type = "nodes", data = nodes)
     }
 
+    @MessageMapping("/restartnode")
+    @SendTo("/topic/messages")
+    @Synchronized
+    fun restartNode(nodeId: Long): SocketResponse<String> {
+        return try {
+            nodeRepository.findByIdOrNull(nodeId)?.let { node ->
+                hostRepository.findByIdOrNull(node.hostId)?.let { host ->
+                    HostConnection(host).use { hostConnection ->
+                        val processId = hostConnection.command("systemctl show --property MainPID --value ${node.name}-node.service").trim()
+                        hostConnection.command("kill -INT $processId")
+                        try {
+                            Thread.sleep(1000)
+                            hostConnection.command("kill -TERM $processId")
+                            Thread.sleep(1000)
+                            hostConnection.command("kill -KILL $processId")
+                        } catch (t: Throwable) {
+                            log.debug("kill command error!", t)
+                        }
+                        SocketResponse.Success(type = "restartnode", data = "triggered")
+                    }
+                } ?: throw IllegalArgumentException("Host not found!")
+            } ?: throw IllegalArgumentException("Node not found!")
+        } catch (e: Throwable) {
+            log.error("Error Creating Node!", e)
+            SocketResponse.Error(type = "restartnode", exception = e)
+        }
+    }
+
     @MessageMapping("/createnode")
     @SendTo("/topic/messages")
     @Transactional

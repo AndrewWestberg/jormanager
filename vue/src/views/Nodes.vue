@@ -58,6 +58,12 @@
               class="text-warning"
               v-b-tooltip.hover.v-warning.right="'Edit this Node'"
               @click="$root.$emit('edit-node', displayNodes[data.index])"
+            />&nbsp;
+            <font-awesome-icon
+              :icon="['fas','power-off']"
+              class="text-danger"
+              v-b-tooltip.hover.v-danger.right="'Restart Node'"
+              @click="restartNode(displayNodes[data.index].name)"
             />
           </template>
         </b-table>
@@ -88,7 +94,16 @@ export default {
     };
   },
   methods: {
-    ...mapActions(["requestHosts", "requestNodes"])
+    ...mapActions(["requestHosts", "requestNodes", "restartNodeByName"]),
+    restartNode(node) {
+      this.$bvModal
+        .msgBoxConfirm("Restart " + node + ". Are you sure?")
+        .then(value => {
+          if (value) {
+            this.restartNodeByName(node);
+          }
+        });
+    }
   },
   computed: {
     ...mapGetters(["displayNodes"])
