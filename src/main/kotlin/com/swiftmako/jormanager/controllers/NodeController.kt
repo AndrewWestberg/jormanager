@@ -47,7 +47,11 @@ class NodeController @Autowired constructor(
             nodeRepository.findByIdOrNull(nodeId)?.let { node ->
                 hostRepository.findByIdOrNull(node.hostId)?.let { host ->
                     HostConnection(host).use { hostConnection ->
-                        val processId = hostConnection.command("systemctl show --property MainPID --value ${node.name}-node.service").trim()
+                        val processId = if (hostConnection.hasSystemd) {
+                            hostConnection.command("systemctl show --property MainPID --value ${node.name}-node.service").trim()
+                        } else {
+                            throw IllegalAccessError("This node does not support automatic restart.")
+                        }
                         hostConnection.command("kill -INT $processId")
                         try {
                             Thread.sleep(1000)
@@ -62,7 +66,7 @@ class NodeController @Autowired constructor(
                 } ?: throw IllegalArgumentException("Host not found!")
             } ?: throw IllegalArgumentException("Node not found!")
         } catch (e: Throwable) {
-            log.error("Error Creating Node!", e)
+            log.error("Error Restarting Node!", e)
             SocketResponse.Error(type = "restartnode", exception = e)
         }
     }
@@ -84,6 +88,7 @@ class NodeController @Autowired constructor(
                             val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
                             createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
                             createSystemdFile(request, host, hostConnection)
+                            createManualStartupScripts(request, host, hostConnection)
 
                             if (request.isDefault) {
                                 val oldDefault = nodeRepository.findDefault()
@@ -133,6 +138,34 @@ class NodeController @Autowired constructor(
         }
     }
 
+    private fun createManualStartupScripts(request: CreateNodeRequest, host: Host, hostConnection: HostConnection) {
+        val startNodeContent = """
+            |#!/bin/bash
+            |cd ${host.nodeHomePath}/${request.name}
+            |source ${host.nodeHomePath}/${request.name}/env
+            |${host.cardanoNodePath} \\
+            |  +RTS -N${request.processorThreads} -RTS run \\
+            |  --topology ${'$'}{TOPOLOGY} \\
+            |  --database-path ${'$'}{DATABASE_PATH} \\
+            |  --socket-path ${'$'}{SOCKET_PATH} \\
+            |  --host-addr ${'$'}{HOST_ADDR} \\
+            |  --port ${'$'}{PORT} \\
+            |  --config ${'$'}{CONFIG}
+        """.trimMargin()
+        hostConnection.commandWriteFile("${host.nodeHomePath}/${request.name}/startNode.sh", startNodeContent)
+        hostConnection.command("chmod 555 ${host.nodeHomePath}/${request.name}/startNode.sh")
+
+        val stopNodeContent = """
+            |#!/bin/bash
+            |PID=`ps -Af | grep cardano-node | grep ${request.name}\/topology | awk '{ print ${'$'}2 }'`
+            |kill -s INT ${'$'}PID
+            |sleep 3
+            |kill -s KILL ${'$'}PID
+        """.trimMargin()
+        hostConnection.commandWriteFile("${host.nodeHomePath}/${request.name}/stopNode.sh", stopNodeContent)
+        hostConnection.command("chmod 555 ${host.nodeHomePath}/${request.name}/stopNode.sh")
+    }
+
     private fun createSystemdFile(request: CreateNodeRequest, host: Host, hostConnection: HostConnection) {
         val systemdContent = """
             |[Unit]
@@ -168,9 +201,11 @@ class NodeController @Autowired constructor(
 
         hostConnection.sudoCommandWriteFile("/etc/systemd/system/${request.name}-node.service", systemdContent, request.sudoPassword)
 
-        hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
-        hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
-        hostConnection.sudoCommand("systemctl enable ${request.name}-node.service", request.sudoPassword)
+        if (hostConnection.hasSystemd) {
+            hostConnection.sudoCommand("systemctl daemon-reload", request.sudoPassword)
+            hostConnection.sudoCommand("systemctl start ${request.name}-node.service", request.sudoPassword)
+            hostConnection.sudoCommand("systemctl enable ${request.name}-node.service", request.sudoPassword)
+        }
     }
 
     private fun createEnvFile(hostConnection: HostConnection, nodeFolder: String, listen: String, port: Int): String {

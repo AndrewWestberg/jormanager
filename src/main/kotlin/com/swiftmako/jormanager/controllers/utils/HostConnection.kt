@@ -30,6 +30,10 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
     private val ssh by sshDelegate
 
+    val hasSystemd: Boolean by lazy {
+        command("ps --no-headers -o comm 1").trim() == "systemd"
+    }
+
     fun commandFileExists(filePath: String): Boolean {
         return if (host.isRemote) {
             command("if test -f $filePath; then echo true; fi").trim().toBoolean()

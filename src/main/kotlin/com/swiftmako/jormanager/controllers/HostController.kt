@@ -37,7 +37,7 @@ class HostController @Autowired constructor(
         try {
             HostConnection(host).use { hostConnection ->
                 // get the host information
-                var hostInfo = hostConnection.command("hostnamectl")
+                var hostInfo = hostConnection.command("lsb_release -idrc")
                 // create the node home path directory if it doesn't exist
                 hostConnection.command("mkdir -p ${host.nodeHomePath}")
                 // make sure cardano-cli exists
