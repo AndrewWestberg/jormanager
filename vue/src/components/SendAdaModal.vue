@@ -228,7 +228,7 @@ export default {
         let toAccount = this.formSendAda.toAccounts[i];
         if (
           !this.accountState(toAccount.account) ||
-          !this.typeState(toAccount.type) ||
+          !this.typeState(i, toAccount.type) ||
           (toAccount.type === "amount" &&
             !this.amountState(i, toAccount.amount)) ||
           (toAccount.type === "percent" &&

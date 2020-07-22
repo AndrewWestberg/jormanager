@@ -121,7 +121,7 @@ class WalletUtils @Autowired constructor(
         private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
         private val TESTNET_STAKING_ADDRESS = Regex("e0[0-9a-fA-F]{60}")
         private val MAINNET_STAKING_ADDRESS = Regex("e1[0-9a-fA-F]{60}")
-        private val UTXO_MATCHER = Regex("([a-fA-F\\d]{64})\\s+(\\d+)\\s+(\\d+)")
+        private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
     }
 
 }

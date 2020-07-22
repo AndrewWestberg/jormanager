@@ -64,6 +64,11 @@ DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mL
 ```
 
 ###### Release Notes
+1.0.0_OG_4-SNAPSHOT
+
+ * Fixes to Windows wallet-only mode
+ * Fix to reading wallet entries because UTXO format changed to add quotes.
+ 
 1.0.0_OG_3-SNAPSHOT
  
  * Apply Apache 2.0 license since this is a derivative work of cardano-cli and cardano-node which is licensed under Apache 2.0
