@@ -5,6 +5,20 @@ The OG releases are for early adopters and *original gansters* only for helping 
 ## Requirements
  * Java 14 or higher
  
+## Prereqs
+
+On any remote server, you'll need to have `cardano-cli` and `cardano-node` installed.
+
+On the remote server, you need to edit `/etc/ssh/sshd_config`. Edit this line to add `CARDANO_NODE_SOCKET_PATH`. Then restart sshd service.
+
+```
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_* CARDANO_NODE_SOCKET_PATH
+```
+This is a work-around until my enhancement request goes through that allows me to set the socket path on the cmd-line instead of through a stupid environment variable. SSH has restrictions on environment variables by default.
+
+Upvote here -> https://github.com/input-output-hk/cardano-node/issues/1388
+
 ## Running
 
     $ java -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m -jar jormanager.jar
