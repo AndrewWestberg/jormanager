@@ -35,6 +35,7 @@ import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.floor
+import kotlin.math.round
 
 @Controller
 class WalletController @Autowired constructor(
@@ -369,6 +370,7 @@ class WalletController @Autowired constructor(
                                                 val amount = if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
                                                     // Reimburse payer for the txFee when claiming rewards
                                                     claimAmount = paymentAddressLovelace - request.txFee
+                                                    log.debug("claimAmount: $claimAmount")
                                                     account.amount!! + request.txFee
                                                 } else {
                                                     account.amount!!
@@ -383,7 +385,7 @@ class WalletController @Autowired constructor(
                                                 Unit
                                             }
                                             "percent" -> {
-                                                var amount = floor(baseAmount * (account.percent!! / 100.0)).toLong()
+                                                var amount = round(baseAmount * (account.percent!! / 100.0)).toLong()
                                                 alreadySpentPercentages += amount
                                                 var claimAmount = 0L
                                                 if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
@@ -393,6 +395,7 @@ class WalletController @Autowired constructor(
                                                         alreadySpentPercentages += request.txFee
                                                     }
                                                     claimAmount = paymentAddressLovelace - request.txFee
+                                                    log.debug("claimAmount: $claimAmount")
                                                 }
                                                 transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount + claimAmount} ")
                                             }
@@ -423,7 +426,7 @@ class WalletController @Autowired constructor(
 
                                 // build the transaction
                                 log.info(transaction.toString())
-                                //hostConnection.command(transaction.toString())
+                                hostConnection.command(transaction.toString())
 
                                 // sign the transaction
                                 feePayerWalletEntry.paymentSkey?.let { skey ->
@@ -439,7 +442,7 @@ class WalletController @Autowired constructor(
                                 }
 
                                 // submit the transaction
-                                hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+//                                hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
 
                                 hostConnection.command("rm -f /tmp/protocol-parameters.json")
                                 hostConnection.command("rm -f /tmp/signing.skey")

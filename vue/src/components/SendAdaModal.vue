@@ -340,10 +340,9 @@ export default {
       }
     },
     calculateMaxLovelace(index) {
-      let baseAmount =
-        (this.formSendAda.isClaim
-          ? this.fromWalletItem.stakingAddrLovelace
-          : this.fromWalletItem.paymentAddrLovelace) - this.txFee;
+      let baseAmount = this.formSendAda.isClaim
+        ? this.fromWalletItem.stakingAddrLovelace
+        : this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
       let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
@@ -375,10 +374,9 @@ export default {
       return baseAmount;
     },
     calculateSpentLovelace(index) {
-      let baseAmount =
-        (this.formSendAda.isClaim
-          ? this.fromWalletItem.stakingAddrLovelace
-          : this.fromWalletItem.paymentAddrLovelace) - this.txFee;
+      let baseAmount = this.formSendAda.isClaim
+        ? this.fromWalletItem.stakingAddrLovelace
+        : this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
       let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
