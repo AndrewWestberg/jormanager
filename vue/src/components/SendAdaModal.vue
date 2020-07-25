@@ -181,7 +181,8 @@ export default {
       );
       if (amount != null) {
         let lovelaces = this.$root.$parseCurrency(amount);
-        return lovelaces > 0 && lovelaces <= this.calculateMaxLovelace(index);
+        let spentLovelace = this.calculateSpentLovelace(index + 1);
+        return lovelaces > 0 && spentLovelace >= 0;
       }
       return false;
     },
@@ -190,10 +191,8 @@ export default {
         this.formSendAda.toAccounts.length
       );
       if (percent != null && percent > 0) {
-        let maxLovelace = this.calculateMaxLovelace(index);
-        let lovelaces = Math.round(maxLovelace * (percent / 100.0));
-        let spentLovelace = this.calculateSpentLovelace(index);
-        return lovelaces <= spentLovelace;
+        let spentLovelace = this.calculateSpentLovelace(index + 1);
+        return spentLovelace >= 0;
       }
       return false;
     },
@@ -339,84 +338,135 @@ export default {
         this.calculateSendAdaFees(request);
       }
     },
-    calculateMaxLovelace(index) {
+    calculateClaimRewardsFeePayer() {
+      for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
+        let account = this.formSendAda.toAccounts[i];
+        let walletItem = _.find(this.walletItems, (walletItem) => {
+          return walletItem.id === account.account;
+        });
+        if (
+          walletItem &&
+          walletItem.type !== "address" &&
+          walletItem.paymentAddrLovelace > 1000000
+        ) {
+          return walletItem.id;
+        }
+      }
+      return -1;
+    },
+    calculateSpentLovelace(index) {
+      let feePayerAccountId = -1;
+      if (this.formSendAda.isClaim) {
+        feePayerAccountId = this.calculateClaimRewardsFeePayer();
+      } else {
+        feePayerAccountId = this.fromWalletItem.id;
+      }
       let baseAmount = this.formSendAda.isClaim
         ? this.fromWalletItem.stakingAddrLovelace
         : this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
-      let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
+        let amount = 0;
         if (account.type === "amount" && account.amount != null) {
-          if (alreadySpentPercentageAmounts > 0) {
-            baseAmount -= alreadySpentPercentageAmounts;
-            alreadySpentPercentageAmounts = 0;
-            alreadySpentPercentages = 0;
+          amount = this.$root.$parseCurrency(account.amount);
+          if (
+            this.formSendAda.isClaim &&
+            account.account === feePayerAccountId
+          ) {
+            // Reimburse payer for the txFee when claiming rewards
+            amount += this.txFee;
           }
-          let alreadySpent = this.$root.$parseCurrency(account.amount);
-          if (alreadySpent) {
-            baseAmount -= alreadySpent;
-          }
+          baseAmount -= amount;
+          // reset percentages since this is an amount
+          alreadySpentPercentages = 0;
         } else if (
           account.type === "percent" &&
           account.percent != null &&
           account.percent > 0
         ) {
           let percent = parseInt(account.percent);
-          let amount =
-            Math.round(
-              baseAmount * ((percent + alreadySpentPercentages) / 100.0)
-            ) - alreadySpentPercentageAmounts;
-          alreadySpentPercentageAmounts += amount;
+          amount = Math.round(
+            baseAmount * (percent / (100.0 - alreadySpentPercentages))
+          );
+          baseAmount -= amount;
           alreadySpentPercentages += percent;
+          if (alreadySpentPercentages == 100) {
+            alreadySpentPercentages = 0;
+          }
+          if (
+            this.formSendAda.isClaim &&
+            account.account === feePayerAccountId
+          ) {
+            if (baseAmount >= this.txFee) {
+              amount += this.txFee;
+              baseAmount -= this.txFee;
+            }
+          }
         }
       }
       return baseAmount;
     },
-    calculateSpentLovelace(index) {
+    calculateSpentLovelaceAt(index) {
+      let feePayerAccountId = -1;
+      if (this.formSendAda.isClaim) {
+        feePayerAccountId = this.calculateClaimRewardsFeePayer();
+      } else {
+        feePayerAccountId = this.fromWalletItem.id;
+      }
       let baseAmount = this.formSendAda.isClaim
         ? this.fromWalletItem.stakingAddrLovelace
         : this.fromWalletItem.paymentAddrLovelace - this.txFee;
       let alreadySpentPercentages = 0;
-      let alreadySpentPercentageAmounts = 0;
-      for (let i = 0; i < index; i++) {
+      let amount = 0;
+      for (let i = 0; i <= index; i++) {
         let account = this.formSendAda.toAccounts[i];
+        amount = 0;
         if (account.type === "amount" && account.amount != null) {
-          if (alreadySpentPercentageAmounts > 0) {
-            baseAmount -= alreadySpentPercentageAmounts;
-            alreadySpentPercentageAmounts = 0;
-            alreadySpentPercentages = 0;
+          amount = this.$root.$parseCurrency(account.amount);
+          if (
+            this.formSendAda.isClaim &&
+            account.account === feePayerAccountId
+          ) {
+            // Reimburse payer for the txFee when claiming rewards
+            amount += this.txFee;
           }
-          let alreadySpent = this.$root.$parseCurrency(account.amount);
-          if (alreadySpent) {
-            baseAmount -= alreadySpent;
-          }
+          baseAmount -= amount;
+          // reset percentages since this is an amount
+          alreadySpentPercentages = 0;
         } else if (
           account.type === "percent" &&
           account.percent != null &&
           account.percent > 0
         ) {
           let percent = parseInt(account.percent);
-          let amount =
-            Math.round(
-              baseAmount * ((percent + alreadySpentPercentages) / 100.0)
-            ) - alreadySpentPercentageAmounts;
-          alreadySpentPercentageAmounts += amount;
+          amount = Math.round(
+            baseAmount * (percent / (100.0 - alreadySpentPercentages))
+          );
+          baseAmount -= amount;
           alreadySpentPercentages += percent;
+          if (alreadySpentPercentages == 100) {
+            alreadySpentPercentages = 0;
+          }
+          if (
+            this.formSendAda.isClaim &&
+            account.account === feePayerAccountId
+          ) {
+            if (baseAmount >= this.txFee) {
+              amount += this.txFee;
+              baseAmount -= this.txFee;
+            }
+          }
         }
       }
-      return baseAmount - alreadySpentPercentageAmounts;
+      return amount;
     },
     percentLabel(index, percent) {
-      let maxLovelace = this.calculateMaxLovelace(index);
+      let lovelace = this.calculateSpentLovelaceAt(index);
       return (
         percent +
         "% - " +
-        this.$options.filters.currency(
-          Math.round(maxLovelace * (percent / 100.0)) / 1000000,
-          "₳",
-          6
-        )
+        this.$options.filters.currency(lovelace / 1000000, "₳", 6)
       );
     },
   },

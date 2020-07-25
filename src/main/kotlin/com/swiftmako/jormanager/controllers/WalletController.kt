@@ -34,7 +34,6 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import kotlin.math.floor
 import kotlin.math.round
 
 @Controller
@@ -378,21 +377,22 @@ class WalletController @Autowired constructor(
 
                                                 transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount + claimAmount} ")
                                                 baseAmount -= amount
-                                                if (alreadySpentPercentages > 0) {
-                                                    baseAmount -= alreadySpentPercentages
-                                                    alreadySpentPercentages = 0
-                                                }
-                                                Unit
+                                                // reset percentages since this is an amount
+                                                alreadySpentPercentages = 0L
                                             }
                                             "percent" -> {
-                                                var amount = round(baseAmount * (account.percent!! / 100.0)).toLong()
-                                                alreadySpentPercentages += amount
+                                                var amount = round(baseAmount * (account.percent!! / (100.0 - alreadySpentPercentages))).toLong()
+                                                baseAmount -= amount
+                                                alreadySpentPercentages += account.percent
+                                                if (alreadySpentPercentages == 100L) {
+                                                    alreadySpentPercentages = 0L
+                                                }
                                                 var claimAmount = 0L
                                                 if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                                    if (baseAmount - alreadySpentPercentages > 0) {
+                                                    if (baseAmount >= request.txFee) {
                                                         // We have money available to reimburse the fee to the payer
                                                         amount += request.txFee
-                                                        alreadySpentPercentages += request.txFee
+                                                        baseAmount -= request.txFee
                                                     }
                                                     claimAmount = paymentAddressLovelace - request.txFee
                                                     log.debug("claimAmount: $claimAmount")
@@ -405,7 +405,7 @@ class WalletController @Autowired constructor(
                                         }
                                     } ?: throw IOException("Wallet entry id ${account.account} not found!")
                                 }
-                                val remaining = baseAmount - alreadySpentPercentages
+                                val remaining = baseAmount
                                 if (remaining > 0) {
                                     transaction.append("--tx-out ${fromWalletEntry.paymentAddr}+$remaining ")
 
@@ -442,7 +442,7 @@ class WalletController @Autowired constructor(
                                 }
 
                                 // submit the transaction
-//                                hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
 
                                 hostConnection.command("rm -f /tmp/protocol-parameters.json")
                                 hostConnection.command("rm -f /tmp/signing.skey")
