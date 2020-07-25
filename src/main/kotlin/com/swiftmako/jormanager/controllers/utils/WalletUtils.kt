@@ -1,9 +1,13 @@
 package com.swiftmako.jormanager.controllers.utils
 
+import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.Host
+import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.AddressInfo
+import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -27,6 +31,10 @@ class WalletUtils @Autowired constructor(
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
     private val addressInfoAdapter = moshi.adapter(AddressInfo::class.java)
+    private val stakingInfoAdapter: JsonAdapter<Map<String, StakeAddressInfo>> by lazy {
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, StakeAddressInfo::class.java)
+        moshi.adapter<Map<String, StakeAddressInfo>>(type)
+    }
 
     fun getWalletItems(): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
@@ -34,22 +42,34 @@ class WalletUtils @Autowired constructor(
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 HostConnection(host, defaultNode).use { hostConnection ->
                     walletRepository.findAllNotDeleted().forEach { walletEntry ->
-                        val utxos = getUtxos(host, hostConnection, walletEntry.paymentAddr)
+                        walletItems.add(
+                                getWalletItem(host, hostConnection, walletEntry)
+                        )
+                    }
+                }
+            } ?: log.error("Host for default node not found!")
+        } ?: log.warn("No default node set! Cannot check wallet for updates!")
 
-                        // find staking_addr balance
-                        val stakingInfoString = if (walletEntry.type == "stake") {
-                            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
-                            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
+        return walletItems
+    }
+
+    fun getWalletItem(host: Host, hostConnection: HostConnection, walletEntry: WalletEntry): WalletItem {
+        val utxos = getUtxos(host, hostConnection, walletEntry.paymentAddr)
+
+        // find staking_addr balance
+        val stakingInfoString = if (walletEntry.type == "stake") {
+            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
+            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
 //                            when {
 //                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
-                            try {
-                                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
-                            } catch (t: Throwable) {
-                                if (t.message?.contains("EraMismatch") == false) {
-                                    log.error("Error getting stake addr info!", t)
-                                }
-                                ""
-                            }
+            try {
+                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+            } catch (t: Throwable) {
+                if (t.message?.contains("EraMismatch") == false) {
+                    log.error("Error getting stake addr info!", t)
+                }
+                ""
+            }
 //                                }
 //                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
 //                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
@@ -59,24 +79,14 @@ class WalletUtils @Autowired constructor(
 //                                    return@forEach
 //                                }
 //                            }
-                        } else {
-                            null
-                        }
-                        val stakingAddrLovelace = stakingInfoString?.let { json ->
-                            Regex("\"rewardAccountBalance\": (\\d+)").find(json)?.let { matchResult ->
-                                matchResult.groupValues[1].toLong()
-                            }
-                        }
+        } else {
+            null
+        }
+        val stakingAddrLovelace = stakingInfoString?.let { json ->
+            stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
+        } ?: 0L
 
-                        walletItems.add(
-                                WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrLovelace)
-                        )
-                    }
-                }
-            } ?: log.error("Host for default node not found!")
-        } ?: log.warn("No default node set! Cannot check wallet for updates!")
-
-        return walletItems
+        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrLovelace)
     }
 
     fun getUtxos(host: Host, hostConnection: HostConnection, paymentAddr: String): List<Utxo> {

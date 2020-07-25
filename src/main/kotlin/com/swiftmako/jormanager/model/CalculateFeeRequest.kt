@@ -6,8 +6,12 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class CalculateFeeRequest(
-        @Json(name = "fromAddress")
-        val fromAddress: String,
+        @Json(name = "fromId")
+        val fromId: Long,
+        @Json(name = "toAccounts")
+        val toAccounts: List<Long?>,
         @Json(name = "txOut")
-        val txOut: Int
+        val txOut: Int,
+        @Json(name = "isClaim")
+        val isClaim: Boolean
 )

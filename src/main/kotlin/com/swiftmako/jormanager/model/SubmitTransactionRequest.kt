@@ -11,5 +11,7 @@ data class SubmitTransactionRequest(
         @Json(name = "txFee")
         val txFee: Int,
         @Json(name = "toAccounts")
-        val toAccounts: List<ToAccount>
+        val toAccounts: List<ToAccount>,
+        @Json(name = "isClaim")
+        val isClaim: Boolean
 )

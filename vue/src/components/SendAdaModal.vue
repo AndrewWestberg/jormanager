@@ -3,7 +3,7 @@
     <b-modal
       id="modal-send-ada"
       :title="modalTitle"
-      size="lg"
+      size="xl"
       scrollable
       no-close-on-backdrop
       ok-title="Send"
@@ -98,18 +98,23 @@ export default {
   data() {
     return {
       remainingLovelace: 1,
-      fromWalletItem: { name: null, paymentAddrLovelace: null },
+      fromWalletItem: {
+        name: null,
+        paymentAddrLovelace: null,
+        stakingAddrLovelace: null,
+      },
       formSendAda: {
         fromId: null,
+        isClaim: false,
         toAccounts: [
           {
             account: null,
             type: null,
             amount: null,
-            percent: 0
-          }
-        ]
-      }
+            percent: 0,
+          },
+        ],
+      },
     };
   },
   watch: {
@@ -128,18 +133,20 @@ export default {
         // if we previously had no change to return.
         this.prepareCalculateSendAdaFees();
       }
-    }
+    },
   },
   computed: {
     ...mapState(["walletItems", "txFee", "toastSuccess"]),
     ...mapGetters(["paymentSelectOptions"]),
     modalTitle() {
       return (
-        "Send Ada (" +
+        (this.formSendAda.isClaim ? "Claim Rewards (" : "Send Ada (") +
         this.fromWalletItem.name +
         " - " +
         this.$options.filters.currency(
-          this.fromWalletItem.paymentAddrLovelace / 1000000,
+          (this.formSendAda.isClaim
+            ? this.fromWalletItem.stakingAddrLovelace
+            : this.fromWalletItem.paymentAddrLovelace) / 1000000,
           "₳",
           6
         ) +
@@ -148,7 +155,7 @@ export default {
         ", Remaining: " +
         this.$options.filters.currency(this.remainingLovelace / 1000000, "₳", 6)
       );
-    }
+    },
   },
   methods: {
     ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
@@ -195,34 +202,50 @@ export default {
         account: null,
         type: null,
         amount: null,
-        percent: 0
+        percent: 0,
       });
 
       this.prepareCalculateSendAdaFees();
     },
     clearFormSendAda() {
-      this.fromWalletItem = { name: null, paymentAddrLovelace: null };
+      this.fromWalletItem = {
+        name: null,
+        paymentAddrLovelace: null,
+        stakingAddrLovelace: null,
+      };
       this.formSendAda = null;
       this.formSendAda = {
         fromId: null,
+        isClaim: false,
         toAccounts: [
           {
             account: null,
             type: null,
             amount: null,
-            percent: 0
-          }
-        ]
+            percent: 0,
+          },
+        ],
       };
     },
-    showSendAdaModal(walletItem) {
+    showSendAdaModal(walletItem, isClaim) {
       this.clearFormSendAda();
       this.formSendAda.fromId = walletItem.id;
+      this.formSendAda.isClaim = isClaim;
       this.fromWalletItem = _.cloneDeep(walletItem);
+      if (isClaim) {
+        // Fully claim to same account by default
+        (this.formSendAda.toAccounts[0].account = walletItem.id),
+          (this.formSendAda.toAccounts[0].type = "percent"),
+          (this.formSendAda.toAccounts[0].percent = 100);
+        this.prepareCalculateSendAdaFees();
+      }
       this.$bvModal.show("modal-send-ada");
     },
     handleValidateAndSend(bvModalEvt) {
       bvModalEvt.preventDefault();
+      if (this.txFee <= 0) {
+        return;
+      }
       let isValidForm = true;
       for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
         let toAccount = this.formSendAda.toAccounts[i];
@@ -242,17 +265,27 @@ export default {
       if (!isValidForm) {
         this.toastError({
           title: "Invalid Form",
-          message: "Check your transaction for completeness."
+          message: "Check your transaction for completeness.",
         });
         return;
       }
 
-      this.$bvModal.msgBoxConfirm("Are you sure?").then(value => {
+      if (this.formSendAda.isClaim && this.remainingLovelace !== 0) {
+        this.toastError({
+          title: "Invalid Form",
+          message:
+            "You must claim 100% of rewards Ada. Your remaining balance needs to be ₳0.000000",
+        });
+        return;
+      }
+
+      this.$bvModal.msgBoxConfirm("Are you sure?").then((value) => {
         if (value) {
           this.submitTransaction({
             fromId: this.formSendAda.fromId,
+            isClaim: this.formSendAda.isClaim,
             txFee: this.txFee,
-            toAccounts: _.map(this.formSendAda.toAccounts, toAccount => {
+            toAccounts: _.map(this.formSendAda.toAccounts, (toAccount) => {
               return {
                 account: toAccount.account,
                 type: toAccount.type,
@@ -260,9 +293,9 @@ export default {
                   toAccount.amount == null
                     ? null
                     : this.$root.$parseCurrency(toAccount.amount),
-                percent: toAccount.percent
+                percent: toAccount.percent,
               };
-            })
+            }),
           });
         }
       });
@@ -297,15 +330,20 @@ export default {
 
       let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
       let request = {
-        fromAddress: this.fromWalletItem.paymentAddr,
-        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut
+        fromId: this.fromWalletItem.id,
+        toAccounts: _.map(this.formSendAda.toAccounts, "account"),
+        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut,
+        isClaim: this.formSendAda.isClaim,
       };
-      if (request.fromAddress) {
+      if (request.fromId) {
         this.calculateSendAdaFees(request);
       }
     },
     calculateMaxLovelace(index) {
-      let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
+      let baseAmount =
+        (this.formSendAda.isClaim
+          ? this.fromWalletItem.stakingAddrLovelace
+          : this.fromWalletItem.paymentAddrLovelace) - this.txFee;
       let alreadySpentPercentages = 0;
       let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
@@ -337,7 +375,10 @@ export default {
       return baseAmount;
     },
     calculateSpentLovelace(index) {
-      let baseAmount = this.fromWalletItem.paymentAddrLovelace - this.txFee;
+      let baseAmount =
+        (this.formSendAda.isClaim
+          ? this.fromWalletItem.stakingAddrLovelace
+          : this.fromWalletItem.paymentAddrLovelace) - this.txFee;
       let alreadySpentPercentages = 0;
       let alreadySpentPercentageAmounts = 0;
       for (let i = 0; i < index; i++) {
@@ -379,12 +420,16 @@ export default {
           6
         )
       );
-    }
+    },
   },
   beforeCreate() {
-    this.$root.$on("send-ada", walletItem => {
+    this.$root.$on("send-ada", (walletItem) => {
       // received send-ada message from parent component
-      this.showSendAdaModal(walletItem);
+      this.showSendAdaModal(walletItem, false);
+    });
+    this.$root.$on("claim-ada", (walletItem) => {
+      // received claim-ada message from parent component
+      this.showSendAdaModal(walletItem, true);
     });
   },
   mounted() {
@@ -392,6 +437,7 @@ export default {
   },
   beforeDestroy() {
     this.$root.$off("send-ada");
-  }
+    this.$root.$off("claim-ada");
+  },
 };
 </script>

@@ -248,6 +248,7 @@ class NodeController @Autowired constructor(
                 ?.replace("12788", "$ekgPort")
                 ?.replace("12798", "$prometheusPort")
         configFileContent?.let {
+            log.info("Creating ${nodeFolder}/config.json from db file ${configFile.name}")
             hostConnection.commandWriteFile("${nodeFolder}/config.json", it)
         } ?: throw IOException("Config file not found in db!")
 
@@ -257,6 +258,7 @@ class NodeController @Autowired constructor(
     private fun createTopologyFile(byronGenesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {
         val topologyFile = fileRepository.findByName(byronGenesisFileName.substringBeforeLast("-byron") + "-topology.json")
         topologyFile?.let {
+            log.info("Creating ${nodeFolder}/topology.json from db file ${topologyFile.name}")
             hostConnection.commandWriteFile("${nodeFolder}/topology.json", topologyFile.content)
         } ?: throw IOException("Topology file not found in db!")
     }
@@ -264,6 +266,7 @@ class NodeController @Autowired constructor(
     private fun createGenesisFile(prefix: String, genesisFileId: Long, hostConnection: HostConnection, nodeFolder: String): com.swiftmako.jormanager.entities.File {
         val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
         genesisFile?.let {
+            log.info("Creating ${nodeFolder}/$prefix-genesis.json from db file ${genesisFile.name}")
             hostConnection.commandWriteFile("${nodeFolder}/$prefix-genesis.json", genesisFile.content)
             return genesisFile
         } ?: throw IOException("Genesis file not found in db!")

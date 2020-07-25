@@ -60,6 +60,7 @@
                 class="text-success"
                 v-if="data.value > 0"
                 v-b-tooltip.hover.v-success.bottom="'Claim Rewards'"
+                @click="$root.$emit('claim-ada', walletItems[data.index])"
               />
             </div>
             <div class="text-center" v-else>---</div>
@@ -92,7 +93,7 @@ export default {
   name: "Wallet",
   components: {
     AddWalletEntryWizard,
-    SendAdaModal
+    SendAdaModal,
   },
   data() {
     return {
@@ -103,21 +104,21 @@ export default {
         { key: "paymentAddrLovelace", label: "Balance", class: "text-right" },
         { key: "stakingAddr", label: "Reward Address" },
         { key: "stakingAddrLovelace", label: "Rewards" },
-        { key: "edit", label: "" }
+        { key: "edit", label: "" },
       ],
       showAddWalletEntryWizard: false,
-      sendAdaFrom: null
+      sendAdaFrom: null,
     };
   },
   computed: {
     ...mapState(["walletItems"]),
-    ...mapGetters(["walletDownloadUrl"])
+    ...mapGetters(["walletDownloadUrl"]),
   },
   methods: {
     ...mapActions(["fetchWalletItems", "deleteWalletItem"]),
     ...mapMutations(["toastInfo", "toastError"]),
     deleteItem(walletItem) {
-      this.$bvModal.msgBoxConfirm("Are you sure?").then(value => {
+      this.$bvModal.msgBoxConfirm("Are you sure?").then((value) => {
         if (value) {
           this.deleteWalletItem(walletItem);
         }
@@ -128,24 +129,24 @@ export default {
         () => {
           this.toastInfo({
             title: "Payment Address",
-            message: "Copied to clipboard"
+            message: "Copied to clipboard",
           });
         },
         () => {
           this.toastError({
             title: "Payment Address",
-            message: "Copy to clipboard failed."
+            message: "Copy to clipboard failed.",
           });
         }
       );
     },
     downloadKeys() {
       window.open(this.walletDownloadUrl, "_jm_download");
-    }
+    },
   },
   mounted() {
     this.fetchWalletItems();
-  }
+  },
 };
 </script>
 
