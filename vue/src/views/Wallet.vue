@@ -49,7 +49,22 @@
             </div>
           </template>
           <template v-slot:cell(stakingAddr)="data">
-            <div v-if="data.value.length>0">{{data.value.substring(0,10)}}...</div>
+            <div v-if="data.value.length>0">
+              {{data.value.substring(0,10)}}...
+              &nbsp;
+              <font-awesome-icon
+                :icon="['fas', 'link']"
+                class="text-success"
+                v-if="data.item.stakingAddrRegistered"
+                v-b-tooltip.hover.v-success.bottom="'Registered on chain'"
+              />
+              <font-awesome-icon
+                :icon="['fas', 'unlink']"
+                class="text-warning"
+                v-if="!data.item.stakingAddrRegistered"
+                v-b-tooltip.hover.v-warning.bottom="'Not registered on chain'"
+              />
+            </div>
             <div v-else class="text-center">---</div>
           </template>
           <template v-slot:cell(stakingAddrLovelace)="data">

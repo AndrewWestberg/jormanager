@@ -43,7 +43,9 @@ import {
   faWeightHanging,
   faBalanceScaleRight,
   faPowerOff,
-  faFileArchive
+  faFileArchive,
+  faLink,
+  faUnlink
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -64,6 +66,8 @@ library.add(faWeightHanging)
 library.add(faBalanceScaleRight)
 library.add(faPowerOff)
 library.add(faFileArchive)
+library.add(faLink)
+library.add(faUnlink)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

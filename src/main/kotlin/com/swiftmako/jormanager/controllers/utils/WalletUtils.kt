@@ -84,9 +84,12 @@ class WalletUtils @Autowired constructor(
         }
         val stakingAddrLovelace = stakingInfoString?.let { json ->
             stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
-        } ?: 0L
+        }
 
-        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrLovelace)
+        val stakingAddrRegistered = stakingAddrLovelace != null
+
+        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrRegistered, stakingAddrLovelace
+                ?: 0L)
     }
 
     fun getUtxos(host: Host, hostConnection: HostConnection, paymentAddr: String): List<Utxo> {

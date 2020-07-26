@@ -474,13 +474,13 @@ class WalletController @Autowired constructor(
                     zipOutputStream.write(walletEntry.paymentAddr.toByteArray())
 
                     walletEntry.paymentSkey?.let { paymentSkey ->
-                        val paymentSkeyZipEntry = ZipEntry(paymentSkey.name)
+                        val paymentSkeyZipEntry = ZipEntry("${walletEntry.name}.payment.skey")
                         zipOutputStream.putNextEntry(paymentSkeyZipEntry)
                         zipOutputStream.write(paymentSkey.content.toByteArray())
                     }
 
                     walletEntry.paymentVkey?.let { paymentVkey ->
-                        val paymentVkeyZipEntry = ZipEntry(paymentVkey.name)
+                        val paymentVkeyZipEntry = ZipEntry("${walletEntry.name}.payment.vkey")
                         zipOutputStream.putNextEntry(paymentVkeyZipEntry)
                         zipOutputStream.write(paymentVkey.content.toByteArray())
                     }
@@ -492,13 +492,13 @@ class WalletController @Autowired constructor(
                     }
 
                     walletEntry.stakingSkey?.let { stakingSkey ->
-                        val stakingSkeyZipEntry = ZipEntry(stakingSkey.name)
+                        val stakingSkeyZipEntry = ZipEntry("${walletEntry.name}.staking.skey")
                         zipOutputStream.putNextEntry(stakingSkeyZipEntry)
                         zipOutputStream.write(stakingSkey.content.toByteArray())
                     }
 
                     walletEntry.stakingVkey?.let { stakingVkey ->
-                        val stakingVkeyZipEntry = ZipEntry(stakingVkey.name)
+                        val stakingVkeyZipEntry = ZipEntry("${walletEntry.name}.staking.vkey")
                         zipOutputStream.putNextEntry(stakingVkeyZipEntry)
                         zipOutputStream.write(stakingVkey.content.toByteArray())
                     }

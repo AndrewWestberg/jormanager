@@ -8,5 +8,6 @@ data class WalletItem(
         val paymentAddrUtxoCount: Long,
         val paymentAddrLovelace: Long,
         val stakingAddr: String?,
+        val stakingAddrRegistered: Boolean,
         val stakingAddrLovelace: Long?
 )
