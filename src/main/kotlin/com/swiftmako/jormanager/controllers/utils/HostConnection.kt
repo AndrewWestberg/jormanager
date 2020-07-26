@@ -213,8 +213,18 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         command("touch $fileName")
         command("chmod u+w $fileName")
         command("truncate -s 0 $fileName")
-        content.split('\n').forEach { line ->
-            command("printf '$line\\n' >> $fileName")
+
+        var startIndex = 0
+        var endIndex = content.indexOf('\n', startIndex)
+        while (endIndex > -1) {
+            val line = content.substring(startIndex, endIndex + 1).replace("\n", "\\n")
+            command("printf '$line' >> $fileName")
+            startIndex = endIndex + 1
+            endIndex = content.indexOf('\n', startIndex)
+        }
+        if (startIndex <= content.length - 1) {
+            val line = content.substring(startIndex).replace("\n", "\\n")
+            command("printf '$line' >> $fileName")
         }
         return "" // none of these command should have any output
     }
