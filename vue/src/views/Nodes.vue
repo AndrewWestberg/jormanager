@@ -53,12 +53,14 @@
           </template>
           <!-- A custom formatted column -->
           <template v-slot:cell(edit)="data">
+            <!--
             <font-awesome-icon
               :icon="['fas','edit']"
               class="text-warning"
               v-b-tooltip.hover.v-warning.right="'Edit this Node'"
               @click="$root.$emit('edit-node', displayNodes[data.index])"
             />&nbsp;
+            -->
             <font-awesome-icon
               :icon="['fas','power-off']"
               class="text-danger"
@@ -80,7 +82,7 @@ import AddNodeWizard from "@/components/AddNodeWizard";
 export default {
   name: "Nodes",
   components: {
-    AddNodeWizard
+    AddNodeWizard,
   },
   data() {
     return {
@@ -88,9 +90,9 @@ export default {
         { key: "name", sortable: true },
         { key: "host", sortable: true },
         { key: "type", sortable: true },
-        { key: "edit", label: "" }
+        { key: "edit", label: "" },
       ],
-      showAddNodeWizard: false
+      showAddNodeWizard: false,
     };
   },
   methods: {
@@ -98,26 +100,32 @@ export default {
     restartNode(node) {
       this.$bvModal
         .msgBoxConfirm("Restart " + node + ". Are you sure?")
-        .then(value => {
+        .then((value) => {
           if (value) {
             this.restartNodeByName(node);
           }
         });
-    }
+    },
   },
   computed: {
-    ...mapGetters(["displayNodes"])
+    ...mapGetters(["displayNodes"]),
   },
   watch: {
     toastSuccess(toast) {
       if (toast.title === "Node Created") {
         this.requestNodes();
       }
-    }
+    },
   },
   mounted() {
     this.requestHosts();
     this.requestNodes();
-  }
+  },
 };
 </script>
+
+<style scoped>
+.fa-power-off:hover {
+  cursor: pointer;
+}
+</style>
