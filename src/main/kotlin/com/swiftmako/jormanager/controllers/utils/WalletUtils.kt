@@ -63,7 +63,8 @@ class WalletUtils @Autowired constructor(
 //                            when {
 //                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
             try {
-                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+//                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
+                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
             } catch (t: Throwable) {
                 if (t.message?.contains("EraMismatch") == false) {
                     log.error("Error getting stake addr info!", t)
@@ -83,7 +84,12 @@ class WalletUtils @Autowired constructor(
             null
         }
         val stakingAddrLovelace = stakingInfoString?.let { json ->
-            stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
+            try {
+                stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
+            } catch (t: Throwable) {
+                log.warn("Error parsing staking info json: $json")
+                0L
+            }
         }
 
         val stakingAddrRegistered = stakingAddrLovelace != null
@@ -99,7 +105,8 @@ class WalletUtils @Autowired constructor(
         val addressInfoString = //when {
                 //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
                 try {
-                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
+//                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
+                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --mainnet")
                 } catch (t: Throwable) {
                     if (t.message?.contains("EraMismatch") == false) {
                         log.error("Error getting payment addr info!", t)
