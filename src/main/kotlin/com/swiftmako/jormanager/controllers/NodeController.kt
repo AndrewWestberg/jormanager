@@ -189,8 +189,7 @@ class NodeController @Autowired constructor(
             |  --host-addr ${'$'}{HOST_ADDR} \\
             |  --port ${'$'}{PORT} \\
             |  --config ${'$'}{CONFIG}
-            |KillSignal="SIGINT"
-            |RestartKillSignal="SIGINT"
+            |KillSignal=SIGINT
             |StandardOutput=syslog
             |StandardError=syslog
             |SyslogIdentifier=${request.name}-node
