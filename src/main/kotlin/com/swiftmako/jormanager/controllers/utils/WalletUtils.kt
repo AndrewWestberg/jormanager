@@ -88,7 +88,7 @@ class WalletUtils @Autowired constructor(
                 stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
             } catch (t: Throwable) {
                 log.warn("Error parsing staking info json: $json")
-                0L
+                null
             }
         }
 

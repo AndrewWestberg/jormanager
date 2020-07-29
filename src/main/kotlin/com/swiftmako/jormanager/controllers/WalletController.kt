@@ -69,11 +69,11 @@ class WalletController @Autowired constructor(
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                     val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                    val magicString = if (genesis?.networkMagic == 42) {
-                        "--testnet-magic ${genesis.networkMagic}"
-                    } else {
+                    val magicString = //if (genesis?.networkMagic == 42) {
+//                        "--testnet-magic ${genesis.networkMagic}"
+//                    } else {
                         "--mainnet"
-                    }
+//                    }
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                         HostConnection(host, defaultNode).use { hostConnection ->
                             val protocolParams = hostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
@@ -327,11 +327,11 @@ class WalletController @Autowired constructor(
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                     val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                    val magicString = if (genesis?.networkMagic == 42) {
-                        "--testnet-magic ${genesis.networkMagic}"
-                    } else {
-                        "--mainnet"
-                    }
+                    val magicString = //if (genesis?.networkMagic == 42) {
+//                        "--testnet-magic ${genesis.networkMagic}"
+//                    } else {
+                            "--mainnet"
+//                    }
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                         HostConnection(host, defaultNode).use { hostConnection ->
                             val protocolParams = hostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
