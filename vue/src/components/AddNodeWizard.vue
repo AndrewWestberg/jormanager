@@ -235,95 +235,104 @@
       </div>
       <div slot="page3">
         <h4>Pool Config</h4>
-        <b-form-group label="Owner STAKING Keys">
+        <b-form-group label="Account Config">
           <b-form-group
-            label="skey"
-            label-for="owner-staking-skey-select"
+            label="Owner Account"
+            label-for="owner-staking-account-select"
             label-cols-md="1"
             label-align="right"
           >
             <b-form-select
-              id="owner-staking-skey-select"
-              v-model="formNode.ownerStakingSKey"
-              :options="stakingSKeys"
-              :state="ownerStakingSKeyState"
+              id="owner-staking-account-select"
+              aria-describedby="owner-staking-account-live-feedback"
+              v-model="formNode.ownerStakingAccount"
+              :options="stakingSelectOptions($options.filters.currency)"
+              :state="ownerStakingAccountState"
             >
               <template v-slot:first>
                 <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
               </template>
             </b-form-select>
+            <b-form-invalid-feedback
+              id="owner-staking-account-live-feedback"
+            >Account must hold enough to pay fees.</b-form-invalid-feedback>
           </b-form-group>
           <b-form-group
-            label="vkey"
-            label-for="owner-staking-vkey-select"
+            label="Rewards Account"
+            label-for="rewards-staking-account-select"
             label-cols-md="1"
             label-align="right"
           >
             <b-form-select
-              id="owner-staking-vkey-select"
-              v-model="formNode.ownerStakingVKey"
-              :options="stakingVKeys"
-              :state="ownerStakingVKeyState"
+              id="rewards-staking-account-select"
+              aria-describedby="rewards-staking-account-live-feedback"
+              v-model="formNode.rewardsStakingAccount"
+              :options="rewardsSelectOptions($options.filters.currency)"
+              :state="rewardsStakingAccountState"
             >
               <template v-slot:first>
                 <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
               </template>
             </b-form-select>
+            <b-form-invalid-feedback
+              id="rewards-staking-account-live-feedback"
+            >May be the same as owner account.</b-form-invalid-feedback>
           </b-form-group>
-          <b-form-group label="Pledge &amp; Fees">
-            <b-form-group
-              label="Pledge (lovelace)"
-              label-for="pledge-input"
-              label-cols-md="1"
-              label-align="right"
-            >
-              <b-form-input
-                id="pledge-input"
-                v-model="formNode.poolPledge"
-                placeholder="e.g. 250000000000"
-                :state="poolPledgeState"
-                type="number"
-                trim
-              />
-            </b-form-group>
-            <b-form-group
-              label="Cost (lovelace)"
-              label-for="cost-input"
-              label-cols-md="1"
-              label-align="right"
-            >
-              <b-form-input
-                id="cost-input"
-                v-model="formNode.poolCost"
-                :state="poolCostState"
-                placeholder="e.g. 200000000"
-                type="number"
-                trim
-              />
-            </b-form-group>
-            <b-form-group
-              label="Margin"
-              label-for="margin-input"
-              label-cols-md="1"
-              label-align="right"
-            >
-              <b-form-input
-                id="margin-input"
-                v-model="formNode.poolMargin"
-                :state="poolMarginState"
-                placeholder="e.g. 0.06"
-                type="range"
-                min="0.0"
-                max="1.0"
-                step="0.005"
-                trim
-              />
-              <p class="text-center">{{(formNode.poolMargin * 100).toFixed(1)}}%</p>
-            </b-form-group>
+        </b-form-group>
+        <b-form-group label="Pledge &amp; Fees">
+          <b-form-group
+            label="Pledge"
+            label-for="pledge-input"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-input
+              id="pledge-input"
+              v-model="formNode.poolPledge"
+              placeholder="e.g. ₳250,000.000000"
+              :state="poolPledgeState"
+              trim
+              v-currency
+            />
+          </b-form-group>
+          <b-form-group label="Cost" label-for="cost-input" label-cols-md="1" label-align="right">
+            <b-form-input
+              id="cost-input"
+              v-model="formNode.poolCost"
+              :state="poolCostState"
+              placeholder="e.g. ₳340.000000"
+              trim
+              v-currency
+            />
+          </b-form-group>
+          <b-form-group
+            label="Margin"
+            label-for="margin-input"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-input
+              id="margin-input"
+              v-model="formNode.poolMargin"
+              :state="poolMarginState"
+              placeholder="e.g. 0.06"
+              type="range"
+              min="0.00"
+              max="1.00"
+              step="0.0025"
+              trim
+            />
+            <p class="text-center">{{(formNode.poolMargin * 100).toFixed(2)}}%</p>
           </b-form-group>
         </b-form-group>
       </div>
       <div slot="page4">
+        <h4>Relays</h4>
+      </div>
+      <div slot="page5">
+        <h4>Metadata</h4>
+      </div>
+      <div slot="page6">
         <h4>Confirmation</h4>
         <p>
           Creating a node requires
@@ -344,7 +353,7 @@ import { mapMutations, mapGetters, mapActions } from "vuex";
 export default {
   name: "AddNodeWizard",
   components: {
-    "vue-good-wizard": GoodWizard
+    "vue-good-wizard": GoodWizard,
   },
   data() {
     return {
@@ -368,23 +377,21 @@ export default {
         generateKESKeys: false,
         kesSKey: null,
         kesVKey: null,
-        ownerStakingSKey: null,
-        ownerStakingVKey: null,
+        ownerStakingAccount: null,
+        rewardsStakingAccount: null,
         poolPledge: null,
         poolCost: null,
         poolMargin: 0.1,
-        sudoPassword: null
-      }
+        sudoPassword: null,
+      },
     };
   },
   computed: {
     ...mapGetters([
       "hostSelectOptions",
-      "stakingSKeys",
-      "stakingVKeys",
-      "paymentSKeys",
-      "paymentVKeys",
-      "genesisFiles"
+      "stakingSelectOptions",
+      "rewardsSelectOptions",
+      "genesisFiles",
     ]),
     steps() {
       if (this.formNode.type === "core") {
@@ -393,21 +400,29 @@ export default {
             label: "Node Basics",
             slot: "page1",
             options: {
-              backEnabled: true
-            }
+              backEnabled: true,
+            },
           },
           {
             label: "Core Node Keys",
-            slot: "page2"
+            slot: "page2",
           },
           {
             label: "Pool Config",
-            slot: "page3"
+            slot: "page3",
+          },
+          {
+            label: "Relays",
+            slot: "page4",
+          },
+          {
+            label: "Metadata",
+            slot: "page5",
           },
           {
             label: "Confirmation",
-            slot: "page4"
-          }
+            slot: "page6",
+          },
         ];
       }
 
@@ -416,13 +431,13 @@ export default {
           label: "Node Basics",
           slot: "page1",
           options: {
-            backEnabled: true
-          }
+            backEnabled: true,
+          },
         },
         {
           label: "Confirmation",
-          slot: "page4"
-        }
+          slot: "page4",
+        },
       ];
     },
     hostState() {
@@ -468,11 +483,11 @@ export default {
     kesVKeyState() {
       return this.formNode.generateKESKeys || this.formNode.kesVKey != null;
     },
-    ownerStakingSKeyState() {
-      return this.formNode.ownerStakingSKey != null;
+    ownerStakingAccountState() {
+      return this.formNode.ownerStakingAccount != null;
     },
-    ownerStakingVKeyState() {
-      return this.formNode.ownerStakingVKey != null;
+    rewardsStakingAccountState() {
+      return this.formNode.rewardsStakingAccount != null;
     },
     poolPledgeState() {
       return this.formNode.poolPledge > 0;
@@ -482,87 +497,87 @@ export default {
     },
     poolMarginState() {
       return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
-    }
+    },
   },
   methods: {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
-      if (currentPage === 0) {
-        if (
-          this.hostState &&
-          this.nameState &&
-          this.typeState &&
-          this.listenState &&
-          this.portState &&
-          this.genesisByronState &&
-          this.genesisShelleyState
-        ) {
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields."
-          });
-          return false;
-        }
-      } else if (currentPage === 1) {
-        if (this.formNode.type === "core") {
-          if (
-            this.coldSKeyState &&
-            this.coldVKeyState &&
-            this.vrfSKeyState &&
-            this.vrfVKeyState &&
-            this.kesSKeyState &&
-            this.kesVKeyState
-          ) {
-            return true;
-          } else {
-            this.toastError({
-              title: "Error",
-              message: "You must fill out all fields."
-            });
-            return false;
-          }
-        } else {
-          // relay node save!
-          this.createNode(this.formNode);
-          this.$emit("hideAddNodeWizard");
-        }
-      } else if (currentPage === 2) {
-        if (
-          this.ownerStakingSKeyState &&
-          this.ownerStakingVKeyState &&
-          this.poolPledgeState &&
-          this.poolCostState &&
-          this.poolMarginState
-        ) {
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields."
-          });
-          return false;
-        }
-      } else if (currentPage === 3) {
-        // core node save!
-        this.createNode(this.formNode);
-        this.$emit("hideAddNodeWizard");
-      }
+      // if (currentPage === 0) {
+      //   if (
+      //     this.hostState &&
+      //     this.nameState &&
+      //     this.typeState &&
+      //     this.listenState &&
+      //     this.portState &&
+      //     this.genesisByronState &&
+      //     this.genesisShelleyState
+      //   ) {
+      //     return true;
+      //   } else {
+      //     this.toastError({
+      //       title: "Error",
+      //       message: "You must fill out all fields.",
+      //     });
+      //     return false;
+      //   }
+      // } else if (currentPage === 1) {
+      //   if (this.formNode.type === "core") {
+      //     if (
+      //       this.coldSKeyState &&
+      //       this.coldVKeyState &&
+      //       this.vrfSKeyState &&
+      //       this.vrfVKeyState &&
+      //       this.kesSKeyState &&
+      //       this.kesVKeyState
+      //     ) {
+      //       return true;
+      //     } else {
+      //       this.toastError({
+      //         title: "Error",
+      //         message: "You must fill out all fields.",
+      //       });
+      //       return false;
+      //     }
+      //   } else {
+      //     // relay node save!
+      //     this.createNode(this.formNode);
+      //     this.$emit("hideAddNodeWizard");
+      //   }
+      // } else if (currentPage === 2) {
+      //   if (
+      //     this.ownerStakingSKeyState &&
+      //     this.ownerStakingVKeyState &&
+      //     this.poolPledgeState &&
+      //     this.poolCostState &&
+      //     this.poolMarginState
+      //   ) {
+      //     return true;
+      //   } else {
+      //     this.toastError({
+      //       title: "Error",
+      //       message: "You must fill out all fields.",
+      //     });
+      //     return false;
+      //   }
+      // } else if (currentPage === 3) {
+      //   // core node save!
+      //   this.createNode(this.formNode);
+      //   this.$emit("hideAddNodeWizard");
+      // }
 
-      // console.log("next clicked", currentPage);
+      console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
     backClicked(/*currentPage*/) {
       // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
-    }
+    },
   },
   mounted() {
     this.requestHosts();
     this.requestFileOptions();
-  }
+  },
 };
 </script>
 

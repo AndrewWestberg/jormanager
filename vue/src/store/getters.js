@@ -89,5 +89,36 @@ export default {
                         )
                 }
             }), ['text'])
-    }
+    },
+    stakingSelectOptions: (state) => (currency) => {
+        return _.sortBy(
+            _.map(_.filter(state.walletItems, (walletItem) => {
+                // must have over 503 ada to pay fees for registering a pool.
+                return walletItem.type === "stake" && walletItem.paymentAddrLovelace > 503000000
+            }), (walletItem) => {
+                return {
+                    value: walletItem.id,
+                    text: walletItem.name + " - " +
+                        currency(
+                            walletItem.paymentAddrLovelace / 1000000,
+                            "₳",
+                            6
+                        )
+                }
+            }), ['text'])
+    },
+    rewardsSelectOptions: (state) => (currency) => {
+        return _.sortBy(
+            _.map(state.walletItems, (walletItem) => {
+                return {
+                    value: walletItem.id,
+                    text: walletItem.name + " - " +
+                        currency(
+                            walletItem.paymentAddrLovelace / 1000000,
+                            "₳",
+                            6
+                        )
+                }
+            }), ['text'])
+    },
 }
