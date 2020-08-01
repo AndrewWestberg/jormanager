@@ -2,9 +2,9 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.3.1.RELEASE"
+    id("org.springframework.boot") version "2.3.2.RELEASE"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
-    id("com.github.ben-manes.versions") version "0.28.0"
+    id("com.github.ben-manes.versions") version "0.29.0"
     kotlin("jvm") version "1.3.72"
     kotlin("kapt") version "1.3.72"
     kotlin("plugin.spring") version "1.3.72"
@@ -13,21 +13,21 @@ plugins {
 
 object Versions {
     const val bouncycastle = "1.66"
-    const val coroutines = "1.3.7"
+    const val coroutines = "1.3.8"
     const val googleTruth = "1.0.1"
     const val jackson = "2.11.1"
     const val joda = "2.10.6"
     const val jsoup = "1.13.1"
-    const val liquibase = "3.10.1"
+    const val liquibase = "3.10.2"
     const val mockk = "1.10.0"
     const val moshi = "1.9.3"
-    const val okhttp = "4.7.2"
+    const val okhttp = "4.8.0"
     const val retrofit = "2.9.0"
     const val sshj = "0.29.0"
 }
 
 group = "com.swiftmako"
-version = "1.0.0_OG_8-SNAPSHOT"
+version = "1.0.0_OG_9-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

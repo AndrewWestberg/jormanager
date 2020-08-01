@@ -143,13 +143,13 @@ class NodeController @Autowired constructor(
             |#!/bin/bash
             |cd ${host.nodeHomePath}/${request.name}
             |source ${host.nodeHomePath}/${request.name}/env
-            |${host.cardanoNodePath} \\
-            |  +RTS -N${request.processorThreads} -RTS run \\
-            |  --topology ${'$'}{TOPOLOGY} \\
-            |  --database-path ${'$'}{DATABASE_PATH} \\
-            |  --socket-path ${'$'}{SOCKET_PATH} \\
-            |  --host-addr ${'$'}{HOST_ADDR} \\
-            |  --port ${'$'}{PORT} \\
+            |${host.cardanoNodePath} \
+            |  +RTS -N${request.processorThreads} -RTS run \
+            |  --topology ${'$'}{TOPOLOGY} \
+            |  --database-path ${'$'}{DATABASE_PATH} \
+            |  --socket-path ${'$'}{SOCKET_PATH} \
+            |  --host-addr ${'$'}{HOST_ADDR} \
+            |  --port ${'$'}{PORT} \
             |  --config ${'$'}{CONFIG}
         """.trimMargin()
         hostConnection.commandWriteFile("${host.nodeHomePath}/${request.name}/startNode.sh", startNodeContent)
@@ -181,13 +181,13 @@ class NodeController @Autowired constructor(
             |LimitNOFILE=131072
             |WorkingDirectory=${host.nodeHomePath}/${request.name}
             |EnvironmentFile=${host.nodeHomePath}/${request.name}/env
-            |ExecStart=${host.cardanoNodePath} \\
-            |  +RTS -N${request.processorThreads} -RTS run \\
-            |  --topology ${'$'}{TOPOLOGY} \\
-            |  --database-path ${'$'}{DATABASE_PATH} \\
-            |  --socket-path ${'$'}{SOCKET_PATH} \\
-            |  --host-addr ${'$'}{HOST_ADDR} \\
-            |  --port ${'$'}{PORT} \\
+            |ExecStart=${host.cardanoNodePath} \
+            |  +RTS -N${request.processorThreads} -RTS run \
+            |  --topology ${'$'}{TOPOLOGY} \
+            |  --database-path ${'$'}{DATABASE_PATH} \
+            |  --socket-path ${'$'}{SOCKET_PATH} \
+            |  --host-addr ${'$'}{HOST_ADDR} \
+            |  --port ${'$'}{PORT} \
             |  --config ${'$'}{CONFIG}
             |KillSignal=SIGINT
             |StandardOutput=syslog

@@ -6,6 +6,9 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.Session
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import net.schmizz.sshj.xfer.FileSystemFile
+import okio.buffer
+import okio.sink
 import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.Closeable
@@ -213,20 +216,28 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         command("touch $fileName")
         command("chmod u+w $fileName")
         command("truncate -s 0 $fileName")
+        if (host.isRemote) {
+            remoteCommandWriteFile(fileName, content)
+        } else {
+            localCommandWriteFile(fileName, content)
+        }
+        return ""
+    }
 
-        var startIndex = 0
-        var endIndex = content.indexOf('\n', startIndex)
-        while (endIndex > -1) {
-            val line = content.substring(startIndex, endIndex + 1).replace("\n", "\\n")
-            command("printf '$line' >> $fileName")
-            startIndex = endIndex + 1
-            endIndex = content.indexOf('\n', startIndex)
+    private fun localCommandWriteFile(fileName: String, content: String) {
+        File(fileName).sink().buffer().use { it.writeUtf8(content) }
+    }
+
+    private fun remoteCommandWriteFile(fileName: String, content: String) {
+        try {
+            localCommandWriteFile("/tmp/jm_scp_file.tmp", content)
+            ssh.newSCPFileTransfer().upload(FileSystemFile("/tmp/jm_scp_file.tmp"), fileName)
+        } catch (e: Throwable) {
+            if (e is SSHRuntimeException) {
+                throw e
+            }
+            throw SSHRuntimeException("Error communicating with remote server!", e)
         }
-        if (startIndex <= content.length - 1) {
-            val line = content.substring(startIndex).replace("\n", "\\n")
-            command("printf '$line' >> $fileName")
-        }
-        return "" // none of these command should have any output
     }
 
     fun sudoCommandWriteFile(fileName: String, content: String, sudoPassword: String?): String {
