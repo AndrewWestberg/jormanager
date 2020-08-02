@@ -94,7 +94,7 @@ class WalletUtils @Autowired constructor(
 
         val stakingAddrRegistered = stakingAddrLovelace != null
 
-        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrRegistered, stakingAddrLovelace
+        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, walletEntry.paymentSkey != null, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrRegistered, stakingAddrLovelace
                 ?: 0L)
     }
 

@@ -237,6 +237,27 @@
         <h4>Pool Config</h4>
         <b-form-group label="Account Config">
           <b-form-group
+            label="Fees Account"
+            label-for="registration-fees-account-select"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-select
+              id="registration-fees-account-select"
+              aria-describedby="registration-fees-account-live-feedback"
+              v-model="formNode.registrationFeesAccount"
+              :options="registrationFeesSelectOptions($options.filters.currency)"
+              :state="registrationFeesAccountState"
+            >
+              <template v-slot:first>
+                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              </template>
+            </b-form-select>
+            <b-form-invalid-feedback
+              id="registration-fees-account-live-feedback"
+            >Account must hold enough to pay pool registration and delegation fees.</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group
             label="Owner Account"
             label-for="owner-staking-account-select"
             label-cols-md="1"
@@ -244,7 +265,6 @@
           >
             <b-form-select
               id="owner-staking-account-select"
-              aria-describedby="owner-staking-account-live-feedback"
               v-model="formNode.ownerStakingAccount"
               :options="stakingSelectOptions($options.filters.currency)"
               :state="ownerStakingAccountState"
@@ -253,9 +273,6 @@
                 <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
               </template>
             </b-form-select>
-            <b-form-invalid-feedback
-              id="owner-staking-account-live-feedback"
-            >Account must hold enough to pay fees.</b-form-invalid-feedback>
           </b-form-group>
           <b-form-group
             label="Rewards Account"
@@ -328,6 +345,44 @@
       </div>
       <div slot="page4">
         <h4>Relays</h4>
+        <div v-for="(relay, index) in formNode.relays" :key="index">
+          <b-card border-variant="secondary">
+            <b-form-group label="Address" label-for="relay-address-input" label-cols-md="1">
+              <b-form-input
+                id="relay-address-input"
+                v-model="relay.addr"
+                :state="relayAddrState(relay.addr)"
+                aria-describedby="relay-address-input-live-feedback"
+                placeholder="e.g. 240.116.25.34, relay1.mystakepool.com"
+                trim
+              ></b-form-input>
+              <b-form-invalid-feedback
+                id="relay-address-input-live-feedback"
+              >Enter a valid dns name or ip address for your relay server.</b-form-invalid-feedback>
+            </b-form-group>
+            <b-form-group label="Port" label-for="relay-port-input" label-cols-md="1">
+              <b-form-input
+                id="relay-port-input"
+                type="number"
+                step="1"
+                min="1024"
+                max="65535"
+                :state="relayPortState(relay.port)"
+                placeholder="e.g. 3001"
+                aria-describedby="relay-port-input-live-feedback"
+                v-model="relay.port"
+                trim
+              />
+              <b-form-invalid-feedback
+                id="relay-port-input-live-feedback"
+              >The port number of the relay node.</b-form-invalid-feedback>
+            </b-form-group>
+          </b-card>
+          <hr />
+        </div>
+        <b-button variant="primary" @click="addRelay()">
+          <b-icon-plus />&nbsp;Add Relay
+        </b-button>
       </div>
       <div slot="page5">
         <h4>Metadata</h4>
@@ -377,11 +432,13 @@ export default {
         generateKESKeys: false,
         kesSKey: null,
         kesVKey: null,
+        registrationFeesAccount: null,
         ownerStakingAccount: null,
         rewardsStakingAccount: null,
         poolPledge: null,
         poolCost: null,
-        poolMargin: 0.1,
+        poolMargin: 0.05,
+        relays: [],
         sudoPassword: null,
       },
     };
@@ -389,6 +446,7 @@ export default {
   computed: {
     ...mapGetters([
       "hostSelectOptions",
+      "registrationFeesSelectOptions",
       "stakingSelectOptions",
       "rewardsSelectOptions",
       "genesisFiles",
@@ -454,7 +512,11 @@ export default {
     },
     listenState() {
       // matches an ip address
-      return this.formNode.listen.match(/(\d{1,3}\.){3}\d{1,3}/) != null;
+      return (
+        this.formNode.listen.match(
+          /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+        ) != null
+      );
     },
     portState() {
       return this.formNode.port > 1023;
@@ -482,6 +544,9 @@ export default {
     },
     kesVKeyState() {
       return this.formNode.generateKESKeys || this.formNode.kesVKey != null;
+    },
+    registrationFeesAccountState() {
+      return this.formNode.registrationFeesAccount != null;
     },
     ownerStakingAccountState() {
       return this.formNode.ownerStakingAccount != null;
@@ -572,6 +637,26 @@ export default {
     backClicked(/*currentPage*/) {
       // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
+    },
+    addRelay() {
+      this.formNode.relays.push({
+        addr: null,
+        port: 3000,
+      });
+    },
+    relayAddrState(relayAddr) {
+      console.log("relayAddrState(" + JSON.stringify(relayAddr) + ")");
+      return (
+        relayAddr != null &&
+        (relayAddr.match(
+          /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+        ) != null ||
+          relayAddr.match(/^[a-z0-9]+([\\-\\.]{1}[a-z0-9]+)*\.[a-z]{2,6}$/) !=
+            null)
+      );
+    },
+    relayPortState(port) {
+      return port > 1023;
     },
   },
   mounted() {
