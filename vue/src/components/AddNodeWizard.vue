@@ -386,6 +386,273 @@
       </div>
       <div slot="page5">
         <h4>Metadata</h4>
+        <b-form-group>
+          <h5>Primary (Required)</h5>
+          <b-form-group label="Ticker" label-for="metadata-ticker-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-ticker-input"
+              v-model="formNode.metadata.ticker"
+              :state="tickerState"
+              aria-describedby="metadata-ticker-input-live-feedback"
+              placeholder="e.g. TICKR, ABC1, etc..."
+              :formatter="formatTicker"
+              trim
+            />
+            <b-form-invalid-feedback
+              id="metadata-ticker-input-live-feedback"
+            >Ticker must only contain 'A-Z', '0-9' and be 3 to 5 characters in length</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group label="Name" label-for="metadata-name-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-name-input"
+              v-model="formNode.metadata.name"
+              :state="metadataNameState"
+              aria-describedby="metadata-name-input-live-feedback"
+              placeholder="e.g. My Awesome Stakepool"
+              :formatter="formatMetadataName"
+              trim
+            />
+            <b-form-invalid-feedback
+              id="metadata-name-input-live-feedback"
+            >Name must be between 1 and 50 characters in length</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group
+            label="Description"
+            label-for="metadata-description-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-description-input"
+              v-model="formNode.metadata.description"
+              :state="metadataDescriptionState"
+              aria-describedby="metadata-description-input-live-feedback"
+              placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
+              :formatter="formatMetadataDescription"
+              trim
+            />
+            <b-form-invalid-feedback
+              id="metadata-description-input-live-feedback"
+            >Description must be between 1 and 255 characters in length</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group label="Homepage" label-for="metadata-homepage-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-homepage-input"
+              v-model="formNode.metadata.homepage"
+              :state="metadataHomepageState"
+              aria-describedby="metadata-homepage-input-live-feedback"
+              placeholder="e.g. https://flippin-stakes.com"
+              trim
+            />
+            <b-form-invalid-feedback
+              id="metadata-homepage-input-live-feedback"
+            >Homepage must be https and 64 characters or less in length</b-form-invalid-feedback>
+          </b-form-group>
+        </b-form-group>
+        <b-form-group>
+          <h5>Extended (Optional)</h5>
+          <b-form-group label="Icon 64x64 URL" label-for="metadata-icon64-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-icon64-input"
+              v-model="formNode.metadata.extended.info.icon64"
+              :state="metadataIcon64State"
+              aria-describedby="metadata-icon64-input-live-feedback"
+              placeholder="e.g. https://flippin-stakes.com/icon64.png"
+              trim
+            />
+            <b-form-invalid-feedback id="metadata-icon64-input-live-feedback">Icon url must be a url</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group label="Logo URL" label-for="metadata-logo-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-logo-input"
+              v-model="formNode.metadata.extended.info.logo"
+              :state="metadataLogoState"
+              aria-describedby="metadata-logo-input-live-feedback"
+              placeholder="e.g. https://flippin-stakes.com/logo512.png"
+              trim
+            />
+            <b-form-invalid-feedback id="metadata-logo-input-live-feedback">Logo url must be a url</b-form-invalid-feedback>
+          </b-form-group>
+          <b-form-group label="Location" label-for="metadata-location-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-location-input"
+              v-model="formNode.metadata.extended.info.location"
+              placeholder="e.g. United States, North America"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Twitter" label-for="metadata-twitter-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-twitter-input"
+              v-model="formNode.metadata.extended.info.social.twitter"
+              placeholder="e.g. IOHK_Charles"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Telegram" label-for="metadata-telegram-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-telegram-input"
+              v-model="formNode.metadata.extended.info.social.telegram"
+              placeholder="e.g. flippin_stakes_group"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Facebook" label-for="metadata-facebook-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-facebook-input"
+              v-model="formNode.metadata.extended.info.social.facebook"
+              placeholder="e.g. flippin_stakes"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="YouTube" label-for="metadata-youtube-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-youtube-input"
+              v-model="formNode.metadata.extended.info.social.youtube"
+              placeholder="e.g. flippin_stakes"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Twitch" label-for="metadata-twitch-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-twitch-input"
+              v-model="formNode.metadata.extended.info.social.twitch"
+              placeholder="e.g. flippin_stakes"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Discord" label-for="metadata-discord-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-discord-input"
+              v-model="formNode.metadata.extended.info.social.discord"
+              placeholder="e.g. FlippinStakes"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Github" label-for="metadata-github-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-github-input"
+              v-model="formNode.metadata.extended.info.social.github"
+              placeholder="e.g. FlippinStakes"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="RSS" label-for="metadata-rss-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-rss-input"
+              v-model="formNode.metadata.extended.info.rss"
+              placeholder="e.g. https://flippin-stakes/feed.atom"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="Company Name"
+            label-for="metadata-companyname-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-companyname-input"
+              v-model="formNode.metadata.extended.info.company.name"
+              placeholder="e.g. Flippin Stakes, LLC."
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="Company Address"
+            label-for="metadata-companyaddress-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-companyaddress-input"
+              v-model="formNode.metadata.extended.info.company.addr"
+              placeholder="e.g. 123 Backflip Lane"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="Company City"
+            label-for="metadata-companycity-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-companycity-input"
+              v-model="formNode.metadata.extended.info.company.city"
+              placeholder="e.g. Flippin, AK"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="Company Country"
+            label-for="metadata-companycountry-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-companycountry-input"
+              v-model="formNode.metadata.extended.info.company.country"
+              placeholder="e.g. Flippin, AK"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="Company ID" label-for="metadata-companyid-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-companyid-input"
+              v-model="formNode.metadata.extended.info.company.company_id"
+              placeholder="e.g. 27-0641272"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="VAT ID" label-for="metadata-vatid-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-vatid-input"
+              v-model="formNode.metadata.extended.info.company.vat_id"
+              placeholder="e.g. J-30595991-8"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="About Me" label-for="metadata-aboutme-input" label-cols-md="2">
+            <b-form-input
+              id="metadata-aboutme-input"
+              v-model="formNode.metadata.extended.info.about.me"
+              placeholder="e.g. 10-year veteran as a DevOps Engineer"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="About Server"
+            label-for="metadata-aboutserver-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-aboutserver-input"
+              v-model="formNode.metadata.extended.info.about.server"
+              placeholder="e.g. Cloud Hosted at AWS around the world."
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="About Company"
+            label-for="metadata-aboutcompany-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-aboutcompany-input"
+              v-model="formNode.metadata.extended.info.about.company"
+              placeholder="e.g. Founded in 2020 for stakepool operations, Flippin Stakes, LLC has grown to 3 people."
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="Telegram Admin"
+            label-for="metadata-telegramadmin-input"
+            label-cols-md="2"
+          >
+            <b-form-input
+              id="metadata-telegramadmin-input"
+              v-model="formNode.metadata.extended.telegramAdminHandle"
+              placeholder="e.g. CottonEyedJoe"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
       </div>
       <div slot="page6">
         <h4>Confirmation</h4>
@@ -439,6 +706,46 @@ export default {
         poolCost: null,
         poolMargin: 0.05,
         relays: [],
+        metadata: {
+          ticker: null,
+          name: null,
+          description: null,
+          homepage: null,
+          extended: {
+            itn: {
+              publicKey: null,
+              privateKey: null,
+            },
+            info: {
+              icon64: null,
+              logo: null,
+              location: null,
+              social: {
+                twitter: null,
+                telegram: null,
+                facebook: null,
+                youtube: null,
+                discord: null,
+                github: null,
+              },
+              company: {
+                name: null,
+                addr: null,
+                city: null,
+                country: null,
+                company_id: null,
+                vat_id: null,
+              },
+              about: {
+                me: null,
+                server: null,
+                company: null,
+              },
+              rss: null,
+            },
+            telegramAdminHandle: null,
+          },
+        },
         sudoPassword: null,
       },
     };
@@ -563,6 +870,47 @@ export default {
     poolMarginState() {
       return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
     },
+    tickerState() {
+      return (
+        this.formNode.metadata.ticker != null &&
+        this.formNode.metadata.ticker.match(/^[A-Z0-9]{3,5}$/) != null
+      );
+    },
+    metadataNameState() {
+      return (
+        this.formNode.metadata.name != null &&
+        this.formNode.metadata.name.length > 0
+      );
+    },
+    metadataDescriptionState() {
+      return (
+        this.formNode.metadata.description != null &&
+        this.formNode.metadata.name.length > 0
+      );
+    },
+    metadataHomepageState() {
+      return (
+        this.formNode.metadata.homepage != null &&
+        this.formNode.metadata.homepage.length < 65 &&
+        this.formNode.metadata.homepage.match(/^https:\/\/.*/) != null
+      );
+    },
+    metadataIcon64State() {
+      return (
+        this.formNode.metadata.extended.info.icon64 == null ||
+        this.formNode.metadata.extended.info.icon64.length == 0 ||
+        this.formNode.metadata.extended.info.icon64.match(/^https?:\/\/.*/) !=
+          null
+      );
+    },
+    metadataLogoState() {
+      return (
+        this.formNode.metadata.extended.info.logo == null ||
+        this.formNode.metadata.extended.info.logo.length == 0 ||
+        this.formNode.metadata.extended.info.logo.match(/^https?:\/\/.*/) !=
+          null
+      );
+    },
   },
   methods: {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
@@ -657,6 +1005,15 @@ export default {
     },
     relayPortState(port) {
       return port > 1023;
+    },
+    formatTicker(value) {
+      return value.substring(0, 5).toUpperCase();
+    },
+    formatMetadataName(value) {
+      return value.substring(0, 50);
+    },
+    formatMetadataDescription(value) {
+      return value.substring(0, 255);
     },
   },
   mounted() {
