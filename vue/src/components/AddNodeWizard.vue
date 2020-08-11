@@ -862,13 +862,21 @@ export default {
       return this.formNode.rewardsStakingAccount != null;
     },
     poolPledgeState() {
-      return this.formNode.poolPledge > 0;
+      if (this.formNode.poolPledge == null) {
+        return false;
+      }
+      return this.$root.$parseCurrency(this.formNode.poolPledge) > 0;
     },
     poolCostState() {
-      return this.formNode.poolCost > 0;
+      if (this.formNode.poolCost == null) {
+        return false;
+      }
+      return this.$root.$parseCurrency(this.formNode.poolCost) > 0;
     },
     poolMarginState() {
-      return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
+      return (
+        this.formNode.poolMargin >= 0.01 && this.formNode.poolMargin <= 1.0
+      );
     },
     tickerState() {
       return (
@@ -916,68 +924,105 @@ export default {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
     nextClicked(currentPage) {
-      // if (currentPage === 0) {
-      //   if (
-      //     this.hostState &&
-      //     this.nameState &&
-      //     this.typeState &&
-      //     this.listenState &&
-      //     this.portState &&
-      //     this.genesisByronState &&
-      //     this.genesisShelleyState
-      //   ) {
-      //     return true;
-      //   } else {
-      //     this.toastError({
-      //       title: "Error",
-      //       message: "You must fill out all fields.",
-      //     });
-      //     return false;
-      //   }
-      // } else if (currentPage === 1) {
-      //   if (this.formNode.type === "core") {
-      //     if (
-      //       this.coldSKeyState &&
-      //       this.coldVKeyState &&
-      //       this.vrfSKeyState &&
-      //       this.vrfVKeyState &&
-      //       this.kesSKeyState &&
-      //       this.kesVKeyState
-      //     ) {
-      //       return true;
-      //     } else {
-      //       this.toastError({
-      //         title: "Error",
-      //         message: "You must fill out all fields.",
-      //       });
-      //       return false;
-      //     }
-      //   } else {
-      //     // relay node save!
-      //     this.createNode(this.formNode);
-      //     this.$emit("hideAddNodeWizard");
-      //   }
-      // } else if (currentPage === 2) {
-      //   if (
-      //     this.ownerStakingSKeyState &&
-      //     this.ownerStakingVKeyState &&
-      //     this.poolPledgeState &&
-      //     this.poolCostState &&
-      //     this.poolMarginState
-      //   ) {
-      //     return true;
-      //   } else {
-      //     this.toastError({
-      //       title: "Error",
-      //       message: "You must fill out all fields.",
-      //     });
-      //     return false;
-      //   }
-      // } else if (currentPage === 3) {
-      //   // core node save!
-      //   this.createNode(this.formNode);
-      //   this.$emit("hideAddNodeWizard");
-      // }
+      if (currentPage === 0) {
+        if (
+          this.hostState &&
+          this.nameState &&
+          this.typeState &&
+          this.listenState &&
+          this.portState &&
+          this.genesisByronState &&
+          this.genesisShelleyState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields.",
+          });
+          return false;
+        }
+      } else if (currentPage === 1) {
+        if (this.formNode.type === "core") {
+          if (
+            this.coldSKeyState &&
+            this.coldVKeyState &&
+            this.vrfSKeyState &&
+            this.vrfVKeyState &&
+            this.kesSKeyState &&
+            this.kesVKeyState
+          ) {
+            return true;
+          } else {
+            this.toastError({
+              title: "Error",
+              message: "You must fill out all fields.",
+            });
+            return false;
+          }
+        } else {
+          // relay node save!
+          this.createNode(this.formNode);
+          this.$emit("hideAddNodeWizard");
+        }
+      } else if (currentPage === 2) {
+        if (
+          this.registrationFeesAccountState &&
+          this.ownerStakingAccountState &&
+          this.rewardsStakingAccountState &&
+          this.poolPledgeState &&
+          this.poolCostState &&
+          this.poolMarginState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields.",
+          });
+          return false;
+        }
+      } else if (currentPage === 3) {
+        if (this.formNode.relays.length === 0) {
+          return true;
+        } else {
+          for (let i = 0; i < this.formNode.relays.length; i++) {
+            let relay = this.formNode.relays[i];
+            if (
+              !this.relayAddrState(relay.addr) ||
+              !this.relayPortState(relay.port)
+            ) {
+              this.toastError({
+                title: "Error",
+                message: "You must fill out all fields.",
+              });
+              return false;
+            }
+          }
+          return true;
+        }
+      } else if (currentPage === 4) {
+        if (
+          this.tickerState &&
+          this.metadataNameState &&
+          this.metadataDescriptionState &&
+          this.metadataHomepageState &&
+          this.metadataIcon64State &&
+          this.metadataLogoState
+        ) {
+          return true;
+        } else {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields.",
+          });
+          return false;
+        }
+      } else if (currentPage === 5) {
+        // core node save!
+        this.createNode(this.formNode);
+        this.$emit("hideAddNodeWizard");
+      }
 
       console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
