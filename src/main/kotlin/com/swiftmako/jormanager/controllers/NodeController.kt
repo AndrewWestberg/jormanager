@@ -19,7 +19,6 @@ import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
-import java.io.File
 import java.io.IOException
 
 @Controller
@@ -77,58 +76,60 @@ class NodeController @Autowired constructor(
     fun createNode(request: CreateNodeRequest): SocketResponse<String> {
         try {
             hostRepository.findByIdOrNull(request.hostId)?.let { host ->
-                HostConnection(host).use { hostConnection ->
-                    when (request.type) {
-                        NODE_TYPE_RELAY -> {
-                            val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
-                            createNodeFolders(hostConnection, nodeFolder)
-                            val genesisByronFile = createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
-                            createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
-                            createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
-                            createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
-                            createSystemdFile(request, host, hostConnection)
-                            createManualStartupScripts(request, host, hostConnection)
+                log.info(request.toString())
 
-                            if (request.isDefault) {
-                                val oldDefault = nodeRepository.findDefault()
-                                oldDefault?.let {
-                                    // Make old default no longer the default
-                                    nodeRepository.save(oldDefault.copy(isDefault = false))
-                                }
-                            }
-
-                            val node = Node(
-                                    hostId = host.id!!,
-                                    color = request.color,
-                                    type = request.type,
-                                    processorThreads = request.processorThreads,
-                                    name = request.name,
-                                    listen = request.listen,
-                                    port = request.port,
-                                    ekgPort = ekgPort,
-                                    genesisByronFileId = request.genesisByronFileId,
-                                    genesisShelleyFileId = request.genesisShelleyFileId,
-                                    configFileId = configFileId,
-                                    isDefault = request.isDefault
-                            )
-                            val savedNode = nodeRepository.save(node)
-
-                            // send it to the channel for monitoring
-                            nodesChannel.offer(savedNode)
-
-                            // send all to the client for ui updates
-                            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
-                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
-                        }
-                        NODE_TYPE_CORE -> {
-                            TODO("Not yet implemented")
-                        }
-                        else -> {
-                            throw IOException("Invalid node type: ${request.type}")
-                        }
-                    }
-                }
+//                HostConnection(host).use { hostConnection ->
+//                    when (request.type) {
+//                        NODE_TYPE_RELAY -> {
+//                            val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
+//                            createNodeFolders(hostConnection, nodeFolder)
+//                            val genesisByronFile = createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
+//                            createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
+//                            createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
+//                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
+//                            createEnvFile(hostConnection, nodeFolder, request.listen, request.port)
+//                            createSystemdFile(request, host, hostConnection)
+//                            createManualStartupScripts(request, host, hostConnection)
+//
+//                            if (request.isDefault) {
+//                                val oldDefault = nodeRepository.findDefault()
+//                                oldDefault?.let {
+//                                    // Make old default no longer the default
+//                                    nodeRepository.save(oldDefault.copy(isDefault = false))
+//                                }
+//                            }
+//
+//                            val node = Node(
+//                                    hostId = host.id!!,
+//                                    color = request.color,
+//                                    type = request.type,
+//                                    processorThreads = request.processorThreads,
+//                                    name = request.name,
+//                                    listen = request.listen,
+//                                    port = request.port,
+//                                    ekgPort = ekgPort,
+//                                    genesisByronFileId = request.genesisByronFileId,
+//                                    genesisShelleyFileId = request.genesisShelleyFileId,
+//                                    configFileId = configFileId,
+//                                    isDefault = request.isDefault
+//                            )
+//                            val savedNode = nodeRepository.save(node)
+//
+//                            // send it to the channel for monitoring
+//                            nodesChannel.offer(savedNode)
+//
+//                            // send all to the client for ui updates
+//                            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+//                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+//                        }
+//                        NODE_TYPE_CORE -> {
+//                            TODO("Not yet implemented")
+//                        }
+//                        else -> {
+//                            throw IOException("Invalid node type: ${request.type}")
+//                        }
+//                    }
+//                }
 
                 return SocketResponse.Success("createnode", "${request.name} created successfully!")
             } ?: throw IOException("Invalid HostId: ${request.hostId}")

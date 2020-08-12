@@ -1,11 +1,12 @@
 package com.swiftmako.jormanager.model
 
+
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class FileUpload(
-        @JsonProperty("name") @Json(name = "name") val name: String,
-        @JsonProperty("content") @Json(name = "content") val content: String
+data class Itn(
+        @JsonProperty("publicKey") @Json(name = "publicKey") val publicKey: FileUpload?,
+        @JsonProperty("privateKey") @Json(name = "privateKey") val privateKey: FileUpload?
 )

@@ -588,7 +588,7 @@
             <b-form-input
               id="metadata-companycountry-input"
               v-model="formNode.metadata.extended.info.company.country"
-              placeholder="e.g. Flippin, AK"
+              placeholder="e.g. United States"
               trim
             />
           </b-form-group>
@@ -1020,6 +1020,12 @@ export default {
         }
       } else if (currentPage === 5) {
         // core node save!
+        this.formNode.poolPledge = this.$root.$parseCurrency(
+          this.formNode.poolPledge
+        );
+        this.formNode.poolCost = this.$root.$parseCurrency(
+          this.formNode.poolCost
+        );
         this.createNode(this.formNode);
         this.$emit("hideAddNodeWizard");
       }
@@ -1038,7 +1044,6 @@ export default {
       });
     },
     relayAddrState(relayAddr) {
-      console.log("relayAddrState(" + JSON.stringify(relayAddr) + ")");
       return (
         relayAddr != null &&
         (relayAddr.match(

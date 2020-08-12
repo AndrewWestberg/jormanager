@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.model
 
+
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -25,10 +26,13 @@ data class CreateNodeRequest(
         @JsonProperty("generateKESKeys") @Json(name = "generateKESKeys") val generateKESKeys: Boolean,
         @JsonProperty("kesSKey") @Json(name = "kesSKey") val kesSKey: FileUpload?,
         @JsonProperty("kesVKey") @Json(name = "kesVKey") val kesVKey: FileUpload?,
-        @JsonProperty("ownerStakingSKey") @Json(name = "ownerStakingSKey") val ownerStakingSKeyId: Long?,
-        @JsonProperty("ownerStakingVKey") @Json(name = "ownerStakingVKey") val ownerStakingVKeyId: Long?,
+        @JsonProperty("registrationFeesAccount") @Json(name = "registrationFeesAccount") val registrationFeesAccount: Long?,
+        @JsonProperty("ownerStakingAccount") @Json(name = "ownerStakingAccount") val ownerStakingAccount: Long?,
+        @JsonProperty("rewardsStakingAccount") @Json(name = "rewardsStakingAccount") val rewardsStakingAccount: Long?,
         @JsonProperty("poolPledge") @Json(name = "poolPledge") val poolPledge: Long?,
         @JsonProperty("poolCost") @Json(name = "poolCost") val poolCost: Long?,
         @JsonProperty("poolMargin") @Json(name = "poolMargin") val poolMargin: String,
-        @JsonProperty("sudoPassword") @Json(name = "sudoPassword") val sudoPassword: String?
+        @JsonProperty("relays") @Json(name = "relays") val relays: List<Relay>?,
+        @JsonProperty("metadata") @Json(name = "metadata") val metadata: Metadata?,
+        @JsonProperty("sudoPassword") @Json(name = "sudoPassword") val sudoPassword: String
 )

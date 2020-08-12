@@ -178,7 +178,7 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request Hosts");
+            // console.log("Request Hosts");
             state.stompClient.send("/jormanager/hosts");
         } else {
             commit('toastError', {
@@ -192,7 +192,7 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request Nodes");
+            // console.log("Request Nodes");
             state.stompClient.send("/jormanager/nodes");
         } else {
             commit('toastError', {
@@ -206,7 +206,7 @@ export default {
         commit
     }, host) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Add Host: " + JSON.stringify(host));
+            // console.log("Add Host: " + JSON.stringify(host));
             state.stompClient.send("/jormanager/addhost", JSON.stringify(host));
         } else {
             commit('toastError', {
@@ -220,7 +220,7 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request fileOptions");
+            // console.log("Request fileOptions");
             state.stompClient.send("/jormanager/file_options");
         } else {
             commit('toastError', {
@@ -234,7 +234,7 @@ export default {
         commit
     }, formNode) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Create Node: " + JSON.stringify(formNode));
+            // console.log("Create Node: " + JSON.stringify(formNode));
             state.stompClient.send("/jormanager/createnode", JSON.stringify(formNode));
         } else {
             commit('toastError', {
@@ -248,7 +248,7 @@ export default {
         commit
     }, formWallet) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Create WalletEntry: " + JSON.stringify(formWallet));
+            // console.log("Create WalletEntry: " + JSON.stringify(formWallet));
             state.stompClient.send("/jormanager/createwalletentry", JSON.stringify(formWallet));
         } else {
             commit('toastError', {
@@ -262,7 +262,7 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request blocks");
+            // console.log("Request blocks");
             state.stompClient.send("/jormanager/blocks");
         } else {
             commit('toastError', {
@@ -277,7 +277,7 @@ export default {
     }, walletItem) => {
         commit('saveWallet', [])
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Delete WalletItem: " + JSON.stringify(walletItem.id));
+            // console.log("Delete WalletItem: " + JSON.stringify(walletItem.id));
             state.stompClient.send("/jormanager/deletewalletentry", JSON.stringify(walletItem.id));
         } else {
             commit('toastError', {
@@ -291,7 +291,7 @@ export default {
         commit
     }) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Request wallet");
+            // console.log("Request wallet");
             state.stompClient.send("/jormanager/wallet");
         } else {
             commit('toastError', {
@@ -305,7 +305,7 @@ export default {
         commit
     }, request) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Calculate txfee: " + JSON.stringify(request));
+            // console.log("Calculate txfee: " + JSON.stringify(request));
             state.stompClient.send("/jormanager/calculatefee", JSON.stringify(request));
         } else {
             commit('toastError', {
@@ -319,7 +319,7 @@ export default {
         commit
     }, formSendAda) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Submit transaction: " + JSON.stringify(formSendAda));
+            // console.log("Submit transaction: " + JSON.stringify(formSendAda));
             state.stompClient.send("/jormanager/submittransaction", JSON.stringify(formSendAda));
         } else {
             commit('toastError', {
@@ -335,7 +335,7 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             let node = _.find(state.nodes, ["name", nodeName]);
             if (node) {
-                console.log("Restart Node: " + JSON.stringify(node));
+                // console.log("Restart Node: " + JSON.stringify(node));
                 state.stompClient.send("/jormanager/restartnode", JSON.stringify(node.id));
             }
         } else {
@@ -344,6 +344,5 @@ export default {
                 message: "stompClient not connected!"
             })
         }
-
     }
 }

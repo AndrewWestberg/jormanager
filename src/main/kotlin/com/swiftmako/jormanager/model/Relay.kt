@@ -1,11 +1,12 @@
 package com.swiftmako.jormanager.model
 
+
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class FileUpload(
-        @JsonProperty("name") @Json(name = "name") val name: String,
-        @JsonProperty("content") @Json(name = "content") val content: String
+data class Relay(
+        @JsonProperty("addr") @Json(name = "addr") val addr: String,
+        @JsonProperty("port") @Json(name = "port") val port: Int
 )
