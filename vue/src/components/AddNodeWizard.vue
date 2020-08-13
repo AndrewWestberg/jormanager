@@ -923,7 +923,7 @@ export default {
   methods: {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
-    nextClicked(currentPage) {
+    async nextClicked(currentPage) {
       if (currentPage === 0) {
         if (
           this.hostState &&
@@ -1026,6 +1026,25 @@ export default {
         this.formNode.poolCost = this.$root.$parseCurrency(
           this.formNode.poolCost
         );
+        if (this.formNode.coldSKey != null) {
+          this.formNode.coldSKey = await this.formNode.coldSKey.text();
+        }
+        if (this.formNode.coldVKey != null) {
+          this.formNode.coldVKey = await this.formNode.coldVKey.text();
+        }
+        if (this.formNode.vrfSKey != null) {
+          this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
+        }
+        if (this.formNode.vrfVKey != null) {
+          this.formNode.vrfVKey = await this.formNode.vrfVKey.text();
+        }
+        if (this.formNode.kesSKey != null) {
+          this.formNode.kesSKey = await this.formNode.kesSKey.text();
+        }
+        if (this.formNode.kesVKey != null) {
+          this.formNode.kesVKey = await this.formNode.kesVKey.text();
+        }
+
         this.createNode(this.formNode);
         this.$emit("hideAddNodeWizard");
       }

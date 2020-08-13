@@ -7,6 +7,6 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class Itn(
-        @JsonProperty("publicKey") @Json(name = "publicKey") val publicKey: FileUpload?,
-        @JsonProperty("privateKey") @Json(name = "privateKey") val privateKey: FileUpload?
+        @JsonProperty("publicKey") @Json(name = "publicKey") val publicKey: String?,
+        @JsonProperty("privateKey") @Json(name = "privateKey") val privateKey: String?
 )
