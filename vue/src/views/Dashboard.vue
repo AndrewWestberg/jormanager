@@ -15,7 +15,14 @@
         :items="blocks"
         :fields="fields"
         v-if="blocks.length > 0"
-      ></b-table>
+      >
+        <template v-slot:cell(hash)="data">
+          <a
+            :href="'https://explorer.cardano.org/en/block.html?id=' + data.value"
+            target="_explorer"
+          >{{data.value.substring(0,6)}}...</a>
+        </template>
+      </b-table>
     </b-container>
   </div>
 </template>
@@ -34,25 +41,25 @@ export default {
         { key: "slot", sortable: true },
         {
           key: "hash",
-          formatter: value => {
-            return value.substring(0, 6) + "...";
-          }
-        }
-      ]
+          formatter: (value) => {
+            return value.replace(/"/g, "");
+          },
+        },
+      ],
     };
   },
   methods: {
-    ...mapActions(["requestBlocks"])
+    ...mapActions(["requestBlocks"]),
   },
   computed: {
     ...mapGetters(["blocksCount"]),
-    ...mapState(["blocks", "peersSeries", "blockHeightSeries", "nodeColors"])
+    ...mapState(["blocks", "peersSeries", "blockHeightSeries", "nodeColors"]),
   },
   components: {
-    NodeChart
+    NodeChart,
   },
   mounted() {
     this.requestBlocks();
-  }
+  },
 };
 </script>

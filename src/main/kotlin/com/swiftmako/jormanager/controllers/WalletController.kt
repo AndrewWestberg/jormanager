@@ -6,6 +6,7 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CalculateFeeRequest
@@ -17,6 +18,7 @@ import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -43,6 +45,7 @@ class WalletController @Autowired constructor(
         private val fileRepository: FileRepository,
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,
+        private val transactionRepository: TransactionRepository,
         private val moshi: Moshi
 ) {
 
@@ -72,7 +75,7 @@ class WalletController @Autowired constructor(
                     val magicString = //if (genesis?.networkMagic == 42) {
 //                        "--testnet-magic ${genesis.networkMagic}"
 //                    } else {
-                        "--mainnet"
+                            "--mainnet"
 //                    }
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                         HostConnection(host, defaultNode).use { hostConnection ->
@@ -443,6 +446,7 @@ class WalletController @Autowired constructor(
 
                                 // submit the transaction
                                 hostConnection.command("${host.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                val txid = hostConnection.command("${host.cardanoCliPath} shelley transaction txid --tx-body-file /tmp/transaction.txbody")
 
                                 hostConnection.command("rm -f /tmp/protocol-parameters.json")
                                 hostConnection.command("rm -f /tmp/signing.skey")
@@ -450,7 +454,9 @@ class WalletController @Autowired constructor(
                                 hostConnection.command("rm -f /tmp/transaction.txbody")
                                 hostConnection.command("rm -f /tmp/transaction.txsigned")
 
-                                SocketResponse.Success(type = "submittransaction", data = "transaction succeeded.")
+                                transactionRepository.save(Transaction(null, txid))
+
+                                SocketResponse.Success(type = "submittransaction", data = "transaction succeeded: $txid")
                             } ?: throw IOException("Wallet entry id ${request.fromId} not found!")
                         }
                     } ?: throw IOException("Host not found for default node!")

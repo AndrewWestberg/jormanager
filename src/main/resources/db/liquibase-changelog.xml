@@ -11,5 +11,6 @@
     <include file="changelog/004-update-wallet-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/005-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/006-update-wallet-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/007-create-transaction-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>
