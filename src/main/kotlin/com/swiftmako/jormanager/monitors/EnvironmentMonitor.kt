@@ -58,34 +58,37 @@ class EnvironmentMonitor @Autowired constructor(
         launch {
             isRunning.set(true)
             while (isRunning.get()) {
-                log.info("Fetching environments...")
-                val doc = Jsoup.connect(URL).get()
-                val links = doc.select("a[href]")
-                links.forEach { link ->
-                    val url = link.attr("abs:href")
-                    val remoteFileName = url.substringAfterLast('/')
-                    val request = Request.Builder().url(url).build()
-                    okHttpClient.newCall(request).execute().use { response ->
-                        response.body?.string()?.let { remoteContent ->
-                            fileRepository.findByName(remoteFileName)?.let { dbFile ->
-                                if (dbFile.content != remoteContent) {
-                                    fileRepository.save(dbFile.copy(content = remoteContent))
+                try {
+                    log.info("Fetching environments...")
+                    val doc = Jsoup.connect(URL).get()
+                    val links = doc.select("a[href]")
+                    links.forEach { link ->
+                        val url = link.attr("abs:href")
+                        val remoteFileName = url.substringAfterLast('/')
+                        val request = Request.Builder().url(url).build()
+                        okHttpClient.newCall(request).execute().use { response ->
+                            response.body?.string()?.let { remoteContent ->
+                                fileRepository.findByName(remoteFileName)?.let { dbFile ->
+                                    if (dbFile.content != remoteContent) {
+                                        fileRepository.save(dbFile.copy(content = remoteContent))
+                                        log.info("Saved: $remoteFileName")
+                                    }
+                                } ?: run {
+                                    fileRepository.save(
+                                            File(
+                                                    name = remoteFileName,
+                                                    content = remoteContent
+                                            )
+                                    )
                                     log.info("Saved: $remoteFileName")
                                 }
-                            } ?: run {
-                                fileRepository.save(
-                                        File(
-                                                name = remoteFileName,
-                                                content = remoteContent
-                                        )
-                                )
-                                log.info("Saved: $remoteFileName")
                             }
                         }
                     }
+                    log.info("Fetching environments done.")
+                } catch (e: Throwable) {
+                    log.error("Error fetching environments!", e)
                 }
-                log.info("Fetching environments done.")
-
                 delay(RECONNECT_DELAY_MS)
             }
         }

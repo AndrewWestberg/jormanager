@@ -30,7 +30,9 @@ data class Host(
         @Column(name = "ssh_pem_path")
         val sshPemPath: String = "",
         @Column(name = "node_home_path")
-        val nodeHomePath: String
+        val nodeHomePath: String,
+        @Column(name = "jcli_path")
+        val jcliPath: String?
 ) {
     @get:JsonIgnore
     @get:Transient

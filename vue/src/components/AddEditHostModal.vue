@@ -72,6 +72,13 @@
             required
           />
         </b-form-group>
+        <b-form-group label="ITN JCLI Path (Optional)" label-for="jcli-input">
+          <b-form-input
+            id="jcli-input"
+            placeholder="e.g. /home/<username>/.cargo/bin/jcli"
+            v-model="formHost.jcliPath"
+          />
+        </b-form-group>
       </b-form>
     </b-modal>
   </div>
@@ -84,7 +91,7 @@ export default {
   name: "AddEditHostModal",
   data() {
     return {
-      formHost: {}
+      formHost: {},
     };
   },
   methods: {
@@ -99,7 +106,8 @@ export default {
         sshPemPath: "",
         cardanoCliPath: "",
         cardanoNodePath: "",
-        nodeHomePath: ""
+        nodeHomePath: "",
+        jcliPath: null,
       };
     },
     checkFormValidity() {
@@ -125,7 +133,7 @@ export default {
       }
 
       this.addHost(this.formHost);
-    }
+    },
   },
   computed: {
     ...mapState(["toastSuccess"]),
@@ -134,7 +142,7 @@ export default {
     },
     userFormLabel() {
       return this.isFormRemote ? "SSH User" : "User";
-    }
+    },
   },
   watch: {
     toastSuccess(toast) {
@@ -143,11 +151,11 @@ export default {
         this.clearFormHost();
         this.requestHosts();
       }
-    }
+    },
   },
   mounted() {
     this.clearFormHost();
-    this.$root.$on("edit-host", host => {
+    this.$root.$on("edit-host", (host) => {
       // received edit host message from parent component
       this.clickEditHost(host);
     });
@@ -155,6 +163,6 @@ export default {
       // received add host message from parent component
       this.clickAddHost();
     });
-  }
+  },
 };
 </script>

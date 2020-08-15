@@ -52,6 +52,15 @@ class HostController @Autowired constructor(
                 }
                 val nodeVersion = hostConnection.command("${host.cardanoNodePath} --version")
                 hostInfo += "      cardano-node: $nodeVersion"
+
+                if (host.jcliPath?.isNotBlank() == true) {
+                    // make sure jcli exists
+                    if (!hostConnection.commandFileExists(host.jcliPath)) {
+                        throw SSHRuntimeException("File at '${host.jcliPath}' does not exist!")
+                    }
+                }
+                val jcliVersion = hostConnection.command("${host.jcliPath} --version")
+                hostInfo += "              jcli: $jcliVersion"
                 host.id?.let { id ->
                     hostRepository.findByIdOrNull(id)
                 }?.let { repositoryHost ->
@@ -64,7 +73,8 @@ class HostController @Autowired constructor(
                                     sshPemPath = host.sshPemPath,
                                     cardanoCliPath = host.cardanoCliPath,
                                     cardanoNodePath = host.cardanoNodePath,
-                                    nodeHomePath = host.nodeHomePath
+                                    nodeHomePath = host.nodeHomePath,
+                                    jcliPath = host.jcliPath
                             )
                     )
                 } ?: hostRepository.save(host)
