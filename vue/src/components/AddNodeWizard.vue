@@ -449,6 +449,27 @@
           </b-form-group>
         </b-form-group>
         <b-form-group>
+          <h5>ITN Ticker Validation (Optional)</h5>
+          <b-form-group label="ITN Pool prv" label-for="itn-prv-file" label-cols-md="2">
+            <b-form-file
+              id="itn-prv-file"
+              placeholder="Choose file or drop it here..."
+              drop-placeholder="Drop file here..."
+              v-model="formNode.metadata.extended.itn.privateKey"
+              trim
+            />
+          </b-form-group>
+          <b-form-group label="ITN Pool pub" label-for="itn-pub-file" label-cols-md="2">
+            <b-form-file
+              id="itn-pub-file"
+              placeholder="Choose file or drop it here..."
+              drop-placeholder="Drop file here..."
+              v-model="formNode.metadata.extended.itn.publicKey"
+              trim
+            />
+          </b-form-group>
+        </b-form-group>
+        <b-form-group>
           <h5>Extended (Optional)</h5>
           <b-form-group label="Icon 64x64 URL" label-for="metadata-icon64-input" label-cols-md="2">
             <b-form-input
@@ -1043,6 +1064,12 @@ export default {
         }
         if (this.formNode.kesVKey != null) {
           this.formNode.kesVKey = await this.formNode.kesVKey.text();
+        }
+        if (this.formNode.metadata.extended.itn.privateKey != null) {
+          this.formNode.metadata.extended.itn.privateKey = await this.formNode.metadata.extended.itn.privateKey.text();
+        }
+        if (this.formNode.metadata.extended.itn.publicKey != null) {
+          this.formNode.metadata.extended.itn.publicKey = await this.formNode.metadata.extended.itn.publicKey.text();
         }
 
         this.createNode(this.formNode);
