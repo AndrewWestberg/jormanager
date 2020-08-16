@@ -20,6 +20,7 @@ data class CreateNodeRequest(
         @JsonProperty("generateColdKeys") @Json(name = "generateColdKeys") val generateColdKeys: Boolean,
         @JsonProperty("coldSKey") @Json(name = "coldSKey") val coldSKey: String?,
         @JsonProperty("coldVKey") @Json(name = "coldVKey") val coldVKey: String?,
+        @JsonProperty("coldCounter") @Json(name = "coldCounter") val coldCounter: String?,
         @JsonProperty("generateVRFKeys") @Json(name = "generateVRFKeys") val generateVRFKeys: Boolean,
         @JsonProperty("vrfSKey") @Json(name = "vrfSKey") val vrfSKey: String?,
         @JsonProperty("vrfVKey") @Json(name = "vrfVKey") val vrfVKey: String?,

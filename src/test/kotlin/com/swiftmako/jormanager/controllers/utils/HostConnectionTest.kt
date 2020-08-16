@@ -40,13 +40,13 @@ class HostConnectionTest {
                                 |WantedBy=multi-user.target
                             """.trimMargin()
 
-        val hostConnection = HostConnection(Host(0, "local", "", "", "", "", 22, "", ""))
+        val hostConnection = HostConnection(Host(0, "local", "", "", "", "", 22, "", "", ""))
         hostConnection.sudoCommandWriteFile("/home/westbam/haskell/tickr-node.service", systemdContent, "******************")
     }
 
     @Test
     fun testQueryAddress() {
-        val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell")
+        val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
         val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true)
         val hostConnection = HostConnection(host, defaultNode)
         val output = hostConnection.command("${host.cardanoCliPath} shelley query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --testnet-magic 42")
