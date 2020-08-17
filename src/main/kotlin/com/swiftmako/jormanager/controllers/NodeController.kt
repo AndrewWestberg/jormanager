@@ -9,11 +9,22 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.ProtocolParameters
+import com.swiftmako.jormanager.model.metadata.pool.About
+import com.swiftmako.jormanager.model.metadata.pool.Company
+import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
+import com.swiftmako.jormanager.model.metadata.pool.Info
+import com.swiftmako.jormanager.model.metadata.pool.Itn
+import com.swiftmako.jormanager.model.metadata.pool.Social
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.services.MetadataService
 import kotlinx.coroutines.channels.BroadcastChannel
+import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -24,6 +35,7 @@ import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import retrofit2.Retrofit
 import java.io.File
 import java.io.IOException
 
@@ -36,7 +48,8 @@ class NodeController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        private val moshi: Moshi
+        private val moshi: Moshi,
+        private val retrofit: Retrofit
 ) {
     private val log = LoggerFactory.getLogger(NodeController::class.java)
 
@@ -264,7 +277,60 @@ class NodeController @Autowired constructor(
                                             } else {
                                                 null
                                             }
-                                            val itnWitnessOwner = request.metadata.extended.itn.publicKey
+                                            val itnWitnessOwner = request.metadata?.extended?.itn?.publicKey
+
+                                            val otherPoolIds = nodeRepository.findAll().filter { node -> node.type == "core" }.mapNotNull { node -> node.poolId }
+
+                                            val extendedMetadata = ExtendedMetadata(
+                                                    itn = itnWitnessSign?.let { Itn(owner = itnWitnessOwner, witness = itnWitnessSign) },
+                                                    info = Info(
+                                                            urlPngIcon64x64 = request.metadata?.extended?.info?.icon64,
+                                                            urlPngLogo = request.metadata?.extended?.info?.logo,
+                                                            location = request.metadata?.extended?.info?.location,
+                                                            social = Social(
+                                                                    twitterHandle = request.metadata?.extended?.info?.social?.twitter,
+                                                                    telegramHandle = request.metadata?.extended?.info?.social?.telegram,
+                                                                    facebookHandle = request.metadata?.extended?.info?.social?.facebook,
+                                                                    youtubeHandle = request.metadata?.extended?.info?.social?.youtube,
+                                                                    twitchHandle = request.metadata?.extended?.info?.social?.twitch,
+                                                                    discordHandle = request.metadata?.extended?.info?.social?.discord,
+                                                                    githubHandle = request.metadata?.extended?.info?.social?.github
+                                                            ),
+                                                            company = Company(
+                                                                    name = request.metadata?.extended?.info?.company?.name,
+                                                                    addr = request.metadata?.extended?.info?.company?.addr,
+                                                                    city = request.metadata?.extended?.info?.company?.city,
+                                                                    country = request.metadata?.extended?.info?.company?.country,
+                                                                    companyId = request.metadata?.extended?.info?.company?.companyId,
+                                                                    vatId = request.metadata?.extended?.info?.company?.vatId
+                                                            ),
+                                                            about = About(
+                                                                    me = request.metadata?.extended?.info?.about?.me,
+                                                                    server = request.metadata?.extended?.info?.about?.server,
+                                                                    company = request.metadata?.extended?.info?.about?.company
+                                                            ),
+                                                            rss = request.metadata?.extended?.info?.rss
+                                                    ),
+                                                    telegramAdminHandle = request.metadata?.extended?.telegramAdminHandle?.let { listOf(it) }
+                                                            ?: emptyList(),
+                                                    myPoolIds = otherPoolIds + poolId,
+                                                    whenSaturedThenRecommend = otherPoolIds
+                                            )
+
+                                            val extendedMetadataJson = moshi.adapter(ExtendedMetadata::class.java).indent(" ").toJson(extendedMetadata)
+                                            val extendedMetadataUrl = uploadMetadata(extendedMetadataJson)
+
+                                            val metadata = com.swiftmako.jormanager.model.metadata.pool.Metadata(
+                                                    name = requireNotNull(request.metadata?.name),
+                                                    description = requireNotNull(request.metadata?.description),
+                                                    ticker = requireNotNull(request.metadata?.ticker),
+                                                    homepage = requireNotNull(request.metadata?.homepage),
+                                                    extended = extendedMetadataUrl
+                                            )
+                                            val metadataJson = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java).indent(" ").toJson(metadata)
+                                            val metadataUrl = uploadMetadata(metadataJson)
+
+                                            // download and get the hash!
                                             ***
 
 
@@ -285,6 +351,30 @@ class NodeController @Autowired constructor(
             log.error("Error Creating Node!", e)
             return SocketResponse.Error(type = "createnode", exception = e)
         }
+    }
+
+    private fun uploadMetadata(metadataJson: String): String = runBlocking {
+
+        val service = retrofit.newBuilder().baseUrl("https://1v27dl8wn5.execute-api.us-west-2.amazonaws.com").build().create(MetadataService::class.java)
+        val metadataPostInfo = service.getMetadataPostInfo()
+//        println(metadataPostInfo)
+
+        val uploadService = retrofit.newBuilder().baseUrl("https://s3.us-west-2.amazonaws.com").build().create(MetadataService::class.java)
+
+        val response = uploadService.saveMetadataFile(
+                contentType = MultipartBody.Part.createFormData("content-type", null, "application/json".toRequestBody("text/plain".toMediaTypeOrNull())),
+                awsAccessKeyId = MultipartBody.Part.createFormData("AWSAccessKeyId", null, metadataPostInfo.fields.awsAccessKeyId.toRequestBody("text/plain".toMediaTypeOrNull())),
+                key = MultipartBody.Part.createFormData("key", null, metadataPostInfo.fields.key.toRequestBody("text/plain".toMediaTypeOrNull())),
+                policy = MultipartBody.Part.createFormData("policy", null, metadataPostInfo.fields.policy.toRequestBody("text/plain".toMediaTypeOrNull())),
+                signature = MultipartBody.Part.createFormData("signature", null, metadataPostInfo.fields.signature.toRequestBody("text/plain".toMediaTypeOrNull())),
+                securityToken = MultipartBody.Part.createFormData("x-amz-security-token", null, metadataPostInfo.fields.securityToken.toRequestBody("text/plain".toMediaTypeOrNull())),
+                file = MultipartBody.Part.createFormData("file", metadataPostInfo.fields.key, metadataJson.toRequestBody("application/json".toMediaTypeOrNull()))
+        )
+
+        if (response.isSuccessful) {
+            return@runBlocking "https://cardanostakehouse.com/${metadataPostInfo.fields.key}"
+        }
+        throw IOException("Could not upload json file!")
     }
 
     private fun createManualStartupScripts(request: CreateNodeRequest, host: Host, hostConnection: HostConnection) {

@@ -35,6 +35,8 @@ data class Node(
         val genesisShelleyFileId: Long,
         @Column(name = "config_file_id")
         val configFileId: Long,
+        @Column(name = "pool_id")
+        val poolId: String? = null,
         @Column(name = "cold_node_skey_file_id")
         val coldNodeSKeyFileId: Long? = null,
         @Column(name = "cold_node_vkey_file_id")
