@@ -23,7 +23,7 @@ object Versions {
     const val moshi = "1.9.3"
     const val okhttp = "4.8.1"
     const val retrofit = "2.9.0"
-    const val sshj = "0.29.0"
+    const val sshj = "0.30.0"
 }
 
 group = "com.swiftmako"

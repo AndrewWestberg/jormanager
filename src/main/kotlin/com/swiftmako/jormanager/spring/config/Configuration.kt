@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.spring.config
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
+import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.Channel
 import okhttp3.OkHttpClient
@@ -37,7 +38,7 @@ class Configuration {
                     }
                 }).setLevel(
                         HttpLoggingInterceptor.Level.NONE
-                        // HttpLoggingInterceptor.Level.BODY
+//                         HttpLoggingInterceptor.Level.BODY
                 ))
                 .build()
     }
@@ -50,6 +51,12 @@ class Configuration {
                 .client(client)
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
+    }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getPooltoolService(retrofit: Retrofit): PooltoolService {
+        return retrofit.newBuilder().baseUrl("https://api.pooltool.io").build().create(PooltoolService::class.java)
     }
 
     @Bean("nodesChannel")

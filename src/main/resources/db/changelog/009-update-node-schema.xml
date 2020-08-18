@@ -5,7 +5,7 @@
     <changeSet id="009" author="Andrew Westberg">
 
         <addColumn tableName="nodes">
-            <column name="pool_id" type="varchar(255)" />
+            <column name="pool_id" type="varchar(255)"/>
         </addColumn>
 
     </changeSet>

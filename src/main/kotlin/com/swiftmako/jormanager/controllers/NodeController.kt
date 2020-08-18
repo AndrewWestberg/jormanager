@@ -331,7 +331,7 @@ class NodeController @Autowired constructor(
                                             val metadataUrl = uploadMetadata(metadataJson)
 
                                             // download and get the hash!
-                                            ***
+                                            //***
 
 
                                         }

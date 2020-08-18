@@ -50,5 +50,5 @@ data class Node(
         @Column(name = "opcert_expiration")
         val opcertExpiration: Long? = null,
         @Column(name = "is_default")
-        val isDefault: Boolean
+        val isDefault: Boolean,
 )
