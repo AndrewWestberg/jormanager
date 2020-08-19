@@ -178,6 +178,7 @@ class NodeController @Autowired constructor(
                                             // 2. Register owner address on the chain if not yet registered
                                             val ownerStakingAccount = walletRepository.findByIdOrNull(request.ownerStakingAccount)
                                                     ?: throw IOException("Owner staking account not found!")
+                                            defaultHostConnection.commandWriteFile("/tmp/owner.staking.vkey", requireNotNull(ownerStakingAccount.stakingVkey?.content))
                                             val ownerStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, ownerStakingAccount)
                                             if (!ownerStakingWalletItem.stakingAddrRegistered) {
                                                 // owner staking address is *not* registered. We should register it on chain as part of the transaction
@@ -189,9 +190,10 @@ class NodeController @Autowired constructor(
                                             }
 
                                             // 3. Register rewards address on the chain if not yet registered
+                                            val rewardsStakingAccount = walletRepository.findByIdOrNull(request.rewardsStakingAccount)
+                                                    ?: throw IOException("Rewards staking account not found!")
+                                            defaultHostConnection.commandWriteFile("/tmp/rewards.staking.vkey", requireNotNull(rewardsStakingAccount.stakingVkey?.content))
                                             if (request.rewardsStakingAccount != request.ownerStakingAccount) {
-                                                val rewardsStakingAccount = walletRepository.findByIdOrNull(request.rewardsStakingAccount)
-                                                        ?: throw IOException("Rewards staking account not found!")
                                                 val rewardsStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, rewardsStakingAccount)
                                                 if (!rewardsStakingWalletItem.stakingAddrRegistered) {
                                                     // rewards staking address is *not* registered. We should register it on chain as part of the transaction
@@ -210,9 +212,9 @@ class NodeController @Autowired constructor(
                                             var coreCounterId = -1L
                                             if (request.generateColdKeys) {
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen --verification-key-file /tmp/core.node.vkey --signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter")
-                                                val coreSKeyContent = File("/tmp/core.node.skey").inputStream().bufferedReader().use { it.readText() }
-                                                val coreVKeyContent = File("/tmp/core.node.vkey").inputStream().bufferedReader().use { it.readText() }
-                                                val coreCounterContent = File("/tmp/core.node.counter").inputStream().bufferedReader().use { it.readText() }
+                                                val coreSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.node.skey")
+                                                val coreVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.node.vkey")
+                                                val coreCounterContent = defaultHostConnection.commandReadFile("/tmp/core.node.counter")
                                                 val coreSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.skey", content = coreSKeyContent)
                                                 val coreVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.vkey", content = coreVKeyContent)
                                                 val coreCounter = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.counter", content = coreCounterContent)
@@ -220,9 +222,9 @@ class NodeController @Autowired constructor(
                                                 coreVKeyId = fileRepository.save(coreVKey).id!!
                                                 coreCounterId = fileRepository.save(coreCounter).id!!
                                             } else {
-                                                File("/tmp/core.node.skey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.coldSKey)) }
-                                                File("/tmp/core.node.vkey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.coldVKey)) }
-                                                File("/tmp/core.node.counter").outputStream().bufferedWriter().use { it.write(requireNotNull(request.coldCounter)) }
+                                                defaultHostConnection.commandWriteFile("/tmp/core.node.skey", requireNotNull(request.coldSKey))
+                                                defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", requireNotNull(request.coldVKey))
+                                                defaultHostConnection.commandWriteFile("/tmp/core.node.counter", requireNotNull(request.coldCounter))
                                                 val coreSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.skey", content = requireNotNull(request.coldSKey))
                                                 val coreVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.vkey", content = requireNotNull(request.coldVKey))
                                                 val coreCounter = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.counter", content = requireNotNull(request.coldCounter))
@@ -234,15 +236,15 @@ class NodeController @Autowired constructor(
                                             var vrfVKeyId = -1L
                                             if (request.generateVRFKeys) {
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-VRF --verification-key-file /tmp/core.vrf.vkey --signing-key-file /tmp/core.vrf.skey")
-                                                val vrfSKeyContent = File("/tmp/core.vrf.skey").inputStream().bufferedReader().use { it.readText() }
-                                                val vrfVKeyContent = File("/tmp/core.vrf.vkey").inputStream().bufferedReader().use { it.readText() }
+                                                val vrfSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.skey")
+                                                val vrfVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.vkey")
                                                 val vrfSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.skey", content = vrfSKeyContent)
                                                 val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = vrfVKeyContent)
                                                 vrfSKeyId = fileRepository.save(vrfSKey).id!!
                                                 vrfVKeyId = fileRepository.save(vrfVKey).id!!
                                             } else {
-                                                File("/tmp/core.vrf.skey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.vrfSKey)) }
-                                                File("/tmp/core.vrf.vkey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.vrfVKey)) }
+                                                defaultHostConnection.commandWriteFile("/tmp/core.vrf.skey", requireNotNull(request.vrfSKey))
+                                                defaultHostConnection.commandWriteFile("/tmp/core.vrf.vkey", requireNotNull(request.vrfVKey))
                                                 val vrfSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.skey", content = requireNotNull(request.vrfSKey))
                                                 val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = requireNotNull(request.vrfVKey))
                                                 vrfSKeyId = fileRepository.save(vrfSKey).id!!
@@ -252,15 +254,15 @@ class NodeController @Autowired constructor(
                                             var kesVKeyId = -1L
                                             if (request.generateKESKeys) {
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
-                                                val kesSKeyContent = File("/tmp/core.kes.skey").inputStream().bufferedReader().use { it.readText() }
-                                                val kesVKeyContent = File("/tmp/core.kes.vkey").inputStream().bufferedReader().use { it.readText() }
+                                                val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
+                                                val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
                                                 val kesSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.skey", content = kesSKeyContent)
                                                 val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = kesVKeyContent)
                                                 kesSKeyId = fileRepository.save(kesSKey).id!!
                                                 kesVKeyId = fileRepository.save(kesVKey).id!!
                                             } else {
-                                                File("/tmp/core.kes.skey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.kesSKey)) }
-                                                File("/tmp/core.kes.vkey").outputStream().bufferedWriter().use { it.write(requireNotNull(request.kesVKey)) }
+                                                defaultHostConnection.commandWriteFile("/tmp/core.kes.skey", requireNotNull(request.kesSKey))
+                                                defaultHostConnection.commandWriteFile("/tmp/core.kes.vkey", requireNotNull(request.kesVKey))
                                                 val kesSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.skey", content = requireNotNull(request.kesSKey))
                                                 val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = requireNotNull(request.kesVKey))
                                                 kesSKeyId = fileRepository.save(kesSKey).id!!
@@ -268,11 +270,13 @@ class NodeController @Autowired constructor(
                                             }
 
                                             val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey").trim()
+                                            val isPoolOnChain
+
 
                                             // 4. Create and upload metadata files
-                                            val itnWitnessSign = if (request.metadata?.extended?.itn?.privateKey != null) {
-                                                File("/tmp/core.pool.id").outputStream().bufferedWriter().use { it.write(poolId) }
-                                                File("/tmp/core.itn.skey").outputStream().bufferedWriter().use { it.write(request.metadata.extended.itn.privateKey) }
+                                            val itnWitnessSign = if (request.metadata?.extended?.itn?.privateKey != null && defaultHost.jcliPath != null) {
+                                                defaultHostConnection.commandWriteFile("/tmp/core.pool.id", poolId)
+                                                defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", request.metadata.extended.itn.privateKey)
                                                 defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id").trim()
                                             } else {
                                                 null
@@ -319,6 +323,7 @@ class NodeController @Autowired constructor(
 
                                             val extendedMetadataJson = moshi.adapter(ExtendedMetadata::class.java).indent(" ").toJson(extendedMetadata)
                                             val extendedMetadataUrl = uploadMetadata(extendedMetadataJson)
+                                            log.info("extendedMetadataUrl: $extendedMetadataUrl")
 
                                             val metadata = com.swiftmako.jormanager.model.metadata.pool.Metadata(
                                                     name = requireNotNull(request.metadata?.name),
@@ -329,9 +334,36 @@ class NodeController @Autowired constructor(
                                             )
                                             val metadataJson = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java).indent(" ").toJson(metadata)
                                             val metadataUrl = uploadMetadata(metadataJson)
+                                            log.info("metadataUrl: $metadataUrl")
 
                                             // download and get the hash!
-                                            //***
+                                            defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
+                                            val metadataHash = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json").trim()
+
+                                            // create the pool registration certificate
+                                            val poolRegcertCommand = StringBuilder().apply {
+                                                append("${defaultHost.cardanoCliPath} shelley stake-pool registration-certificate ")
+                                                append("--cold-verification-key-file /tmp/core.node.vkey ")
+                                                append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
+                                                append("--pool-pledge ${request.poolPledge} ")
+                                                append("--pool-cost ${request.poolCost} ")
+                                                append("--pool-margin ${request.poolMargin} ")
+                                                append("--pool-reward-account-verification-key-file /tmp/rewards.staking.vkey ")
+                                                append("--pool-owner-stake-verification-key-file /tmp/owner.staking.vkey ")
+                                                request.relays?.forEach { relay ->
+                                                    if(relay.addr.matches(IP4_ADDRESS)) {
+                                                        append("--pool-relay-ipv4 ${relay.addr} --pool-relay-port ${relay.port} ")
+                                                    } else {
+                                                        append("--single-host-pool-relay ${relay.addr} --pool-relay-port ${relay.port} ")
+                                                    }
+                                                }
+                                                append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
+                                                append("--mainnet ")
+                                                append("--out-file /tmp/core.pool.cert")
+                                            }
+                                            log.info("poolRegcertCommand: $poolRegcertCommand")
+                                            defaultHostConnection.command(poolRegcertCommand.toString())
+                                            certificates.append("--certificate /tmp/core.pool.cert ")
 
 
                                         }
@@ -519,5 +551,6 @@ class NodeController @Autowired constructor(
     companion object {
         const val NODE_TYPE_RELAY = "relay"
         const val NODE_TYPE_CORE = "core"
+        private val IP4_ADDRESS = Regex("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)")
     }
 }

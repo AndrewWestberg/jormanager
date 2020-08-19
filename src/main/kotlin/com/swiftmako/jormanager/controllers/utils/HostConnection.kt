@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.controllers.utils
 
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.ktx.ignoreExceptions
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.Session
@@ -9,6 +10,7 @@ import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.xfer.FileSystemFile
 import okio.buffer
 import okio.sink
+import okio.source
 import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.Closeable
@@ -212,6 +214,34 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
     }
 
+    fun commandReadFile(fileName: String): String {
+        return if (host.isRemote) {
+            remoteCommandReadFile(fileName)
+        } else {
+            localCommandReadFile(fileName)
+        }
+    }
+
+    private fun localCommandReadFile(fileName: String): String {
+        return File(fileName).source().buffer().use { it.readUtf8() }
+    }
+
+    private fun remoteCommandReadFile(fileName: String): String {
+        try {
+            ssh.newSCPFileTransfer().download(fileName, "/tmp/jm_scp_download_file.tmp")
+            return localCommandReadFile("/tmp/jm_scp_download_file.tmp")
+        } catch (e: Throwable) {
+            if (e is SSHRuntimeException) {
+                throw e
+            }
+            throw SSHRuntimeException("Error communicating with remote server!", e)
+        } finally {
+            ignoreExceptions {
+                File("/tmp/jm_scp_download_file.tmp").delete()
+            }
+        }
+    }
+
     fun commandWriteFile(fileName: String, content: String): String {
         command("touch $fileName")
         command("chmod u+w $fileName")
@@ -237,6 +267,10 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 throw e
             }
             throw SSHRuntimeException("Error communicating with remote server!", e)
+        } finally {
+            ignoreExceptions {
+                File("/tmp/jm_scp_file.tmp").delete()
+            }
         }
     }
 
