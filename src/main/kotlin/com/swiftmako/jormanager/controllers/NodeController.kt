@@ -462,8 +462,9 @@ class NodeController @Autowired constructor(
                                             hostConnection.command("rm -f /tmp/transaction.txsigned")
 
 
-                                            // 13. Save node information to the database
+                                            // 13. Save node information & transaction to the database
 
+                                            // 14. Create the node information on the server and start it.
 
                                         }
                                     } ?: throw IOException("Host not found for default node!")

@@ -31,7 +31,7 @@
           ></b-form-input>
           <b-form-invalid-feedback id="name-input-live-feedback">Enter at least 3 letters</b-form-invalid-feedback>
         </b-form-group>
-        <b-form-group label-cols-md="2">
+        <b-form-group label-cols-md="2" v-if="formNode.type=='relay'">
           <b-form-checkbox
             id="default-checkbox"
             v-model="formNode.isDefault"
@@ -152,6 +152,22 @@
               drop-placeholder="Drop file here..."
               v-model="formNode.coldVKey"
               :state="coldVKeyState"
+              trim
+            />
+          </b-form-group>
+          <b-form-group
+            label="counter"
+            label-for="cold-counter-file"
+            label-cols-md="1"
+            label-align="right"
+          >
+            <b-form-file
+              id="cold-counter-file"
+              :disabled="formNode.generateColdKeys"
+              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              drop-placeholder="Drop file here..."
+              v-model="formNode.coldCounter"
+              :state="coldCounterState"
               trim
             />
           </b-form-group>
@@ -714,6 +730,7 @@ export default {
         generateColdKeys: false,
         coldSKey: null,
         coldVKey: null,
+        coldCounter: null,
         generateVRFKeys: false,
         vrfSKey: null,
         vrfVKey: null,
@@ -861,6 +878,11 @@ export default {
     coldVKeyState() {
       return this.formNode.generateColdKeys || this.formNode.coldVKey != null;
     },
+    coldCounterState() {
+      return (
+        this.formNode.generateColdKeys || this.formNode.coldCounter != null
+      );
+    },
     vrfSKeyState() {
       return this.formNode.generateVRFKeys || this.formNode.vrfSKey != null;
     },
@@ -968,6 +990,7 @@ export default {
           if (
             this.coldSKeyState &&
             this.coldVKeyState &&
+            this.coldCounterState &&
             this.vrfSKeyState &&
             this.vrfVKeyState &&
             this.kesSKeyState &&
@@ -1053,6 +1076,9 @@ export default {
         if (this.formNode.coldVKey != null) {
           this.formNode.coldVKey = await this.formNode.coldVKey.text();
         }
+        if (this.formNode.coldCounter != null) {
+          this.formNode.coldCounter = await this.formNode.coldCounter.text();
+        }
         if (this.formNode.vrfSKey != null) {
           this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
         }
@@ -1071,6 +1097,7 @@ export default {
         if (this.formNode.metadata.extended.itn.publicKey != null) {
           this.formNode.metadata.extended.itn.publicKey = await this.formNode.metadata.extended.itn.publicKey.text();
         }
+        this.formNode.isDefault = false;
 
         this.createNode(this.formNode);
         this.$emit("hideAddNodeWizard");
