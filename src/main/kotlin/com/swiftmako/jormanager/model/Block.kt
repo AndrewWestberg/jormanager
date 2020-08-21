@@ -6,8 +6,12 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class Block(
         @Json(name = "slot") val slot: Long,
-        @Json(name = "block hash") val hash: String
+        @Json(name = "blockHash") val _hash: String? = null,
+        @Json(name = "block hash") val _oldHash: String? = null
 ) {
+    val hash: String
+        get() = _hash ?: _oldHash!!
+
     /**
      * Returns just the raw hash string
      */

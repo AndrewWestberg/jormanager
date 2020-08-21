@@ -27,4 +27,6 @@ data class Data(
         val slotNo: Long,
         @Json(name = "blockHash")
         val blockHash: String,
+        @Json(name = "platform")
+        val platform: String = "JorManager",
 )

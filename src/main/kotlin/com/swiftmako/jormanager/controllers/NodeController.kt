@@ -6,9 +6,11 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.ProtocolParameters
+import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
@@ -22,8 +24,11 @@ import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.runBlocking
+import okhttp3.CacheControl
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -48,10 +53,17 @@ class NodeController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        private val moshi: Moshi,
-        private val retrofit: Retrofit
+        moshi: Moshi,
+        private val retrofit: Retrofit,
+        private val okHttpClient: OkHttpClient,
 ) {
     private val log = LoggerFactory.getLogger(NodeController::class.java)
+
+    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
+    private val protocolParamsAdapter by lazy { moshi.adapter(ProtocolParameters::class.java) }
+    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
+    private val extendedMetadataAdapter by lazy { moshi.adapter(ExtendedMetadata::class.java) }
+    private val metadataAdapter by lazy { moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java) }
 
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")
@@ -149,7 +161,7 @@ class NodeController @Autowired constructor(
                         NODE_TYPE_CORE -> {
                             nodeRepository.findDefault()?.let { defaultNode ->
                                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                                    val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
+                                    val genesis = genesisAdapter.fromJson(genesisFile.content)
                                     val magicString = if (genesis?.networkMagic == 42) {
                                         "--testnet-magic ${genesis.networkMagic}"
                                     } else {
@@ -160,13 +172,15 @@ class NodeController @Autowired constructor(
                                         HostConnection(defaultHost, defaultNode).use { defaultHostConnection ->
                                             val protocolParamsJson = hostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
                                             hostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                                            val protocolParameters = moshi.adapter(ProtocolParameters::class.java).fromJson(protocolParamsJson)
+                                            val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                                                     ?: throw IOException("Invalid protocol params!")
 
                                             // 1. Create a transaction to dump EVERYTHING into
-                                            var fee = 0L
+                                            var depositAndFees = 0L
+                                            var witnessCount = 0
                                             val transaction = StringBuilder()
                                             val certificates = StringBuilder()
+                                            val signingKeys = StringBuilder()
                                             transaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
                                             val feePayerAccount = walletRepository.findByIdOrNull(request.registrationFeesAccount)
                                                     ?: throw IOException("Registration fees account not found!")
@@ -174,10 +188,24 @@ class NodeController @Autowired constructor(
                                             utxos.forEach { utxo ->
                                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                             }
+                                            witnessCount++ // fee payer is a witness
+                                            defaultHostConnection.commandWriteFile("/tmp/feepayer.payment.skey", requireNotNull(feePayerAccount.paymentSkey?.content))
+                                            signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
+
+                                            // initial dummy value to return change to the fee payer account.
+                                            // We'll replace this with the actual change to return later
+                                            transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234 ")
+
+                                            val queryTipString = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
+                                                    ?: -1
+                                            transaction.append("--ttl $ttl ")
+                                            transaction.append("--fee 100 ")
 
                                             // 2. Register owner address on the chain if not yet registered
                                             val ownerStakingAccount = walletRepository.findByIdOrNull(request.ownerStakingAccount)
                                                     ?: throw IOException("Owner staking account not found!")
+                                            defaultHostConnection.commandWriteFile("/tmp/owner.staking.skey", requireNotNull(ownerStakingAccount.stakingSkey?.content))
                                             defaultHostConnection.commandWriteFile("/tmp/owner.staking.vkey", requireNotNull(ownerStakingAccount.stakingVkey?.content))
                                             val ownerStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, ownerStakingAccount)
                                             if (!ownerStakingWalletItem.stakingAddrRegistered) {
@@ -185,13 +213,16 @@ class NodeController @Autowired constructor(
                                                 ownerStakingAccount.stakingRegCert?.let { stakingRegCert ->
                                                     defaultHostConnection.commandWriteFile("/tmp/owner.staking.cert", stakingRegCert.content)
                                                 } ?: throw IOException("Staking reg cert not found on owner account!")
-                                                fee += protocolParameters.keyDeposit
+                                                depositAndFees += protocolParameters.keyDeposit
                                                 certificates.append("--certificate /tmp/owner.staking.cert ")
                                             }
+                                            witnessCount++ // the owner.staking.skey is a witness
+                                            signingKeys.append("--signing-key-file /tmp/owner.staking.skey ")
 
                                             // 3. Register rewards address on the chain if not yet registered
                                             val rewardsStakingAccount = walletRepository.findByIdOrNull(request.rewardsStakingAccount)
                                                     ?: throw IOException("Rewards staking account not found!")
+                                            defaultHostConnection.commandWriteFile("/tmp/rewards.staking.skey", requireNotNull(rewardsStakingAccount.stakingSkey?.content))
                                             defaultHostConnection.commandWriteFile("/tmp/rewards.staking.vkey", requireNotNull(rewardsStakingAccount.stakingVkey?.content))
                                             if (request.rewardsStakingAccount != request.ownerStakingAccount) {
                                                 val rewardsStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, rewardsStakingAccount)
@@ -201,12 +232,16 @@ class NodeController @Autowired constructor(
                                                         defaultHostConnection.commandWriteFile("/tmp/rewards.staking.cert", stakingRegCert.content)
                                                     }
                                                             ?: throw IOException("Staking reg cert not found on rewards account!")
-                                                    fee += protocolParameters.keyDeposit
+                                                    depositAndFees += protocolParameters.keyDeposit
                                                     certificates.append("--certificate /tmp/rewards.staking.cert ")
                                                 }
                                             }
+                                            if (ownerStakingAccount != rewardsStakingAccount) {
+                                                witnessCount++ // the rewards account is a witness
+                                                signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
+                                            }
 
-                                            // 5. Keys
+                                            // 4. Keys
                                             var coreSKeyId = -1L
                                             var coreVKeyId = -1L
                                             var coreCounterId = -1L
@@ -232,6 +267,8 @@ class NodeController @Autowired constructor(
                                                 coreVKeyId = fileRepository.save(coreVKey).id!!
                                                 coreCounterId = fileRepository.save(coreCounter).id!!
                                             }
+                                            witnessCount++ // the core.node.skey is always a witness
+                                            signingKeys.append("--signing-key-file /tmp/core.node.skey ")
                                             var vrfSKeyId = -1L
                                             var vrfVKeyId = -1L
                                             if (request.generateVRFKeys) {
@@ -270,10 +307,9 @@ class NodeController @Autowired constructor(
                                             }
 
                                             val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey").trim()
-                                            val isPoolOnChain
+                                            val isPoolOnChain = isPoolOnChain(poolId)
 
-
-                                            // 4. Create and upload metadata files
+                                            // 5. Create and upload metadata files
                                             val itnWitnessSign = if (request.metadata?.extended?.itn?.privateKey != null && defaultHost.jcliPath != null) {
                                                 defaultHostConnection.commandWriteFile("/tmp/core.pool.id", poolId)
                                                 defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", request.metadata.extended.itn.privateKey)
@@ -321,7 +357,7 @@ class NodeController @Autowired constructor(
                                                     whenSaturedThenRecommend = otherPoolIds
                                             )
 
-                                            val extendedMetadataJson = moshi.adapter(ExtendedMetadata::class.java).indent(" ").toJson(extendedMetadata)
+                                            val extendedMetadataJson = extendedMetadataAdapter.indent(" ").toJson(extendedMetadata)
                                             val extendedMetadataUrl = uploadMetadata(extendedMetadataJson)
                                             log.info("extendedMetadataUrl: $extendedMetadataUrl")
 
@@ -332,7 +368,7 @@ class NodeController @Autowired constructor(
                                                     homepage = requireNotNull(request.metadata?.homepage),
                                                     extended = extendedMetadataUrl
                                             )
-                                            val metadataJson = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java).indent(" ").toJson(metadata)
+                                            val metadataJson = metadataAdapter.indent(" ").toJson(metadata)
                                             val metadataUrl = uploadMetadata(metadataJson)
                                             log.info("metadataUrl: $metadataUrl")
 
@@ -340,7 +376,7 @@ class NodeController @Autowired constructor(
                                             defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
                                             val metadataHash = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json").trim()
 
-                                            // create the pool registration certificate
+                                            // 6. create the pool registration certificate
                                             val poolRegcertCommand = StringBuilder().apply {
                                                 append("${defaultHost.cardanoCliPath} shelley stake-pool registration-certificate ")
                                                 append("--cold-verification-key-file /tmp/core.node.vkey ")
@@ -351,19 +387,82 @@ class NodeController @Autowired constructor(
                                                 append("--pool-reward-account-verification-key-file /tmp/rewards.staking.vkey ")
                                                 append("--pool-owner-stake-verification-key-file /tmp/owner.staking.vkey ")
                                                 request.relays?.forEach { relay ->
-                                                    if(relay.addr.matches(IP4_ADDRESS)) {
+                                                    if (relay.addr.matches(IP4_ADDRESS)) {
                                                         append("--pool-relay-ipv4 ${relay.addr} --pool-relay-port ${relay.port} ")
                                                     } else {
                                                         append("--single-host-pool-relay ${relay.addr} --pool-relay-port ${relay.port} ")
                                                     }
                                                 }
                                                 append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
-                                                append("--mainnet ")
+                                                append("$magicString ")
                                                 append("--out-file /tmp/core.pool.cert")
                                             }
                                             log.info("poolRegcertCommand: $poolRegcertCommand")
                                             defaultHostConnection.command(poolRegcertCommand.toString())
                                             certificates.append("--certificate /tmp/core.pool.cert ")
+                                            depositAndFees += if (!isPoolOnChain) {
+                                                protocolParameters.poolDeposit
+                                            } else {
+                                                0
+                                            }
+
+                                            // 7. Create delegation certificates for owner(s)
+                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-address delegation-certificate --stake-verification-key-file /tmp/owner.staking.vkey --cold-verification-key-file /tmp/core.node.vkey --out-file /tmp/owner.deleg.cert")
+                                            certificates.append("--certificate /tmp/owner.deleg.cert ")
+
+                                            // 8. Calculate fees
+                                            transaction.append(certificates)
+                                            transaction.append("--out-file /tmp/transaction.txbody")
+                                            defaultHostConnection.command(transaction.toString())
+
+                                            val fees = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                                            depositAndFees += fees.split(" ")[0].toLong()
+
+                                            // 9. Create the transaction
+                                            val change = utxos.sumByLong { it.lovelace } - depositAndFees
+                                            if (change < 1) {
+                                                throw IOException("Not enough funds to pay fee of $depositAndFees lovelace!")
+                                            }
+
+                                            val realTransaction = transaction.toString()
+                                                    .replace("--fee 100 ", "--fee $depositAndFees ")
+                                                    .replace("--tx-out ${feePayerAccount.paymentAddr}+1234 ", "--tx-out ${feePayerAccount.paymentAddr}+$change ")
+                                            log.info("Pool Transaction Command: $realTransaction")
+                                            defaultHostConnection.command(realTransaction)
+
+                                            // 10. Sign the transaction
+                                            hostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+
+                                            // 11. Submit the transaction
+                                            //hostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+
+                                            // 12. Cleanup
+                                            hostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/feepayer.payment.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert ")
+                                            hostConnection.command("rm -f ")
+                                            hostConnection.command("rm -f ")
+                                            hostConnection.command("rm -f")
+                                            hostConnection.command("rm -f")
+                                            hostConnection.command("rm -f")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/")
+                                            hostConnection.command("rm -f /tmp/transaction.txbody")
+                                            hostConnection.command("rm -f /tmp/transaction.txsigned")
+
+
+                                            // 13. Save node information to the database
 
 
                                         }
@@ -383,6 +482,16 @@ class NodeController @Autowired constructor(
             log.error("Error Creating Node!", e)
             return SocketResponse.Error(type = "createnode", exception = e)
         }
+    }
+
+    private fun isPoolOnChain(poolId: String): Boolean {
+        val request = Request.Builder()
+                .head()
+                .cacheControl(CacheControl.FORCE_NETWORK)
+                .url("https://js.adapools.org/pools/$poolId/summary.json")
+                .build()
+        val response = okHttpClient.newCall(request).execute()
+        return response.isSuccessful
     }
 
     private fun uploadMetadata(metadataJson: String): String = runBlocking {

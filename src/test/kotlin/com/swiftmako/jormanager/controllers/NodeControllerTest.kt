@@ -16,6 +16,7 @@ import io.mockk.every
 import io.mockk.mockk
 import org.junit.jupiter.api.Test
 import org.springframework.data.repository.findByIdOrNull
+import retrofit2.Retrofit
 
 class NodeControllerTest {
 
@@ -40,7 +41,8 @@ class NodeControllerTest {
                 walletUtils = mockk(relaxed = true),
                 webSocketTemplate = mockk(relaxed = true),
                 nodesChannel = mockk(relaxed = true),
-                moshi = Moshi.Builder().build()
+                moshi = Moshi.Builder().build(),
+                retrofit = Retrofit.Builder().build()
         )
 
         val request = CreateNodeRequest(

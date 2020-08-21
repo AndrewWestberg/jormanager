@@ -154,7 +154,7 @@ class BlockMonitor @Autowired constructor(
                         val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
-                                saveBlocksFromRemoteNode(node.name, line)
+                                saveBlocksFromRemoteNode(null, node, line)
                             }
                         }
                         cmd.join()
@@ -164,7 +164,7 @@ class BlockMonitor @Autowired constructor(
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(node.name, line)
+                                    saveBlocksFromRemoteNode(host, node, line)
                                 } else {
                                     launch {
                                         sendBlockToPooltool(host, node, line)
@@ -191,12 +191,12 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private fun saveBlocksFromRemoteNode(node: String, line: String) {
+    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, line: String) {
         adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
             try {
                 val block = Block(
                         at = traceAdoptedBlock.localAtTime(),
-                        pool = node,
+                        pool = node.name,
                         host = traceAdoptedBlock.host,
                         slot = traceAdoptedBlock.block.slot,
                         hash = traceAdoptedBlock.block.rawHash()
@@ -206,11 +206,27 @@ class BlockMonitor @Autowired constructor(
 
                 if (existingBlock == null) {
                     blockRepository.save(block)
-                    log.info(block.toString())
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = block))
+
+                    val savedBlock: Block = host?.let {
+                        HostConnection(host, node).use { hostConnection ->
+                            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip --mainnet").trim()
+                            queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
+                                if (queryTip.headerHash.startsWith(block.hash)) {
+                                    blockRepository.save(block.copy(hash = queryTip.headerHash))
+                                } else {
+                                    block
+                                }
+                            } ?: block
+                        }
+                    } ?: block
+
+                    log.info(savedBlock.toString())
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))
                 }
             } catch (e: DataIntegrityViolationException) {
                 log.warn("Block Exists!: $traceAdoptedBlock")
+            } catch (e: Throwable) {
+                log.error("Save Block Error!", e)
             }
         }
     }

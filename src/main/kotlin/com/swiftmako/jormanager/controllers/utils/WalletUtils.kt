@@ -31,9 +31,9 @@ class WalletUtils @Autowired constructor(
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
     private val addressInfoAdapter = moshi.adapter(AddressInfo::class.java)
-    private val stakingInfoAdapter: JsonAdapter<Map<String, StakeAddressInfo>> by lazy {
-        val type = Types.newParameterizedType(Map::class.java, String::class.java, StakeAddressInfo::class.java)
-        moshi.adapter<Map<String, StakeAddressInfo>>(type)
+    private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>> by lazy {
+        val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
+        moshi.adapter<List<StakeAddressInfo>>(type)
     }
 
     fun getWalletItems(): List<WalletItem> {
@@ -58,8 +58,8 @@ class WalletUtils @Autowired constructor(
 
         // find staking_addr balance
         val stakingInfoString = if (walletEntry.type == "stake") {
-            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
-            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
+//            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
+//            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
 //                            when {
 //                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
             try {
@@ -85,9 +85,9 @@ class WalletUtils @Autowired constructor(
         }
         val stakingAddrLovelace = stakingInfoString?.let { json ->
             try {
-                stakingInfoAdapter.fromJson(json)?.values?.firstOrNull()?.rewardAccountBalance
+                stakingInfoAdapter.fromJson(json)?.firstOrNull()?.rewardAccountBalance
             } catch (t: Throwable) {
-                log.warn("Error parsing staking info json: $json")
+                log.warn("Error parsing staking info json: $json", t)
                 null
             }
         }
