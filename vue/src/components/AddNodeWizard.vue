@@ -31,12 +31,6 @@
           ></b-form-input>
           <b-form-invalid-feedback id="name-input-live-feedback">Enter at least 3 letters</b-form-invalid-feedback>
         </b-form-group>
-        <b-form-group label-cols-md="2" v-if="formNode.type=='relay'">
-          <b-form-checkbox
-            id="default-checkbox"
-            v-model="formNode.isDefault"
-          >Make this node the default for sending transactions</b-form-checkbox>
-        </b-form-group>
         <b-form-group label="Node Type" label-for="type-radio" label-cols-md="2">
           <b-form-radio-group id="type-radio" v-model="formNode.type" :state="typeState">
             <b-form-radio value="relay">
@@ -46,6 +40,12 @@
               <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success" />&nbsp;Core
             </b-form-radio>
           </b-form-radio-group>
+        </b-form-group>
+        <b-form-group label-cols-md="2" v-if="formNode.type=='relay'">
+          <b-form-checkbox
+            id="default-checkbox"
+            v-model="formNode.isDefault"
+          >Make this node the default for sending transactions</b-form-checkbox>
         </b-form-group>
         <b-form-group label="Processor Threads" label-for="threads-input" label-cols-md="2">
           <b-form-input
@@ -839,7 +839,7 @@ export default {
         },
         {
           label: "Confirmation",
-          slot: "page4",
+          slot: "page6",
         },
       ];
     },

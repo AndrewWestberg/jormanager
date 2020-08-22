@@ -170,8 +170,8 @@ class NodeController @Autowired constructor(
 
                                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                                         HostConnection(defaultHost, defaultNode).use { defaultHostConnection ->
-                                            val protocolParamsJson = hostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
-                                            hostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+                                            val protocolParamsJson = defaultHostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
+                                            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                                                     ?: throw IOException("Invalid protocol params!")
 
@@ -184,7 +184,7 @@ class NodeController @Autowired constructor(
                                             transaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
                                             val feePayerAccount = walletRepository.findByIdOrNull(request.registrationFeesAccount)
                                                     ?: throw IOException("Registration fees account not found!")
-                                            val utxos = walletUtils.getUtxos(host, hostConnection, feePayerAccount.paymentAddr)
+                                            val utxos = walletUtils.getUtxos(host, defaultHostConnection, feePayerAccount.paymentAddr)
                                             utxos.forEach { utxo ->
                                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                             }
@@ -196,7 +196,7 @@ class NodeController @Autowired constructor(
                                             // We'll replace this with the actual change to return later
                                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234 ")
 
-                                            val queryTipString = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                                            val queryTipString = defaultHostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                                     ?: -1
                                             transaction.append("--ttl $ttl ")
@@ -306,7 +306,7 @@ class NodeController @Autowired constructor(
                                                 kesVKeyId = fileRepository.save(kesVKey).id!!
                                             }
 
-                                            val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey").trim()
+                                            val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex").trim()
                                             val isPoolOnChain = isPoolOnChain(poolId)
 
                                             // 5. Create and upload metadata files
@@ -415,8 +415,11 @@ class NodeController @Autowired constructor(
                                             transaction.append("--out-file /tmp/transaction.txbody")
                                             defaultHostConnection.command(transaction.toString())
 
+                                            log.info("depositAndFees: $depositAndFees")
                                             val fees = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                                            log.info("fees: $fees")
                                             depositAndFees += fees.split(" ")[0].toLong()
+                                            log.info("final depositAndFees: $depositAndFees")
 
                                             // 9. Create the transaction
                                             val change = utxos.sumByLong { it.lovelace } - depositAndFees
@@ -431,35 +434,13 @@ class NodeController @Autowired constructor(
                                             defaultHostConnection.command(realTransaction)
 
                                             // 10. Sign the transaction
-                                            hostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                                             // 11. Submit the transaction
-                                            //hostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                            //defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
 
                                             // 12. Cleanup
-                                            hostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/feepayer.payment.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert ")
-                                            hostConnection.command("rm -f ")
-                                            hostConnection.command("rm -f ")
-                                            hostConnection.command("rm -f")
-                                            hostConnection.command("rm -f")
-                                            hostConnection.command("rm -f")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/")
-                                            hostConnection.command("rm -f /tmp/transaction.txbody")
-                                            hostConnection.command("rm -f /tmp/transaction.txsigned")
+//                                            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/core.pool.cert  /tmp/feepayer.payment.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert /tmp/rewards.staking.skey /tmp/rewards.staking.vkey /tmp/rewards.staking.cert /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.pool.id /tmp/core.itn.skey /tmp/core.itn.vkey /tmp/metadata.json")
 
 
                                             // 13. Save node information & transaction to the database
