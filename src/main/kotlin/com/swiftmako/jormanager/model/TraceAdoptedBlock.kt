@@ -2,9 +2,9 @@ package com.swiftmako.jormanager.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import com.swiftmako.jormanager.utils.toLocalTimeString
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
-import org.joda.time.format.DateTimeFormatterBuilder
 
 @JsonClass(generateAdapter = true)
 data class TraceAdoptedBlock(
@@ -13,31 +13,9 @@ data class TraceAdoptedBlock(
         @Json(name = "data") val block: Block,
         @Json(name = "host") val host: String
 ) {
-    fun localAtTime(): String = localDateTimeFormat.print(at.withZone(DateTimeZone.getDefault()))
+    fun localTimeString(): String = at.toLocalTimeString()
 
     override fun toString(): String {
-        return "AdoptedBlock(at=${localAtTime()}, env='$env', block=$block, host='$host')"
-    }
-
-    companion object {
-        private val localDateTimeFormat = DateTimeFormatterBuilder()
-                .appendYear(4, 4)
-                .appendLiteral('-')
-                .appendMonthOfYear(2)
-                .appendLiteral('-')
-                .appendDayOfMonth(2)
-                .appendLiteral('T')
-                .appendClockhourOfHalfday(2)
-                .appendLiteral(':')
-                .appendMinuteOfHour(2)
-                .appendLiteral(':')
-                .appendSecondOfMinute(2)
-                .appendLiteral('.')
-                .appendMillisOfSecond(3)
-                .appendLiteral(' ')
-                .appendHalfdayOfDayText()
-                .appendLiteral(' ')
-                .appendTimeZoneShortName()
-                .toFormatter()
+        return "AdoptedBlock(at=${localTimeString()}, env='$env', block=$block, host='$host')"
     }
 }

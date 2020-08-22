@@ -6,6 +6,7 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.Genesis
@@ -20,6 +21,7 @@ import com.swiftmako.jormanager.model.metadata.pool.Social
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
 import kotlinx.coroutines.channels.BroadcastChannel
@@ -50,6 +52,7 @@ class NodeController @Autowired constructor(
         private val hostRepository: HostRepository,
         private val fileRepository: FileRepository,
         private val walletRepository: WalletRepository,
+        private val transactionRepository: TransactionRepository,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
@@ -188,6 +191,7 @@ class NodeController @Autowired constructor(
                                             utxos.forEach { utxo ->
                                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                             }
+                                            log.info("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
                                             witnessCount++ // fee payer is a witness
                                             defaultHostConnection.commandWriteFile("/tmp/feepayer.payment.skey", requireNotNull(feePayerAccount.paymentSkey?.content))
                                             signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
@@ -307,6 +311,7 @@ class NodeController @Autowired constructor(
                                             }
 
                                             val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex").trim()
+                                            log.info("poolId: $poolId")
                                             val isPoolOnChain = isPoolOnChain(poolId)
 
                                             // 5. Create and upload metadata files
@@ -416,19 +421,20 @@ class NodeController @Autowired constructor(
                                             defaultHostConnection.command(transaction.toString())
 
                                             log.info("depositAndFees: $depositAndFees")
-                                            val fees = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                                            val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                                            val fees = feesString.split(" ")[0].toLong()
                                             log.info("fees: $fees")
-                                            depositAndFees += fees.split(" ")[0].toLong()
+                                            depositAndFees += fees
                                             log.info("final depositAndFees: $depositAndFees")
 
                                             // 9. Create the transaction
                                             val change = utxos.sumByLong { it.lovelace } - depositAndFees
                                             if (change < 1) {
-                                                throw IOException("Not enough funds to pay fee of $depositAndFees lovelace!")
+                                                throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                                             }
 
                                             val realTransaction = transaction.toString()
-                                                    .replace("--fee 100 ", "--fee $depositAndFees ")
+                                                    .replace("--fee 100 ", "--fee $fees ")
                                                     .replace("--tx-out ${feePayerAccount.paymentAddr}+1234 ", "--tx-out ${feePayerAccount.paymentAddr}+$change ")
                                             log.info("Pool Transaction Command: $realTransaction")
                                             defaultHostConnection.command(realTransaction)
@@ -437,7 +443,9 @@ class NodeController @Autowired constructor(
                                             defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                                             // 11. Submit the transaction
-                                            //defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                            val txid = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction txid --tx-body-file /tmp/transaction.txbody")
+                                            transactionRepository.save(Transaction(txid = txid))
 
                                             // 12. Cleanup
 //                                            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/core.pool.cert  /tmp/feepayer.payment.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert /tmp/rewards.staking.skey /tmp/rewards.staking.vkey /tmp/rewards.staking.cert /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.pool.id /tmp/core.itn.skey /tmp/core.itn.vkey /tmp/metadata.json")

@@ -195,7 +195,7 @@ class BlockMonitor @Autowired constructor(
         adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
             try {
                 val block = Block(
-                        at = traceAdoptedBlock.localAtTime(),
+                        at = traceAdoptedBlock.localTimeString(),
                         pool = node.name,
                         host = traceAdoptedBlock.host,
                         slot = traceAdoptedBlock.block.slot,

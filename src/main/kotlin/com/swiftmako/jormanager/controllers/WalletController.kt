@@ -454,7 +454,7 @@ class WalletController @Autowired constructor(
                                 hostConnection.command("rm -f /tmp/transaction.txbody")
                                 hostConnection.command("rm -f /tmp/transaction.txsigned")
 
-                                transactionRepository.save(Transaction(null, txid))
+                                transactionRepository.save(Transaction(txid = txid))
 
                                 SocketResponse.Success(type = "submittransaction", data = "transaction succeeded: $txid")
                             } ?: throw IOException("Wallet entry id ${request.fromId} not found!")
