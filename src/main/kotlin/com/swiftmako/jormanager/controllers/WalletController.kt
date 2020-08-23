@@ -46,17 +46,28 @@ class WalletController @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,
         private val transactionRepository: TransactionRepository,
-        private val moshi: Moshi
+        moshi: Moshi
 ) {
 
     private val log = LoggerFactory.getLogger(WalletController::class.java)
     private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
+    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
 
     @MessageMapping("/wallet")
     @SendTo("/topic/messages")
     fun getWalletEntries(): SocketResponse<List<WalletItem>> {
         return try {
-            SocketResponse.Success(type = "wallet", data = walletUtils.getWalletItems())
+            nodeRepository.findDefault()?.let { defaultNode ->
+                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                        "--testnet-magic ${genesis.networkMagic}"
+                    } else {
+                        "--mainnet"
+                    }
+                    SocketResponse.Success(type = "wallet", data = walletUtils.getWalletItems(magicString))
+                } ?: throw IOException("Error finding shelley genesis file!")
+            } ?: throw IOException("Error finding default node!")
         } catch (e: Throwable) {
             val error = "Fatal error getting wallet entries!"
             log.error(error, e)
@@ -71,8 +82,8 @@ class WalletController @Autowired constructor(
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                    val magicString = if (genesis?.networkMagic == 42) {
+                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {
                         "--mainnet"
@@ -85,12 +96,12 @@ class WalletController @Autowired constructor(
                             walletRepository.findByIdOrNull(request.fromId)?.let { fromWalletEntry ->
 
                                 val feePayerWalletEntry = if (request.isClaim) {
-                                    calculateClaimRewardsFeePayer(host, hostConnection, request.toAccounts)
+                                    calculateClaimRewardsFeePayer(host, hostConnection, magicString, request.toAccounts)
                                 } else {
                                     fromWalletEntry
                                 }
 
-                                val utxos = walletUtils.getUtxos(host, hostConnection, feePayerWalletEntry.paymentAddr)
+                                val utxos = walletUtils.getUtxos(host, hostConnection, magicString, feePayerWalletEntry.paymentAddr)
                                 val dummyTransaction = StringBuilder()
                                 dummyTransaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
                                 utxos.forEach { utxo ->
@@ -103,7 +114,7 @@ class WalletController @Autowired constructor(
                                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
 
                                 if (request.isClaim) {
-                                    val walletItem = walletUtils.getWalletItem(host, hostConnection, fromWalletEntry)
+                                    val walletItem = walletUtils.getWalletItem(host, hostConnection, magicString, fromWalletEntry)
                                     dummyTransaction.append("--ttl $ttl --fee 0 --withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
                                 } else {
                                     dummyTransaction.append("--ttl $ttl --fee 0 --out-file /tmp/dummy.txbody")
@@ -165,8 +176,8 @@ class WalletController @Autowired constructor(
     private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                val magicString = if (genesis?.networkMagic == 42) {
+                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                     "--testnet-magic ${genesis.networkMagic}"
                 } else {
                     "--mainnet"
@@ -257,8 +268,8 @@ class WalletController @Autowired constructor(
     private fun createPaymentWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                val magicString = if (genesis?.networkMagic == 42) {
+                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                     "--testnet-magic ${genesis.networkMagic}"
                 } else {
                     "--mainnet"
@@ -329,8 +340,8 @@ class WalletController @Autowired constructor(
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = moshi.adapter(Genesis::class.java).fromJson(genesisFile.content)
-                    val magicString = if (genesis?.networkMagic == 42) {
+                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {
                         "--mainnet"
@@ -342,19 +353,19 @@ class WalletController @Autowired constructor(
 
                             walletRepository.findByIdOrNull(request.fromId)?.let { fromWalletEntry ->
                                 val feePayerWalletEntry = if (request.isClaim) {
-                                    calculateClaimRewardsFeePayer(host, hostConnection, request.toAccounts.map { it.account })
+                                    calculateClaimRewardsFeePayer(host, hostConnection, magicString, request.toAccounts.map { it.account })
                                 } else {
                                     fromWalletEntry
                                 }
 
-                                val utxos = walletUtils.getUtxos(host, hostConnection, feePayerWalletEntry.paymentAddr)
+                                val utxos = walletUtils.getUtxos(host, hostConnection, magicString, feePayerWalletEntry.paymentAddr)
                                 val transaction = StringBuilder()
                                 transaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
                                 utxos.forEach { utxo ->
                                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                 }
 
-                                val walletItem = walletUtils.getWalletItem(host, hostConnection, fromWalletEntry)
+                                val walletItem = walletUtils.getWalletItem(host, hostConnection, magicString, fromWalletEntry)
 
                                 val paymentAddressLovelace = utxos.sumByLong { it.lovelace }
                                 var baseAmount = if (request.isClaim) {
@@ -523,11 +534,11 @@ class WalletController @Autowired constructor(
     /**
      * The first account with at least 1 Ada (1m lovelace) is the fee payer
      */
-    private fun calculateClaimRewardsFeePayer(host: Host, hostConnection: HostConnection, toAccounts: List<Long?>): WalletEntry {
+    private fun calculateClaimRewardsFeePayer(host: Host, hostConnection: HostConnection, magicString: String, toAccounts: List<Long?>): WalletEntry {
         toAccounts.filterNotNull().forEach { id ->
             walletRepository.findByIdOrNull(id)?.let { walletEntry ->
                 if (walletEntry.paymentSkey != null) {
-                    val lovelace = walletUtils.getUtxos(host, hostConnection, walletEntry.paymentAddr).sumByLong { it.lovelace }
+                    val lovelace = walletUtils.getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr).sumByLong { it.lovelace }
                     if (lovelace >= 1_000_000) {
                         return walletEntry
                     }

@@ -14,6 +14,7 @@ import com.swiftmako.jormanager.model.Relay
 import com.swiftmako.jormanager.model.Social
 import io.mockk.every
 import io.mockk.mockk
+import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Test
 import org.springframework.data.repository.findByIdOrNull
 import retrofit2.Retrofit
@@ -39,10 +40,12 @@ class NodeControllerTest {
                 fileRepository = mockk(relaxed = true),
                 walletRepository = mockk(relaxed = true),
                 walletUtils = mockk(relaxed = true),
+                transactionRepository = mockk(relaxed = true),
                 webSocketTemplate = mockk(relaxed = true),
                 nodesChannel = mockk(relaxed = true),
                 moshi = Moshi.Builder().build(),
-                retrofit = Retrofit.Builder().build()
+                retrofit = Retrofit.Builder().build(),
+                okHttpClient = OkHttpClient.Builder().build(),
         )
 
         val request = CreateNodeRequest(

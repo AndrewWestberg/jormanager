@@ -4,10 +4,11 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class Genesis(
+        val networkId:String,
         val networkMagic: Int? = null,
         val slotLength: Long,
         val epochLength: Long,
         val slotsPerKESPeriod: Long,
-        val systemStart: Long,
+        val systemStart: String,
         val maxKESEvolutions: Long,
 )

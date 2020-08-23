@@ -1,14 +1,11 @@
 package com.swiftmako.jormanager.monitors
 
-import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
-import com.swiftmako.jormanager.ktx.sumByLong
-import com.swiftmako.jormanager.model.Utxo
-import com.swiftmako.jormanager.model.WalletItem
-import com.swiftmako.jormanager.repositories.HostRepository
+import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.repositories.WalletRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -34,12 +31,16 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class WalletMonitor @Autowired constructor(
+        private val nodeRepository: NodeRepository,
+        private val fileRepository: FileRepository,
+        moshi: Moshi,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(WalletMonitor::class.java)
+    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
@@ -64,11 +65,32 @@ class WalletMonitor @Autowired constructor(
 
     private fun monitorWallet() {
         launch {
+            var magicString = ""
             newBlockChannel.openSubscription().consumeEach {
-                // A new block has arrived.
-                val walletItems = walletUtils.getWalletItems()
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
+
+                try {
+                    if (magicString.isBlank()) {
+                        nodeRepository.findDefault()?.let { defaultNode ->
+                            fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                                magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                                    "--testnet-magic ${genesis.networkMagic}"
+                                } else {
+                                    "--mainnet"
+                                }
+                            }
+                        }
+                    }
+                    if (magicString.isNotBlank()) {
+                        // A new block has arrived.
+                        val walletItems = walletUtils.getWalletItems(magicString)
+                        webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
+                    }
+                } catch (e: Throwable) {
+                    log.error("Error monitoring wallet!", e)
+                }
             }
+
         }
     }
 

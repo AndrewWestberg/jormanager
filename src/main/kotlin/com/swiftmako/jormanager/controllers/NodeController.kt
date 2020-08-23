@@ -167,7 +167,7 @@ class NodeController @Autowired constructor(
                             nodeRepository.findDefault()?.let { defaultNode ->
                                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                                     val genesis = genesisAdapter.fromJson(genesisFile.content)!!
-                                    val magicString = if (genesis.networkMagic == 42) {
+                                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                                         "--testnet-magic ${genesis.networkMagic}"
                                     } else {
                                         "--mainnet"
@@ -191,7 +191,7 @@ class NodeController @Autowired constructor(
                                                 transaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
                                                 val feePayerAccount = walletRepository.findByIdOrNull(request.registrationFeesAccount)
                                                         ?: throw IOException("Registration fees account not found!")
-                                                val utxos = walletUtils.getUtxos(host, defaultHostConnection, feePayerAccount.paymentAddr)
+                                                val utxos = walletUtils.getUtxos(host, defaultHostConnection, magicString, feePayerAccount.paymentAddr)
                                                 utxos.forEach { utxo ->
                                                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                                 }
@@ -215,7 +215,7 @@ class NodeController @Autowired constructor(
                                                         ?: throw IOException("Owner staking account not found!")
                                                 defaultHostConnection.commandWriteFile("/tmp/owner.staking.skey", requireNotNull(ownerStakingAccount.stakingSkey?.content))
                                                 defaultHostConnection.commandWriteFile("/tmp/owner.staking.vkey", requireNotNull(ownerStakingAccount.stakingVkey?.content))
-                                                val ownerStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, ownerStakingAccount)
+                                                val ownerStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, ownerStakingAccount)
                                                 if (!ownerStakingWalletItem.stakingAddrRegistered) {
                                                     // owner staking address is *not* registered. We should register it on chain as part of the transaction
                                                     ownerStakingAccount.stakingRegCert?.let { stakingRegCert ->
@@ -234,7 +234,7 @@ class NodeController @Autowired constructor(
                                                 defaultHostConnection.commandWriteFile("/tmp/rewards.staking.skey", requireNotNull(rewardsStakingAccount.stakingSkey?.content))
                                                 defaultHostConnection.commandWriteFile("/tmp/rewards.staking.vkey", requireNotNull(rewardsStakingAccount.stakingVkey?.content))
                                                 if (request.rewardsStakingAccount != request.ownerStakingAccount) {
-                                                    val rewardsStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, rewardsStakingAccount)
+                                                    val rewardsStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, rewardsStakingAccount)
                                                     if (!rewardsStakingWalletItem.stakingAddrRegistered) {
                                                         // rewards staking address is *not* registered. We should register it on chain as part of the transaction
                                                         rewardsStakingAccount.stakingRegCert?.let { stakingRegCert ->
@@ -251,9 +251,9 @@ class NodeController @Autowired constructor(
                                                 }
 
                                                 // 4. Keys and opcert
-                                                var coreSKeyId = -1L
-                                                var coreVKeyId = -1L
-                                                var coreCounterId = -1L
+                                                val coreSKeyId: Long
+                                                val coreVKeyId: Long
+                                                val coreCounterId: Long
                                                 if (request.generateColdKeys) {
                                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen --verification-key-file /tmp/core.node.vkey --signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter")
                                                     val coreSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.node.skey")
@@ -273,9 +273,9 @@ class NodeController @Autowired constructor(
                                                 }
                                                 witnessCount++ // the core.node.skey is always a witness
                                                 signingKeys.append("--signing-key-file /tmp/core.node.skey ")
-                                                var vrfSKeyId = -1L
-                                                var vrfVKeyId = -1L
-                                                if (request.generateVRFKeys) {
+                                                val vrfSKeyId: Long
+                                                val vrfVKeyId: Long
+                                                val vrfSKeyContent = if (request.generateVRFKeys) {
                                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-VRF --verification-key-file /tmp/core.vrf.vkey --signing-key-file /tmp/core.vrf.skey")
                                                     val vrfSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.skey")
                                                     val vrfVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.vkey")
@@ -283,6 +283,7 @@ class NodeController @Autowired constructor(
                                                     val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = vrfVKeyContent)
                                                     vrfSKeyId = fileRepository.save(vrfSKey).id!!
                                                     vrfVKeyId = fileRepository.save(vrfVKey).id!!
+                                                    vrfSKeyContent
                                                 } else {
                                                     defaultHostConnection.commandWriteFile("/tmp/core.vrf.skey", requireNotNull(request.vrfSKey))
                                                     defaultHostConnection.commandWriteFile("/tmp/core.vrf.vkey", requireNotNull(request.vrfVKey))
@@ -290,10 +291,11 @@ class NodeController @Autowired constructor(
                                                     val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = requireNotNull(request.vrfVKey))
                                                     vrfSKeyId = fileRepository.save(vrfSKey).id!!
                                                     vrfVKeyId = fileRepository.save(vrfVKey).id!!
+                                                    request.vrfSKey
                                                 }
-                                                var kesSKeyId = -1L
-                                                var kesVKeyId = -1L
-                                                if (request.generateKESKeys) {
+                                                val kesSKeyId: Long
+                                                val kesVKeyId: Long
+                                                val kesSKeyContent = if (request.generateKESKeys) {
                                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
                                                     val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
                                                     val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
@@ -301,6 +303,7 @@ class NodeController @Autowired constructor(
                                                     val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = kesVKeyContent)
                                                     kesSKeyId = fileRepository.save(kesSKey).id!!
                                                     kesVKeyId = fileRepository.save(kesVKey).id!!
+                                                    kesSKeyContent
                                                 } else {
                                                     defaultHostConnection.commandWriteFile("/tmp/core.kes.skey", requireNotNull(request.kesSKey))
                                                     defaultHostConnection.commandWriteFile("/tmp/core.kes.vkey", requireNotNull(request.kesVKey))
@@ -308,6 +311,7 @@ class NodeController @Autowired constructor(
                                                     val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = requireNotNull(request.kesVKey))
                                                     kesSKeyId = fileRepository.save(kesSKey).id!!
                                                     kesVKeyId = fileRepository.save(kesVKey).id!!
+                                                    request.kesSKey
                                                 }
 
                                                 val slotLength = genesis.slotLength
@@ -507,6 +511,7 @@ class NodeController @Autowired constructor(
                                                 createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
                                                 createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                                                 val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
+                                                createKesVrfOpcert(request.name, kesSKeyContent, vrfSKeyContent, opcertContent, hostConnection, nodeFolder)
                                                 createEnvFile(hostConnection, request.type, request.name, nodeFolder, request.listen, request.port)
                                                 createSystemdFile(request, host, hostConnection)
                                                 createManualStartupScripts(request, host, hostConnection)
@@ -769,10 +774,37 @@ class NodeController @Autowired constructor(
         return hostConnection.command("chmod 400 ${nodeFolder}/env")
     }
 
+    private fun createKesVrfOpcert(nodeName: String, kesSKeyContent: String, vrfSKeyContent: String, opcertContent: String, hostConnection: HostConnection, nodeFolder: String) {
+        if (hostConnection.commandFileExists("$nodeFolder/$nodeName.kes.skey")) {
+            hostConnection.command("chmod 600 $nodeFolder/$nodeName.kes.skey")
+        }
+        hostConnection.commandWriteFile("$nodeFolder/$nodeName.kes.skey", kesSKeyContent)
+        hostConnection.command("chmod 400 $nodeFolder/$nodeName.kes.skey")
+
+        if (hostConnection.commandFileExists("$nodeFolder/$nodeName.vrf.skey")) {
+            hostConnection.command("chmod 600 $nodeFolder/$nodeName.vrf.skey")
+        }
+        hostConnection.commandWriteFile("$nodeFolder/$nodeName.vrf.skey", vrfSKeyContent)
+        hostConnection.command("chmod 400 $nodeFolder/$nodeName.vrf.skey")
+
+        if (hostConnection.commandFileExists("$nodeFolder/$nodeName.node.opcert")) {
+            hostConnection.command("chmod 600 $nodeFolder/$nodeName.node.opcert")
+        }
+        hostConnection.commandWriteFile("$nodeFolder/$nodeName.node.opcert", opcertContent)
+        hostConnection.command("chmod 400 $nodeFolder/$nodeName.node.opcert")
+    }
+
+
     private fun createConfigFile(hostId: Long, genesisByronFileName: String, hostConnection: HostConnection, nodeFolder: String): Pair<Long, Int> {
         val nodeCount = nodeRepository.countForHost(hostId)
-        val ekgPort = 12788 + (2 * nodeCount)
-        val prometheusPort = 12789 + (2 * nodeCount)
+        var ekgPort = 12788 + (2 * nodeCount)
+        while (isPortUsed(hostConnection, ekgPort)) {
+            ekgPort++
+        }
+        var prometheusPort = ekgPort + 1
+        while (isPortUsed(hostConnection, prometheusPort)) {
+            prometheusPort++
+        }
         val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
         val configFileContent = configFile?.content
                 ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
@@ -800,6 +832,10 @@ class NodeController @Autowired constructor(
         } ?: throw IOException("Config file not found in db!")
 
         return Pair(configFile.id!!, ekgPort)
+    }
+
+    private fun isPortUsed(hostConnection: HostConnection, port: Int): Boolean {
+        return hostConnection.command("ss -tulw").trim().contains(":$port")
     }
 
     private fun createTopologyFile(byronGenesisFileName: String, hostConnection: HostConnection, nodeFolder: String) {

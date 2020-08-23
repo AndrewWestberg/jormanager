@@ -6,7 +6,6 @@ import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByLong
-import com.swiftmako.jormanager.model.AddressInfo
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
@@ -30,20 +29,19 @@ class WalletUtils @Autowired constructor(
         moshi: Moshi
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
-    private val addressInfoAdapter = moshi.adapter(AddressInfo::class.java)
     private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>> by lazy {
         val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
         moshi.adapter<List<StakeAddressInfo>>(type)
     }
 
-    fun getWalletItems(): List<WalletItem> {
+    fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
         nodeRepository.findDefault()?.let { defaultNode ->
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 HostConnection(host, defaultNode).use { hostConnection ->
                     walletRepository.findAllNotDeleted().forEach { walletEntry ->
                         walletItems.add(
-                                getWalletItem(host, hostConnection, walletEntry)
+                                getWalletItem(host, hostConnection, magicString, walletEntry)
                         )
                     }
                 }
@@ -53,33 +51,19 @@ class WalletUtils @Autowired constructor(
         return walletItems
     }
 
-    fun getWalletItem(host: Host, hostConnection: HostConnection, walletEntry: WalletEntry): WalletItem {
-        val utxos = getUtxos(host, hostConnection, walletEntry.paymentAddr)
+    fun getWalletItem(host: Host, hostConnection: HostConnection, magicString: String, walletEntry: WalletEntry): WalletItem {
+        val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
         val stakingInfoString = if (walletEntry.type == "stake") {
-//            val stakeAddressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address ${walletEntry.stakingAddr}")
-//            val stakeAddressInfo = addressInfoAdapter.fromJson(stakeAddressInfoJson)
-//                            when {
-//                                stakeAddressInfo?.base16?.matches(TESTNET_STAKING_ADDRESS) == true -> {
             try {
-//                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --testnet-magic 42")
-                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
+                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode $magicString")
             } catch (t: Throwable) {
                 if (t.message?.contains("EraMismatch") == false) {
                     log.error("Error getting stake addr info!", t)
                 }
                 ""
             }
-//                                }
-//                                stakeAddressInfo?.base16?.matches(MAINNET_STAKING_ADDRESS) == true -> {
-//                                    hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode --mainnet")
-//                                }
-//                                else -> {
-//                                    log.error("Invalid staking address format: ${walletEntry.paymentAddr}")
-//                                    return@forEach
-//                                }
-//                            }
         } else {
             null
         }
@@ -98,30 +82,16 @@ class WalletUtils @Autowired constructor(
                 ?: 0L)
     }
 
-    fun getUtxos(host: Host, hostConnection: HostConnection, paymentAddr: String): List<Utxo> {
+    fun getUtxos(host: Host, hostConnection: HostConnection, magicString: String, paymentAddr: String): List<Utxo> {
         // find payment_addr balance
-        val addressInfoJson = hostConnection.command("${host.cardanoCliPath} shelley address info --address $paymentAddr")
-        val addressInfo = addressInfoAdapter.fromJson(addressInfoJson)
-        val addressInfoString = //when {
-                //addressInfo?.base16?.matches(TESTNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-                try {
-//                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --testnet-magic 42")
-                    hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --mainnet")
-                } catch (t: Throwable) {
-                    if (t.message?.contains("EraMismatch") == false) {
-                        log.error("Error getting payment addr info!", t)
-                    }
-                    ""
-                }
-//                            }
-//                            addressInfo?.base16?.matches(MAINNET_BASE_ENTERPRISE_ADDRESS) == true -> {
-//                                hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode --mainnet")
-//                            }
-//                            else -> {
-//                                log.error("Invalid payment address format: ${walletEntry.paymentAddr}")
-//                                return@forEach
-//                            }
-//                        }
+        val addressInfoString = try {
+            hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode $magicString")
+        } catch (t: Throwable) {
+            if (t.message?.contains("EraMismatch") == false) {
+                log.error("Error getting payment addr info!", t)
+            }
+            ""
+        }
         val utxos = mutableListOf<Utxo>()
         UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
             utxos.add(
@@ -137,10 +107,6 @@ class WalletUtils @Autowired constructor(
     }
 
     companion object {
-        private val TESTNET_BASE_ENTERPRISE_ADDRESS = Regex("(60[0-9a-fA-F]{56}|00[0-9a-fA-F]{112})")
-        private val MAINNET_BASE_ENTERPRISE_ADDRESS = Regex("(61[0-9a-fA-F]{56}|01[0-9a-fA-F]{112})")
-        private val TESTNET_STAKING_ADDRESS = Regex("e0[0-9a-fA-F]{60}")
-        private val MAINNET_STAKING_ADDRESS = Regex("e1[0-9a-fA-F]{60}")
         private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
     }
 

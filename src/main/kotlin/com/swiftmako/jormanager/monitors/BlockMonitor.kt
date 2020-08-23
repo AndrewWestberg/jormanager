@@ -8,11 +8,13 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.AddedToCurrentChain
+import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.model.pooltool.Data
 import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.repositories.BlockRepository
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.PooltoolService
@@ -54,6 +56,7 @@ class BlockMonitor @Autowired constructor(
         private val blockRepository: BlockRepository,
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
+        private val fileRepository: FileRepository,
         moshi: Moshi,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val pooltoolService: PooltoolService,
@@ -75,6 +78,7 @@ class BlockMonitor @Autowired constructor(
     private val adoptedBlockAdapter by lazy { moshi.adapter(TraceAdoptedBlock::class.java) }
     private val blockAdapter by lazy { moshi.adapter(AddedToCurrentChain::class.java) }
     private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
+    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
 
     override fun isAutoStartup() = true
 
@@ -139,6 +143,15 @@ class BlockMonitor @Autowired constructor(
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorBlocksRemote(host: Host, node: Node) {
         coroutineScope {
+            val magicString = fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { genesisFile ->
+                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                    "--testnet-magic ${genesis.networkMagic}"
+                } else {
+                    "--mainnet"
+                }
+            } ?: throw IOException("Unable to read shelley genesis file!")
+
             var retry = true
             while (retry) {
                 retry = false
@@ -154,20 +167,21 @@ class BlockMonitor @Autowired constructor(
                         val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
-                                saveBlocksFromRemoteNode(null, node, line)
+                                saveBlocksFromRemoteNode(null, node, magicString, line)
                             }
                         }
                         cmd.join()
                     }
                     ssh.startSession().use { session ->
+
                         val cmd = session.exec("tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(host, node, line)
+                                    saveBlocksFromRemoteNode(host, node, magicString, line)
                                 } else {
                                     launch {
-                                        sendBlockToPooltool(host, node, line)
+                                        sendBlockToPooltool(host, node, magicString, line)
                                     }
                                 }
                             }
@@ -191,7 +205,7 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, line: String) {
+    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, line: String) {
         adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
             try {
                 val block = Block(
@@ -209,7 +223,7 @@ class BlockMonitor @Autowired constructor(
 
                     val savedBlock: Block = host?.let {
                         HostConnection(host, node).use { hostConnection ->
-                            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip --mainnet").trim()
+                            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                             queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                                 if (queryTip.headerHash.startsWith(block.hash)) {
                                     blockRepository.save(block.copy(hash = queryTip.headerHash))
@@ -232,10 +246,10 @@ class BlockMonitor @Autowired constructor(
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
-    private suspend fun sendBlockToPooltool(host: Host, node: Node, line: String) {
+    private suspend fun sendBlockToPooltool(host: Host, node: Node, magicString: String, line: String) {
         blockAdapter.fromJson(line)?.let { addedToCurrentChain ->
             HostConnection(host, node).use { hostConnection ->
-                val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip --mainnet").trim()
+                val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                     try {
                         val stats = PooltoolStats(

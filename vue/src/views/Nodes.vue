@@ -9,7 +9,6 @@
         >
           <b-icon-plus />&nbsp;Node
         </b-button>
-        <b-button @click="testCreateNode()">Test createNode</b-button>
       </div>
       <hr />
       <div>
@@ -111,92 +110,6 @@ export default {
             this.restartNodeByName(node);
           }
         });
-    },
-    testCreateNode() {
-      //DELETE ME
-      let formNode = JSON.parse(`
-{
-  "color": "#4A412A",
-  "host": 23,
-  "name": "tickr",
-  "isDefault": false,
-  "type": "core",
-  "processorThreads": "2",
-  "listen": "127.0.0.1",
-  "port": "6001",
-  "genesisByron": 207,
-  "genesisShelley": 208,
-  "generateColdKeys": true,
-  "coldSKey": null,
-  "coldVKey": null,
-  "coldCounter": null,
-  "generateVRFKeys": true,
-  "vrfSKey": null,
-  "vrfVKey": null,
-  "generateKESKeys": true,
-  "kesSKey": null,
-  "kesVKey": null,
-  "registrationFeesAccount": 313,
-  "ownerStakingAccount": 421,
-  "rewardsStakingAccount": 427,
-  "poolPledge": 321000000,
-  "poolCost": 340000000,
-  "poolMargin": "0.5",
-  "relays": [
-    {
-      "addr": "relay1.bluecheesestakehouse.com",
-      "port": "5001"
-    },
-    {
-      "addr": "50.39.169.116",
-      "port": "5002"
-    }
-  ],
-  "metadata": {
-    "ticker": "TICKR",
-    "name": "Flippin Stakes",
-    "description": "The best stakepool located in Flippin, Arkansas!",
-    "homepage": "https://flippin-stakes.com",
-    "extended": {
-      "itn": {
-        "publicKey": null,
-        "privateKey": null
-      },
-      "info": {
-        "icon64": "https://flippin-stakes.com/icon64.png",
-        "logo": "https://flippin-stakes.com/logo512.png",
-        "location": "United States, North America",
-        "social": {
-          "twitter": "twitter_flippinstakes",
-          "telegram": "telegram_flippinstakes",
-          "facebook": "facebook_flippinstakes",
-          "youtube": "youtube_flippinstakes",
-          "discord": "discord_flippinstakes",
-          "github": "github_flippinstakes",
-          "twitch": "twitch_flippinstakes"
-        },
-        "company": {
-          "name": "Flippin Stakes, LLC",
-          "addr": "123 Backflip Ln.",
-          "city": "Flippin, AK",
-          "country": "United States",
-          "company_id": "12-2393949",
-          "vat_id": "J-392039"
-        },
-        "about": {
-          "me": "10-year veteran as a devops engineer",
-          "server": "Cloud Hosted at AWS",
-          "company": "Founded in 2020 for stakepool operations."
-        },
-        "rss": "https://flippin-stakes.com/atom.xml"
-      },
-      "telegramAdminHandle": "telegram_admin_flippinstakes"
-    }
-  },
-  "sudoPassword": ""
-}
-      `);
-      this.createNode(formNode);
     },
   },
   computed: {
