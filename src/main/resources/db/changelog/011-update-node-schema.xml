@@ -1,0 +1,62 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+    <changeSet id="011" author="Andrew Westberg">
+
+        <dropColumn tableName="nodes" columnName="cold_node_skey_file_id"/>
+        <dropColumn tableName="nodes" columnName="cold_node_vkey_file_id"/>
+        <dropColumn tableName="nodes" columnName="hot_node_kes_skey_file_id"/>
+        <dropColumn tableName="nodes" columnName="hot_node_vrf_skey_file_id"/>
+        <dropColumn tableName="nodes" columnName="opcert_file_id"/>
+        <dropColumn tableName="nodes" columnName="opcert_expiration"/>
+
+        <addColumn tableName="nodes">
+            <column name="owner_staking_account_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rewards_staking_account_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="core_skey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="core_vkey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="core_counter_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="vrf_skey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="vrf_vkey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kes_skey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kes_vkey_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kes_expire_time_sec" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kes_expire_date" type="varchar(255)" defaultOnNull="true" defaultValue="---">
+                <constraints nullable="false"/>
+            </column>
+            <column name="opcert_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="itn_private_key_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="itn_public_key_id" type="int" defaultOnNull="true" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="metadata_url" type="varchar(255)"/>
+            <column name="extended_metadata_url" type="varchar(255)"/>
+        </addColumn>
+
+    </changeSet>
+</databaseChangeLog>

@@ -139,7 +139,7 @@ export default {
   "registrationFeesAccount": 313,
   "ownerStakingAccount": 421,
   "rewardsStakingAccount": 427,
-  "poolPledge": 123000000,
+  "poolPledge": 321000000,
   "poolCost": 340000000,
   "poolMargin": "0.5",
   "relays": [
