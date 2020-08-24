@@ -46,7 +46,11 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
+import java.io.BufferedReader
 import java.io.IOException
+import java.util.concurrent.TimeUnit
+import java.util.regex.Matcher
+import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 
 @Component("blockMonitor")
@@ -136,8 +140,69 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
+    @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorBlocksLocal(host: Host, node: Node) {
-        TODO("Not implemented yet!")
+        coroutineScope {
+            val magicString = fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { genesisFile ->
+                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                    "--testnet-magic ${genesis.networkMagic}"
+                } else {
+                    "--mainnet"
+                }
+            } ?: throw IOException("Unable to read shelley genesis file!")
+
+            var retry = true
+            while (retry) {
+                retry = false
+                delay(RECONNECT_DELAY_MS)
+
+                try {
+                    var command = "cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\""
+                    var commandList = mutableListOf<String>()
+                    var m: Matcher = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
+                    while (m.find()) {
+                        commandList.add(m.group(1))
+                    }
+
+                    var process = ProcessBuilder(commandList).start()
+                    process.inputStream.bufferedReader().use { reader ->
+                        reader.forEachLine { line ->
+                            saveBlocksFromRemoteNode(null, node, magicString, line)
+                        }
+                    }
+                    val errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
+                    process.waitFor(60, TimeUnit.SECONDS)
+                    if (process.exitValue() != 0) {
+                        throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
+                    }
+
+                    command = "tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'"
+                    commandList = mutableListOf()
+                    m = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
+                    while (m.find()) {
+                        commandList.add(m.group(1))
+                    }
+
+                    process = ProcessBuilder(commandList).start()
+                    process.inputStream.bufferedReader().use { reader ->
+                        reader.forEachLine { line ->
+                            if (line.contains("TraceAdoptedBlock")) {
+                                saveBlocksFromRemoteNode(host, node, magicString, line)
+                            } else {
+                                launch {
+                                    sendBlockToPooltool(host, node, magicString, line)
+                                }
+                            }
+                        }
+                    }
+                    process.waitFor()
+                    log.info("Done tailing logs!")
+                } catch (e: Throwable) {
+                    throw RuntimeException("Error monitoring local blocks!", e)
+                }
+            }
+        }
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
