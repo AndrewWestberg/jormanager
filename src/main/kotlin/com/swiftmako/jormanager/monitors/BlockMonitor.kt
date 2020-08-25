@@ -34,6 +34,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import org.apache.commons.io.input.Tailer
+import org.apache.commons.io.input.TailerListenerAdapter
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -46,11 +48,8 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
-import java.io.BufferedReader
+import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import java.util.regex.Matcher
-import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 
 @Component("blockMonitor")
@@ -158,45 +157,21 @@ class BlockMonitor @Autowired constructor(
                 delay(RECONNECT_DELAY_MS)
 
                 try {
-                    var command = "cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\""
-                    var commandList = mutableListOf<String>()
-                    var m: Matcher = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
-                    while (m.find()) {
-                        commandList.add(m.group(1))
-                    }
-
-                    var process = ProcessBuilder(commandList).start()
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.forEachLine { line ->
-                            saveBlocksFromRemoteNode(null, node, magicString, line)
-                        }
-                    }
-                    val errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
-                    process.waitFor(60, TimeUnit.SECONDS)
-                    if (process.exitValue() != 0) {
-                        throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
-                    }
-
-                    command = "tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'"
-                    commandList = mutableListOf()
-                    m = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
-                    while (m.find()) {
-                        commandList.add(m.group(1))
-                    }
-
-                    process = ProcessBuilder(commandList).start()
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.forEachLine { line ->
-                            if (line.contains("TraceAdoptedBlock")) {
-                                saveBlocksFromRemoteNode(host, node, magicString, line)
-                            } else {
-                                launch {
-                                    sendBlockToPooltool(host, node, magicString, line)
+                    Tailer.create(File("${host.nodeHomePath}/${node.name}/logs/node.json"), object : TailerListenerAdapter() {
+                        override fun handle(line: String?) {
+                            line?.let {
+                                if (line.contains("TraceAdoptedBlock")) {
+                                    saveBlocksFromRemoteNode(host, node, magicString, line)
+                                } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
+                                    if (pooltoolApiKey.isNotBlank()) {
+                                        launch {
+                                            sendBlockToPooltool(host, node, magicString, line)
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
-                    process.waitFor()
+                    }, 100, false, true, 8192).run()
                     log.info("Done tailing logs!")
                 } catch (e: Throwable) {
                     throw RuntimeException("Error monitoring local blocks!", e)
@@ -245,8 +220,10 @@ class BlockMonitor @Autowired constructor(
                                 if (line.contains("TraceAdoptedBlock")) {
                                     saveBlocksFromRemoteNode(host, node, magicString, line)
                                 } else {
-                                    launch {
-                                        sendBlockToPooltool(host, node, magicString, line)
+                                    if (pooltoolApiKey.isNotBlank()) {
+                                        launch {
+                                            sendBlockToPooltool(host, node, magicString, line)
+                                        }
                                     }
                                 }
                             }

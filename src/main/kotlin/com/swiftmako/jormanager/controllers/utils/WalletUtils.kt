@@ -3,20 +3,25 @@ package com.swiftmako.jormanager.controllers.utils
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
+import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
+import org.springframework.security.crypto.encrypt.Encryptors
 import org.springframework.stereotype.Component
 
 
@@ -26,7 +31,10 @@ class WalletUtils @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
         private val walletRepository: WalletRepository,
-        moshi: Moshi
+        private val fileRepository: FileRepository,
+        private val argon2PasswordEncoder: Argon2PasswordEncoder,
+        @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+        moshi: Moshi,
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
     private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>> by lazy {
@@ -106,8 +114,37 @@ class WalletUtils @Autowired constructor(
         return utxos
     }
 
-    companion object {
-        private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
+    fun getSKeyContent(skey: File, spendingPassword: String): String {
+        return if (skey.content.isHex) {
+            decryptSKeyContent(skey.content, spendingPassword)
+        } else {
+            val cipherText = encryptSKeyContent(skey.content, spendingPassword)
+            fileRepository.save(skey.copy(content = cipherText))
+            skey.content
+        }
     }
 
+    private fun encryptSKeyContent(cleartext: String, spendingPassword: String): String {
+        if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+            throw IllegalArgumentException("Invalid spending password!")
+        }
+        val textEncryptor = Encryptors.delux(spendingPassword, S)
+        return textEncryptor.encrypt(cleartext)
+    }
+
+    private fun decryptSKeyContent(ciphertext: String, spendingPassword: String): String {
+        if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+            throw IllegalArgumentException("Invalid spending password!")
+        }
+        val textEncryptor = Encryptors.delux(spendingPassword, S)
+        return textEncryptor.decrypt(ciphertext)
+    }
+
+    companion object {
+        private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
+        private const val S = "K8e*PkQ7BeWd7Rpy!dPDG*N2sG9aYbfg"
+        private val HEX_REGEX = Regex("^[0-9a-fA-F]+$")
+        val String.isHex: Boolean
+            get() = this.matches(HEX_REGEX)
+    }
 }

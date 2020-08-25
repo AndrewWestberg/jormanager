@@ -7,6 +7,7 @@ import okio.buffer
 import okio.sink
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.io.File
 
 @SpringBootApplication
@@ -43,6 +44,18 @@ fun runInstallation() {
     val pooltoolApiKey = console.readLine().trim()
     applicationProperties.append("pooltool.apikey=$pooltoolApiKey\n")
 
+    print("Specify your JorManager spending password: ")
+    val spendingPassword = String(console.readPassword())
+    print("Verify your JorManager spending password: ")
+    val spendingPassword2 = String(console.readPassword())
+    if (spendingPassword != spendingPassword2) {
+        println("Passwords do not match! Try installation again.")
+        return
+    }
+
+    val encodedPassword = Argon2PasswordEncoder().encode(spendingPassword)
+    applicationProperties.append("jormanager.spendingpassword=$encodedPassword")
+
     File("$jormanagerFolderPath${File.separator}application.properties").sink().buffer().use { it.writeUtf8(applicationProperties.toString()) }
     println("application.properties successfully created!")
     println()
@@ -51,11 +64,10 @@ fun runInstallation() {
     val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true)
     HostConnection(host, defaultNode).use { hostConnection ->
         val javaPath = hostConnection.command("which java").trim()
-        if (!hostConnection.hasSystemd) {
-            println("WARN: systemd scripts are not available on your system.")
-            val startScriptPath = "$jormanagerFolderPath${File.separator}startJormanager.sh"
-            File(startScriptPath).sink().buffer().use {
-                it.writeUtf8("""
+
+        val startScriptPath = "$jormanagerFolderPath${File.separator}startJormanager.sh"
+        File(startScriptPath).sink().buffer().use {
+            it.writeUtf8("""
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -64,11 +76,11 @@ fun runInstallation() {
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Started with logfile jormanager.log"
                 """.trimMargin()
-                )
-            }
-            val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
-            File(stopScriptPath).sink().buffer().use {
-                it.writeUtf8("""
+            )
+        }
+        val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
+        File(stopScriptPath).sink().buffer().use {
+            it.writeUtf8("""
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -81,13 +93,13 @@ fun runInstallation() {
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Stopped"
                 """.trimMargin()
-                )
-            }
-            hostConnection.command("chmod 700 startJormanager.sh")
-            hostConnection.command("chmod 700 stopJormanager.sh")
+            )
+        }
+        hostConnection.command("chmod 700 $startScriptPath")
+        hostConnection.command("chmod 700 $stopScriptPath")
 
-            println("To start, run: $ ./startJormanager.sh")
-            println("To stop, run: $ ./stopJormanager.sh")
+        if (!hostConnection.hasSystemd) {
+            println("WARN: systemd scripts are not available on your system.")
         } else {
             print("Specify the service name for the JorManager systemd startup script or Enter to accept default [jm.service]: ")
             var systemdServiceName = console.readLine().trim()
@@ -128,5 +140,7 @@ fun runInstallation() {
             println("To start, run: $ sudo systemctl start $systemdServiceName")
             println("To stop, run: $ sudo systemctl stop $systemdServiceName")
         }
+        println("To start manually, run: $ ./startJormanager.sh")
+        println("To stop manually, run: $ ./stopJormanager.sh")
     }
 }

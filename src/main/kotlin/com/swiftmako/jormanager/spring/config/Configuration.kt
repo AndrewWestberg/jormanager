@@ -13,6 +13,7 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Scope
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
@@ -70,5 +71,11 @@ class Configuration {
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getNewBlockChannel(): BroadcastChannel<Long> {
         return BroadcastChannel(Channel.CONFLATED)
+    }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun argonPasswordEncoder(): Argon2PasswordEncoder {
+        return Argon2PasswordEncoder()
     }
 }

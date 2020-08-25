@@ -86,6 +86,20 @@
         <b-icon-plus />&nbsp;Add Entry
       </b-button>
     </b-modal>
+    <b-modal
+      id="modal-spending-password"
+      size="sm"
+      title="Enter Spending password to confirm"
+      @ok="passwordConfirmed()"
+    >
+      <b-form-group label="Spending Password" label-for="sudo-input">
+        <b-form-input
+          id="spending-password-input"
+          type="password"
+          v-model="formSendAda.spendingPassword"
+        />
+      </b-form-group>
+    </b-modal>
   </div>
 </template>
 
@@ -104,6 +118,7 @@ export default {
         stakingAddrLovelace: null,
       },
       formSendAda: {
+        spendingPassword: null,
         fromId: null,
         isClaim: false,
         toAccounts: [
@@ -278,25 +293,25 @@ export default {
         return;
       }
 
-      this.$bvModal.msgBoxConfirm("Are you sure?").then((value) => {
-        if (value) {
-          this.submitTransaction({
-            fromId: this.formSendAda.fromId,
-            isClaim: this.formSendAda.isClaim,
-            txFee: this.txFee,
-            toAccounts: _.map(this.formSendAda.toAccounts, (toAccount) => {
-              return {
-                account: toAccount.account,
-                type: toAccount.type,
-                amount:
-                  toAccount.amount == null
-                    ? null
-                    : this.$root.$parseCurrency(toAccount.amount),
-                percent: toAccount.percent,
-              };
-            }),
-          });
-        }
+      this.$bvModal.show("modal-spending-password");
+    },
+    passwordConfirmed() {
+      this.submitTransaction({
+        spendingPassword: this.formSendAda.spendingPassword,
+        fromId: this.formSendAda.fromId,
+        isClaim: this.formSendAda.isClaim,
+        txFee: this.txFee,
+        toAccounts: _.map(this.formSendAda.toAccounts, (toAccount) => {
+          return {
+            account: toAccount.account,
+            type: toAccount.type,
+            amount:
+              toAccount.amount == null
+                ? null
+                : this.$root.$parseCurrency(toAccount.amount),
+            percent: toAccount.percent,
+          };
+        }),
       });
     },
     prepareCalculateSendAdaFees() {

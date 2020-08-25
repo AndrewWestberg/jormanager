@@ -13,6 +13,7 @@ plugins {
 
 object Versions {
     const val bouncycastle = "1.66"
+    const val commonsio = "2.7"
     const val coroutines = "1.3.9"
     const val googleTruth = "1.0.1"
     const val jackson = "2.11.2"
@@ -23,6 +24,7 @@ object Versions {
     const val moshi = "1.9.3"
     const val okhttp = "4.8.1"
     const val retrofit = "2.9.0"
+    const val springSecurity = "5.3.4.RELEASE"
     const val sshj = "0.30.0"
 }
 
@@ -53,10 +55,13 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:${Versions.okhttp}")
     implementation("com.squareup.okhttp3:logging-interceptor:${Versions.okhttp}")
 
+    implementation("commons-io:commons-io:${Versions.commonsio}")
+
     implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
     implementation("com.squareup.retrofit2:converter-moshi:${Versions.retrofit}")
     implementation("joda-time:joda-time:${Versions.joda}")
 
+    implementation("org.springframework.security:spring-security-core:${Versions.springSecurity}")
     implementation("org.bouncycastle:bcprov-jdk15on:${Versions.bouncycastle}")
 
     implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
