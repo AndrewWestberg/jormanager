@@ -4,19 +4,22 @@
     <b-container>
       <router-view />
     </b-container>
+    <SpendingPasswordConfirmModal ref="SpendingPasswordConfirmModal" />
   </div>
 </template>
 
 <script>
 import Header from "@/components/Header";
+import SpendingPasswordConfirmModal from "@/components/SpendingPasswordConfirmModal";
 // import Body from "@/components/Body";
 
 import { mapState, mapActions } from "vuex";
 
 export default {
   name: "App",
+  components: { Header, SpendingPasswordConfirmModal },
   methods: {
-    ...mapActions(["connectToServer"])
+    ...mapActions(["connectToServer"]),
   },
   computed: {
     ...mapState([
@@ -24,8 +27,8 @@ export default {
       "toastError",
       "toastWarn",
       "toastInfo",
-      "toastSuccess"
-    ])
+      "toastSuccess",
+    ]),
   },
   watch: {
     toastError(toast) {
@@ -34,7 +37,7 @@ export default {
         title: toast.title,
         noAutoHide: true,
         variant: "danger",
-        appendToast: true
+        appendToast: true,
       });
     },
     toastWarn(toast) {
@@ -42,30 +45,27 @@ export default {
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
         variant: "warning",
-        appendToast: true
+        appendToast: true,
       });
     },
     toastInfo(toast) {
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
         variant: "info",
-        appendToast: true
+        appendToast: true,
       });
     },
     toastSuccess(toast) {
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
         variant: "success",
-        appendToast: true
+        appendToast: true,
       });
-    }
+    },
   },
   mounted() {
     this.connectToServer();
   },
-  components: {
-    Header
-  }
 };
 </script>
 

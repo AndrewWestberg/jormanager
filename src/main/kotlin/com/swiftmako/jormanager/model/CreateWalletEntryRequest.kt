@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.model
 
 
 data class CreateWalletEntryRequest(
+        val spendingPassword: String,
         val name: String,
         val type: String,
         val paymentAddr: String,

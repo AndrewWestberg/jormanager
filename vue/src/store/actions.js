@@ -285,11 +285,11 @@ export default {
     deleteWalletItem: ({
         state,
         commit
-    }, walletItem) => {
+    }, deleteRequest) => {
         commit('saveWallet', [])
         if (state.stompClient && state.stompClient.connected) {
-            // console.log("Delete WalletItem: " + JSON.stringify(walletItem.id));
-            state.stompClient.send("/jormanager/deletewalletentry", JSON.stringify(walletItem.id));
+            // console.log("Delete WalletItem: " + JSON.stringify(deleteRequest));
+            state.stompClient.send("/jormanager/deletewalletentry", JSON.stringify(deleteRequest));
         } else {
             commit('toastError', {
                 title: "Communication Error!",

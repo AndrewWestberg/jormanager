@@ -96,7 +96,6 @@
       @hideWalletEntryWizard="showAddWalletEntryWizard = false"
     />
     <SendAdaModal />
-    <SpendingPasswordConfirmModal ref="SpendingPasswordConfirmModal" />
   </div>
 </template>
 
@@ -104,14 +103,12 @@
 import { mapState, mapActions, mapMutations } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
 import SendAdaModal from "@/components/SendAdaModal";
-import SpendingPasswordConfirmModal from "@/components/SpendingPasswordConfirmModal";
 
 export default {
   name: "Wallet",
   components: {
     AddWalletEntryWizard,
     SendAdaModal,
-    SpendingPasswordConfirmModal,
   },
   data() {
     return {
@@ -135,11 +132,14 @@ export default {
     ...mapActions(["fetchWalletItems", "deleteWalletItem", "downloadBackup"]),
     ...mapMutations(["toastInfo", "toastError"]),
     deleteItem(walletItem) {
-      this.$bvModal.msgBoxConfirm("Are you sure?").then((value) => {
-        if (value) {
-          this.deleteWalletItem(walletItem);
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.deleteWalletItem({
+            id: walletItem.id,
+            spendingPassword: spendingPassword,
+          });
         }
-      });
+      );
     },
     copyToClipboard(value) {
       this.$copyText(value).then(
@@ -158,9 +158,11 @@ export default {
       );
     },
     backupClicked() {
-      this.$refs.SpendingPasswordConfirmModal.show((spendingPassword) => {
-        this.downloadBackup(spendingPassword);
-      });
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.downloadBackup(spendingPassword);
+        }
+      );
     },
   },
   mounted() {

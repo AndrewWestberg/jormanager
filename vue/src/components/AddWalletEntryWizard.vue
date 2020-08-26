@@ -123,11 +123,12 @@ import { mapActions, mapMutations } from "vuex";
 export default {
   name: "AddWalletEntryWizard",
   components: {
-    "vue-good-wizard": GoodWizard
+    "vue-good-wizard": GoodWizard,
   },
   data() {
     return {
       formWallet: {
+        spendingPassword: null,
         name: "",
         type: null,
         paymentAddr: "",
@@ -135,17 +136,17 @@ export default {
         paymentSKey: null,
         paymentVKey: null,
         stakingSKey: null,
-        stakingVKey: null
+        stakingVKey: null,
       },
       steps: [
         {
           label: "Address/Key Info",
           slot: "page1",
           options: {
-            backEnabled: true
-          }
-        }
-      ]
+            backEnabled: true,
+          },
+        },
+      ],
     };
   },
   methods: {
@@ -172,7 +173,6 @@ export default {
             this.formWallet.stakingSKey = null;
             this.formWallet.stakingVKey = null;
           }
-          // core node save!
           if (this.formWallet.paymentSKey != null) {
             this.formWallet.paymentSKey = await this.formWallet.paymentSKey.text();
           }
@@ -186,13 +186,18 @@ export default {
             this.formWallet.stakingVKey = await this.formWallet.stakingVKey.text();
           }
 
-          this.createWalletEntry(this.formWallet);
-          this.$emit("hideWalletEntryWizard");
+          this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+            (spendingPassword) => {
+              this.formWallet.spendingPassword = spendingPassword;
+              this.createWalletEntry(this.formWallet);
+              this.$emit("hideWalletEntryWizard");
+            }
+          );
           return true;
         } else {
           this.toastError({
             title: "Error",
-            message: "You must fill out all fields."
+            message: "You must fill out all fields.",
           });
           return false;
         }
@@ -201,7 +206,7 @@ export default {
     backClicked(/*currentPage*/) {
       // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
-    }
+    },
   },
   computed: {
     nameState() {
@@ -248,8 +253,8 @@ export default {
         this.formWallet.generateKeys ||
         this.formWallet.stakingVKey != null
       );
-    }
-  }
+    },
+  },
 };
 </script>
 

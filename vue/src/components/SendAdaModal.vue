@@ -86,18 +86,15 @@
         <b-icon-plus />&nbsp;Add Entry
       </b-button>
     </b-modal>
-    <SpendingPasswordConfirmModal ref="SpendingPasswordConfirmModal" />
   </div>
 </template>
 
 <script>
 import _ from "lodash";
 import { mapActions, mapState, mapGetters, mapMutations } from "vuex";
-import SpendingPasswordConfirmModal from "./SpendingPasswordConfirmModal.vue";
 
 export default {
   name: "SendAdaModal",
-  components: { SpendingPasswordConfirmModal },
   data() {
     return {
       remainingLovelace: 1,
@@ -282,9 +279,11 @@ export default {
         return;
       }
 
-      this.$refs.SpendingPasswordConfirmModal.show((spendingPassword) => {
-        this.passwordConfirmed(spendingPassword);
-      });
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.passwordConfirmed(spendingPassword);
+        }
+      );
     },
     passwordConfirmed(spendingPassword) {
       this.submitTransaction({

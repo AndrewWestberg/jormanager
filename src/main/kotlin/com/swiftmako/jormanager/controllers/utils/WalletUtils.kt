@@ -124,8 +124,12 @@ class WalletUtils @Autowired constructor(
         }
     }
 
-    private fun encryptSKeyContent(cleartext: String, spendingPassword: String): String {
-        if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+    fun isValidSpendingPassword(spendingPassword: String): Boolean {
+        return argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)
+    }
+
+    fun encryptSKeyContent(cleartext: String, spendingPassword: String): String {
+        if (!isValidSpendingPassword(spendingPassword)) {
             throw IllegalArgumentException("Invalid spending password!")
         }
         val textEncryptor = Encryptors.delux(spendingPassword, S)
@@ -133,7 +137,7 @@ class WalletUtils @Autowired constructor(
     }
 
     private fun decryptSKeyContent(ciphertext: String, spendingPassword: String): String {
-        if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+        if (!isValidSpendingPassword(spendingPassword)) {
             throw IllegalArgumentException("Invalid spending password!")
         }
         val textEncryptor = Encryptors.delux(spendingPassword, S)
