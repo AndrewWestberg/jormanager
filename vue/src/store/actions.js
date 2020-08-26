@@ -28,7 +28,8 @@ export default {
     subscribeToMessages: ({
         state,
         commit,
-        dispatch
+        dispatch,
+        getters
     }) => {
         state.stompClient.subscribe("/topic/messages", tick => {
             let message = JSON.parse(tick.body)
@@ -156,6 +157,16 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "backup":
+                    if (message.data) {
+                        window.open(getters.backupDownloadUrl + "?token=" + message.data, "_jm_download");
+                    } else {
+                        commit('toastError', {
+                            title: "Download Backup Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
             }
         });
         commit('setConnected', true)
@@ -338,6 +349,20 @@ export default {
                 // console.log("Restart Node: " + JSON.stringify(node));
                 state.stompClient.send("/jormanager/restartnode", JSON.stringify(node.id));
             }
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    downloadBackup: ({
+        state,
+        commit
+    }, spendingPassword) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Download Backup: " + JSON.stringify(spendingPassword));
+            state.stompClient.send("/jormanager/backup", spendingPassword);
         } else {
             commit('toastError', {
                 title: "Communication Error!",

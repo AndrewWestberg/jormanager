@@ -86,29 +86,18 @@
         <b-icon-plus />&nbsp;Add Entry
       </b-button>
     </b-modal>
-    <b-modal
-      id="modal-spending-password"
-      size="sm"
-      title="Enter Spending password to confirm"
-      @ok="passwordConfirmed()"
-    >
-      <b-form-group label="Spending Password" label-for="sudo-input">
-        <b-form-input
-          id="spending-password-input"
-          type="password"
-          v-model="formSendAda.spendingPassword"
-        />
-      </b-form-group>
-    </b-modal>
+    <SpendingPasswordConfirmModal ref="SpendingPasswordConfirmModal" />
   </div>
 </template>
 
 <script>
 import _ from "lodash";
 import { mapActions, mapState, mapGetters, mapMutations } from "vuex";
+import SpendingPasswordConfirmModal from "./SpendingPasswordConfirmModal.vue";
 
 export default {
   name: "SendAdaModal",
+  components: { SpendingPasswordConfirmModal },
   data() {
     return {
       remainingLovelace: 1,
@@ -293,11 +282,13 @@ export default {
         return;
       }
 
-      this.$bvModal.show("modal-spending-password");
+      this.$refs.SpendingPasswordConfirmModal.show((spendingPassword) => {
+        this.passwordConfirmed(spendingPassword);
+      });
     },
-    passwordConfirmed() {
+    passwordConfirmed(spendingPassword) {
       this.submitTransaction({
-        spendingPassword: this.formSendAda.spendingPassword,
+        spendingPassword: spendingPassword,
         fromId: this.formSendAda.fromId,
         isClaim: this.formSendAda.isClaim,
         txFee: this.txFee,

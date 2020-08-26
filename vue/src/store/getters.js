@@ -15,12 +15,12 @@ export default {
             // release mode
             "/jormanager-websocket"
     },
-    walletDownloadUrl: (_, getters) => {
+    backupDownloadUrl: (_, getters) => {
         return getters.isDebug ?
             // debug mode
-            "http://localhost:8787/jormanager_wallet.zip" :
+            "http://localhost:8787/jormanager_backup.zip" :
             // release mode
-            "/jormanager_wallet.zip"
+            "/jormanager_backup.zip"
     },
     blocksCount: (state) => {
         return state.blocks.length

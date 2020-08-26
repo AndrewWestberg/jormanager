@@ -11,10 +11,10 @@
         </b-button>&nbsp;
         <b-button
           variant="outline-primary"
-          @click="downloadKeys()"
-          v-b-tooltip.hover.bottom="'Download all of your wallet keys.'"
+          @click="backupClicked()"
+          v-b-tooltip.hover.bottom="'Download all of your wallet and pool keys.'"
         >
-          <font-awesome-icon :icon="['fas','file-archive']" />&nbsp;Save Wallet Backup
+          <font-awesome-icon :icon="['fas','file-archive']" />&nbsp;Save Backup
         </b-button>
       </div>
       <hr />
@@ -96,19 +96,22 @@
       @hideWalletEntryWizard="showAddWalletEntryWizard = false"
     />
     <SendAdaModal />
+    <SpendingPasswordConfirmModal ref="SpendingPasswordConfirmModal" />
   </div>
 </template>
 
 <script>
-import { mapState, mapActions, mapMutations, mapGetters } from "vuex";
+import { mapState, mapActions, mapMutations } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
 import SendAdaModal from "@/components/SendAdaModal";
+import SpendingPasswordConfirmModal from "@/components/SpendingPasswordConfirmModal";
 
 export default {
   name: "Wallet",
   components: {
     AddWalletEntryWizard,
     SendAdaModal,
+    SpendingPasswordConfirmModal,
   },
   data() {
     return {
@@ -127,10 +130,9 @@ export default {
   },
   computed: {
     ...mapState(["walletItems"]),
-    ...mapGetters(["walletDownloadUrl"]),
   },
   methods: {
-    ...mapActions(["fetchWalletItems", "deleteWalletItem"]),
+    ...mapActions(["fetchWalletItems", "deleteWalletItem", "downloadBackup"]),
     ...mapMutations(["toastInfo", "toastError"]),
     deleteItem(walletItem) {
       this.$bvModal.msgBoxConfirm("Are you sure?").then((value) => {
@@ -155,8 +157,10 @@ export default {
         }
       );
     },
-    downloadKeys() {
-      window.open(this.walletDownloadUrl, "_jm_download");
+    backupClicked() {
+      this.$refs.SpendingPasswordConfirmModal.show((spendingPassword) => {
+        this.downloadBackup(spendingPassword);
+      });
     },
   },
   mounted() {

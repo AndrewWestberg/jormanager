@@ -3,7 +3,6 @@ package com.swiftmako.jormanager.controllers
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
-import com.swiftmako.jormanager.controllers.utils.WalletUtils.Companion.isHex
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.SocketResponse
@@ -23,24 +22,12 @@ import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.core.io.ByteArrayResource
-import org.springframework.core.io.Resource
 import org.springframework.data.repository.findByIdOrNull
-import org.springframework.http.MediaType
-import org.springframework.http.ResponseEntity
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
-import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import kotlin.math.round
 
 @Controller
@@ -113,7 +100,7 @@ class WalletController @Autowired constructor(
                                     dummyTransaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                 }
                                 repeat(request.txOut) {
-                                    dummyTransaction.append("--tx-out addr1qyftuwe6fww2eeg2k5quyzp099f5y6pn0snkneu5fdq6puqjuycagppd9yw3kc62xjld0c45a2ljc6d3tlnh96fut8ss67heqw+1024 ")
+                                    dummyTransaction.append("--tx-out addr1qyftuwe6fww2eeg2k5quyzp099f5y6pn0snkneu5fdq6puqjuycagppd9yw3kc62xjld0c45a2ljc6d3tlnh96fut8ss67heqw+300000000 ")
                                 }
                                 val queryTipString = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
@@ -131,8 +118,7 @@ class WalletController @Autowired constructor(
                                 } else {
                                     hostConnection.command("${host.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0").trim()
                                 }
-                                hostConnection.command("rm -f /tmp/protocol-parameters.json")
-                                hostConnection.command("rm -f /tmp/dummy.txbody")
+                                hostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/dummy.txbody")
                                 val lovelace = fee.split(" ")[0].toLong()
                                 SocketResponse.Success(type = "calculatefee", data = lovelace)
                             } ?: throw IOException("Wallet entry id ${request.fromId} not found!")
@@ -328,7 +314,23 @@ class WalletController @Autowired constructor(
         return try {
             val walletEntry = walletRepository.findByIdOrNull(id)
             if (walletEntry != null) {
-                walletRepository.save(walletEntry.copy(name = walletEntry.name + "-${System.currentTimeMillis()}", deleted = true))
+                val now = System.currentTimeMillis()
+                val paymentSkey = walletEntry.paymentSkey?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                val paymentVkey = walletEntry.paymentVkey?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                val stakingRegCert = walletEntry.stakingRegCert?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                val stakingSkey = walletEntry.stakingSkey?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                val stakingVkey = walletEntry.stakingVkey?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                walletRepository.save(walletEntry.copy(name = walletEntry.name + "-$now", deleted = true, paymentSkey = paymentSkey, paymentVkey = paymentVkey, stakingRegCert = stakingRegCert, stakingSkey = stakingSkey, stakingVkey = stakingVkey))
             }
             SocketResponse.Success(type = "deletewalletentry", data = "${walletEntry?.name} deleted!")
         } catch (e: Throwable) {
@@ -445,7 +447,6 @@ class WalletController @Autowired constructor(
                                     transaction.append("--out-file /tmp/transaction.txbody")
 
                                     // build the transaction
-                                    log.info(transaction.toString())
                                     hostConnection.command(transaction.toString())
 
                                     // sign the transaction
@@ -483,59 +484,6 @@ class WalletController @Autowired constructor(
             val error = "Fatal error submitting transaction!"
             log.error(error, e)
             SocketResponse.Error(type = "submittransaction", exception = e)
-        }
-    }
-
-    @PostMapping("/jormanager_wallet.zip")
-    fun walletBackup(@RequestBody spendingPassword: String): ResponseEntity<Resource> {
-        ByteArrayOutputStream().use { bos ->
-            ZipOutputStream(bos).use { zipOutputStream ->
-                val walletEntries = walletRepository.findAll()
-                walletEntries.forEach { walletEntry ->
-                    val paymentAddrZipEntry = ZipEntry("${walletEntry.name}.addr")
-                    zipOutputStream.putNextEntry(paymentAddrZipEntry)
-                    zipOutputStream.write(walletEntry.paymentAddr.toByteArray())
-
-                    walletEntry.paymentSkey?.let { paymentSkey ->
-                        val paymentSkeyZipEntry = ZipEntry("${walletEntry.name}.payment.skey")
-                        zipOutputStream.putNextEntry(paymentSkeyZipEntry)
-                        val skeyContent = walletUtils.getSKeyContent(paymentSkey, spendingPassword)
-                        zipOutputStream.write(skeyContent.toByteArray())
-                    }
-
-                    walletEntry.paymentVkey?.let { paymentVkey ->
-                        val paymentVkeyZipEntry = ZipEntry("${walletEntry.name}.payment.vkey")
-                        zipOutputStream.putNextEntry(paymentVkeyZipEntry)
-                        zipOutputStream.write(paymentVkey.content.toByteArray())
-                    }
-
-                    walletEntry.stakingAddr?.let { stakingAddr ->
-                        val stakingAddrZipEntry = ZipEntry("${walletEntry.name}.staking.addr")
-                        zipOutputStream.putNextEntry(stakingAddrZipEntry)
-                        zipOutputStream.write(stakingAddr.toByteArray())
-                    }
-
-                    walletEntry.stakingSkey?.let { stakingSkey ->
-                        val stakingSkeyZipEntry = ZipEntry("${walletEntry.name}.staking.skey")
-                        zipOutputStream.putNextEntry(stakingSkeyZipEntry)
-                        val skeyContent = walletUtils.getSKeyContent(stakingSkey, spendingPassword)
-                        zipOutputStream.write(skeyContent.toByteArray())
-                    }
-
-                    walletEntry.stakingVkey?.let { stakingVkey ->
-                        val stakingVkeyZipEntry = ZipEntry("${walletEntry.name}.staking.vkey")
-                        zipOutputStream.putNextEntry(stakingVkeyZipEntry)
-                        zipOutputStream.write(stakingVkey.content.toByteArray())
-                    }
-                }
-            }
-            bos.flush()
-            val zipBytes = bos.toByteArray()
-            return ResponseEntity
-                    .ok()
-                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .contentLength(zipBytes.size.toLong())
-                    .body(ByteArrayResource(zipBytes))
         }
     }
 

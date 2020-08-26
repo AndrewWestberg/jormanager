@@ -142,7 +142,7 @@ class WalletUtils @Autowired constructor(
 
     companion object {
         private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
-        private const val S = "K8e*PkQ7BeWd7Rpy!dPDG*N2sG9aYbfg"
+        const val S = "4b38652a506b513742655764375270794e3273473961596266670a"
         private val HEX_REGEX = Regex("^[0-9a-fA-F]+$")
         val String.isHex: Boolean
             get() = this.matches(HEX_REGEX)
