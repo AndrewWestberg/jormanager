@@ -717,6 +717,7 @@ export default {
   data() {
     return {
       formNode: {
+        spendingPassword: null,
         color: "#4A412A",
         host: null,
         name: "",
@@ -908,13 +909,21 @@ export default {
       if (this.formNode.poolPledge == null) {
         return false;
       }
-      return this.$root.$parseCurrency(this.formNode.poolPledge) > 0;
+      if (isNaN(this.formNode.poolPledge)) {
+        return this.$root.$parseCurrency(this.formNode.poolPledge) > 0;
+      } else {
+        return this.formNode.poolPledge > 0;
+      }
     },
     poolCostState() {
       if (this.formNode.poolCost == null) {
         return false;
       }
-      return this.$root.$parseCurrency(this.formNode.poolCost) > 0;
+      if (isNaN(this.formNode.poolCost)) {
+        return this.$root.$parseCurrency(this.formNode.poolCost) > 0;
+      } else {
+        return this.formNode.poolCost > 0;
+      }
     },
     poolMarginState() {
       return (
@@ -1099,11 +1108,16 @@ export default {
         }
         this.formNode.isDefault = false;
 
-        this.createNode(this.formNode);
-        this.$emit("hideAddNodeWizard");
+        this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+          (spendingPassword) => {
+            this.formNode.spendingPassword = spendingPassword;
+            this.createNode(this.formNode);
+            this.$emit("hideAddNodeWizard");
+          }
+        );
       }
 
-      console.log("next clicked", currentPage);
+      // console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
     backClicked(/*currentPage*/) {

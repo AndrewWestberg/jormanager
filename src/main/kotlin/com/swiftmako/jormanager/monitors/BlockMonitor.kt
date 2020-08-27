@@ -308,7 +308,7 @@ class BlockMonitor @Autowired constructor(
                         )
                         log.info("Pooltool Request: $stats")
                         val response = pooltoolService.sendStats(stats)
-                        log.info("pooltool response: ${response.body()}")
+                        log.debug("pooltool response: ${response.body()}")
                     } catch (e: Throwable) {
                         log.error("Error sending stats to pooltool!", e)
                     }

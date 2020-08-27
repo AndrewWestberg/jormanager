@@ -14,11 +14,13 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Scope
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
+import org.springframework.transaction.annotation.EnableTransactionManagement
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
 
 @Configuration
+@EnableTransactionManagement
 class Configuration {
 
 

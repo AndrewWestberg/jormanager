@@ -245,7 +245,7 @@ export default {
         commit
     }, formNode) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Create Node: " + JSON.stringify(formNode));
+            // console.log("Create Node: " + JSON.stringify(formNode));
             state.stompClient.send("/jormanager/createnode", JSON.stringify(formNode));
         } else {
             commit('toastError', {

@@ -64,7 +64,7 @@ class FileController @Autowired constructor(
                     files.forEach { file ->
                         val fileZipEntry = ZipEntry(file.name)
                         zipOutputStream.putNextEntry(fileZipEntry)
-                        val fileContent = if (file.name.endsWith("skey", ignoreCase = true)) {
+                        val fileContent = if (file.name.matches(SKEY_REGEX)) {
                             walletUtils.getSKeyContent(file, spendingPassword)
                         } else {
                             file.content
@@ -83,5 +83,9 @@ class FileController @Autowired constructor(
         } else {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         }
+    }
+
+    companion object {
+        private val SKEY_REGEX = Regex(".*\\.skey(-\\d+)?")
     }
 }

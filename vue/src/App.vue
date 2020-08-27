@@ -32,7 +32,7 @@ export default {
   },
   watch: {
     toastError(toast) {
-      console.log("Error: " + toast);
+      // console.log("Error: " + toast);
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
         noAutoHide: true,
@@ -41,7 +41,7 @@ export default {
       });
     },
     toastWarn(toast) {
-      console.log("Warn: " + toast);
+      // console.log("Warn: " + toast);
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
         variant: "warning",
