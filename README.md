@@ -19,51 +19,53 @@ This is a work-around until my enhancement request goes through that allows me t
 
 Upvote here -> https://github.com/input-output-hk/cardano-node/issues/1388
 
+Install `cardano-cli` and `cardano-node` on any remote relays or core nodes. Configure key-based SSH to the servers. Ideally, use ed25519 keys.
+
+https://medium.com/risan/upgrade-your-ssh-key-to-ed25519-c6e8d60d3c54
+
+## Installation
+
+1. Download jormanager to a folder of your choosing. For example `/home/<username>/haskell/jormanager/`. Rename the file to `jormanager.jar`
+2. Run the jar file installer program. 
+
+```
+$ java -jar jormanager.jar install
+```
+![JorManager Installer](images/install.png)
+    
+    
 ## Running
 
-    $ java -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m -jar jormanager.jar
-    
-Open a browser to http://localhost:8787
+The installer has created several ways for you to run JorManager. If systemd was found on your system, the installer has created systemd scripts for you.
+```
+$ sudo systemctl start jm.service
+$ sudo systemctl stop jm.service
+```
 
-To inspect the internal database open http://localhost:8787/h2-console  
+If you don't have or use systemd, manual startup/shutdown scripts have been created for you.
+```
+$ ./startJormanager.sh
+$ ./stopJormanager.sh
+```
 
-## systemd setup
+To access JorManager, open a browser to
+```
+http://localhost:<install_port>
+```
+![JorManager Dashboard](images/dashboard.png)
 
-It can be useful to set up jormanager to run automatically from a systemd script.
+If something gets screwed up, you might be instructed to dig into the database. It can be accessed at
+```
+http://localhost:<install_port>/h2-console
+```
 
-1. Extract `/etc/systemd/system/jormanager.service` from the archive and place it in `/etc/systemd/system/`
+## Get Started
 
-        $ sudo cp [extract_location]/etc/systemd/system/jormanager.service /etc/systemd/system/jormanager.service
+The first thing you'll want to do to get started is to create a local host under the `Hosts` tab.
 
-2. Edit `jormanager.service` modifying `User`, `WorkingDirectory`, and `ExecStart` to point to where you've extracted or plan to run JorManager. The `WorkingDirectory` should point to where you've customized your `application.properties` file.
+Second, create a node under the `Nodes` tab. Set this node as the default node. It will be used for sending transactions and any key generation you need to perform.
 
-        $ sudo [vim/nano/etc...] /etc/systemd/system/jormanager.service
-
-3. Extract `/etc/rsyslog.d/jormanager.conf` from the archive and place it in `/etc/rsyslog.d/`. This file will redirect syslog messages from jormanager into `/var/log/jormanager.log`. Edit this file after copying if you need a different location for the log file.
-
-        $ sudo cp [extract_location]/etc/rsyslog.d/jormanager.conf /etc/rsyslog.d/jormanager.conf 
-       
-4. Create the log file with the correct ownership, so it can be written to
-
-        $ sudo touch /var/log/jormanager.log
-        $ sudo chown syslog:adm /var/log/jormanager.log
-
-5. Reload management services to pull in the changes we've made.
-
-        $ sudo systemctl daemon-reload
-        $ sudo systemctl restart rsyslog
-       
-6. Start jormanager via systemctl.
-
-        $ sudo systemctl start jormanager.service
-       
-7. Watch the logs to monitor jormanager's operation.
-
-        $ tail -f /var/log/jormanager.log | sed 's/^.*\]: //g; s#WARN.*$#\x1b[33m&\x1b[0m#; s#ERROR.*$#\x1b[31m&\x1b[0m#; s#INFO#\x1b[32m&\x1b[0m#'
-
-8. Optionally set up jormanager to start on system boot
-
-        $ sudo systemctl enable jormanager.service       
+Third, you'll want to create a payment address and send some money to it. I like to keep a small fund just for paying fees out of. 
 
 ## Support
 
@@ -74,10 +76,13 @@ If you need support, the Beta test group meets on this telegram channel -> https
 This project is designed to do nothing more than help out the Cardano community and ecosystem. It's offered without charge and **without warranty** of any kind. However, if you feel inclined to tip the developer, that can be done by sending MainNet ADA to the following address:
   
 ```
-DdzFFzCqrht3wNbkrRTt36nrHbSBNHaJ6mTMthoaKfwwcTRSmTudRdbgcgS3cdUjJ8mweNkrHrSqM4mLXAgMh7aVDjPxobYr7rh6s8E2
+addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2xajau53pxnjqslr63sntagm2
 ```
 
 ###### Release Notes
+1.0.0_RC_1-SNAPSHOT
+ * Minimum viable product. Expect a few bugs still.
+ 
 1.0.0_OG_4-SNAPSHOT
 
  * Fixes to Windows wallet-only mode
