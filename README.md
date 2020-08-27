@@ -1,6 +1,6 @@
 # JorManager
 
-The OG releases are for early adopters and *original gansters* only for helping test. It is **NOT READY** for general use. 
+JorManager is a GUI-based Cardano stakepool management system. 
 
 ## Requirements
  * Java 14 or higher
@@ -23,10 +23,15 @@ Install `cardano-cli` and `cardano-node` on any remote relays or core nodes. Con
 
 https://medium.com/risan/upgrade-your-ssh-key-to-ed25519-c6e8d60d3c54
 
+## Security
+
+Protecting the security of your stakepool system is your responsibility as an operator. While JorManager will perform some security measures like encrypting secret keys in the database, things like network security, firewalls, etc are still important. Don't get lax thinking that JorManager will do everything for you. It won't.
+
 ## Installation
 
 1. Download jormanager to a folder of your choosing. For example `/home/<username>/haskell/jormanager/`. Rename the file to `jormanager.jar`
 2. Run the jar file installer program. 
+3. **SAVE YOUR SPENDING PASSWORD in a secure location!!!** If you lose this password, you lose any secret keys stored in JorManager. You're done, kaput, mount your picture on the stakepool operator wall of shame.
 
 ```
 $ java -jar jormanager.jar install
@@ -63,9 +68,15 @@ http://localhost:<install_port>/h2-console
 
 The first thing you'll want to do to get started is to create a local host under the `Hosts` tab.
 
-Second, create a node under the `Nodes` tab. Set this node as the default node. It will be used for sending transactions and any key generation you need to perform.
+Second, create a node on the local host under the `Nodes` tab. Set this node as the default node. It will be used for sending transactions and any key generation you need to perform.
 
-Third, you'll want to create a payment address and send some money to it. I like to keep a small fund just for paying fees out of. 
+Third, you'll want to create a payment address and send some money to it. I like to keep a small fund just for paying fees out of.
+
+Once you've completed that exercise, why not spin up a remote relay on a remote host. 
+
+Later, create an owner staking account in the wallet. Send some pledge funds to it. Use it to create a core stakepool node.
+
+JorManager doesn't *YET* manage topology files for you. If one doesn't exist when you create your node, a default one will be created for you. You'll probably want to customize this manually.
 
 ## Support
 
