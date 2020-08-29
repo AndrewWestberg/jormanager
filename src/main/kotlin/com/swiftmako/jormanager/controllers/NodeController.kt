@@ -5,6 +5,7 @@ import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.entities.Relay
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.sumByLong
@@ -22,6 +23,7 @@ import com.swiftmako.jormanager.model.metadata.pool.Social
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
@@ -54,6 +56,7 @@ class NodeController @Autowired constructor(
         private val fileRepository: FileRepository,
         private val walletRepository: WalletRepository,
         private val transactionRepository: TransactionRepository,
+        private val relayRepository: RelayRepository,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
@@ -265,11 +268,11 @@ class NodeController @Autowired constructor(
                                                         coreSKeyId = fileRepository.save(coreSKey).id!!
                                                         coreVKeyId = fileRepository.save(coreVKey).id!!
                                                     } else {
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.skey", requireNotNull(request.coldSKey))
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", requireNotNull(request.coldVKey))
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.counter", requireNotNull(request.coldCounter))
-                                                        val coreSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.coldSKey), request.spendingPassword))
-                                                        val coreVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.vkey", content = requireNotNull(request.coldVKey))
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.skey", requireNotNull(request.coldSKey).trim())
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", requireNotNull(request.coldVKey).trim())
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.node.counter", requireNotNull(request.coldCounter).trim())
+                                                        val coreSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.coldSKey).trim(), request.spendingPassword))
+                                                        val coreVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.vkey", content = requireNotNull(request.coldVKey).trim())
                                                         coreSKeyId = fileRepository.save(coreSKey).id!!
                                                         coreVKeyId = fileRepository.save(coreVKey).id!!
                                                     }
@@ -287,10 +290,10 @@ class NodeController @Autowired constructor(
                                                         vrfVKeyId = fileRepository.save(vrfVKey).id!!
                                                         vrfSKeyContent
                                                     } else {
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.vrf.skey", requireNotNull(request.vrfSKey))
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.vrf.vkey", requireNotNull(request.vrfVKey))
-                                                        val vrfSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.vrfSKey), request.spendingPassword))
-                                                        val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = requireNotNull(request.vrfVKey))
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.vrf.skey", requireNotNull(request.vrfSKey).trim())
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.vrf.vkey", requireNotNull(request.vrfVKey).trim())
+                                                        val vrfSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.vrfSKey).trim(), request.spendingPassword))
+                                                        val vrfVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.vrf.vkey", content = requireNotNull(request.vrfVKey).trim())
                                                         vrfSKeyId = fileRepository.save(vrfSKey).id!!
                                                         vrfVKeyId = fileRepository.save(vrfVKey).id!!
                                                         request.vrfSKey
@@ -307,10 +310,10 @@ class NodeController @Autowired constructor(
                                                         kesVKeyId = fileRepository.save(kesVKey).id!!
                                                         kesSKeyContent
                                                     } else {
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.kes.skey", requireNotNull(request.kesSKey))
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.kes.vkey", requireNotNull(request.kesVKey))
-                                                        val kesSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.kesSKey), request.spendingPassword))
-                                                        val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = requireNotNull(request.kesVKey))
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.kes.skey", requireNotNull(request.kesSKey).trim())
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.kes.vkey", requireNotNull(request.kesVKey).trim())
+                                                        val kesSKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.skey", content = walletUtils.encryptSKeyContent(requireNotNull(request.kesSKey).trim(), request.spendingPassword))
+                                                        val kesVKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.kes.vkey", content = requireNotNull(request.kesVKey).trim())
                                                         kesSKeyId = fileRepository.save(kesSKey).id!!
                                                         kesVKeyId = fileRepository.save(kesVKey).id!!
                                                         request.kesSKey
@@ -364,18 +367,18 @@ class NodeController @Autowired constructor(
                                                     var itnPrivateKeyId = -1L
                                                     var itnPublicKeyId = -1L
                                                     val itnWitnessSign = if (request.metadata?.extended?.itn?.privateKey != null && defaultHost.jcliPath != null) {
-                                                        val itnPrivateKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.skey", content = walletUtils.encryptSKeyContent(request.metadata.extended.itn.privateKey, request.spendingPassword))
+                                                        val itnPrivateKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.skey", content = walletUtils.encryptSKeyContent(request.metadata.extended.itn.privateKey.trim(), request.spendingPassword))
                                                         itnPrivateKeyId = fileRepository.save(itnPrivateKey).id!!
                                                         defaultHostConnection.commandWriteFile("/tmp/core.pool.id", poolId)
-                                                        defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", request.metadata.extended.itn.privateKey)
+                                                        defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", request.metadata.extended.itn.privateKey.trim())
                                                         defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id").trim()
                                                     } else {
                                                         null
                                                     }
                                                     val itnWitnessOwner = if (request.metadata?.extended?.itn?.publicKey != null) {
-                                                        val itnPublicKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.vkey", content = request.metadata.extended.itn.publicKey)
+                                                        val itnPublicKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.vkey", content = request.metadata.extended.itn.publicKey.trim())
                                                         itnPublicKeyId = fileRepository.save(itnPublicKey).id!!
-                                                        request.metadata.extended.itn.publicKey
+                                                        request.metadata.extended.itn.publicKey.trim()
                                                     } else {
                                                         null
                                                     }
@@ -547,6 +550,15 @@ class NodeController @Autowired constructor(
                                                             extendedMetadataUrl = extendedMetadataUrl,
                                                     )
                                                     val savedNode = nodeRepository.save(node)
+
+                                                    // save relays
+                                                    request.relays?.let { relays ->
+                                                        if (relays.isNotEmpty()) {
+                                                            relayRepository.saveAll(
+                                                                    relays.map { Relay(nodeId = savedNode.id!!, addr = it.addr, port = it.port) }
+                                                            )
+                                                        }
+                                                    }
 
                                                     // send it to the channel for monitoring
                                                     nodesChannel.offer(savedNode)

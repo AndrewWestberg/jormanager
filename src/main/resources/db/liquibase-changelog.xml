@@ -3,7 +3,7 @@
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
 
     <include file="changelog/001-create-initial-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/002-create-wallet-schema.xml" relativeToChangelogFile="true"/>
@@ -16,5 +16,6 @@
     <include file="changelog/009-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/010-update-transaction-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/011-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/012-create-relay-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

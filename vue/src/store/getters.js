@@ -125,7 +125,9 @@ export default {
     },
     rewardsSelectOptions: (state) => (currency) => {
         return _.sortBy(
-            _.map(state.walletItems, (walletItem) => {
+            _.map(_.filter(state.walletItems, (walletItem) => {
+                return walletItem.type === "stake"
+            }), (walletItem) => {
                 return {
                     value: walletItem.id,
                     text: walletItem.name + " - " +

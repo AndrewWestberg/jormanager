@@ -9,7 +9,12 @@
       ok-variant="danger"
       @ok="confirmClicked()"
     >
-      <b-form-input id="spending-password-input" type="password" v-model="spendingPassword" />
+      <b-form-input
+        id="spending-password-input"
+        type="password"
+        v-model="spendingPassword"
+        @keydown.native="handleKeydown"
+      />
     </b-modal>
   </div>
 </template>
@@ -32,6 +37,12 @@ export default {
     confirmClicked() {
       this.callback(this.spendingPassword);
       this.spendingPassword = null;
+    },
+    handleKeydown(event) {
+      if (event.which === 13) {
+        this.$bvModal.hide("modal-spending-password-confirm");
+        this.confirmClicked();
+      }
     },
   },
 };

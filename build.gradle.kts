@@ -21,7 +21,7 @@ object Versions {
     const val jsoup = "1.13.1"
     const val liquibase = "3.10.2"
     const val mockk = "1.10.0"
-    const val moshi = "1.9.3"
+    const val moshi = "1.10.0"
     const val okhttp = "4.8.1"
     const val retrofit = "2.9.0"
     const val springSecurity = "5.3.4.RELEASE"
@@ -29,7 +29,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.0.0_RC_1-SNAPSHOT"
+version = "1.0.0_RC_2-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
