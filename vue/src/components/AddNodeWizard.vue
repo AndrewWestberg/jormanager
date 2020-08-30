@@ -1015,8 +1015,13 @@ export default {
           }
         } else {
           // relay node save!
-          this.createNode(this.formNode);
-          this.$emit("hideAddNodeWizard");
+          this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+            (spendingPassword) => {
+              this.formNode.spendingPassword = spendingPassword;
+              this.createNode(this.formNode);
+              this.$emit("hideAddNodeWizard");
+            }
+          );
         }
       } else if (currentPage === 2) {
         if (
