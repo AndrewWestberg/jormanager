@@ -208,16 +208,16 @@ class NodeMonitor @Autowired constructor(
                         }
                     }
                 } else {
-                    eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
+                    eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
                 }
             } catch (e: ConnectException) {
-                eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
+                eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
             } catch (e: IOException) {
                 log.error("Error communicating with Ekg!")
-                eventsChannel.send(NodeStats(now, node.name, node.color, null, null))
+                eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
@@ -231,7 +231,8 @@ class NodeMonitor @Autowired constructor(
                 nodeName = node.name,
                 color = node.color,
                 peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
-                blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX
+                blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX,
+                remainingKESPeriods = this.cardano.node.forge.metrics.remainingKESPeriods.intX.valX.toInt(),
         )
     }
 

@@ -11,5 +11,7 @@ data class Node(
     @Json(name = "ChainDB")
     val chainDB: ChainDB = ChainDB(),
     @Json(name = "metrics")
-    val metrics: MetricsX = MetricsX()
+    val metrics: MetricsX = MetricsX(),
+    @Json(name = "Forge")
+    val forge: Forge = Forge(),
 )

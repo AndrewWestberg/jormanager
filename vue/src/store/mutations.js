@@ -28,11 +28,11 @@ export default {
     saveNodeStats: (state, nodeStatEvents) => {
         for (var i = 0; i < nodeStatEvents.length; i++) {
             let nodeStats = nodeStatEvents[i];
-            let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName])
+            let index = _.findIndex(state.blockHeightSeries, ["name", nodeStats.nodeName]);
             if (index > -1) {
-                state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
-                state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60) // keep 5 minutes worth of data
-                state.nodeColors[index] = nodeStats.color
+                state.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight]);
+                state.blockHeightSeries[index].data = state.blockHeightSeries[index].data.slice(-60); // keep 5 minutes worth of data
+                state.nodeColors[index] = nodeStats.color;
             } else {
                 let heightData = {
                     name: nodeStats.nodeName,
@@ -40,35 +40,48 @@ export default {
                         [nodeStats.timestamp, nodeStats.blockHeight]
                     ]
                 };
-                state.blockHeightSeries.push(heightData)
-                state.blockHeightSeries = _.sortBy(state.blockHeightSeries, ["name"])
-                state.nodeColors[_.indexOf(state.blockHeightSeries, heightData)] = nodeStats.color
+                state.blockHeightSeries.push(heightData);
+                state.blockHeightSeries = _.sortBy(state.blockHeightSeries, ["name"]);
+                state.nodeColors[_.indexOf(state.blockHeightSeries, heightData)] = nodeStats.color;
             }
 
-            let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName])
+            let index1 = _.findIndex(state.peersSeries, ["name", nodeStats.nodeName]);
             if (index1 > -1) {
-                state.peersSeries[index].data.push([nodeStats.timestamp, nodeStats.peers])
-                state.peersSeries[index].data = state.peersSeries[index].data.slice(-60) // keep 5 minutes worth of data
+                state.peersSeries[index1].data.push([nodeStats.timestamp, nodeStats.peers]);
+                state.peersSeries[index1].data = state.peersSeries[index1].data.slice(-60); // keep 5 minutes worth of data
             } else {
                 state.peersSeries.push({
                     name: nodeStats.nodeName,
                     data: [
                         [nodeStats.timestamp, nodeStats.peers]
                     ]
-                })
-                state.peersSeries = _.sortBy(state.peersSeries, ["name"])
+                });
+                state.peersSeries = _.sortBy(state.peersSeries, ["name"]);
+            }
+
+            if (nodeStats.remainingKESPeriods > 0) {
+                let index2 = _.findIndex(state.remainingKESSeries, ["name", nodeStats.nodeName]);
+                if (index2 > -1) {
+                    state.remainingKESSeries[index2].data = nodeStats.remainingKESPeriods;
+                } else {
+                    state.remainingKESSeries.push({
+                        name: nodeStats.nodeName,
+                        data: nodeStats.remainingKESSeries
+                    });
+                    state.remainingKESSeries = _.sortBy(state.remainingKESSeries, ["name"]);
+                }
             }
         }
 
         // This is a terrible code smell, but I can't get the charts to update otherwise
         if (state.nodeColors.length > 0) {
-            state.nodeColors.__ob__.dep.notify()
+            state.nodeColors.__ob__.dep.notify();
         }
         if (state.blockHeightSeries.length > 0) {
-            state.blockHeightSeries.__ob__.dep.notify()
+            state.blockHeightSeries.__ob__.dep.notify();
         }
         if (state.peersSeries.length > 0) {
-            state.peersSeries.__ob__.dep.notify()
+            state.peersSeries.__ob__.dep.notify();
         }
     },
     saveWallet: (state, walletItems) => {
