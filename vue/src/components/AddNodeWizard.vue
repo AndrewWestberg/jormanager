@@ -91,6 +91,40 @@
             id="port-input-live-feedback"
           >The port number the node will listen for connections on</b-form-invalid-feedback>
         </b-form-group>
+        <b-form-group label="EKG Port" label-for="ekg-port-input" label-cols-md="2">
+          <b-form-input
+            id="ekg-port-input"
+            type="number"
+            step="1"
+            min="1024"
+            max="65535"
+            :state="ekgPortState"
+            placeholder="e.g. 12788"
+            aria-describedby="ekg-port-input-live-feedback"
+            v-model="formNode.ekgPort"
+            trim
+          />
+          <b-form-invalid-feedback
+            id="ekg-port-input-live-feedback"
+          >The port number the node will run EKG monitoring on. -1 to auto-generate it.</b-form-invalid-feedback>
+        </b-form-group>
+        <b-form-group label="Prometheus Port" label-for="prom-port-input" label-cols-md="2">
+          <b-form-input
+            id="prom-port-input"
+            type="number"
+            step="1"
+            min="1024"
+            max="65535"
+            :state="promPortState"
+            placeholder="e.g. 12789"
+            aria-describedby="prom-port-input-live-feedback"
+            v-model="formNode.promPort"
+            trim
+          />
+          <b-form-invalid-feedback
+            id="ekg-port-input-live-feedback"
+          >The port number the node will run Prometheus monitoring on. -1 to auto-generate it.</b-form-invalid-feedback>
+        </b-form-group>
         <b-form-group label="Genesis Byron" label-for="genesis-byron-select" label-cols-md="2">
           <b-form-select
             id="genesis-byron-select"
@@ -726,6 +760,8 @@ export default {
         processorThreads: 0,
         listen: "",
         port: "",
+        ekgPort: "",
+        promPort: "",
         genesisByron: null,
         genesisShelley: null,
         generateColdKeys: false,
@@ -867,6 +903,12 @@ export default {
     portState() {
       return this.formNode.port > 1023;
     },
+    ekgPortState() {
+      return this.formNode.ekgPort > 1023 || this.formNode.ekgPort == -1;
+    },
+    promPortState() {
+      return this.formNode.promPort > 1023 || this.formNode.promPort == -1;
+    },
     genesisByronState() {
       return this.formNode.genesisByron != null;
     },
@@ -983,6 +1025,8 @@ export default {
           this.typeState &&
           this.listenState &&
           this.portState &&
+          this.ekgPortState &&
+          this.promPortState &&
           this.genesisByronState &&
           this.genesisShelleyState
         ) {

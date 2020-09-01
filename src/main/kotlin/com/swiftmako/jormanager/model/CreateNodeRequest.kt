@@ -13,6 +13,8 @@ data class CreateNodeRequest(
         @JsonProperty("processorThreads") val processorThreads: Int,
         @JsonProperty("listen") val listen: String,
         @JsonProperty("port") val port: Int,
+        @JsonProperty("ekgPort") val ekgPort: Int,
+        @JsonProperty("promPort") val promPort: Int,
         @JsonProperty("genesisByron") val genesisByronFileId: Long,
         @JsonProperty("genesisShelley") val genesisShelleyFileId: Long,
         @JsonProperty("generateColdKeys") val generateColdKeys: Boolean,

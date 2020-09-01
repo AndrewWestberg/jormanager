@@ -61,7 +61,7 @@ fun runInstallation() {
     println()
 
     val host = Host(0, "local", "", "", "", "", 22, "", "", "")
-    val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true)
+    val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 12789, 0, 0, 0, isDefault = true)
     HostConnection(host, defaultNode).use { hostConnection ->
         val javaPath = hostConnection.command("which java").trim()
 

@@ -131,7 +131,7 @@ class NodeController @Autowired constructor(
                             val genesisByronFile = createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
                             createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
                             createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                            val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
+                            val (configFileId, ekgPort, promPort) = createConfigFile(request.hostId, genesisByronFile.name, request.ekgPort, request.promPort, hostConnection, nodeFolder)
                             createEnvFile(hostConnection, request.type, request.name, nodeFolder, request.listen, request.port)
                             createSystemdFile(request, host, hostConnection)
                             createManualStartupScripts(request, host, hostConnection)
@@ -153,6 +153,7 @@ class NodeController @Autowired constructor(
                                     listen = request.listen,
                                     port = request.port,
                                     ekgPort = ekgPort,
+                                    promPort = promPort,
                                     genesisByronFileId = request.genesisByronFileId,
                                     genesisShelleyFileId = request.genesisShelleyFileId,
                                     configFileId = configFileId,
@@ -512,7 +513,7 @@ class NodeController @Autowired constructor(
                                                     createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
                                                     createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
                                                     createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                                                    val (configFileId, ekgPort) = createConfigFile(request.hostId, genesisByronFile.name, hostConnection, nodeFolder)
+                                                    val (configFileId, ekgPort, promPort) = createConfigFile(request.hostId, genesisByronFile.name, request.ekgPort, request.promPort, hostConnection, nodeFolder)
                                                     createKesVrfOpcert(request.name, kesSKeyContent, vrfSKeyContent, opcertContent, hostConnection, nodeFolder)
                                                     createEnvFile(hostConnection, request.type, request.name, nodeFolder, request.listen, request.port)
                                                     createSystemdFile(request, host, hostConnection)
@@ -527,6 +528,7 @@ class NodeController @Autowired constructor(
                                                             listen = request.listen,
                                                             port = request.port,
                                                             ekgPort = ekgPort,
+                                                            promPort = promPort,
                                                             genesisByronFileId = request.genesisByronFileId,
                                                             genesisShelleyFileId = request.genesisShelleyFileId,
                                                             configFileId = configFileId,
@@ -812,15 +814,21 @@ class NodeController @Autowired constructor(
     }
 
 
-    private fun createConfigFile(hostId: Long, genesisByronFileName: String, hostConnection: HostConnection, nodeFolder: String): Pair<Long, Int> {
-        val nodeCount = nodeRepository.countForHost(hostId)
-        var ekgPort = 12788 + (2 * nodeCount)
-        while (isPortUsed(hostConnection, ekgPort)) {
-            ekgPort++
+    private fun createConfigFile(hostId: Long, genesisByronFileName: String, requestEkgPort: Int, requestPromPort: Int, hostConnection: HostConnection, nodeFolder: String): Triple<Long, Int, Int> {
+        var ekgPort = requestEkgPort
+
+        if (ekgPort == -1) {
+            ekgPort = 12788 + (2 * nodeRepository.countForHost(hostId))
+            while (isPortUsed(hostConnection, ekgPort)) {
+                ekgPort++
+            }
         }
-        var prometheusPort = ekgPort + 1
-        while (isPortUsed(hostConnection, prometheusPort)) {
-            prometheusPort++
+        var promPort = requestPromPort
+        if (promPort == -1) {
+            promPort = ekgPort + 1
+            while (isPortUsed(hostConnection, promPort)) {
+                promPort++
+            }
         }
         val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
         val configFileContent = configFile?.content
@@ -842,13 +850,13 @@ class NodeController @Autowired constructor(
                 ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
                 ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
                 ?.replace("12788", "$ekgPort")
-                ?.replace("12798", "$prometheusPort")
+                ?.replace("12798", "$promPort")
         configFileContent?.let {
             log.debug("Creating ${nodeFolder}/config.json from db file ${configFile.name}")
             hostConnection.commandWriteFile("${nodeFolder}/config.json", it)
         } ?: throw IOException("Config file not found in db!")
 
-        return Pair(configFile.id!!, ekgPort)
+        return Triple(configFile.id!!, ekgPort, promPort)
     }
 
     private fun isPortUsed(hostConnection: HostConnection, port: Int): Boolean {

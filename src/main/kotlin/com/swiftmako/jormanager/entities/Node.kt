@@ -29,6 +29,8 @@ data class Node(
         val port: Int,
         @Column(name = "ekg_port")
         val ekgPort: Int,
+        @Column(name = "prom_port")
+        val promPort: Int,
         @Column(name = "genesis_byron_file_id")
         val genesisByronFileId: Long,
         @Column(name = "genesis_shelley_file_id")
