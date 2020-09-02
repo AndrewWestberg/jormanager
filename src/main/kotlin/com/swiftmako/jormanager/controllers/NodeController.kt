@@ -690,7 +690,7 @@ class NodeController @Autowired constructor(
                                                 nodeRepository.save(node.copy(kesSKeyId = kesSKeyId, kesVKeyId = kesVKeyId, opcertId = opcertId))
 
                                                 // upload kes and opcert
-                                                ***
+//                                                ***
                                             } finally {
                                                 // cleanup
                                                 defaultHostConnection.command("rm -f /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert")

@@ -308,7 +308,7 @@
             >Account must hold enough to pay pool registration and delegation fees.</b-form-invalid-feedback>
           </b-form-group>
           <b-form-group
-            label="Owner Account"
+            label="Owner (Pledge) Account"
             label-for="owner-staking-account-select"
             label-cols-md="1"
             label-align="right"
@@ -741,7 +741,7 @@
 
 <script>
 import { GoodWizard } from "vue-good-wizard";
-import { mapMutations, mapGetters, mapActions } from "vuex";
+import { mapMutations, mapGetters, mapActions, mapState } from "vuex";
 
 export default {
   name: "AddNodeWizard",
@@ -825,6 +825,13 @@ export default {
       },
     };
   },
+  watch: {
+    toastSuccess(toast) {
+      if (toast.title === "Node Created") {
+        this.$emit("hideAddNodeWizard");
+      }
+    },
+  },
   computed: {
     ...mapGetters([
       "hostSelectOptions",
@@ -833,6 +840,7 @@ export default {
       "rewardsSelectOptions",
       "genesisFiles",
     ]),
+    ...mapState(["toastSuccess"]),
     steps() {
       if (this.formNode.type === "core") {
         return [
@@ -1039,6 +1047,7 @@ export default {
           return false;
         }
       } else if (currentPage === 1) {
+        console.log("currentPage1, poolPledge: " + this.formNode.poolPledge);
         if (this.formNode.type === "core") {
           if (
             this.coldSKeyState &&
@@ -1063,11 +1072,11 @@ export default {
             (spendingPassword) => {
               this.formNode.spendingPassword = spendingPassword;
               this.createNode(this.formNode);
-              this.$emit("hideAddNodeWizard");
             }
           );
         }
       } else if (currentPage === 2) {
+        console.log("currentPage2, poolPledge: " + this.formNode.poolPledge);
         if (
           this.registrationFeesAccountState &&
           this.ownerStakingAccountState &&
@@ -1076,6 +1085,16 @@ export default {
           this.poolCostState &&
           this.poolMarginState
         ) {
+          if (isNaN(this.formNode.poolPledge)) {
+            this.formNode.poolPledge = this.$root.$parseCurrency(
+              this.formNode.poolPledge
+            );
+          }
+          if (isNaN(this.formNode.poolCost)) {
+            this.formNode.poolCost = this.$root.$parseCurrency(
+              this.formNode.poolCost
+            );
+          }
           return true;
         } else {
           this.toastError({
@@ -1085,6 +1104,7 @@ export default {
           return false;
         }
       } else if (currentPage === 3) {
+        console.log("currentPage3, poolPledge: " + this.formNode.poolPledge);
         if (this.formNode.relays.length === 0) {
           return true;
         } else {
@@ -1122,12 +1142,16 @@ export default {
         }
       } else if (currentPage === 5) {
         // core node save!
-        this.formNode.poolPledge = this.$root.$parseCurrency(
-          this.formNode.poolPledge
-        );
-        this.formNode.poolCost = this.$root.$parseCurrency(
-          this.formNode.poolCost
-        );
+        if (isNaN(this.formNode.poolPledge)) {
+          this.formNode.poolPledge = this.$root.$parseCurrency(
+            this.formNode.poolPledge
+          );
+        }
+        if (isNaN(this.formNode.poolCost)) {
+          this.formNode.poolCost = this.$root.$parseCurrency(
+            this.formNode.poolCost
+          );
+        }
         if (this.formNode.coldSKey != null) {
           this.formNode.coldSKey = await this.formNode.coldSKey.text();
         }
