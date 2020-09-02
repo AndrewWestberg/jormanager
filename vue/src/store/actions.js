@@ -151,7 +151,21 @@ export default {
                         })
                     } else {
                         commit('toastError', {
-                            title: "Submit Transaction Error",
+                            title: "Restart Node Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
+                case "rotatekes":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Rotate KES...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Rotate KES Error",
                             message: message.exception.message
                         })
                         console.log(message.exception)
@@ -348,6 +362,26 @@ export default {
             if (node) {
                 // console.log("Restart Node: " + JSON.stringify(node));
                 state.stompClient.send("/jormanager/restartnode", JSON.stringify(node.id));
+            }
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    rotateKesByName: ({
+        state,
+        commit
+    }, rotateRequest) => {
+        if (state.stompClient && state.stompClient.connected) {
+            let node = _.find(state.nodes, ["name", rotateRequest.name]);
+            if (node) {
+                // console.log("Rotate KES: " + JSON.stringify(node));
+                state.stompClient.send("/jormanager/rotatekes", JSON.stringify({
+                    id: node.id,
+                    spendingPassword: rotateRequest.spendingPassword
+                }));
             }
         } else {
             commit('toastError', {

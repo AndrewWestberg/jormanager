@@ -14,6 +14,7 @@ import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.RotateKesRequest
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
@@ -75,7 +76,7 @@ class NodeController @Autowired constructor(
 
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")
-    fun getHosts(): SocketResponse<List<Node>> {
+    fun getNodes(): SocketResponse<List<Node>> {
         val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
         return SocketResponse.Success(type = "nodes", data = nodes)
     }
@@ -589,6 +590,124 @@ class NodeController @Autowired constructor(
         } catch (e: Throwable) {
             log.error("Error Creating Node!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "createnode", exception = e))
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
+        }
+    }
+
+    @MessageMapping("/rotatekes")
+    @Transactional
+    fun rotateKes(request: RotateKesRequest) {
+        try {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                throw IllegalArgumentException("Invalid spending password!")
+            }
+            nodeRepository.findDefault()?.let { defaultNode ->
+                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                        "--testnet-magic ${genesis.networkMagic}"
+                    } else {
+                        "--mainnet"
+                    }
+                    fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
+                        val genesisByron = genesisByronAdapter.fromJson(genesisByronFile.content)!!
+
+                        hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                            HostConnection(defaultHost, defaultNode).use { defaultHostConnection ->
+                                nodeRepository.findByIdOrNull(request.id)?.let { node ->
+                                    hostRepository.findByIdOrNull(node.hostId)?.let { host ->
+                                        HostConnection(host, node).use { hostConnection ->
+                                            try {
+                                                // fetch cold keys
+                                                val coreSKeyContent = fileRepository.findByIdOrNull(node.coreSKeyId)?.let { coreSKey ->
+                                                    walletUtils.getSKeyContent(coreSKey, request.spendingPassword)
+                                                } ?: throw IOException("Could not find core skey!")
+                                                defaultHostConnection.commandWriteFile("/tmp/core.node.skey", coreSKeyContent)
+                                                val coreCounter = fileRepository.findByIdOrNull(node.coreCounterId)
+                                                        ?: throw IOException("Could not find core counter!")
+                                                defaultHostConnection.commandWriteFile("/tmp/core.node.counter", coreCounter.content)
+
+                                                // generate new KES keys
+                                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
+                                                val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
+                                                val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
+                                                val kesSKey = com.swiftmako.jormanager.entities.File(name = "${node.name}.kes.skey", content = walletUtils.encryptSKeyContent(kesSKeyContent, request.spendingPassword))
+                                                fileRepository.findByIdOrNull(node.kesSKeyId)?.let { oldKesSkey ->
+                                                    fileRepository.save(oldKesSkey.copy(name = "${oldKesSkey.name}-${System.currentTimeMillis()}"))
+                                                }
+                                                val kesVKey = com.swiftmako.jormanager.entities.File(name = "${node.name}.kes.vkey", content = kesVKeyContent)
+                                                fileRepository.findByIdOrNull(node.kesVKeyId)?.let { oldKesVkey ->
+                                                    fileRepository.save(oldKesVkey.copy(name = "${oldKesVkey.name}-${System.currentTimeMillis()}"))
+                                                }
+                                                val kesSKeyId = fileRepository.save(kesSKey).id!!
+                                                val kesVKeyId = fileRepository.save(kesVKey).id!!
+
+                                                // calculate current kes period
+                                                val slotLength = genesis.slotLength
+                                                val epochLength = genesis.epochLength
+                                                val slotsPerKESPeriod = genesis.slotsPerKESPeriod
+                                                val startTimeByron = genesisByron.startTime
+                                                val startTimeGenesis = genesis.systemStart
+
+                                                val startTimeSec = defaultHostConnection.command("date --date=$startTimeGenesis +%s").trim().toLong()
+                                                val transTimeEnd = startTimeSec + (BYRON_TO_SHELLEY_EPOCHS * epochLength)
+                                                val byronSlots = (startTimeSec - startTimeByron) / 20L
+                                                val transSlots = (BYRON_TO_SHELLEY_EPOCHS * epochLength) / 20L
+
+                                                val currentTimeSec = defaultHostConnection.command("date -u +%s").trim().toLong()
+
+                                                val currentSlot = if (currentTimeSec < transTimeEnd) {
+                                                    // in transition phase between shelley genesis start and transition end
+                                                    (byronSlots + (currentTimeSec - startTimeSec) / 20L)
+                                                } else {
+                                                    // after transition phase
+                                                    (byronSlots + transSlots + ((currentTimeSec - transTimeEnd) / slotLength))
+                                                }
+                                                var currentKESPeriod = ((currentSlot - byronSlots) / (slotsPerKESPeriod * slotLength))
+                                                if (currentKESPeriod < 0L) {
+                                                    currentKESPeriod = 0L
+                                                }
+                                                log.debug("currentKESPeriod: $currentKESPeriod")
+
+                                                val maxKESEvolutions = genesis.maxKESEvolutions
+                                                val expiresKESPeriod = currentKESPeriod + maxKESEvolutions
+                                                val kesExpireTimeSec = (currentTimeSec + (slotLength * maxKESEvolutions * slotsPerKESPeriod))
+                                                val kesExpireDate = defaultHostConnection.command("date --date=@$kesExpireTimeSec").trim()
+                                                log.debug("expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
+
+                                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
+                                                val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
+                                                val opcertFile = com.swiftmako.jormanager.entities.File(name = "${node.name}.node.opcert", content = opcertContent)
+                                                val opcertId = fileRepository.save(opcertFile).id!!
+                                                fileRepository.findByIdOrNull(node.opcertId)?.let { oldOpcertFile ->
+                                                    fileRepository.save(oldOpcertFile.copy(name = "${oldOpcertFile.name}-${System.currentTimeMillis()}"))
+                                                }
+
+                                                val coreCounterContent = defaultHostConnection.commandReadFile("/tmp/core.node.counter")
+                                                fileRepository.save(coreCounter.copy(content = coreCounterContent))
+
+                                                nodeRepository.save(node.copy(kesSKeyId = kesSKeyId, kesVKeyId = kesVKeyId, opcertId = opcertId))
+
+                                                // upload kes and opcert
+                                                ***
+                                            } finally {
+                                                // cleanup
+                                                defaultHostConnection.command("rm -f /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert")
+                                            }
+                                        }
+                                    } ?: throw IOException("Host not found!")
+                                } ?: throw IOException("Invalid node id: ${request.id}")
+                            }
+                        } ?: throw IOException("Default host not found!")
+                    } ?: throw IOException("Genesis byron not found!")
+                } ?: throw IOException("Genesis shelley not found!")
+            } ?: throw IOException("Default node not found!")
+
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("rotatekes", "KES rotated successfully!"))
+        } catch (e: Throwable) {
+            log.error("Error Rotating KES!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "rotatekes", exception = e))
             // rethrow so db transaction is rolled back
             throw RuntimeException(e)
         }

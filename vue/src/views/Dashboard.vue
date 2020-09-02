@@ -5,6 +5,16 @@
         <NodeChart title="Connected Peers" :series="peersSeries" :colors="nodeColors" :min="0" />
         <NodeChart title="Block Height" :series="blockHeightSeries" :colors="nodeColors" />
       </b-card-group>
+      <br />
+      <b-row>
+        <b-col cols="6" offset="3">
+          <NodeChart
+            title="KES Periods Remaining"
+            :series="remainingKESSeries"
+            :colors="nodeColors"
+          />
+        </b-col>
+      </b-row>
     </b-container>
     <hr />
     <b-container>
@@ -53,7 +63,13 @@ export default {
   },
   computed: {
     ...mapGetters(["blocksCount"]),
-    ...mapState(["blocks", "peersSeries", "blockHeightSeries", "nodeColors"]),
+    ...mapState([
+      "blocks",
+      "peersSeries",
+      "blockHeightSeries",
+      "remainingKESSeries",
+      "nodeColors",
+    ]),
   },
   components: {
     NodeChart,

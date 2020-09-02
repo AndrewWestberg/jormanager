@@ -58,9 +58,9 @@ class HostController @Autowired constructor(
                     if (!hostConnection.commandFileExists(host.jcliPath)) {
                         throw SSHRuntimeException("File at '${host.jcliPath}' does not exist!")
                     }
+                    val jcliVersion = hostConnection.command("${host.jcliPath} --version")
+                    hostInfo += "              jcli: $jcliVersion"
                 }
-                val jcliVersion = hostConnection.command("${host.jcliPath} --version")
-                hostInfo += "              jcli: $jcliVersion"
                 host.id?.let { id ->
                     hostRepository.findByIdOrNull(id)
                 }?.let { repositoryHost ->

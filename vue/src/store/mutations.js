@@ -59,17 +59,18 @@ export default {
                 state.peersSeries = _.sortBy(state.peersSeries, ["name"]);
             }
 
-            if (nodeStats.remainingKESPeriods > 0) {
-                let index2 = _.findIndex(state.remainingKESSeries, ["name", nodeStats.nodeName]);
-                if (index2 > -1) {
-                    state.remainingKESSeries[index2].data = nodeStats.remainingKESPeriods;
-                } else {
-                    state.remainingKESSeries.push({
-                        name: nodeStats.nodeName,
-                        data: nodeStats.remainingKESSeries
-                    });
-                    state.remainingKESSeries = _.sortBy(state.remainingKESSeries, ["name"]);
-                }
+            let index2 = _.findIndex(state.remainingKESSeries, ["name", nodeStats.nodeName]);
+            if (index2 > -1) {
+                state.remainingKESSeries[index2].data.push([nodeStats.timestamp, nodeStats.remainingKESPeriods]);
+                state.remainingKESSeries[index2].data = state.remainingKESSeries[index2].data.slice(-60); // keep 5 minutes worth of data
+            } else {
+                state.remainingKESSeries.push({
+                    name: nodeStats.nodeName,
+                    data: [
+                        [nodeStats.timestamp, nodeStats.remainingKESPeriods]
+                    ]
+                });
+                state.remainingKESSeries = _.sortBy(state.remainingKESSeries, ["name"]);
             }
         }
 
@@ -82,6 +83,9 @@ export default {
         }
         if (state.peersSeries.length > 0) {
             state.peersSeries.__ob__.dep.notify();
+        }
+        if (state.remainingKESSeries.length > 0) {
+            state.remainingKESSeries.__ob__.dep.notify();
         }
     },
     saveWallet: (state, walletItems) => {

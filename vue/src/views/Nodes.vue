@@ -51,7 +51,17 @@
               />
             </div>
           </template>
-          <!-- A custom formatted column -->
+          <template v-slot:cell(kesExpireTimeSec)="data">
+            <span v-if="data.value > -1">
+              {{data.value | moment("YYYY-MM-DD h:mma UTCZ")}}&nbsp;({{data.value | moment("from")}})&nbsp;
+              <font-awesome-icon
+                :icon="['fas','key']"
+                class="text-warning"
+                v-b-tooltip.hover.v-warning.right="'Rotate KES Key'"
+                @click="rotateKesKey(displayNodes[data.index].name)"
+              />
+            </span>
+          </template>
           <template v-slot:cell(edit)="data">
             <!--
             <font-awesome-icon
@@ -90,6 +100,7 @@ export default {
         { key: "name", sortable: true },
         { key: "host", sortable: true },
         { key: "type", sortable: true },
+        { key: "kesExpireTimeSec", sortable: true, label: "KES Expiry" },
         { key: "edit", label: "" },
       ],
       showAddNodeWizard: false,
@@ -101,6 +112,7 @@ export default {
       "requestNodes",
       "restartNodeByName",
       "createNode",
+      "rotateKesByName",
     ]),
     restartNode(node) {
       this.$bvModal
@@ -110,6 +122,16 @@ export default {
             this.restartNodeByName(node);
           }
         });
+    },
+    rotateKesKey(node) {
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.rotateKesByName({
+            name: node,
+            spendingPassword: spendingPassword,
+          });
+        }
+      );
     },
   },
   computed: {
@@ -130,7 +152,8 @@ export default {
 </script>
 
 <style scoped>
-.fa-power-off:hover {
+.fa-power-off:hover,
+.fa-key:hover {
   cursor: pointer;
 }
 </style>

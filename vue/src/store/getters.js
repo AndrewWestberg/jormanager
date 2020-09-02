@@ -72,7 +72,8 @@ export default {
                 name: node.name,
                 type: node.type,
                 host: host ? host.hostname : "",
-                isDefault: node.isDefault
+                isDefault: node.isDefault,
+                kesExpireTimeSec: node.kesExpireTimeSec,
             }
         })
     },

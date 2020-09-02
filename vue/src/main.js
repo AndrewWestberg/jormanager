@@ -45,7 +45,8 @@ import {
   faPowerOff,
   faFileArchive,
   faLink,
-  faUnlink
+  faUnlink,
+  faKey,
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -68,6 +69,7 @@ library.add(faPowerOff)
 library.add(faFileArchive)
 library.add(faLink)
 library.add(faUnlink)
+library.add(faKey)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
