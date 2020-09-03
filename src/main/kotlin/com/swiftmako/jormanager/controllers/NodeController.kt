@@ -605,11 +605,6 @@ class NodeController @Autowired constructor(
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                     val genesis = genesisAdapter.fromJson(genesisFile.content)!!
-                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                        "--testnet-magic ${genesis.networkMagic}"
-                    } else {
-                        "--mainnet"
-                    }
                     fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
                         val genesisByron = genesisByronAdapter.fromJson(genesisByronFile.content)!!
 
@@ -619,7 +614,7 @@ class NodeController @Autowired constructor(
                                     hostRepository.findByIdOrNull(node.hostId)?.let { host ->
                                         HostConnection(host, node).use { hostConnection ->
                                             try {
-                                                // fetch cold keys
+                                                // fetch cold keys and vrf
                                                 val coreSKeyContent = fileRepository.findByIdOrNull(node.coreSKeyId)?.let { coreSKey ->
                                                     walletUtils.getSKeyContent(coreSKey, request.spendingPassword)
                                                 } ?: throw IOException("Could not find core skey!")
@@ -627,6 +622,9 @@ class NodeController @Autowired constructor(
                                                 val coreCounter = fileRepository.findByIdOrNull(node.coreCounterId)
                                                         ?: throw IOException("Could not find core counter!")
                                                 defaultHostConnection.commandWriteFile("/tmp/core.node.counter", coreCounter.content)
+                                                val vrfSKeyContent = fileRepository.findByIdOrNull(node.vrfSKeyId)?.let { vrfSKey ->
+                                                    walletUtils.getSKeyContent(vrfSKey, request.spendingPassword)
+                                                } ?: throw IOException("Could not find vrf skey!")
 
                                                 // generate new KES keys
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
@@ -687,13 +685,15 @@ class NodeController @Autowired constructor(
                                                 val coreCounterContent = defaultHostConnection.commandReadFile("/tmp/core.node.counter")
                                                 fileRepository.save(coreCounter.copy(content = coreCounterContent))
 
-                                                nodeRepository.save(node.copy(kesSKeyId = kesSKeyId, kesVKeyId = kesVKeyId, opcertId = opcertId))
+                                                nodeRepository.save(node.copy(kesSKeyId = kesSKeyId, kesVKeyId = kesVKeyId, opcertId = opcertId, kesExpireDate = kesExpireDate, kesExpireTimeSec = kesExpireTimeSec))
 
                                                 // upload kes and opcert
-//                                                ***
+                                                // 13. Create and Save node information
+                                                val nodeFolder = "${host.nodeHomePath}${File.separator}${node.name}"
+                                                createKesVrfOpcert(node.name, kesSKeyContent, vrfSKeyContent, opcertContent, hostConnection, nodeFolder)
                                             } finally {
                                                 // cleanup
-                                                defaultHostConnection.command("rm -f /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert")
+                                                defaultHostConnection.command("rm -f /tmp/core.node.skey /tmp/core.node.counter /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert")
                                             }
                                         }
                                     } ?: throw IOException("Host not found!")
@@ -704,7 +704,7 @@ class NodeController @Autowired constructor(
                 } ?: throw IOException("Genesis shelley not found!")
             } ?: throw IOException("Default node not found!")
 
-            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("rotatekes", "KES rotated successfully!"))
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("rotatekes", "KES rotated successfully, restart node to activate!"))
         } catch (e: Throwable) {
             log.error("Error Rotating KES!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "rotatekes", exception = e))

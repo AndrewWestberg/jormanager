@@ -4,6 +4,11 @@
     <vue-good-wizard :steps="steps" :onNext="nextClicked" :onBack="backClicked">
       <div slot="page1">
         <h4>Node Basics</h4>
+        <b-form-group label="Other Node Colors" label-cols-md="2" v-if="nodeColors.length > 0">
+          <span v-for="(nodeColor, index) in nodeColors" :key="index">
+            <font-awesome-icon :style="{color: nodeColor}" :icon="['fas','circle']" />
+          </span>
+        </b-form-group>
         <b-form-group label="Color" label-for="color-input" label-cols-md="2">
           <b-form-input v-model="formNode.color" type="color"></b-form-input>
         </b-form-group>
@@ -840,7 +845,7 @@ export default {
       "rewardsSelectOptions",
       "genesisFiles",
     ]),
-    ...mapState(["toastSuccess"]),
+    ...mapState(["toastSuccess", "nodeColors"]),
     steps() {
       if (this.formNode.type === "core") {
         return [
