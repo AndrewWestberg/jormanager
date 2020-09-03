@@ -9,7 +9,7 @@ data class ToAccount(
         @Json(name = "account")
         val account: Long,
         @Json(name = "amount")
-        val amount: Int?,
+        val amount: Long?,
         @Json(name = "percent")
         val percent: Int?,
         @Json(name = "type")

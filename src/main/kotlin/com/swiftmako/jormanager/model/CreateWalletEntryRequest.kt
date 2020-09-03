@@ -11,4 +11,8 @@ data class CreateWalletEntryRequest(
         val paymentVKey: String?,
         val stakingSKey: String?,
         val stakingVKey: String?
-)
+) {
+    override fun toString(): String {
+        return "CreateWalletEntryRequest(spendingPassword='************', name='$name', type='$type', paymentAddr='$paymentAddr', generateKeys=$generateKeys, paymentSKey=***, paymentVKey=***, stakingSKey=***, stakingVKey=***)"
+    }
+}

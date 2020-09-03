@@ -36,4 +36,8 @@ data class CreateNodeRequest(
         @JsonProperty("relays") val relays: List<Relay>?,
         @JsonProperty("metadata") val metadata: Metadata?,
         @JsonProperty("sudoPassword") val sudoPassword: String
-)
+) {
+    override fun toString(): String {
+        return "CreateNodeRequest(spendingPassword='************', color='$color', hostId=$hostId, name='$name', isDefault=$isDefault, type='$type', processorThreads=$processorThreads, listen='$listen', port=$port, ekgPort=$ekgPort, promPort=$promPort, genesisByronFileId=$genesisByronFileId, genesisShelleyFileId=$genesisShelleyFileId, generateColdKeys=$generateColdKeys, coldSKey=***, coldVKey=***, coldCounter=***, generateVRFKeys=$generateVRFKeys, vrfSKey=***, vrfVKey=***, generateKESKeys=$generateKESKeys, kesSKey=***, kesVKey=***, registrationFeesAccount=$registrationFeesAccount, ownerStakingAccount=$ownerStakingAccount, rewardsStakingAccount=$rewardsStakingAccount, poolPledge=$poolPledge, poolCost=$poolCost, poolMargin='$poolMargin', relays=$relays, metadata=$metadata, sudoPassword='************')"
+    }
+}
