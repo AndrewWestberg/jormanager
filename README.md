@@ -91,7 +91,20 @@ addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2x
 ```
 
 ###### Release Notes
+1.0.2-SNAPSHOT
+
+ * Add pledge type to wallet entry types
+ 
+1.0.1-SNAPSHOT
+
+ * Fixing bugs
+ 
+1.0.0-SNAPSHOT
+
+ * First release
+ 
 1.0.0_RC_1-SNAPSHOT
+
  * Minimum viable product. Expect a few bugs still.
  
 1.0.0_OG_4-SNAPSHOT
