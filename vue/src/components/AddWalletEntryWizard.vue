@@ -22,13 +22,14 @@
             <b-form-radio value="address">Simple Address</b-form-radio>
             <b-form-radio value="payment">Payment</b-form-radio>
             <b-form-radio value="stake">Stake</b-form-radio>
+            <b-form-radio value="pledge">Pledge-Only</b-form-radio>
           </b-form-radio-group>
         </b-form-group>
         <b-form-group
           label="Address"
           label-for="address-input"
           label-cols-md="2"
-          v-if="formWallet.type=='address'"
+          v-if="formWallet.type=='address' || formWallet.type=='pledge'"
         >
           <b-form-input
             id="address-input"
@@ -42,13 +43,18 @@
             id="address-input-live-feedback"
           >Wallet address that can only receive payments or monitor funds it holds</b-form-invalid-feedback>
         </b-form-group>
-        <b-form-group label="Keys" v-if="formWallet.type=='payment' || formWallet.type=='stake'">
-          <b-form-checkbox id="keys-generate-checkbox" v-model="formWallet.generateKeys">Generate</b-form-checkbox>
+        <b-form-group label="Keys" v-if="formWallet.type != null && formWallet.type != 'address'">
+          <b-form-checkbox
+            id="keys-generate-checkbox"
+            v-model="formWallet.generateKeys"
+            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
+          >Generate</b-form-checkbox>
           <b-form-group
             label="payment skey"
             label-for="payment-skey-file"
             label-cols-md="1"
             label-align="right"
+            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
           >
             <b-form-file
               id="payment-skey-file"
@@ -65,6 +71,7 @@
             label-for="payment-vkey-file"
             label-cols-md="1"
             label-align="right"
+            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
           >
             <b-form-file
               id="payment-vkey-file"
@@ -81,7 +88,7 @@
             label-for="staking-skey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type=='stake'"
+            v-if="formWallet.type==='stake' || formWallet.type==='pledge'"
           >
             <b-form-file
               id="staking-skey-file"
@@ -98,7 +105,7 @@
             label-for="staking-vkey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type=='stake'"
+            v-if="formWallet.type=='stake' || formWallet.type==='pledge'"
           >
             <b-form-file
               id="staking-vkey-file"
@@ -148,6 +155,16 @@ export default {
         },
       ],
     };
+  },
+  watch: {
+    formWallet: {
+      deep: true,
+      handler(formWallet) {
+        if (formWallet.type === "address" || formWallet.type === "pledge") {
+          this.formWallet.generateKeys = false;
+        }
+      },
+    },
   },
   methods: {
     ...mapActions(["createWalletEntry"]),
@@ -227,6 +244,7 @@ export default {
     paymentSKeyState() {
       return (
         this.formWallet.type === "address" ||
+        this.formWallet.type === "pledge" ||
         this.formWallet.generateKeys ||
         this.formWallet.paymentSKey != null
       );
@@ -234,6 +252,7 @@ export default {
     paymentVKeyState() {
       return (
         this.formWallet.type === "address" ||
+        this.formWallet.type === "pledge" ||
         this.formWallet.generateKeys ||
         this.formWallet.paymentVKey != null
       );

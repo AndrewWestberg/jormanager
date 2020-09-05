@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 plugins {
     id("org.springframework.boot") version "2.3.3.RELEASE"
     id("io.spring.dependency-management") version "1.0.10.RELEASE"
-    id("com.github.ben-manes.versions") version "0.29.0"
+    id("com.github.ben-manes.versions") version "0.30.0"
     kotlin("jvm") version "1.4.0"
     kotlin("kapt") version "1.4.0"
     kotlin("plugin.spring") version "1.4.0"
@@ -29,7 +29,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.0.1-SNAPSHOT"
+version = "1.0.2-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

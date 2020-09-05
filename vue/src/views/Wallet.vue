@@ -42,7 +42,7 @@
               <font-awesome-icon
                 :icon="['fas','hand-holding-usd']"
                 class="text-success"
-                v-if="data.item.type != 'address' && data.value > 0"
+                v-if="data.item.type != 'address' && data.item.type != 'pledge' && data.value > 0"
                 v-b-tooltip.hover.v-success.bottom="'Send Ada'"
                 @click="$root.$emit('send-ada', walletItems[data.index])"
               />

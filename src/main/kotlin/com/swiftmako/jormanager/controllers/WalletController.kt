@@ -21,6 +21,8 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import okio.buffer
+import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.repository.findByIdOrNull
@@ -154,7 +156,7 @@ class WalletController @Autowired constructor(
                     createPaymentWalletEntry(request)
                 }
                 else -> {
-                    // "stake"
+                    // "stake" or "pledge"
                     createStakeWalletEntry(request)
                 }
             }
@@ -180,34 +182,44 @@ class WalletController @Autowired constructor(
                 hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                     HostConnection(host, defaultNode).use { hostConnection ->
                         try {
-                            val (pskeyContent, pvkeyContent) = if (request.generateKeys) {
-                                hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
-                                Pair(
-                                        java.io.File("/tmp/jormanager-pskey").inputStream().bufferedReader().use { it.readText() },
-                                        java.io.File("/tmp/jormanager-pvkey").inputStream().bufferedReader().use { it.readText() }
-                                )
-                            } else {
-                                Pair(request.paymentSKey!!, request.paymentVKey!!)
+                            val (pskeyContent, pvkeyContent) = when {
+                                request.generateKeys -> {
+                                    hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                                    Pair(
+                                            java.io.File("/tmp/jormanager-pskey").source().buffer().use { it.readUtf8() },
+                                            java.io.File("/tmp/jormanager-pvkey").source().buffer().use { it.readUtf8() }
+                                    )
+                                }
+                                request.type == "pledge" -> {
+                                    Pair(null, null)
+                                }
+                                else -> {
+                                    Pair(request.paymentSKey!!, request.paymentVKey!!)
+                                }
                             }
 
-                            val savedPaymentSKeyFile = fileRepository.save(
-                                    File(
-                                            name = "${request.name}.payment.skey",
-                                            content = walletUtils.encryptSKeyContent(pskeyContent, request.spendingPassword)
-                                    )
-                            )
-                            val savedPaymentVKeyFile = fileRepository.save(
-                                    File(
-                                            name = "${request.name}.payment.vkey",
-                                            content = pvkeyContent
-                                    )
-                            )
+                            val savedPaymentSKeyFile = pskeyContent?.let {
+                                fileRepository.save(
+                                        File(
+                                                name = "${request.name}.payment.skey",
+                                                content = walletUtils.encryptSKeyContent(pskeyContent, request.spendingPassword)
+                                        )
+                                )
+                            }
+                            val savedPaymentVKeyFile = pvkeyContent?.let {
+                                fileRepository.save(
+                                        File(
+                                                name = "${request.name}.payment.vkey",
+                                                content = pvkeyContent
+                                        )
+                                )
+                            }
 
                             val (sskeyContent, svkeyContent) = if (request.generateKeys) {
                                 hostConnection.command("${host.cardanoCliPath} shelley stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
                                 Pair(
-                                        java.io.File("/tmp/jormanager-sskey").inputStream().bufferedReader().use { it.readText() },
-                                        java.io.File("/tmp/jormanager-svkey").inputStream().bufferedReader().use { it.readText() }
+                                        java.io.File("/tmp/jormanager-sskey").source().buffer().use { it.readUtf8() },
+                                        java.io.File("/tmp/jormanager-svkey").source().buffer().use { it.readUtf8() }
                                 )
                             } else {
                                 Pair(request.stakingSKey!!, request.stakingVKey!!)
@@ -226,10 +238,12 @@ class WalletController @Autowired constructor(
                                     )
                             )
 
-                            hostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
+                            if (pvkeyContent != null) {
+                                hostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
+                            }
                             hostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
                             hostConnection.command("${host.cardanoCliPath} shelley stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert").trim()
-                            val regcertContent = java.io.File("/tmp/jormanager-regcert").inputStream().bufferedReader().use { it.readText() }
+                            val regcertContent = java.io.File("/tmp/jormanager-regcert").source().buffer().use { it.readUtf8() }
                             val savedRegcertFile = fileRepository.save(
                                     File(
                                             name = "${request.name}.staking.cert",
@@ -237,11 +251,15 @@ class WalletController @Autowired constructor(
                                     )
                             )
 
-                            val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                            val paymentAddr = if (request.type == "pledge") {
+                                request.paymentAddr
+                            } else {
+                                hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                            }
                             val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                             WalletEntry(
                                     name = request.name,
-                                    type = "stake",
+                                    type = request.type,
                                     paymentAddr = paymentAddr,
                                     paymentSkey = savedPaymentSKeyFile,
                                     paymentVkey = savedPaymentVKeyFile,
@@ -317,7 +335,7 @@ class WalletController @Autowired constructor(
     @Transactional
     fun deleteWalletEntry(request: DeleteWalletEntryRequest): SocketResponse<String> {
         return try {
-            if(!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
             val walletEntry = walletRepository.findByIdOrNull(request.id)

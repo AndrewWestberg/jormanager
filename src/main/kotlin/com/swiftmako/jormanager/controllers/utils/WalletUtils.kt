@@ -63,7 +63,7 @@ class WalletUtils @Autowired constructor(
         val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
-        val stakingInfoString = if (walletEntry.type == "stake") {
+        val stakingInfoString = if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
             try {
                 hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode $magicString")
             } catch (t: Throwable) {
