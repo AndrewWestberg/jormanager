@@ -44,6 +44,7 @@ import java.net.ConnectException
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 
@@ -57,7 +58,8 @@ class NodeMonitor @Autowired constructor(
         private val retrofit: Retrofit,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>
+        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
+        @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(NodeMonitor::class.java)
@@ -206,18 +208,19 @@ class NodeMonitor @Autowired constructor(
                                 lastBlockHeight = newBlockHeight
                             }
                         }
+                        latestNodeStats.set(nodeStats)
                     }
                 } else {
-                    eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
+                    eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
                 }
             } catch (e: ConnectException) {
-                eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
+                eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
             } catch (e: IOException) {
                 log.error("Error communicating with Ekg!")
-                eventsChannel.send(NodeStats(now, node.name, node.color, null, null, null))
+                eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
                 if (rethrowExceptions) {
                     throw e
                 }
@@ -227,12 +230,16 @@ class NodeMonitor @Autowired constructor(
 
     private fun EkgMetrics.toNodeStats(timestamp: Long, node: Node): NodeStats {
         return NodeStats(
+                isDefault = node.isDefault,
                 timestamp = timestamp,
                 nodeName = node.name,
                 color = node.color,
                 peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
                 blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX,
                 remainingKESPeriods = this.cardano.node.forge.metrics.remainingKESPeriods.intX.valX.toInt(),
+                epoch = this.cardano.node.chainDB.metrics.epoch.intX.valX,
+                slot = this.cardano.node.chainDB.metrics.slotNum.intX.valX,
+                slotInEpoch = this.cardano.node.chainDB.metrics.slotInEpoch.intX.valX,
         )
     }
 
@@ -251,7 +258,7 @@ class NodeMonitor @Autowired constructor(
             while (true) {
                 // delay until the next 5-second interval + 3 sec
                 val before = System.currentTimeMillis()
-                val delay = 5000 - (before % 5000)
+                val delay = RECONNECT_DELAY_MS - (before % RECONNECT_DELAY_MS)
                 delay(delay + 3000)
                 collectMutex.withLock {
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStatEvents))

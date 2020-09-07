@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.monitors
 
 import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.Host
@@ -9,6 +10,7 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.AddedToCurrentChain
 import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.model.pooltool.Data
@@ -64,7 +66,8 @@ class BlockMonitor @Autowired constructor(
         private val webSocketTemplate: SimpMessagingTemplate,
         private val pooltoolService: PooltoolService,
         @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>
+        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+        private val blockUtils: BlockUtils,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -81,7 +84,8 @@ class BlockMonitor @Autowired constructor(
     private val adoptedBlockAdapter by lazy { moshi.adapter(TraceAdoptedBlock::class.java) }
     private val blockAdapter by lazy { moshi.adapter(AddedToCurrentChain::class.java) }
     private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
-    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
+    private val shelleyGenesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
+    private val byronGenesisAdapter by lazy { moshi.adapter(GenesisByron::class.java) }
 
     override fun isAutoStartup() = true
 
@@ -142,14 +146,20 @@ class BlockMonitor @Autowired constructor(
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorBlocksLocal(host: Host, node: Node) {
         coroutineScope {
-            val magicString = fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
-                if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                    "--testnet-magic ${genesis.networkMagic}"
-                } else {
-                    "--mainnet"
-                }
-            } ?: throw IOException("Unable to read shelley genesis file!")
+            val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
+                    ?: throw IOException("Unable to read byron genesis file!")
+            val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
+            val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
+                    ?: throw IOException("Unable to read shelley genesis file!")
+            val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+            val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
+                "--testnet-magic ${shelley.networkMagic}"
+            } else {
+                "--mainnet"
+            }
+
+            // delay a bit so we have some latest nodestats already
+            delay(3 * RECONNECT_DELAY_MS)
 
             var retry = true
             while (retry) {
@@ -161,7 +171,7 @@ class BlockMonitor @Autowired constructor(
                         override fun handle(line: String?) {
                             line?.let {
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(host, node, magicString, line)
+                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
                                 } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
                                     if (pooltoolApiKey.isNotBlank()) {
                                         launch {
@@ -183,14 +193,20 @@ class BlockMonitor @Autowired constructor(
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorBlocksRemote(host: Host, node: Node) {
         coroutineScope {
-            val magicString = fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
-                if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                    "--testnet-magic ${genesis.networkMagic}"
-                } else {
-                    "--mainnet"
-                }
-            } ?: throw IOException("Unable to read shelley genesis file!")
+            val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
+                    ?: throw IOException("Unable to read byron genesis file!")
+            val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
+            val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
+                    ?: throw IOException("Unable to read shelley genesis file!")
+            val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+            val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
+                "--testnet-magic ${shelley.networkMagic}"
+            } else {
+                "--mainnet"
+            }
+
+            // delay a bit so we have some latest nodestats already
+            delay(3 * RECONNECT_DELAY_MS)
 
             var retry = true
             while (retry) {
@@ -207,7 +223,7 @@ class BlockMonitor @Autowired constructor(
                         val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
-                                saveBlocksFromRemoteNode(null, node, magicString, line)
+                                saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
                             }
                         }
                         cmd.join()
@@ -218,7 +234,7 @@ class BlockMonitor @Autowired constructor(
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(host, node, magicString, line)
+                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
                                 } else {
                                     if (pooltoolApiKey.isNotBlank()) {
                                         launch {
@@ -247,14 +263,17 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, line: String) {
+    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: Genesis, line: String) {
         adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
             try {
+                val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, traceAdoptedBlock.block.slot)
                 val block = Block(
                         at = traceAdoptedBlock.localTimeString(),
                         pool = node.name,
                         host = traceAdoptedBlock.host,
                         slot = traceAdoptedBlock.block.slot,
+                        epoch = epoch,
+                        slotInEpoch = slotInEpoch,
                         hash = traceAdoptedBlock.block.rawHash()
                 )
 

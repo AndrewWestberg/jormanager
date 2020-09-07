@@ -14,6 +14,9 @@
         <b-nav-item to="/nodes" exact exact-active-class="active">
           <font-awesome-icon :icon="['fas', 'dice-d20']" />&nbsp;Nodes
         </b-nav-item>
+        <b-nav-item to="/blocks" exact exact-active-class="active">
+          <font-awesome-icon :icon="['fas', 'cubes']" />&nbsp;Blocks
+        </b-nav-item>
         <b-nav-item to="/wallet" exact exact-active-class="active">
           <font-awesome-icon :icon="['fas', 'wallet']" />&nbsp;Wallet
         </b-nav-item>
@@ -28,14 +31,14 @@ import { mapState, mapActions } from "vuex";
 export default {
   name: "Header",
   computed: {
-    ...mapState(["appVersion"])
+    ...mapState(["appVersion"]),
   },
   methods: {
-    ...mapActions(["requestAppVersion"])
+    ...mapActions(["requestAppVersion"]),
   },
   mounted() {
     this.requestAppVersion();
-  }
+  },
 };
 </script>
 

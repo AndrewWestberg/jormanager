@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.spring.config
 
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.channels.BroadcastChannel
@@ -17,6 +18,7 @@ import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.util.concurrent.atomic.AtomicReference
 
 
 @Configuration
@@ -79,5 +81,11 @@ class Configuration {
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun argonPasswordEncoder(): Argon2PasswordEncoder {
         return Argon2PasswordEncoder()
+    }
+
+    @Bean("latestNodeStats")
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getLatestNodeStats(): AtomicReference<NodeStats?> {
+        return AtomicReference(null)
     }
 }

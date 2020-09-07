@@ -18,5 +18,7 @@
     <include file="changelog/011-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/012-create-relay-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/013-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/014-update-blocks-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/015-update-blocks-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

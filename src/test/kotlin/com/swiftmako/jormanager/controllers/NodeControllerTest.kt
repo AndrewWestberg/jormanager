@@ -46,6 +46,7 @@ class NodeControllerTest {
                 moshi = Moshi.Builder().build(),
                 retrofit = Retrofit.Builder().build(),
                 okHttpClient = OkHttpClient.Builder().build(),
+                relayRepository = mockk(relaxed=true),
         )
 
         val request = CreateNodeRequest(
@@ -118,7 +119,10 @@ class NodeControllerTest {
                         )
                 ),
 
-                sudoPassword = "asdfasdf"
+                sudoPassword = "asdfasdf",
+                spendingPassword = "asdfasdf",
+                ekgPort = 12788,
+                promPort = 12789,
         )
         val response = target.createNode(request)
 

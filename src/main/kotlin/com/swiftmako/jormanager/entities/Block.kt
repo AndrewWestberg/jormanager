@@ -21,6 +21,10 @@ data class Block(
         val host: String,
         @Column(name = "slot")
         val slot: Long,
+        @Column(name = "epoch")
+        val epoch: Long,
+        @Column(name = "slotInEpoch")
+        val slotInEpoch: Long,
         @Column(name = "hash")
-        val hash: String
+        val hash: String,
 )
