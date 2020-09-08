@@ -37,6 +37,27 @@ export default {
                 }
             }), ['text'])
     },
+    epochSelectOptions: (state) => {
+        return _.orderBy(_.map(_.uniqBy(state.blocks, (block) => {
+            return block.epoch
+        }), (block) => {
+            return {
+                value: block.epoch,
+                text: block.epoch
+            }
+        }), ['text'], ['desc'])
+    },
+    coreNodeSelectOptions: (state) => {
+        return _.sortBy(
+            _.map(_.filter(state.nodes, (node) => {
+                return node.type === 'core'
+            }), (node) => {
+                return {
+                    value: node.name,
+                    text: node.name
+                }
+            }), ['text'])
+    },
     stakingSKeys: (state) => {
         return _.sortBy(_.filter(state.files, (file) => {
             return file.text.match(/.*\.staking\.skey/i) != null
@@ -140,4 +161,22 @@ export default {
                 }
             }), ['text'])
     },
+    epochTimeRemaining: (state) => {
+        // console.log("state.slot = " + state.slot);
+        let time = 432000 - state.slot;
+        // console.log("time: " + time);
+        let days = Math.floor(time / 60 / 60 / 24);
+        // console.log("days: " + days);
+        let hours = Math.floor(time / 60 / 60) % 24;
+        // console.log("hours: " + hours);
+        let minutes = Math.floor(time / 60) % 60;
+        // console.log("minutes: " + minutes);
+        let seconds = Math.floor(time % 60);
+        // console.log("seconds: " + seconds);
+
+        return days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
+    },
+    epochTimeRemainingSecs: (state) => {
+        return 432000 - state.slot;
+    }
 }

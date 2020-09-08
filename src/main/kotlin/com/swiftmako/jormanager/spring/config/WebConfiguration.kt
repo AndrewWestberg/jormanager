@@ -12,6 +12,8 @@ class WebConfiguration : WebMvcConfigurer {
                 .setViewName("forward:/index.html")
         registry.addViewController("/nodes")
                 .setViewName("forward:/index.html")
+        registry.addViewController("/blocks")
+                .setViewName("forward:/index.html")
         registry.addViewController("/wallet")
                 .setViewName("forward:/index.html")
     }

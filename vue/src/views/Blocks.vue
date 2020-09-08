@@ -1,14 +1,26 @@
 <template>
   <div>
     <b-container>
-      <b-form-group label="Pool">
-        <b-form-radio-group
-          id="pool-radio-group"
-          v-model="selectedPool"
-          :options="poolOptions"
-          name="radio-options"
-        ></b-form-radio-group>
-      </b-form-group>
+      <b-row>
+        <b-col cols="6">
+          <b-form-group label="Epoch" label-cols="2" label-align="center">
+            <b-form-select v-model="selectedEpoch" :options="epochSelectOptions">
+              <template v-slot:first>
+                <b-form-select-option :value="null">-- Latest --</b-form-select-option>
+              </template>
+            </b-form-select>
+          </b-form-group>
+        </b-col>
+        <b-col cols="6">
+          <b-form-group label="Pool" label-cols="2" label-align="center">
+            <b-form-select v-model="selectedPool" :options="coreNodeSelectOptions">
+              <template v-slot:first>
+                <b-form-select-option :value="null">-- All --</b-form-select-option>
+              </template>
+            </b-form-select>
+          </b-form-group>
+        </b-col>
+      </b-row>
       <b-table
         bordered
         striped
@@ -48,32 +60,31 @@ export default {
           },
         },
       ],
+      selectedEpoch: null,
       selectedPool: null,
-      /* FIXME: temporary hardcoding for dev purposes */
-      poolOptions: [
-        { text: "All", value: null },
-        { text: "BCSH", value: "bcsh" },
-        { text: "BCSH0", value: "bcsh0" },
-        { text: "BCSH1", value: "bcsh1" },
-        { text: "BCSH2", value: "bcsh2" },
-      ],
     };
   },
   methods: {
-    ...mapActions(["requestBlocks"]),
+    ...mapActions(["requestBlocks", "requestNodes"]),
     filterBlocks(block) {
-      if (this.selectedPool == null || block.pool === this.selectedPool) {
+      let selectedEpoch =
+        this.selectedEpoch == null ? this.epoch : this.selectedEpoch;
+      if (
+        (this.selectedPool == null || block.pool === this.selectedPool) &&
+        (selectedEpoch == null || block.epoch === selectedEpoch)
+      ) {
         return true;
       }
       return false;
     },
   },
   computed: {
-    ...mapGetters(["blocksCount"]),
-    ...mapState(["blocks"]),
+    ...mapGetters(["coreNodeSelectOptions", "epochSelectOptions"]),
+    ...mapState(["blocks", "epoch"]),
   },
   mounted() {
     this.requestBlocks();
+    this.requestNodes();
   },
 };
 </script>

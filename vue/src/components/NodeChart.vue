@@ -22,6 +22,9 @@ export default {
       options: {
         chart: {
           id: "vuechart",
+          animations: {
+            enabled: false,
+          },
           toolbar: {
             show: false,
             tools: {
@@ -31,46 +34,46 @@ export default {
               zoomin: false,
               zoomout: false,
               pan: false,
-              reset: false
-            }
-          }
+              reset: false,
+            },
+          },
         },
         colors: this.colors,
         xaxis: {
           type: "datetime",
           labels: {
             style: {
-              colors: "#6c757d"
+              colors: "#6c757d",
             },
             formatter: (value, timestamp) => {
               return moment(timestamp).format("LTS");
-            }
-          }
+            },
+          },
         },
         yaxis: {
           min: this.min,
           forceNiceScale: true,
           labels: {
             style: {
-              colors: "#6c757d"
-            }
-          }
+              colors: "#6c757d",
+            },
+          },
         },
         grid: {
           row: {
-            colors: ["#00000022"]
-          }
+            colors: ["#00000022"],
+          },
         },
         legend: {
           labels: {
-            colors: "#FFFFFF"
-          }
+            colors: "#FFFFFF",
+          },
         },
         tooltip: {
-          theme: "dark"
+          theme: "dark",
         },
         dataLabels: {
-          enabled: false
+          enabled: false,
         },
         fill: {
           opacity: 0.1,
@@ -80,22 +83,22 @@ export default {
             shadeIntensity: 0.2,
             opacityFrom: 0.5,
             opacityTo: 0.3,
-            stops: [0, 90, 100]
-          }
+            stops: [0, 90, 100],
+          },
         },
         stroke: {
           curve: "straight",
-          width: 1
+          width: 1,
         },
         markers: {
           strokeWidth: 1,
           radius: 1,
           hover: {
-            sizeOffset: 2
-          }
-        }
-      }
+            sizeOffset: 2,
+          },
+        },
+      },
     };
-  }
+  },
 };
 </script>

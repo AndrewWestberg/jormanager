@@ -23,5 +23,8 @@ export default {
     nodeColors: [],
     peersSeries: [],
     blockHeightSeries: [],
-    remainingKESSeries: []
+    remainingKESSeries: [],
+
+    epoch: 0,
+    slot: 0,
 }

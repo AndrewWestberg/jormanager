@@ -91,6 +91,11 @@ addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2x
 ```
 
 ###### Release Notes
+1.0.3-SNAPSHOT
+
+ * Enhancements to block logging and display
+ * Dashboard time in epoch remaining
+ 
 1.0.2-SNAPSHOT
 
  * Add pledge type to wallet entry types

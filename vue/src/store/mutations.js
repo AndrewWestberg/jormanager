@@ -72,6 +72,14 @@ export default {
                 });
                 state.remainingKESSeries = _.sortBy(state.remainingKESSeries, ["name"]);
             }
+
+            if (nodeStats.epoch > state.epoch) {
+                state.epoch = nodeStats.epoch;
+                state.slot = 0;
+            }
+            if (nodeStats.slotInEpoch > state.slot) {
+                state.slot = nodeStats.slotInEpoch;
+            }
         }
 
         // This is a terrible code smell, but I can't get the charts to update otherwise
