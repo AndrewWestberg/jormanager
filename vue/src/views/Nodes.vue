@@ -26,11 +26,15 @@
                 :style="{color: data.item.color}"
                 :icon="['fas','circle']"
                 v-if="!data.item.isDefault"
+                v-b-tooltip.hover.left="'Update Color'"
+                @click="updateColor(data.item.id)"
               />
               <font-awesome-icon
                 :style="{color: data.item.color}"
                 :icon="['fas','check-circle']"
                 v-if="data.item.isDefault"
+                v-b-tooltip.hover.left="'Update Color'"
+                @click="updateColor(data.item.id)"
               />
               &nbsp;{{data.value}}
             </div>
@@ -82,6 +86,7 @@
       </div>
     </div>
     <AddNodeWizard v-if="showAddNodeWizard" @hideAddNodeWizard="showAddNodeWizard = false" />
+    <b-modal id="modal-edit-color" title="Edit Color" no-close-on-backdrop @ok="handleSaveColor"></b-modal>
   </div>
 </template>
 
@@ -133,6 +138,13 @@ export default {
         }
       );
     },
+    updateColor(nodeId) {
+      console.log("update color for id: " + nodeId);
+      this.$bvModal.show("modal-edit-color");
+    },
+    handleSaveColor() {
+      console.log("saving color...");
+    },
   },
   computed: {
     ...mapGetters(["displayNodes"]),
@@ -152,6 +164,8 @@ export default {
 </script>
 
 <style scoped>
+.fa-circle:hover,
+.fa-check-circle:hover,
 .fa-power-off:hover,
 .fa-key:hover {
   cursor: pointer;

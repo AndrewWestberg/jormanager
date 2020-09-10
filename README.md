@@ -91,6 +91,10 @@ addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2x
 ```
 
 ###### Release Notes
+1.0.4-SNAPSHOT
+
+ * Updates to block log
+ 
 1.0.3-SNAPSHOT
 
  * Enhancements to block logging and display

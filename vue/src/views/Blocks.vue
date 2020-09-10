@@ -30,7 +30,9 @@
         filter="true"
         :filter-function="filterBlocks"
         v-if="blocks.length > 0"
+        @filtered="onFiltered"
       >
+        <template v-slot:cell(num)="data">{{totalRows ? totalRows-data.index : "---"}}</template>
         <template v-slot:cell(hash)="data">
           <a
             :href="'https://explorer.cardano.org/en/block.html?id=' + data.value"
@@ -49,10 +51,11 @@ export default {
   data() {
     return {
       fields: [
+        { key: "num" },
         { key: "at", label: "Timestamp" },
-        { key: "epoch", sortable: true },
+        { key: "epoch" },
         { key: "slotInEpoch", label: "Slot" },
-        { key: "pool", sortable: true },
+        { key: "pool" },
         {
           key: "hash",
           formatter: (value) => {
@@ -62,6 +65,7 @@ export default {
       ],
       selectedEpoch: null,
       selectedPool: null,
+      totalRows: -1,
     };
   },
   methods: {
@@ -76,6 +80,9 @@ export default {
         return true;
       }
       return false;
+    },
+    onFiltered(filteredItems) {
+      this.totalRows = filteredItems.length;
     },
   },
   computed: {

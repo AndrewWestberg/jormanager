@@ -135,7 +135,7 @@ class NodeMonitor @Autowired constructor(
 
     private suspend fun monitorNodeLocal(node: Node) {
         val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${node.ekgPort}").build().create(EkgService::class.java)
-        monitorNode(node, ekgService)
+        monitorNode(node.id!!, ekgService)
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
@@ -166,7 +166,7 @@ class NodeMonitor @Autowired constructor(
                 }.start()
 
                 val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${localPort}").build().create(EkgService::class.java)
-                monitorNode(node, ekgService, true)
+                monitorNode(node.id!!, ekgService, true)
             } catch (e: IOException) {
                 log.error("IOException communicating with ${node.name}")
                 retry = true
@@ -185,7 +185,8 @@ class NodeMonitor @Autowired constructor(
         }
     }
 
-    private suspend fun monitorNode(node: Node, ekgService: EkgService, rethrowExceptions: Boolean = false) {
+    private suspend fun monitorNode(nodeId: Long, ekgService: EkgService, rethrowExceptions: Boolean = false) {
+        var node = nodeRepository.findByIdOrNull(nodeId)!!
         log.info("Start NodeMonitor for: ${node.name}")
         var lastBlockHeight = -1L
         while (true) {
@@ -194,6 +195,7 @@ class NodeMonitor @Autowired constructor(
             val delay = 5000 - (before % 5000)
             val now = before + delay
             try {
+                node = nodeRepository.findByIdOrNull(nodeId)!!
                 delay(delay)
                 val ekgMetrics = ekgService.getNodeMetrics(now)
 

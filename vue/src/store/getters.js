@@ -89,6 +89,7 @@ export default {
                 return node.hostId === host.id
             })
             return {
+                id: node.id,
                 color: node.color,
                 name: node.name,
                 type: node.type,

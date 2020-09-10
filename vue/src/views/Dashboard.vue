@@ -9,10 +9,7 @@
           header-border-variant="secondary"
           align="center"
         >
-          <b-card-text>
-            <br />
-            <br />
-            <br />
+          <b-card-text style="padding: 25% 0">
             <h1 v-if="epochTimeRemainingSecs >= 172800" class="text-success">{{epochTimeRemaining}}</h1>
             <h1 v-if="epochTimeRemainingSecs < 172800" class="text-warning">{{epochTimeRemaining}}</h1>
             <h1 v-if="epochTimeRemainingSecs < 86400" class="text-danger">{{epochTimeRemaining}}</h1>
