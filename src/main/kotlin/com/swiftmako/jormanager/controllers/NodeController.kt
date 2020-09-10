@@ -15,6 +15,7 @@ import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.RotateKesRequest
+import com.swiftmako.jormanager.model.UpdateColorRequest
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
@@ -110,6 +111,27 @@ class NodeController @Autowired constructor(
         } catch (e: Throwable) {
             log.error("Error Restarting Node!", e)
             SocketResponse.Error(type = "restartnode", exception = e)
+        }
+    }
+
+    @MessageMapping("/updatenodecolor")
+    @Transactional
+    fun updateNodeColor(request: UpdateColorRequest) {
+        try {
+            nodeRepository.findByIdOrNull(request.id)?.let { node ->
+                nodeRepository.save(node.copy(color = request.color))
+
+                // send all to the client for ui updates
+                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("updatenodecolor", "Updated successfully!"))
+            } ?: throw IllegalArgumentException("Node not found!")
+        } catch (e: Throwable) {
+            log.error("Error Updating Node color!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "updatenodecolor", exception = e))
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
         }
     }
 

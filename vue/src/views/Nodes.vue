@@ -27,14 +27,14 @@
                 :icon="['fas','circle']"
                 v-if="!data.item.isDefault"
                 v-b-tooltip.hover.left="'Update Color'"
-                @click="updateColor(data.item.id)"
+                @click="updateColor(data.item.id, data.item.color)"
               />
               <font-awesome-icon
                 :style="{color: data.item.color}"
                 :icon="['fas','check-circle']"
                 v-if="data.item.isDefault"
                 v-b-tooltip.hover.left="'Update Color'"
-                @click="updateColor(data.item.id)"
+                @click="updateColor(data.item.id, data.item.color)"
               />
               &nbsp;{{data.value}}
             </div>
@@ -86,7 +86,11 @@
       </div>
     </div>
     <AddNodeWizard v-if="showAddNodeWizard" @hideAddNodeWizard="showAddNodeWizard = false" />
-    <b-modal id="modal-edit-color" title="Edit Color" no-close-on-backdrop @ok="handleSaveColor"></b-modal>
+    <b-modal id="modal-edit-color" title="Edit Color" no-close-on-backdrop @ok="handleSaveColor">
+      <b-form-group label="Color" label-cols-md="2">
+        <b-form-input v-model="editColorForm.color" type="color"></b-form-input>
+      </b-form-group>
+    </b-modal>
   </div>
 </template>
 
@@ -109,6 +113,10 @@ export default {
         { key: "edit", label: "" },
       ],
       showAddNodeWizard: false,
+      editColorForm: {
+        id: -1,
+        color: null,
+      },
     };
   },
   methods: {
@@ -118,6 +126,7 @@ export default {
       "restartNodeByName",
       "createNode",
       "rotateKesByName",
+      "updateNodeColor",
     ]),
     restartNode(node) {
       this.$bvModal
@@ -138,12 +147,13 @@ export default {
         }
       );
     },
-    updateColor(nodeId) {
-      console.log("update color for id: " + nodeId);
+    updateColor(nodeId, nodeColor) {
+      this.editColorForm.id = nodeId;
+      this.editColorForm.color = nodeColor;
       this.$bvModal.show("modal-edit-color");
     },
     handleSaveColor() {
-      console.log("saving color...");
+      this.updateNodeColor(this.editColorForm);
     },
   },
   computed: {

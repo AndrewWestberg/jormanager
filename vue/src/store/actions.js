@@ -181,6 +181,21 @@ export default {
                         })
                         console.log(message.exception)
                     }
+                    break
+                case "updatenodecolor":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Update Color...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Update Color Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -397,6 +412,20 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("Download Backup: " + JSON.stringify(spendingPassword));
             state.stompClient.send("/jormanager/backup", spendingPassword);
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    updateNodeColor: ({
+        state,
+        commit
+    }, updateColorForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Update Color: " + JSON.stringify(updateColorForm));
+            state.stompClient.send("/jormanager/updatenodecolor", JSON.stringify(updateColorForm));
         } else {
             commit('toastError', {
                 title: "Communication Error!",
