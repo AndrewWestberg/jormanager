@@ -23,7 +23,18 @@ export default {
     nodeColors: [],
     peersSeries: [],
     blockHeightSeries: [],
-    remainingKESSeries: [],
+    remainingKESSeriesCategories: [],
+    remainingKESSeriesCategoryLabels: [],
+    remainingKESSeries: [{
+        name: 'Low',
+        data: []
+    }, {
+        name: 'Ok',
+        data: []
+    }, {
+        name: 'All Good',
+        data: []
+    }],
 
     epoch: 0,
     slot: 0,

@@ -59,18 +59,34 @@ export default {
                 state.peersSeries = _.sortBy(state.peersSeries, ["name"]);
             }
 
-            let index2 = _.findIndex(state.remainingKESSeries, ["name", nodeStats.nodeName]);
-            if (index2 > -1) {
-                state.remainingKESSeries[index2].data.push([nodeStats.timestamp, nodeStats.remainingKESPeriods]);
-                state.remainingKESSeries[index2].data = state.remainingKESSeries[index2].data.slice(-60); // keep 5 minutes worth of data
-            } else {
-                state.remainingKESSeries.push({
-                    name: nodeStats.nodeName,
-                    data: [
-                        [nodeStats.timestamp, nodeStats.remainingKESPeriods]
-                    ]
-                });
-                state.remainingKESSeries = _.sortBy(state.remainingKESSeries, ["name"]);
+            let daysRemaining = nodeStats.remainingKESPeriods * 1.5;
+            if (daysRemaining > 0) {
+                let low = 0
+                let ok = 0
+                let good = 0
+                if (daysRemaining <= 5) {
+                    low = daysRemaining;
+                } else if (daysRemaining <= 20) {
+                    low = 5;
+                    ok = daysRemaining - 5;
+                } else {
+                    low = 5;
+                    ok = 15;
+                    good = daysRemaining - ok - low;
+                }
+
+                let index2 = state.remainingKESSeriesCategories.indexOf(nodeStats.nodeName);
+                if (index2 < 0) {
+                    state.remainingKESSeriesCategories.push(nodeStats.nodeName);
+                    state.remainingKESSeriesCategories.sort();
+                    state.remainingKESSeriesCategoryLabels.push(nodeStats.nodeName + ' (' + daysRemaining + 'd)');
+                    state.remainingKESSeriesCategoryLabels.sort();
+                    index2 = state.remainingKESSeriesCategories.indexOf(nodeStats.nodeName);
+                }
+                state.remainingKESSeriesCategoryLabels[index2] = nodeStats.nodeName + ' (' + daysRemaining + 'd)';
+                state.remainingKESSeries[0].data[index2] = low;
+                state.remainingKESSeries[1].data[index2] = ok;
+                state.remainingKESSeries[2].data[index2] = good;
             }
 
             if (nodeStats.epoch > state.epoch) {

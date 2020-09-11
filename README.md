@@ -91,9 +91,14 @@ addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2x
 ```
 
 ###### Release Notes
+1.0.5-SNAPSHOT
+
+ * Improve KES dashboard chart
+ 
 1.0.4-SNAPSHOT
 
  * Updates to block log
+ * Allow editing of node colors
  
 1.0.3-SNAPSHOT
 
