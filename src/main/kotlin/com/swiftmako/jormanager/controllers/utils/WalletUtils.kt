@@ -46,12 +46,11 @@ class WalletUtils @Autowired constructor(
         val walletItems = mutableListOf<WalletItem>()
         nodeRepository.findDefault()?.let { defaultNode ->
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                HostConnection(host, defaultNode).use { hostConnection ->
-                    walletRepository.findAllNotDeleted().forEach { walletEntry ->
-                        walletItems.add(
-                                getWalletItem(host, hostConnection, magicString, walletEntry)
-                        )
-                    }
+                val hostConnection = HostConnection(host, defaultNode)
+                walletRepository.findAllNotDeleted().forEach { walletEntry ->
+                    walletItems.add(
+                            getWalletItem(host, hostConnection, magicString, walletEntry)
+                    )
                 }
             } ?: log.error("Host for default node not found!")
         } ?: log.warn("No default node set! Cannot check wallet for updates!")

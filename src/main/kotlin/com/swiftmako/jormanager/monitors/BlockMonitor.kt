@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.monitors
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.swiftmako.jormanager.controllers.utils.SSHClientPool
 import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
@@ -283,16 +284,15 @@ class BlockMonitor @Autowired constructor(
                     blockRepository.save(block)
 
                     val savedBlock: Block = host?.let {
-                        HostConnection(host, node).use { hostConnection ->
-                            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
-                            queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
-                                if (queryTip.headerHash.startsWith(block.hash)) {
-                                    blockRepository.save(block.copy(hash = queryTip.headerHash))
-                                } else {
-                                    block
-                                }
-                            } ?: block
-                        }
+                        val hostConnection = HostConnection(host, node)
+                        val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                        queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
+                            if (queryTip.headerHash.startsWith(block.hash)) {
+                                blockRepository.save(block.copy(hash = queryTip.headerHash))
+                            } else {
+                                block
+                            }
+                        } ?: block
                     } ?: block
 
                     log.info(savedBlock.toString())
@@ -309,34 +309,36 @@ class BlockMonitor @Autowired constructor(
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun sendBlockToPooltool(host: Host, node: Node, magicString: String, line: String) {
         blockAdapter.fromJson(line)?.let { addedToCurrentChain ->
-            HostConnection(host, node).use { hostConnection ->
-                val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
-                queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
-                    try {
-                        val stats = PooltoolStats(
-                                apiKey = pooltoolApiKey,
-                                poolId = requireNotNull(node.poolId),
-                                data = Data(
-                                        nodeId = "", // future use
-                                        version = addedToCurrentChain.env,
-                                        at = addedToCurrentChain.at,
-                                        blockNo = queryTip.blockNo,
-                                        slotNo = queryTip.slotNo,
-                                        blockHash = queryTip.headerHash
-                                )
-                        )
-                        log.info("Pooltool Request: $stats")
-                        val response = pooltoolService.sendStats(stats)
-                        log.debug("pooltool response: ${response.body()}")
-                    } catch (e: Throwable) {
-                        log.error("Error sending stats to pooltool!", e)
-                    }
-                } ?: throw IOException("Could not query json tip for node!")
-            }
+            val hostConnection = HostConnection(host, node)
+            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+            queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
+                try {
+                    val stats = PooltoolStats(
+                            apiKey = pooltoolApiKey,
+                            poolId = requireNotNull(node.poolId),
+                            data = Data(
+                                    nodeId = "", // future use
+                                    version = addedToCurrentChain.env,
+                                    at = addedToCurrentChain.at,
+                                    blockNo = queryTip.blockNo,
+                                    slotNo = queryTip.slotNo,
+                                    blockHash = queryTip.headerHash
+                            )
+                    )
+                    log.info("Pooltool Request: $stats")
+                    val response = pooltoolService.sendStats(stats)
+                    log.debug("pooltool response: ${response.body()}")
+                } catch (e: Throwable) {
+                    log.error("Error sending stats to pooltool!", e)
+                }
+            } ?: throw IOException("Could not query json tip for node!")
         } ?: throw IOException("Could not parse AddedToCurrentChain json!")
     }
 
     override fun stop() {
+        // shutdown all ssh connections
+        SSHClientPool.shutdown()
+
         job.cancelChildren()
         log.info("BlockMonitor stopped.")
     }

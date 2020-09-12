@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.monitors
 
+import com.swiftmako.jormanager.controllers.utils.SSHClientPool
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
@@ -27,7 +28,6 @@ import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder
 import net.schmizz.sshj.connection.channel.direct.Parameters
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -140,17 +140,14 @@ class NodeMonitor @Autowired constructor(
 
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun monitorNodeRemote(host: Host, node: Node) {
+        val sshClientPool = SSHClientPool.getInstance(host)
         var retry = true
         while (retry) {
             retry = false
-            val ssh = SSHClient()
-            ssh.loadKnownHosts()
-            ssh.addHostKeyVerifier(PromiscuousVerifier())
+            var ssh: SSHClient? = null
             var localPortForwarder: LocalPortForwarder? = null
             try {
-                ssh.connect(host.hostname, host.sshPort)
-                ssh.authPublickey(host.sshUser, host.sshPemPath)
-
+                ssh = sshClientPool.borrow()
                 val localPort = availableLocalPort()
                 val params = Parameters("127.0.0.1", localPort, "127.0.0.1", node.ekgPort)
                 val serverSocket = ServerSocket().apply {
@@ -179,7 +176,9 @@ class NodeMonitor @Autowired constructor(
                     localPortForwarder?.close()
                 }
                 ignoreExceptions {
-                    ssh.disconnect()
+                    ssh?.let {
+                        sshClientPool.recycle(ssh)
+                    }
                 }
             }
         }

@@ -62,12 +62,12 @@ fun runInstallation() {
 
     val host = Host(0, "local", "", "", "", "", 22, "", "", "")
     val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 12789, 0, 0, 0, isDefault = true)
-    HostConnection(host, defaultNode).use { hostConnection ->
-        val javaPath = hostConnection.command("which java").trim()
+    val hostConnection = HostConnection(host, defaultNode)
+    val javaPath = hostConnection.command("which java").trim()
 
-        val startScriptPath = "$jormanagerFolderPath${File.separator}startJormanager.sh"
-        File(startScriptPath).sink().buffer().use {
-            it.writeUtf8("""
+    val startScriptPath = "$jormanagerFolderPath${File.separator}startJormanager.sh"
+    File(startScriptPath).sink().buffer().use {
+        it.writeUtf8("""
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -76,11 +76,11 @@ fun runInstallation() {
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Started with logfile jormanager.log"
                 """.trimMargin()
-            )
-        }
-        val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
-        File(stopScriptPath).sink().buffer().use {
-            it.writeUtf8("""
+        )
+    }
+    val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
+    File(stopScriptPath).sink().buffer().use {
+        it.writeUtf8("""
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -93,23 +93,23 @@ fun runInstallation() {
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Stopped"
                 """.trimMargin()
-            )
-        }
-        hostConnection.command("chmod 700 $startScriptPath")
-        hostConnection.command("chmod 700 $stopScriptPath")
+        )
+    }
+    hostConnection.command("chmod 700 $startScriptPath")
+    hostConnection.command("chmod 700 $stopScriptPath")
 
-        if (!hostConnection.hasSystemd) {
-            println("WARN: systemd scripts are not available on your system.")
-        } else {
-            print("Specify the service name for the JorManager systemd startup script or Enter to accept default [jm.service]: ")
-            var systemdServiceName = console.readLine().trim()
-            systemdServiceName = if (systemdServiceName.isNotBlank()) systemdServiceName else "jm.service"
+    if (!hostConnection.hasSystemd) {
+        println("WARN: systemd scripts are not available on your system.")
+    } else {
+        print("Specify the service name for the JorManager systemd startup script or Enter to accept default [jm.service]: ")
+        var systemdServiceName = console.readLine().trim()
+        systemdServiceName = if (systemdServiceName.isNotBlank()) systemdServiceName else "jm.service"
 
-            val user = hostConnection.command("whoami").trim()
+        val user = hostConnection.command("whoami").trim()
 
-            print("Enter your sudo password to allow installer to modify systemd scripts: ")
-            val sudoPassword = String(console.readPassword())
-            hostConnection.sudoCommandWriteFile("/etc/systemd/system/$systemdServiceName", """
+        print("Enter your sudo password to allow installer to modify systemd scripts: ")
+        val sudoPassword = String(console.readPassword())
+        hostConnection.sudoCommandWriteFile("/etc/systemd/system/$systemdServiceName", """
                 |[Unit]
                 |Description=JorManager - Manager for Cardano Nodes
                 |After=syslog.target
@@ -131,16 +131,15 @@ fun runInstallation() {
                 |[Install]
                 |WantedBy=multi-user.target
                 """.trimMargin(),
-                    sudoPassword
-            )
-            hostConnection.sudoCommand("systemctl daemon-reload", sudoPassword)
-            hostConnection.sudoCommand("systemctl stop $systemdServiceName", sudoPassword)
-            hostConnection.sudoCommand("systemctl enable $systemdServiceName", sudoPassword)
+                sudoPassword
+        )
+        hostConnection.sudoCommand("systemctl daemon-reload", sudoPassword)
+        hostConnection.sudoCommand("systemctl stop $systemdServiceName", sudoPassword)
+        hostConnection.sudoCommand("systemctl enable $systemdServiceName", sudoPassword)
 
-            println("To start, run: $ sudo systemctl start $systemdServiceName")
-            println("To stop, run: $ sudo systemctl stop $systemdServiceName")
-        }
-        println("To start manually, run: $ ./startJormanager.sh")
-        println("To stop manually, run: $ ./stopJormanager.sh")
+        println("To start, run: $ sudo systemctl start $systemdServiceName")
+        println("To stop, run: $ sudo systemctl stop $systemdServiceName")
     }
+    println("To start manually, run: $ ./startJormanager.sh")
+    println("To stop manually, run: $ ./stopJormanager.sh")
 }

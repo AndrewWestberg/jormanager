@@ -6,14 +6,11 @@ import com.swiftmako.jormanager.ktx.ignoreExceptions
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.Session
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.xfer.FileSystemFile
 import okio.buffer
 import okio.sink
 import okio.source
 import org.slf4j.LoggerFactory
-import java.io.BufferedReader
-import java.io.Closeable
 import java.io.File
 import java.io.PrintWriter
 import java.util.concurrent.TimeUnit
@@ -21,19 +18,13 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 
-class HostConnection(private val host: Host, private val defaultNode: Node? = null) : Closeable {
+class HostConnection(private val host: Host, private val defaultNode: Node? = null) {
 
     private val log = LoggerFactory.getLogger("HostConnection")
 
-    private val sshDelegate = lazy {
-        SSHClient().apply {
-            loadKnownHosts()
-            addHostKeyVerifier(PromiscuousVerifier())
-            connect(host.hostname, host.sshPort)
-            authPublickey(host.sshUser, host.sshPemPath)
-        }
+    private val sshClientPool by lazy {
+        SSHClientPool.getInstance(host)
     }
-    private val ssh by sshDelegate
 
     val hasSystemd: Boolean by lazy {
         command("ps --no-headers -o comm 1").trim() == "systemd"
@@ -84,16 +75,18 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     private fun remoteCommand(c: List<String>): String {
         lateinit var output: String
         lateinit var errorOutput: String
+        lateinit var ssh: SSHClient
+
         val command = c.joinToString(" ").trim()
         try {
+            ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
-                // TODO set CARDANO_NODE_SOCKET_PATH
                 defaultNode?.let { node ->
                     session.setEnvVar("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
                 }
                 session.exec(command).use { cmd ->
-                    output = cmd.inputStream.bufferedReader().use(BufferedReader::readText)
-                    errorOutput = cmd.errorStream.bufferedReader().use(BufferedReader::readText)
+                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
+                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
                     cmd.join(5, TimeUnit.SECONDS)
                     if (cmd.exitStatus != 0) {
                         throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
@@ -105,6 +98,8 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 throw e
             }
             throw SSHRuntimeException("Error communicating with remote server!", e)
+        } finally {
+            ignoreExceptions { sshClientPool.recycle(ssh) }
         }
         return output
     }
@@ -113,16 +108,19 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         lateinit var cmd: Session.Command
         lateinit var output: String
         lateinit var errorOutput: String
+        lateinit var ssh: SSHClient
+
         val command = if (sudoPassword?.isNotBlank() == true) {
             " sudo -S -k " + c.joinToString(" ").trim() + " <<< '${sudoPassword}'"
         } else {
             " sudo -S -k \" + c.joinToString(\" \").trim()"
         }
         try {
+            ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
                 session.exec(command).use { cmd ->
-                    output = cmd.inputStream.bufferedReader().use(BufferedReader::readText)
-                    errorOutput = cmd.errorStream.bufferedReader().use(BufferedReader::readText)
+                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
+                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
                     cmd.join(5, TimeUnit.SECONDS)
                     if (cmd.exitStatus != 0) {
                         throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
@@ -131,6 +129,8 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             }
         } catch (e: Throwable) {
             throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput", e)
+        } finally {
+            ignoreExceptions { sshClientPool.recycle(ssh) }
         }
         return output
     }
@@ -159,8 +159,8 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
                 }
             }.start()
-            output = process.inputStream.bufferedReader().use(BufferedReader::readText)
-            errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
+            output = process.inputStream.source().buffer().use { it.readUtf8() }
+            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
             process.waitFor(5, TimeUnit.SECONDS)
             if (process.exitValue() != 0) {
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
@@ -196,8 +196,9 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             if (sudoPassword?.isNotBlank() == true) {
                 PrintWriter(process.outputStream.bufferedWriter()).use { it.println(sudoPassword) }
             }
-            output = process.inputStream.bufferedReader().use(BufferedReader::readText)
-            errorOutput = process.errorStream.bufferedReader().use(BufferedReader::readText)
+
+            output = process.inputStream.source().buffer().use { it.readUtf8() }
+            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
             process.waitFor(5, TimeUnit.SECONDS)
             if (process.exitValue() != 0) {
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
@@ -208,11 +209,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return output
     }
 
-    override fun close() {
-        if (sshDelegate.isInitialized()) {
-            ssh.close()
-        }
-    }
 
     fun commandReadFile(fileName: String): String {
         return if (host.isRemote) {
@@ -227,7 +223,9 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
 
     private fun remoteCommandReadFile(fileName: String): String {
+        lateinit var ssh: SSHClient
         try {
+            ssh = sshClientPool.borrow()
             ssh.newSCPFileTransfer().download(fileName, "/tmp/jm_scp_download_file.tmp")
             return localCommandReadFile("/tmp/jm_scp_download_file.tmp")
         } catch (e: Throwable) {
@@ -239,6 +237,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             ignoreExceptions {
                 File("/tmp/jm_scp_download_file.tmp").delete()
             }
+            ignoreExceptions { sshClientPool.recycle(ssh) }
         }
     }
 
@@ -259,7 +258,9 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
 
     private fun remoteCommandWriteFile(fileName: String, content: String) {
+        lateinit var ssh: SSHClient
         try {
+            ssh = sshClientPool.borrow()
             localCommandWriteFile("/tmp/jm_scp_file.tmp", content)
             ssh.newSCPFileTransfer().upload(FileSystemFile("/tmp/jm_scp_file.tmp"), fileName)
         } catch (e: Throwable) {
@@ -271,6 +272,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             ignoreExceptions {
                 File("/tmp/jm_scp_file.tmp").delete()
             }
+            ignoreExceptions { sshClientPool.recycle(ssh) }
         }
     }
 

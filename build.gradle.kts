@@ -19,6 +19,7 @@ object Versions {
     const val jackson = "2.11.2"
     const val joda = "2.10.6"
     const val jsoup = "1.13.1"
+    const val kotlinxIo = "0.1.16"
     const val liquibase = "3.10.2"
     const val mockk = "1.10.0"
     const val moshi = "1.10.0"
@@ -49,6 +50,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.coroutines}")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.coroutines}")
+    implementation("org.jetbrains.kotlinx:kotlinx-io-jvm:${Versions.kotlinxIo}")
 
     implementation("com.hierynomus:sshj:${Versions.sshj}")
     implementation("org.jsoup:jsoup:${Versions.jsoup}")

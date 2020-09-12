@@ -35,51 +35,50 @@ class HostController @Autowired constructor(
     fun addHost(host: Host): SocketResponse<String> {
         // test the host connectivity
         try {
-            HostConnection(host).use { hostConnection ->
-                // get the host information
-                var hostInfo = hostConnection.command("lsb_release -idrc")
-                // create the node home path directory if it doesn't exist
-                hostConnection.command("mkdir -p ${host.nodeHomePath}")
-                // make sure cardano-cli exists
-                if (!hostConnection.commandFileExists(host.cardanoCliPath)) {
-                    throw SSHRuntimeException("File at '${host.cardanoCliPath}' does not exist!")
-                }
-                val cliVersion = hostConnection.command("${host.cardanoCliPath} --version")
-                hostInfo += "       cardano-cli: $cliVersion"
-                // make sure cardano-node exists
-                if (!hostConnection.commandFileExists(host.cardanoNodePath)) {
-                    throw SSHRuntimeException("File at '${host.cardanoNodePath}' does not exist!")
-                }
-                val nodeVersion = hostConnection.command("${host.cardanoNodePath} --version")
-                hostInfo += "      cardano-node: $nodeVersion"
-
-                if (host.jcliPath?.isNotBlank() == true) {
-                    // make sure jcli exists
-                    if (!hostConnection.commandFileExists(host.jcliPath)) {
-                        throw SSHRuntimeException("File at '${host.jcliPath}' does not exist!")
-                    }
-                    val jcliVersion = hostConnection.command("${host.jcliPath} --version")
-                    hostInfo += "              jcli: $jcliVersion"
-                }
-                host.id?.let { id ->
-                    hostRepository.findByIdOrNull(id)
-                }?.let { repositoryHost ->
-                    hostRepository.save(
-                            repositoryHost.copy(
-                                    type = host.type,
-                                    hostname = host.hostname,
-                                    sshUser = host.sshUser,
-                                    sshPort = host.sshPort,
-                                    sshPemPath = host.sshPemPath,
-                                    cardanoCliPath = host.cardanoCliPath,
-                                    cardanoNodePath = host.cardanoNodePath,
-                                    nodeHomePath = host.nodeHomePath,
-                                    jcliPath = host.jcliPath
-                            )
-                    )
-                } ?: hostRepository.save(host)
-                return SocketResponse.Success(type = "addhost", data = hostInfo)
+            val hostConnection = HostConnection(host)
+            // get the host information
+            var hostInfo = hostConnection.command("lsb_release -idrc")
+            // create the node home path directory if it doesn't exist
+            hostConnection.command("mkdir -p ${host.nodeHomePath}")
+            // make sure cardano-cli exists
+            if (!hostConnection.commandFileExists(host.cardanoCliPath)) {
+                throw SSHRuntimeException("File at '${host.cardanoCliPath}' does not exist!")
             }
+            val cliVersion = hostConnection.command("${host.cardanoCliPath} --version")
+            hostInfo += "       cardano-cli: $cliVersion"
+            // make sure cardano-node exists
+            if (!hostConnection.commandFileExists(host.cardanoNodePath)) {
+                throw SSHRuntimeException("File at '${host.cardanoNodePath}' does not exist!")
+            }
+            val nodeVersion = hostConnection.command("${host.cardanoNodePath} --version")
+            hostInfo += "      cardano-node: $nodeVersion"
+
+            if (host.jcliPath?.isNotBlank() == true) {
+                // make sure jcli exists
+                if (!hostConnection.commandFileExists(host.jcliPath)) {
+                    throw SSHRuntimeException("File at '${host.jcliPath}' does not exist!")
+                }
+                val jcliVersion = hostConnection.command("${host.jcliPath} --version")
+                hostInfo += "              jcli: $jcliVersion"
+            }
+            host.id?.let { id ->
+                hostRepository.findByIdOrNull(id)
+            }?.let { repositoryHost ->
+                hostRepository.save(
+                        repositoryHost.copy(
+                                type = host.type,
+                                hostname = host.hostname,
+                                sshUser = host.sshUser,
+                                sshPort = host.sshPort,
+                                sshPemPath = host.sshPemPath,
+                                cardanoCliPath = host.cardanoCliPath,
+                                cardanoNodePath = host.cardanoNodePath,
+                                nodeHomePath = host.nodeHomePath,
+                                jcliPath = host.jcliPath
+                        )
+                )
+            } ?: hostRepository.save(host)
+            return SocketResponse.Success(type = "addhost", data = hostInfo)
         } catch (e: IOException) {
             val error = "IOException communicating with ${host.hostname}"
             log.error(error, e)
