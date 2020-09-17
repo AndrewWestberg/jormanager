@@ -5,7 +5,6 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.ktx.ignoreExceptions
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
-import net.schmizz.sshj.connection.channel.direct.Session
 import net.schmizz.sshj.xfer.FileSystemFile
 import okio.buffer
 import okio.sink
@@ -105,7 +104,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
 
     private fun remoteSudoCommand(c: List<String>, sudoPassword: String?): String {
-        lateinit var cmd: Session.Command
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var ssh: SSHClient
@@ -128,7 +126,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 }
             }
         } catch (e: Throwable) {
-            throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput", e)
+            throw SSHRuntimeException("Remote sudo command failed!", e)
         } finally {
             ignoreExceptions { sshClientPool.recycle(ssh) }
         }
@@ -136,7 +134,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
     }
 
     private fun localCommand(c: List<String>): String {
-        lateinit var process: Process
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var commandList: List<String>
@@ -151,7 +148,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
         commandList = commandList.map { clause -> clause.trim('\'') }
         try {
-            process = ProcessBuilder(commandList).also {
+            val process = ProcessBuilder(commandList).also {
                 defaultNode?.let { node ->
                     it.environment().put("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
                 }
@@ -166,13 +163,12 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
             }
         } catch (e: Throwable) {
-            throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
+            throw RuntimeException("Local command failed!", e)
         }
         return output
     }
 
     private fun localSudoCommand(c: List<String>, sudoPassword: String?): String {
-        lateinit var process: Process
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var commandList: MutableList<String>
@@ -188,7 +184,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         commandList = commandList.map { clause -> clause.trim('\'') }.toMutableList()
         commandList.addAll(0, listOf("sudo", "-S", "-k"))
         try {
-            process = ProcessBuilder(commandList).also {
+            val process = ProcessBuilder(commandList).also {
                 if (redirectAppendFile.isNotBlank()) {
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
                 }
@@ -204,7 +200,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
             }
         } catch (e: Throwable) {
-            throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
+            throw RuntimeException("Local sudo command failed!", e)
         }
         return output
     }
