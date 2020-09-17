@@ -205,7 +205,7 @@ class NodeController @Autowired constructor(
                                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                                         try {
-                                            val protocolParamsJson = defaultHostConnection.command("${host.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
+                                            val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
                                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                                                     ?: throw IOException("Invalid protocol params!")
@@ -232,7 +232,7 @@ class NodeController @Autowired constructor(
                                             // We'll replace this with the actual change to return later
                                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
-                                            val queryTipString = defaultHostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                                            val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query tip $magicString").trim()
                                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                                     ?: -1
                                             transaction.append("--ttl $ttl ")
