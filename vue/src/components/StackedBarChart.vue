@@ -55,6 +55,7 @@ export default {
           },
         },
         yaxis: {
+          max: 93,
           title: {
             text: undefined,
           },
