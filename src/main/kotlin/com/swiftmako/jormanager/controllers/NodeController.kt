@@ -216,10 +216,10 @@ class NodeController @Autowired constructor(
                                             val transaction = StringBuilder()
                                             val certificates = StringBuilder()
                                             val signingKeys = StringBuilder()
-                                            transaction.append("${host.cardanoCliPath} shelley transaction build-raw ")
+                                            transaction.append("${defaultHost.cardanoCliPath} shelley transaction build-raw ")
                                             val feePayerAccount = walletRepository.findByIdOrNull(request.registrationFeesAccount)
                                                     ?: throw IOException("Registration fees account not found!")
-                                            val utxos = walletUtils.getUtxos(host, defaultHostConnection, magicString, feePayerAccount.paymentAddr)
+                                            val utxos = walletUtils.getUtxos(defaultHost, defaultHostConnection, magicString, feePayerAccount.paymentAddr)
                                             utxos.forEach { utxo ->
                                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                                             }
