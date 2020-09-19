@@ -48,6 +48,7 @@ import {
   faUnlink,
   faKey,
   faCubes,
+  faPercent,
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -72,6 +73,7 @@ library.add(faLink)
 library.add(faUnlink)
 library.add(faKey)
 library.add(faCubes)
+library.add(faPercent)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
