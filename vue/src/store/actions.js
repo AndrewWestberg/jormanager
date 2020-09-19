@@ -196,6 +196,20 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "updatepoolconfig":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Update Pool Config...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Update Pool Config Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -426,6 +440,20 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("Update Color: " + JSON.stringify(updateColorForm));
             state.stompClient.send("/jormanager/updatenodecolor", JSON.stringify(updateColorForm));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    updatePoolConfig: ({
+        state,
+        commit
+    }, editPoolForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Update Pool Config: " + JSON.stringify(editPoolForm));
+            state.stompClient.send("/jormanager/updatepoolconfig", JSON.stringify(editPoolForm));
         } else {
             commit('toastError', {
                 title: "Communication Error!",

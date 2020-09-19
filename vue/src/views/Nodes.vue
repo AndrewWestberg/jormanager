@@ -110,7 +110,7 @@
             id="registration-fees-account-select"
             aria-describedby="registration-fees-account-live-feedback"
             v-model="editPoolConfigForm.registrationFeesAccount"
-            :options="registrationFeesSelectOptions($options.filters.currency)"
+            :options="reregistrationFeesSelectOptions($options.filters.currency)"
             :state="registrationFeesAccountState"
           >
             <template v-slot:first>
@@ -245,6 +245,7 @@ export default {
       "createNode",
       "rotateKesByName",
       "updateNodeColor",
+      "updatePoolConfig",
     ]),
     ...mapMutations(["toastError"]),
     restartNode(node) {
@@ -305,8 +306,7 @@ export default {
                 this.editPoolConfigForm.poolCost
               );
             }
-            // this.updatePoolConfig(this.editPoolConfigForm);
-            alert(JSON.stringify(this.editPoolConfigForm));
+            this.updatePoolConfig(this.editPoolConfigForm);
             this.$bvModal.hide("modal-edit-pool-config");
           }
         );
@@ -321,7 +321,7 @@ export default {
   computed: {
     ...mapGetters([
       "displayNodes",
-      "registrationFeesSelectOptions",
+      "reregistrationFeesSelectOptions",
       "stakingSelectOptions",
       "rewardsSelectOptions",
     ]),

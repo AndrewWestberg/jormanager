@@ -1052,7 +1052,6 @@ export default {
           return false;
         }
       } else if (currentPage === 1) {
-        console.log("currentPage1, poolPledge: " + this.formNode.poolPledge);
         if (this.formNode.type === "core") {
           if (
             this.coldSKeyState &&
@@ -1081,7 +1080,6 @@ export default {
           );
         }
       } else if (currentPage === 2) {
-        console.log("currentPage2, poolPledge: " + this.formNode.poolPledge);
         if (
           this.registrationFeesAccountState &&
           this.ownerStakingAccountState &&
@@ -1109,7 +1107,6 @@ export default {
           return false;
         }
       } else if (currentPage === 3) {
-        console.log("currentPage3, poolPledge: " + this.formNode.poolPledge);
         if (this.formNode.relays.length === 0) {
           return true;
         } else {
@@ -1197,8 +1194,20 @@ export default {
       // console.log("next clicked", currentPage);
       return true; //return false if you want to prevent moving to next page
     },
-    backClicked(/*currentPage*/) {
+    backClicked(currentPage) {
       // console.log("back clicked", currentPage);
+      if (currentPage === 2) {
+        if (this.poolPledgeState && isNaN(this.formNode.poolPledge)) {
+          this.formNode.poolPledge = this.$root.$parseCurrency(
+            this.formNode.poolPledge
+          );
+        }
+        if (this.poolCostState && isNaN(this.formNode.poolCost)) {
+          this.formNode.poolCost = this.$root.$parseCurrency(
+            this.formNode.poolCost
+          );
+        }
+      }
       return true; //return false if you want to prevent moving to previous page
     },
     addRelay() {

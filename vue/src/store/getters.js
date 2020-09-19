@@ -130,10 +130,27 @@ export default {
                 }
             }), ['text'])
     },
+    reregistrationFeesSelectOptions: (state) => (currency) => {
+        return _.sortBy(
+            _.map(_.filter(state.walletItems, (walletItem) => {
+                // must have over 1 ada to pay fees for re-registering a pool.
+                return walletItem.type !== "address" && walletItem.hasPaymentKeys && walletItem.paymentAddrLovelace > 1000000
+            }), (walletItem) => {
+                return {
+                    value: walletItem.id,
+                    text: walletItem.name + " - " +
+                        currency(
+                            walletItem.paymentAddrLovelace / 1000000,
+                            "₳",
+                            6
+                        )
+                }
+            }), ['text'])
+    },
     stakingSelectOptions: (state) => (currency) => {
         return _.sortBy(
             _.map(_.filter(state.walletItems, (walletItem) => {
-                return walletItem.type === "stake"
+                return walletItem.type === "stake" || walletItem.type === "pledge"
             }), (walletItem) => {
                 return {
                     value: walletItem.id,

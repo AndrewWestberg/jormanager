@@ -185,6 +185,8 @@ class NodeMonitor @Autowired constructor(
     }
 
     private suspend fun monitorNode(nodeId: Long, ekgService: EkgService, rethrowExceptions: Boolean = false) {
+        // delay a bit so the node has time to be saved in the db.
+        delay(5000)
         var node = nodeRepository.findByIdOrNull(nodeId)!!
         log.info("Start NodeMonitor for: ${node.name}")
         var lastBlockHeight = -1L

@@ -95,6 +95,8 @@ addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2x
 
  * Improve KES dashboard chart
  * SSH Connection pooling for optimal re-use of ssh connections.
+ * Fix bug with pledge and cost navigating back/next
+ * Allow editing of Pool Config parameters
  
 1.0.4-SNAPSHOT
 
