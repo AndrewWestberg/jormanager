@@ -2,9 +2,9 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "2.3.3.RELEASE"
+    id("org.springframework.boot") version "2.3.4.RELEASE"
     id("io.spring.dependency-management") version "1.0.10.RELEASE"
-    id("com.github.ben-manes.versions") version "0.31.0"
+    id("com.github.ben-manes.versions") version "0.33.0"
     kotlin("jvm") version "1.4.10"
     kotlin("kapt") version "1.4.10"
     kotlin("plugin.spring") version "1.4.10"
@@ -14,6 +14,7 @@ plugins {
 object Versions {
     const val bouncycastle = "1.66"
     const val commonsio = "2.8.0"
+    const val cbor = "0.01.01"
     const val coroutines = "1.3.9"
     const val googleTruth = "1.0.1"
     const val jackson = "2.11.2"
@@ -23,7 +24,7 @@ object Versions {
     const val liquibase = "3.10.2"
     const val mockk = "1.10.0"
     const val moshi = "1.10.0"
-    const val okhttp = "4.8.1"
+    const val okhttp = "4.9.0"
     const val retrofit = "2.9.0"
     const val springSecurity = "5.4.0"
     const val sshj = "0.30.0"
@@ -69,6 +70,9 @@ dependencies {
     implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("com.h2database:h2")
+
+    implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
+
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")

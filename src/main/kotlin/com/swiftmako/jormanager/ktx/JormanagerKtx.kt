@@ -1,5 +1,7 @@
 package com.swiftmako.jormanager.ktx
 
+import com.google.iot.cbor.CborArray
+
 fun ignoreExceptions(block: () -> Unit) {
     try {
         block.invoke()
@@ -13,4 +15,9 @@ inline fun <T> Iterable<T>.sumByLong(selector: (T) -> Long): Long {
         sum += selector(element)
     }
     return sum
+}
+
+fun CborArray.elementToLong(index: Int): Long {
+    val obj = elementAt(index).toJavaObject()
+    return (obj as? Long) ?: (obj as Int).toLong()
 }
