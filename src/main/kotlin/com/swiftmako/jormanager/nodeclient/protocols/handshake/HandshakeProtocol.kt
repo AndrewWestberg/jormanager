@@ -15,9 +15,6 @@ import java.nio.ByteBuffer
 
 class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000, LoggerFactory.getLogger("HandshakeProtocol")) {
 
-    override val txChannel: Channel<ByteBuffer> = Channel(RENDEZVOUS)
-    override val rxChannel: Channel<ByteBuffer> = Channel(RENDEZVOUS)
-
     var state: State = State.PROPOSE
 
     override suspend fun start() {
@@ -59,22 +56,29 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
     }
 
     private fun handleConfirm(rxBuffer: ByteBuffer) {
-        CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position(), 1).apply {
-            val cborArray = readDataItem() as CborArray
-            val messageId: Long = cborArray.elementToLong(0)
-            when (messageId) {
-                MsgAcceptVersion.MESSAGE_ID -> {
-                    val msgAcceptVersion = MsgAcceptVersion(cborArray)
-                    log.info("Handshake Successful: $msgAcceptVersion")
-                }
-                MsgRefuse.MESSAGE_ID -> {
-                    val msgRefuse = MsgRefuse(cborArray)
-                    throw IOException("Handshake Failed: $msgRefuse")
-                }
-                else -> {
-                    throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
+        try {
+            CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position(), 1).apply {
+                val cborArray = readDataItem() as CborArray
+                val messageId: Long = cborArray.elementToLong(0)
+                when (messageId) {
+                    MsgAcceptVersion.MESSAGE_ID -> {
+                        val msgAcceptVersion = MsgAcceptVersion(cborArray)
+                        if (msgAcceptVersion.extraParams != networkMagic) {
+                            throw IOException("Handshake succeeded, but networkMagic did not match!")
+                        }
+                        log.info("Handshake Successful: $msgAcceptVersion")
+                    }
+                    MsgRefuse.MESSAGE_ID -> {
+                        val msgRefuse = MsgRefuse(cborArray)
+                        throw IOException("Handshake Failed: $msgRefuse")
+                    }
+                    else -> {
+                        throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
+                    }
                 }
             }
+        } finally {
+            BufferPool.recycle(rxBuffer)
         }
     }
 
