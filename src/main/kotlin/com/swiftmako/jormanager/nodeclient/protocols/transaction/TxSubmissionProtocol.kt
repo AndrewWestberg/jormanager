@@ -2,9 +2,12 @@ package com.swiftmako.jormanager.nodeclient.protocols.transaction
 
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
+import com.google.iot.cbor.CborSimple
 import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
+import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 
@@ -26,66 +29,63 @@ class TxSubmissionProtocol : MiniProtocol(protocolId = 0x0004, LoggerFactory.get
                         State.Idle -> {
                             log.debug("State.Idle")
                             val rxBuffer = rxChannel.receive()
-                            val cborReader = CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position())
-                            while (cborReader.hasRemainingDataItems()) {
-                                val cborArray = cborReader.readDataItem() as CborArray
-                                when (cborArray.elementToLong(0)) {
-                                    //msgRequestTxIds = [0, tsBlocking, txCount, txCount]
-                                    //msgReplyTxIds   = [1, [ *txIdAndSize] ]
-                                    //msgRequestTxs   = [2, tsIdList ]
-                                    //msgReplyTxs     = [3, tsIdList ]
-                                    //tsMsgDone       = [4]
-                                    //msgReplyKTnxBye = [5]
-                                    0L -> {
-
-                                    }
-                                    1L -> {
-
-                                    }
-                                    2L -> {
-
-                                    }
-                                    3L -> {
-
-                                    }
-                                    4L -> {
-
-                                    }
-                                    5L -> {
-                                        
+                            try {
+                                CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position(), 1).apply {
+                                    val cborArray = readDataItem() as CborArray
+                                    log.debug("received: ${cborArray.toJsonString()}")
+                                    when (val messageId = cborArray.elementToLong(0)) {
+                                        //msgRequestTxIds = [0, tsBlocking, txCount, txCount]
+                                        //msgReplyTxIds   = [1, [ *txIdAndSize] ]
+                                        //msgRequestTxs   = [2, tsIdList ]
+                                        //msgReplyTxs     = [3, tsIdList ]
+                                        //tsMsgDone       = [4]
+                                        //msgReplyKTnxBye = [5]
+                                        0L -> {
+                                            val isBlocking = cborArray.elementAt(1) == CborSimple.TRUE
+                                            state = if (isBlocking) {
+                                                State.TxIdsBlocking
+                                            } else {
+                                                State.TxIdsNonBlocking
+                                            }
+                                        }
+                                        else -> {
+                                            log.error("Got unexpected messageId: $messageId")
+                                        }
                                     }
                                 }
+                            } finally {
+                                BufferPool.recycle(rxBuffer)
                             }
                         }
-//                        HandshakeProtocol.State.PROPOSE -> {
-//                            log.debug("State.PROPOSE")
+                        State.TxIdsBlocking -> {
+                            log.debug("State.TxIdsBlocking")
+//                            // Tell the server that we don't want to use this MiniProtocol
 //                            val txBuffer = BufferPool.borrow()
-//                            MsgProposeVersions(networkMagic).writeToBuffer(txBuffer)
+//                            MsgDone().writeToBuffer(txBuffer)
 //                            txBuffer.flip()
 //                            txChannel.send(txBuffer)
-//                            state = HandshakeProtocol.State.CONFIRM
-//                        }
-//                        HandshakeProtocol.State.CONFIRM -> {
-//                            log.debug("State.CONFIRM")
-//                            try {
-//                                val rxBuffer = rxChannel.receive()
-//                                handleConfirm(rxBuffer)
-//                                BufferPool.recycle(rxBuffer)
-//                            } finally {
-//                                state = HandshakeProtocol.State.DONE
-//                            }
-//                        }
-//                        HandshakeProtocol.State.DONE -> {
-//                            log.debug("State.DONE")
-//                            txChannel.cancel()
-//                            rxChannel.cancel()
-//                            break
-//                        }
+                            state = State.Done
+                        }
+                        State.TxIdsNonBlocking -> {
+                            log.debug("State.TxIdsNonBlocking")
+                            // Tell the server that we have no transactions to send them
+                            val txBuffer = BufferPool.borrow()
+                            ReplyTxIds().writeToBuffer(txBuffer)
+                            txBuffer.flip()
+                            txChannel.send(txBuffer)
+                            state = State.Idle
+                        }
+                        State.Done -> {
+                            log.debug("State.Done")
+                            txChannel.cancel()
+                            rxChannel.cancel()
+                            break
+                        }
                     }
                 }
 
                 log.info("TxSubmissionProtocol exited.")
-            }.join()
+            }
         }
     }
 

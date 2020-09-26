@@ -5,8 +5,6 @@ import com.google.iot.cbor.CborReader
 import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.Channel.Factory.RENDEZVOUS
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -35,8 +33,11 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
                             log.debug("State.CONFIRM")
                             try {
                                 val rxBuffer = rxChannel.receive()
-                                handleConfirm(rxBuffer)
-                                BufferPool.recycle(rxBuffer)
+                                try {
+                                    handleConfirm(rxBuffer)
+                                } finally {
+                                    BufferPool.recycle(rxBuffer)
+                                }
                             } finally {
                                 state = State.DONE
                             }

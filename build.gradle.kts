@@ -2,6 +2,7 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
+    java
     id("org.springframework.boot") version "2.3.4.RELEASE"
     id("io.spring.dependency-management") version "1.0.10.RELEASE"
     id("com.github.ben-manes.versions") version "0.33.0"
@@ -19,6 +20,7 @@ object Versions {
     const val googleTruth = "1.0.1"
     const val jackson = "2.11.2"
     const val joda = "2.10.6"
+    const val json = "20200518"
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "3.10.2"
@@ -71,8 +73,11 @@ dependencies {
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("com.h2database:h2")
 
-    implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
-
+    // implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
+    implementation("org.json:json:${Versions.json}")
+    compileOnly("com.google.errorprone:error_prone_annotations:2.2.0")
+    compileOnly("org.checkerframework:checker-qual:2.5.6")
+    compileOnly("com.google.code.findbugs:jsr305:3.0.2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
