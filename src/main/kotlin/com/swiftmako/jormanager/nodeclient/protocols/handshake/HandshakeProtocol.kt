@@ -33,11 +33,7 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
                             log.debug("State.CONFIRM")
                             try {
                                 val rxBuffer = rxChannel.receive()
-                                try {
-                                    handleConfirm(rxBuffer)
-                                } finally {
-                                    BufferPool.recycle(rxBuffer)
-                                }
+                                handleConfirm(rxBuffer)
                             } finally {
                                 state = State.DONE
                             }
