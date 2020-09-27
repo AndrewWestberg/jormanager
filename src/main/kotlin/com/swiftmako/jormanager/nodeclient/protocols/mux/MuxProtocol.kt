@@ -65,11 +65,11 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
                         while (true) {
                             val receiveBuffer = BufferPool.borrow()
                             receiveBuffer.limit(8)
-                            log.debug("ready to read: position(): ${receiveBuffer.position()}, limit(): ${receiveBuffer.limit()}, remaining(): ${receiveBuffer.remaining()}, capacity(): ${receiveBuffer.capacity()}")
+                            //log.debug("ready to read: position(): ${receiveBuffer.position()}, limit(): ${receiveBuffer.limit()}, remaining(): ${receiveBuffer.remaining()}, capacity(): ${receiveBuffer.capacity()}")
                             var bytesReceived = 0
                             while (bytesReceived < 8) {
                                 val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
-                                log.debug("read socket bytes: $byteCnt")
+                                //log.debug("read socket bytes: $byteCnt")
                                 if (byteCnt <= 0) {
                                     BufferPool.recycle(receiveBuffer)
                                     throw IOException("Unexpected end of stream!")
@@ -79,15 +79,15 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
                             receiveBuffer.flip()
                             val timestamp = receiveBuffer.int
                             val protocolId = receiveBuffer.short
-                            log.debug("rawProtocolId: $protocolId")
+                            //log.debug("rawProtocolId: $protocolId")
                             val payloadLength = receiveBuffer.short.toInt()
-                            log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
+                            //log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
                             receiveBuffer.flip()
                             receiveBuffer.limit(receiveBuffer.position() + payloadLength)
                             bytesReceived = 0
                             while (bytesReceived < payloadLength) {
                                 val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
-                                log.debug("read socket bytes: $byteCnt")
+                                //log.debug("read socket bytes: $byteCnt")
                                 if (byteCnt < 0) {
                                     BufferPool.recycle(receiveBuffer)
                                     throw IOException("Unexpected end of stream!")

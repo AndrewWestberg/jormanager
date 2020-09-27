@@ -1,6 +1,8 @@
 package com.swiftmako.jormanager.ktx
 
 import com.google.iot.cbor.CborArray
+import com.google.iot.cbor.CborByteString
+import org.springframework.security.crypto.codec.Hex
 
 fun ignoreExceptions(block: () -> Unit) {
     try {
@@ -20,4 +22,16 @@ inline fun <T> Iterable<T>.sumByLong(selector: (T) -> Long): Long {
 fun CborArray.elementToLong(index: Int): Long {
     val obj = elementAt(index).toJavaObject()
     return (obj as? Long) ?: (obj as Int).toLong()
+}
+
+fun CborArray.elementToByteArray(index: Int): ByteArray {
+    return (elementAt(index) as CborByteString).byteArrayValue()
+}
+
+fun CborArray.elementToHexString(index: Int): String {
+    return elementToByteArray(index).toHexString()
+}
+
+fun ByteArray.toHexString(): String {
+    return String(Hex.encode(this))
 }
