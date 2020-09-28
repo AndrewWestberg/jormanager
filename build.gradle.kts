@@ -79,6 +79,8 @@ dependencies {
     compileOnly("org.checkerframework:checker-qual:2.5.6")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
     implementation("com.muquit.libsodiumjna:libsodium-jna:1.0.4")
+    implementation("com.squareup.jnagmp:jnagmp:3.0.0")
+
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
