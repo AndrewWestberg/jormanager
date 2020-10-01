@@ -24,7 +24,7 @@ object Versions {
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "3.10.2"
-    const val mockk = "1.10.0"
+    const val mockk = "1.10.2"
     const val moshi = "1.10.0"
     const val okhttp = "4.9.0"
     const val retrofit = "2.9.0"
@@ -33,10 +33,11 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.0.5-SNAPSHOT"
+version = "1.1.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
+    mavenLocal()
     mavenCentral()
     jcenter()
 }
@@ -78,7 +79,7 @@ dependencies {
     compileOnly("com.google.errorprone:error_prone_annotations:2.2.0")
     compileOnly("org.checkerframework:checker-qual:2.5.6")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
-    implementation("com.muquit.libsodiumjna:libsodium-jna:1.0.4")
+    implementation("com.muquit.libsodiumjna:libsodium-jna:1.1.0-IOG-SNAPSHOT")
     implementation("com.squareup.jnagmp:jnagmp:3.0.0")
 
 

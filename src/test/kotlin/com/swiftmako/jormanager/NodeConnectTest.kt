@@ -1,9 +1,11 @@
 package com.swiftmako.jormanager
 
+import com.google.common.truth.Truth.assertThat
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.jnagmp.Gmp
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
 import kotlinx.coroutines.runBlocking
@@ -13,6 +15,8 @@ import org.junit.jupiter.api.Test
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.nio.ByteBuffer
+import kotlin.math.abs
 import kotlin.system.measureTimeMillis
 
 class NodeConnectTest {
@@ -33,8 +37,6 @@ class NodeConnectTest {
 
         val v = SodiumLibrary.libsodiumVersionString()
         println("libsodium version: $v")
-
-        println("nonceBytes: $nonceBytes")
     }
 
     @Test
@@ -68,6 +70,50 @@ class NodeConnectTest {
             println("Compute Time: ${computeTime}ms")
         }
         println("Total Duration: ${duration}ms")
+    }
+
+    @Test
+    fun testIsOverlaySlot() {
+        val d = BigDecimal("0.72").setScale(64)
+        val firstSlotOfEpoch = 1000L
+        var currentSlot = 1000L
+        var communitySlots = 0
+        repeat(100) {
+            if (!isOverlaySlot(firstSlotOfEpoch, currentSlot, d)) {
+                communitySlots++
+            }
+            currentSlot++
+        }
+        assertThat(communitySlots).isEqualTo(28)
+    }
+
+    private fun isOverlaySlot(firstSlotOfEpoch: Long, currentSlot: Long, d: BigDecimal): Boolean {
+        val diffSlot = abs(currentSlot - firstSlotOfEpoch)
+        return d.times(diffSlot.toBigDecimal()).setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal()).setScale(0, RoundingMode.CEILING)
+    }
+
+    @Test
+    fun testMakeNonceFromNumber() {
+        val libraryPath = "/usr/local/lib/libsodium.so"
+        println("Library path: $libraryPath")
+        println("loading libsodium...")
+        SodiumLibrary.setLibraryPath(libraryPath);
+
+        val inputBytes = ByteArray(8)
+        val inputBuffer = ByteBuffer.wrap(inputBytes)
+        inputBuffer.putLong(0)
+
+        val outputBytes = SodiumLibrary.cryptoBlake2bHash(inputBytes, null)
+
+        println("blake2b seedEta hash of 0L ${outputBytes.toHexString()}")
+        assertThat(outputBytes.toHexString()).isEqualTo("81e47a19e6b29b0a65b9591762ce5143ed30d0261e5d24a3201752506b20f15c")
+
+        inputBuffer.clear()
+        inputBuffer.putLong(1L)
+        val outputBytes2 = SodiumLibrary.cryptoBlake2bHash(inputBytes, null)
+
+        println("blake2b seedL hash of 1L ${outputBytes2.toHexString()}")
+        assertThat(outputBytes2.toHexString()).isEqualTo("12dd0a6a7d0e222a97926da03adb5a7768d31cc7c5c2bd6828e14a7d25fa3a60")
     }
 
     @Test
