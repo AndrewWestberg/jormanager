@@ -210,7 +210,21 @@ export default {
                         console.log(message.exception)
                     }
                     break
-            }
+                case "leaderlogs":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Leader Logs",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Update Pool Config Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
+                }
         });
         commit('setConnected', true)
     },
@@ -321,6 +335,20 @@ export default {
         } else {
             commit('toastError', {
                 title: "Error getting blocks!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    requestLeaderLogs: ({
+        state,
+        commit
+    }, spendingPassword) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Leader Logs: " + JSON.stringify(spendingPassword));
+            state.stompClient.send("/jormanager/leaderlogs", spendingPassword);
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
                 message: "stompClient not connected!"
             })
         }

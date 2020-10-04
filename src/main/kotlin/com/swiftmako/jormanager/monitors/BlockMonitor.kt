@@ -168,7 +168,9 @@ class BlockMonitor @Autowired constructor(
                 delay(RECONNECT_DELAY_MS)
 
                 try {
-                    Tailer.create(File("${host.nodeHomePath}/${node.name}/logs/node.json"), object : TailerListenerAdapter() {
+                    val logPath = "${host.nodeHomePath}/${node.name}/logs/node.json"
+                    log.debug("Monitoring blocks from:  $logPath")
+                    Tailer.create(File(logPath), object : TailerListenerAdapter() {
                         override fun handle(line: String?) {
                             line?.let {
                                 if (line.contains("TraceAdoptedBlock")) {
@@ -183,9 +185,15 @@ class BlockMonitor @Autowired constructor(
                             }
                         }
                     }, 100, false, true, 8192).run()
-                    log.info("Done tailing logs!")
+                    log.info("Done tailing logs at: $logPath")
+                    retry = true
+                } catch (e: IOException) {
+                    log.error("IOException communicating with ${node.name}", e)
+                    retry = true
+                } catch (e: CancellationException) {
+                    log.warn("Monitoring job canceled: ${node.name}")
                 } catch (e: Throwable) {
-                    throw RuntimeException("Error monitoring local blocks!", e)
+                    log.error("Fatal error communicating with ${node.name}!", e)
                 }
             }
         }
@@ -281,25 +289,25 @@ class BlockMonitor @Autowired constructor(
                 val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
 
                 if (existingBlock == null) {
-                    blockRepository.save(block)
-
-                    val savedBlock: Block = host?.let {
+                    val hashUpdatedBlock: Block = host?.let {
                         val hostConnection = HostConnection(host, node)
                         val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                         queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                             if (queryTip.headerHash.startsWith(block.hash)) {
-                                blockRepository.save(block.copy(hash = queryTip.headerHash))
+                                block.copy(hash = queryTip.headerHash)
                             } else {
                                 block
                             }
                         } ?: block
                     } ?: block
 
+                    val savedBlock = blockRepository.save(hashUpdatedBlock);
+
                     log.info(savedBlock.toString())
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))
                 }
             } catch (e: DataIntegrityViolationException) {
-                log.warn("Block Exists!: $traceAdoptedBlock")
+                log.warn("Block Exists! (${node.name}): $traceAdoptedBlock", e)
             } catch (e: Throwable) {
                 log.error("Save Block Error!", e)
             }

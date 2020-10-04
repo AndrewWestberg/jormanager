@@ -1,5 +1,16 @@
 <template>
   <div>
+    <div>
+      <b-button
+        variant="outline-primary"
+        @click="onClickedLeaderLogs()"
+        v-b-tooltip.hover.bottom="'Calculate Leader Logs.'"
+      >
+        Leader Logs
+      </b-button>
+    </div>
+    <hr />
+
     <b-container>
       <b-row>
         <b-col cols="6">
@@ -69,7 +80,7 @@ export default {
     };
   },
   methods: {
-    ...mapActions(["requestBlocks", "requestNodes"]),
+    ...mapActions(["requestBlocks", "requestNodes", "requestLeaderLogs"]),
     filterBlocks(block) {
       let selectedEpoch =
         this.selectedEpoch == null ? this.epoch : this.selectedEpoch;
@@ -84,6 +95,13 @@ export default {
     onFiltered(filteredItems) {
       this.totalRows = filteredItems.length;
     },
+    onClickedLeaderLogs() {
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.requestLeaderLogs(spendingPassword);
+        }
+      );
+    }
   },
   computed: {
     ...mapGetters(["coreNodeSelectOptions", "epochSelectOptions"]),

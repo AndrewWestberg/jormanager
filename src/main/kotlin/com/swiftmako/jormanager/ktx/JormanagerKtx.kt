@@ -35,3 +35,7 @@ fun CborArray.elementToHexString(index: Int): String {
 fun ByteArray.toHexString(): String {
     return String(Hex.encode(this))
 }
+
+fun String.hexToByteArray(): ByteArray {
+    return Hex.decode(this)
+}

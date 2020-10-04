@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class Genesis(
+        val activeSlotsCoeff: Double,
         val networkId: String,
         val networkMagic: Long? = null,
         val slotLength: Long,
