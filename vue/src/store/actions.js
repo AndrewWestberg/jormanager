@@ -224,7 +224,7 @@ export default {
                         console.log(message.exception)
                     }
                     break
-                }
+            }
         });
         commit('setConnected', true)
     },
@@ -342,10 +342,10 @@ export default {
     requestLeaderLogs: ({
         state,
         commit
-    }, spendingPassword) => {
+    }, formLeaderLogs) => {
         if (state.stompClient && state.stompClient.connected) {
-            // console.log("Leader Logs: " + JSON.stringify(spendingPassword));
-            state.stompClient.send("/jormanager/leaderlogs", spendingPassword);
+            // console.log("Leader Logs: " + JSON.stringify(formLeaderLogs));
+            state.stompClient.send("/jormanager/leaderlogs", JSON.stringify(formLeaderLogs));
         } else {
             commit('toastError', {
                 title: "Communication Error!",

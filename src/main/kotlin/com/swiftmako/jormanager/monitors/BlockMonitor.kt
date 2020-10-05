@@ -80,6 +80,7 @@ class BlockMonitor @Autowired constructor(
         }
     }
     private val mutex = Mutex()
+    private val blockFoundMutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
 
     private val adoptedBlockAdapter by lazy { moshi.adapter(TraceAdoptedBlock::class.java) }
@@ -172,9 +173,11 @@ class BlockMonitor @Autowired constructor(
                     log.debug("Monitoring blocks from:  $logPath")
                     Tailer.create(File(logPath), object : TailerListenerAdapter() {
                         override fun handle(line: String?) {
-                            line?.let {
+                            if (line != null) {
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    launch {
+                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    }
                                 } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
                                     if (pooltoolApiKey.isNotBlank()) {
                                         launch {
@@ -232,7 +235,9 @@ class BlockMonitor @Autowired constructor(
                         val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
-                                saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
+                                launch {
+                                    saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
+                                }
                             }
                         }
                         cmd.join()
@@ -243,7 +248,9 @@ class BlockMonitor @Autowired constructor(
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
-                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    launch {
+                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    }
                                 } else {
                                     if (pooltoolApiKey.isNotBlank()) {
                                         launch {
@@ -272,44 +279,48 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: Genesis, line: String) {
-        adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
-            try {
-                val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, traceAdoptedBlock.block.slot)
-                val block = Block(
-                        at = traceAdoptedBlock.localTimeString(),
-                        pool = node.name,
-                        host = traceAdoptedBlock.host,
-                        slot = traceAdoptedBlock.block.slot,
-                        epoch = epoch,
-                        slotInEpoch = slotInEpoch,
-                        hash = traceAdoptedBlock.block.rawHash()
-                )
+    private suspend fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: Genesis, line: String) {
+        coroutineScope {
+            blockFoundMutex.withLock {
+                adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
+                    try {
+                        val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, traceAdoptedBlock.block.slot)
+                        val block = Block(
+                                at = traceAdoptedBlock.localTimeString(),
+                                pool = node.name,
+                                host = traceAdoptedBlock.host,
+                                slot = traceAdoptedBlock.block.slot,
+                                epoch = epoch,
+                                slotInEpoch = slotInEpoch,
+                                hash = traceAdoptedBlock.block.rawHash()
+                        )
 
-                val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
+                        val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
 
-                if (existingBlock == null) {
-                    val hashUpdatedBlock: Block = host?.let {
-                        val hostConnection = HostConnection(host, node)
-                        val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
-                        queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
-                            if (queryTip.headerHash.startsWith(block.hash)) {
-                                block.copy(hash = queryTip.headerHash)
-                            } else {
-                                block
-                            }
-                        } ?: block
-                    } ?: block
+                        if (existingBlock == null) {
+                            val hashUpdatedBlock: Block = host?.let {
+                                val hostConnection = HostConnection(host, node)
+                                val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                                queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
+                                    if (queryTip.headerHash.startsWith(block.hash)) {
+                                        block.copy(hash = queryTip.headerHash)
+                                    } else {
+                                        block
+                                    }
+                                } ?: block
+                            } ?: block
 
-                    val savedBlock = blockRepository.save(hashUpdatedBlock);
+                            val savedBlock = blockRepository.save(hashUpdatedBlock);
 
-                    log.info(savedBlock.toString())
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))
+                            log.info(savedBlock.toString())
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))
+                        }
+                    } catch (e: DataIntegrityViolationException) {
+                        log.warn("Block Exists! (${node.name}): $traceAdoptedBlock", e)
+                    } catch (e: Throwable) {
+                        log.error("Save Block Error!", e)
+                    }
                 }
-            } catch (e: DataIntegrityViolationException) {
-                log.warn("Block Exists! (${node.name}): $traceAdoptedBlock", e)
-            } catch (e: Throwable) {
-                log.error("Save Block Error!", e)
             }
         }
     }

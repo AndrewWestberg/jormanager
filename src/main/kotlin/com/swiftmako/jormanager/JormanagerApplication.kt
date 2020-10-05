@@ -71,7 +71,7 @@ fun runInstallation() {
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
-                |nohup $javaPath -XX:+DisableAttachMechanism -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m -jar jormanager.jar > jormanager.log 2>&1 &
+                |nohup $javaPath -XX:+DisableAttachMechanism -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx2048m -jar jormanager.jar > jormanager.log 2>&1 &
                 |echo ${'$'}! > jormanager.pid
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Started with logfile jormanager.log"
@@ -122,7 +122,7 @@ fun runInstallation() {
                 |User=$user
                 |LimitNOFILE=131072
                 |WorkingDirectory=$jormanagerFolderPath
-                |ExecStart=/usr/bin/java -XX:+DisableAttachMechanism -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m -jar jormanager.jar
+                |ExecStart=/usr/bin/java -XX:+DisableAttachMechanism -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx2048m -jar jormanager.jar
                 |SuccessExitStatus=143
                 |StandardOutput=syslog
                 |StandardError=syslog

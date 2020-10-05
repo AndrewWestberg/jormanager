@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
+import com.swiftmako.jormanager.model.LeaderLogsRequest
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.key.Key
@@ -108,9 +109,9 @@ class BlockController @Autowired constructor(
 
     @MessageMapping("/leaderlogs")
     @Transactional
-    fun calculateLeaderLogs(spendingPassword: String) {
+    fun calculateLeaderLogs(request: LeaderLogsRequest) {
         try {
-            if (!walletUtils.isValidSpendingPassword(spendingPassword)) {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
 
@@ -144,7 +145,7 @@ class BlockController @Autowired constructor(
                                 val slotsPerEpoch = (genesisShelley.epochLength / genesisShelley.slotLength).toInt()
                                 val poolIdToSigma = mutableMapOf<String, BigDecimal>()
                                 val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
-                                var leadershipCount = 0
+                                var leadershipCount = mutableMapOf<String, Int>()
                                 repeat(slotsPerEpoch) { index ->
                                     val slot = firstSlotOfEpoch + index
                                     if (blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, protocolParameters.decentralisationParam.toBigDecimal())) {
@@ -153,13 +154,13 @@ class BlockController @Autowired constructor(
                                     }
                                     coreNodes.forEach { coreNode ->
                                         val sigma = poolIdToSigma[coreNode.poolId!!]
-                                                ?: blockUtils.getSigma(coreNode.poolId!!, ledger).also {
+                                                ?: blockUtils.getSigma(coreNode.poolId, ledger).also {
                                                     poolIdToSigma[coreNode.poolId] = it
                                                 }
                                         val poolVrfSkey = poolIdToVrfSkey[coreNode.poolId] ?: run {
                                             val vrfSkeyFile = fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
                                                     ?: throw IOException("No VRF Skey for ${coreNode.name}")
-                                            val vrfJsonString = walletUtils.getSKeyContent(vrfSkeyFile, spendingPassword)
+                                            val vrfJsonString = walletUtils.getSKeyContent(vrfSkeyFile, request.spendingPassword)
                                             val vrfSkey = keyAdapter.fromJson(vrfJsonString)
                                                     ?: throw IOException("Unable to parse VRF Skey!")
                                             val reader = CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
@@ -171,13 +172,15 @@ class BlockController @Autowired constructor(
                                                 slot = slot,
                                                 f = genesisShelley.activeSlotsCoeff,
                                                 sigma = sigma,
-                                                eta0 = "70c0f591099a8de944e02585841d602479493f2d7e360f04c8b8cf990988eda3".hexToByteArray(),
+                                                eta0 = request.epochNonce.hexToByteArray(),
                                                 poolVrfSkey = poolVrfSkey
                                         )
 
                                         if (isSlotLeader) {
                                             log.error("${coreNode.name}: Selected for slot $slot")
-                                            leadershipCount++
+                                            val key = "${coreNode.name}|${coreNode.poolId}"
+                                            val count = leadershipCount[key] ?: 0
+                                            leadershipCount[key] = count + 1
                                         }
                                     }
                                 }
