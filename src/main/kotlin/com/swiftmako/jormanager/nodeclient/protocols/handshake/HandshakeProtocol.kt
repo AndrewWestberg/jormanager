@@ -5,51 +5,47 @@ import com.google.iot.cbor.CborReader
 import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 import org.slf4j.LoggerFactory
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlinx.coroutines.async
 
 class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000, LoggerFactory.getLogger("HandshakeProtocol")) {
 
     var state: State = State.PROPOSE
 
-    override suspend fun start() {
+    override fun startAsync(scope: CoroutineScope) = scope.async {
         log.info("Starting HandshakeProtocol...")
-        coroutineScope {
-            launch {
-                while (true) {
-                    when (state) {
-                        State.PROPOSE -> {
-                            log.debug("State.PROPOSE")
-                            val txBuffer = BufferPool.borrow()
-                            MsgProposeVersions(networkMagic).writeToBuffer(txBuffer)
-                            txBuffer.flip()
-                            txChannel.send(txBuffer)
-                            state = State.CONFIRM
-                        }
-                        State.CONFIRM -> {
-                            log.debug("State.CONFIRM")
-                            try {
-                                val rxBuffer = rxChannel.receive()
-                                handleConfirm(rxBuffer)
-                            } finally {
-                                state = State.DONE
-                            }
-                        }
-                        State.DONE -> {
-                            log.debug("State.DONE")
-                            txChannel.cancel()
-                            rxChannel.cancel()
-                            break
-                        }
+        while (true) {
+            when (state) {
+                State.PROPOSE -> {
+                    log.debug("State.PROPOSE")
+                    val txBuffer = BufferPool.borrow()
+                    MsgProposeVersions(networkMagic).writeToBuffer(txBuffer)
+                    txBuffer.flip()
+                    txChannel.send(txBuffer)
+                    state = State.CONFIRM
+                }
+                State.CONFIRM -> {
+                    log.debug("State.CONFIRM")
+                    try {
+                        val rxBuffer = rxChannel.receive()
+                        handleConfirm(rxBuffer)
+                    } finally {
+                        state = State.DONE
                     }
                 }
-
-                log.info("HandshakeProtocol exited.")
-            }.join()
+                State.DONE -> {
+                    log.debug("State.DONE")
+                    txChannel.cancel()
+                    rxChannel.cancel()
+                    break
+                }
+            }
         }
+
+        log.info("HandshakeProtocol exited.")
     }
 
     private fun handleConfirm(rxBuffer: ByteBuffer) {

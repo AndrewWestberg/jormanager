@@ -2,7 +2,7 @@ package com.swiftmako.jormanager.controllers
 
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
-import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -43,17 +43,16 @@ class BlockController @Autowired constructor(
         private val blockUtils: BlockUtils,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
-        moshi: Moshi,
+        private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
+        private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
+        private val queryTipAdapter: JsonAdapter<QueryTip>,
+        private val ledgerAdapter: JsonAdapter<Ledger>,
+        private val keyAdapter: JsonAdapter<Key>,
 ) {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
 
-    private val shelleyGenesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
-    private val byronGenesisAdapter by lazy { moshi.adapter(GenesisByron::class.java) }
-    private val protocolParamsAdapter by lazy { moshi.adapter(ProtocolParameters::class.java) }
-    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
-    private val ledgerAdapter by lazy { moshi.adapter(Ledger::class.java) }
-    private val keyAdapter by lazy { moshi.adapter(Key::class.java) }
 
     @MessageMapping("/version")
     @SendTo("/topic/messages")

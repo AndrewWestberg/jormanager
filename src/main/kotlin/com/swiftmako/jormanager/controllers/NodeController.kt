@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.controllers
 
-import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
@@ -63,18 +63,16 @@ class NodeController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        moshi: Moshi,
         private val retrofit: Retrofit,
         private val okHttpClient: OkHttpClient,
+        private val genesisAdapter: JsonAdapter<Genesis>,
+        private val genesisByronAdapter: JsonAdapter<GenesisByron>,
+        private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
+        private val queryTipAdapter: JsonAdapter<QueryTip>,
+        private val extendedMetadataAdapter: JsonAdapter<ExtendedMetadata>,
+        private val metadataAdapter: JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata>,
 ) {
     private val log = LoggerFactory.getLogger(NodeController::class.java)
-
-    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
-    private val genesisByronAdapter by lazy { moshi.adapter(GenesisByron::class.java) }
-    private val protocolParamsAdapter by lazy { moshi.adapter(ProtocolParameters::class.java) }
-    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
-    private val extendedMetadataAdapter by lazy { moshi.adapter(ExtendedMetadata::class.java) }
-    private val metadataAdapter by lazy { moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java) }
 
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")

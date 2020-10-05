@@ -1,35 +1,47 @@
 package com.swiftmako.jormanager.nodeclient.protocols.mux
 
 import com.google.iot.cbor.CborReader
+import com.swiftmako.jormanager.entities.ChainBlock
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.transaction.TxSubmissionProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
+import com.swiftmako.jormanager.repositories.ChainRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.nio.aConnect
 import kotlinx.coroutines.nio.aRead
 import kotlinx.coroutines.nio.aWrite
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.internal.ignoreIoExceptions
 import okhttp3.internal.toHexString
 import org.slf4j.LoggerFactory
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousSocketChannel
 import kotlin.coroutines.CoroutineContext
 import kotlin.experimental.xor
+import kotlin.streams.toList
 
-class MuxProtocol(private val hostName: String, private val port: Int, private val networkMagic: Long) : CoroutineScope {
+class MuxProtocol(private val hostName: String, private val port: Int, private val networkMagic: Long, private val chainRepository: ChainRepository) : CoroutineScope {
     private val log = LoggerFactory.getLogger("MuxProtocol")
 
+    val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
         if (throwable !is CancellationException) {
             log.error("Uncaught coroutine exception!", throwable)
@@ -51,96 +63,122 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
 
                 // Start the handshake protocol
                 val handshakeProtocol = HandshakeProtocol(networkMagic)
-                launchProtocolSender(handshakeProtocol, asyncSocketChannel)
+                launchProtocolSender(handshakeProtocol, asyncSocketChannel, job)
 
                 val txSubmissionProtocol = TxSubmissionProtocol()
-                launchProtocolSender(txSubmissionProtocol, asyncSocketChannel)
+                launchProtocolSender(txSubmissionProtocol, asyncSocketChannel, job)
 
-                val chainSyncProtocol = ChainSyncProtocol()
-                launchProtocolSender(chainSyncProtocol, asyncSocketChannel)
+                val chainBlocks = getChainBlocksForSyncStart()
+                val chainSyncProtocol = ChainSyncProtocol(chainBlocks, chainRepository)
+                launchProtocolSender(chainSyncProtocol, asyncSocketChannel, job)
 
                 // Start the socket receiver loop
-                val receiverLoop = launch {
-                    try {
-                        while (true) {
-                            val receiveBuffer = BufferPool.borrow()
-                            receiveBuffer.limit(8)
-                            //log.debug("ready to read: position(): ${receiveBuffer.position()}, limit(): ${receiveBuffer.limit()}, remaining(): ${receiveBuffer.remaining()}, capacity(): ${receiveBuffer.capacity()}")
-                            var bytesReceived = 0
-                            while (bytesReceived < 8) {
-                                val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
-                                //log.debug("read socket bytes: $byteCnt")
-                                if (byteCnt <= 0) {
-                                    BufferPool.recycle(receiveBuffer)
-                                    throw IOException("Unexpected end of stream!")
-                                }
-                                bytesReceived += byteCnt
+                val receiverLoop = async(job) {
+                    while (true) {
+                        val receiveBuffer = BufferPool.borrow()
+                        receiveBuffer.limit(8)
+                        //log.debug("ready to read: position(): ${receiveBuffer.position()}, limit(): ${receiveBuffer.limit()}, remaining(): ${receiveBuffer.remaining()}, capacity(): ${receiveBuffer.capacity()}")
+                        var bytesReceived = 0
+                        while (bytesReceived < 8) {
+                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
+                            //log.debug("read socket bytes: $byteCnt")
+                            if (byteCnt <= 0) {
+                                BufferPool.recycle(receiveBuffer)
+                                throw IOException("Unexpected end of stream!")
                             }
-                            receiveBuffer.flip()
-                            val timestamp = receiveBuffer.int
-                            val protocolId = receiveBuffer.short
-                            //log.debug("rawProtocolId: $protocolId")
-                            val payloadLength = receiveBuffer.short.toInt()
-                            //log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
-                            receiveBuffer.flip()
-                            receiveBuffer.limit(receiveBuffer.position() + payloadLength)
-                            bytesReceived = 0
-                            while (bytesReceived < payloadLength) {
-                                val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
-                                //log.debug("read socket bytes: $byteCnt")
-                                if (byteCnt < 0) {
-                                    BufferPool.recycle(receiveBuffer)
-                                    throw IOException("Unexpected end of stream!")
-                                }
-                                bytesReceived += byteCnt
+                            bytesReceived += byteCnt
+                        }
+                        receiveBuffer.flip()
+                        val timestamp = receiveBuffer.int
+                        val protocolId = receiveBuffer.short
+                        //log.debug("rawProtocolId: $protocolId")
+                        val payloadLength = receiveBuffer.short.toInt()
+                        //log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
+                        receiveBuffer.flip()
+                        receiveBuffer.limit(receiveBuffer.position() + payloadLength)
+                        bytesReceived = 0
+                        while (bytesReceived < payloadLength) {
+                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
+                            //log.debug("read socket bytes: $byteCnt")
+                            if (byteCnt < 0) {
+                                BufferPool.recycle(receiveBuffer)
+                                throw IOException("Unexpected end of stream!")
                             }
-                            receiveBuffer.flip()
-                            when (protocolId xor 0x8000.toShort()) {
-                                handshakeProtocol.protocolId -> {
-                                    handshakeProtocol.rxChannel.send(receiveBuffer)
-                                }
-                                txSubmissionProtocol.protocolId -> {
-                                    txSubmissionProtocol.rxChannel.send(receiveBuffer)
-                                }
-                                chainSyncProtocol.protocolId -> {
-                                    chainSyncProtocol.rxChannel.send(receiveBuffer)
-                                }
+                            bytesReceived += byteCnt
+                        }
+                        receiveBuffer.flip()
+                        when (protocolId xor 0x8000.toShort()) {
+                            handshakeProtocol.protocolId -> {
+                                handshakeProtocol.rxChannel.send(receiveBuffer)
+                            }
+                            txSubmissionProtocol.protocolId -> {
+                                txSubmissionProtocol.rxChannel.send(receiveBuffer)
+                            }
+                            chainSyncProtocol.protocolId -> {
+                                chainSyncProtocol.rxChannel.send(receiveBuffer)
+                            }
 
-                                else -> {
-                                    log.error("Unknown message received: protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}")
+                            else -> {
+                                log.error("Unknown message received: protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}")
 //                                    while (receiveBuffer.hasRemaining()) {
-                                    val jsonString = CborReader.createFromByteArray(receiveBuffer.array(), receiveBuffer.position(), 1).readDataItem().toJsonString()
-                                    log.error("Unknown data: $jsonString")
+                                val jsonString = CborReader.createFromByteArray(receiveBuffer.array(), receiveBuffer.position(), 1).readDataItem().toJsonString()
+                                log.error("Unknown data: $jsonString")
 //                                    }
-                                    BufferPool.recycle(receiveBuffer)
-                                }
+                                BufferPool.recycle(receiveBuffer)
                             }
                         }
-                    } catch (e: Throwable) {
-                        log.error("Error receiving data!", e)
                     }
                 }
-                handshakeProtocol.start()
-                txSubmissionProtocol.start()
-                chainSyncProtocol.start()
 
-                receiverLoop.join()
+                // These two need to complete before we start chain sync
+                handshakeProtocol.startAsync(this + job).await()
+                txSubmissionProtocol.startAsync(this + job).await()
+                log.debug("Connected to Node.")
+
+                awaitAll(
+                        chainSyncProtocol.startAsync(this + job),
+                        receiverLoop
+                )
             } catch (e: Throwable) {
                 log.error("Fatal Protocol Exception!", e)
+            } finally {
+                job.cancelChildren()
             }
 
             ignoreIoExceptions {
                 asyncSocketChannel.close()
             }
 
-            // during development, just break out
-            break
-            //delay(5000) // wait 5 seconds before trying again
+            delay(30_000) // wait 30 seconds before trying again
         }
     }
 
-    private fun launchProtocolSender(protocol: MiniProtocol, asyncSocketChannel: AsynchronousSocketChannel) {
-        launch {
+    private fun getChainBlocksForSyncStart(): List<ChainBlock> {
+        val page = chainRepository.findAll(PageRequest.of(0, 64, Sort.Direction.DESC, "slotNumber"))
+        return page.get().toList().filterIndexed { index, _ ->
+            // all powers of 2 including 0th element 0, 2, 4, 8, 16, 32, 64
+            index and (index - 1) == 0
+        }.toMutableList().also {
+            it.add(
+                    // Last byron block of mainnet
+                    ChainBlock(
+                            slotNumber = 4492799,
+                            hash = "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457"
+                    )
+            )
+            it.add(
+                    // Last byron block of testnet
+                    ChainBlock(
+                            slotNumber = 1598392,
+                            hash = "d413b87ea6977f8913d91548e0031e911e0b00f5fe3e6c463a5278561803b2ff"
+                    )
+            )
+        }
+    }
+
+
+    private fun launchProtocolSender(protocol: MiniProtocol, asyncSocketChannel: AsynchronousSocketChannel, job: Job) {
+        launch(job) {
             try {
                 protocol.txChannel.consumeEach { byteBuffer ->
                     val sendBuffer = BufferPool.borrow()

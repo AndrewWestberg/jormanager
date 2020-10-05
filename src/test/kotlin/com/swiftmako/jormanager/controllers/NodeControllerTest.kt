@@ -12,6 +12,7 @@ import com.swiftmako.jormanager.model.Info
 import com.swiftmako.jormanager.model.Itn
 import com.swiftmako.jormanager.model.Relay
 import com.swiftmako.jormanager.model.Social
+import com.swiftmako.jormanager.spring.config.Configuration
 import io.mockk.every
 import io.mockk.mockk
 import okhttp3.OkHttpClient
@@ -23,6 +24,8 @@ class NodeControllerTest {
 
     @Test
     fun testCreateNode() {
+        val moshi = Moshi.Builder().build()
+        val config = Configuration()
         val target = NodeController(
                 nodeRepository = mockk(relaxed = true),
                 hostRepository = mockk(relaxed = true) {
@@ -43,10 +46,15 @@ class NodeControllerTest {
                 transactionRepository = mockk(relaxed = true),
                 webSocketTemplate = mockk(relaxed = true),
                 nodesChannel = mockk(relaxed = true),
-                moshi = Moshi.Builder().build(),
                 retrofit = Retrofit.Builder().build(),
                 okHttpClient = OkHttpClient.Builder().build(),
-                relayRepository = mockk(relaxed=true),
+                relayRepository = mockk(relaxed = true),
+                extendedMetadataAdapter = config.getExtendedMetadataAdapter(moshi),
+                genesisAdapter = config.getShelleyGenesisAdapter(moshi),
+                genesisByronAdapter = config.getByronGenesisAdapter(moshi),
+                metadataAdapter = config.getMetadataAdapter(moshi),
+                protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
+                queryTipAdapter = config.getQueryTipAdapter(moshi)
         )
 
         val request = CreateNodeRequest(

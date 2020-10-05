@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.monitors
 
-import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.SSHClientPool
@@ -63,12 +63,16 @@ class BlockMonitor @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
-        moshi: Moshi,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val pooltoolService: PooltoolService,
         @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
         private val blockUtils: BlockUtils,
+        private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
+        private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
+        private val queryTipAdapter: JsonAdapter<QueryTip>,
+        private val blockAdapter: JsonAdapter<AddedToCurrentChain>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -82,12 +86,6 @@ class BlockMonitor @Autowired constructor(
     private val mutex = Mutex()
     private val blockFoundMutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
-
-    private val adoptedBlockAdapter by lazy { moshi.adapter(TraceAdoptedBlock::class.java) }
-    private val blockAdapter by lazy { moshi.adapter(AddedToCurrentChain::class.java) }
-    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
-    private val shelleyGenesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
-    private val byronGenesisAdapter by lazy { moshi.adapter(GenesisByron::class.java) }
 
     override fun isAutoStartup() = true
 

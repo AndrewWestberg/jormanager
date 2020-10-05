@@ -1,8 +1,20 @@
 package com.swiftmako.jormanager.spring.config
 
+import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.model.AddedToCurrentChain
+import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.NodeStats
+import com.swiftmako.jormanager.model.ProtocolParameters
+import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.StakeAddressInfo
+import com.swiftmako.jormanager.model.TraceAdoptedBlock
+import com.swiftmako.jormanager.model.key.Key
+import com.swiftmako.jormanager.model.ledger.Ledger
+import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.channels.BroadcastChannel
@@ -31,6 +43,53 @@ class Configuration {
     fun getMoshi(): Moshi {
         return Moshi.Builder().add(JodaDateTimeAdapter()).build()
     }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getAdoptedBlockAdapter(moshi: Moshi): JsonAdapter<TraceAdoptedBlock> = moshi.adapter(TraceAdoptedBlock::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getAddedToCurrentChainAdapter(moshi: Moshi): JsonAdapter<AddedToCurrentChain> = moshi.adapter(AddedToCurrentChain::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getQueryTipAdapter(moshi: Moshi): JsonAdapter<QueryTip> = moshi.adapter(QueryTip::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getShelleyGenesisAdapter(moshi: Moshi): JsonAdapter<Genesis> = moshi.adapter(Genesis::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getByronGenesisAdapter(moshi: Moshi): JsonAdapter<GenesisByron> = moshi.adapter(GenesisByron::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getStakeAddressInfoListAdapter(moshi: Moshi): JsonAdapter<List<StakeAddressInfo>> {
+        val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
+        return moshi.adapter(type)
+    }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getProtocolParametersAdapter(moshi: Moshi): JsonAdapter<ProtocolParameters> = moshi.adapter(ProtocolParameters::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getLedgerAdapter(moshi: Moshi): JsonAdapter<Ledger> = moshi.adapter(Ledger::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getKeyAdapter(moshi: Moshi): JsonAdapter<Key> = moshi.adapter(Key::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getExtendedMetadataAdapter(moshi: Moshi): JsonAdapter<ExtendedMetadata> = moshi.adapter(ExtendedMetadata::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getMetadataAdapter(moshi: Moshi): JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata> = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)

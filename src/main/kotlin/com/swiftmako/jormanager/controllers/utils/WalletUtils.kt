@@ -1,8 +1,6 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.squareup.moshi.JsonAdapter
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.WalletEntry
@@ -34,13 +32,9 @@ class WalletUtils @Autowired constructor(
         private val fileRepository: FileRepository,
         private val argon2PasswordEncoder: Argon2PasswordEncoder,
         @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
-        moshi: Moshi,
+        private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
-    private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>> by lazy {
-        val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
-        moshi.adapter<List<StakeAddressInfo>>(type)
-    }
 
     fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()

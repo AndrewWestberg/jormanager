@@ -9,15 +9,21 @@ import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
+import com.swiftmako.jormanager.repositories.ChainRepository
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import okio.buffer
 import okio.source
 import org.junit.jupiter.api.Test
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import java.io.File
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
 import java.nio.ByteBuffer
+import java.util.stream.Stream
 import kotlin.experimental.xor
 import kotlin.math.abs
 import kotlin.math.exp
@@ -28,7 +34,16 @@ class NodeConnectTest {
 
     @Test
     fun test() = runBlocking {
-        MuxProtocol("localhost", 6000, 764824073).start().join()
+        val chainRepository:ChainRepository = mockk {
+            every { findAll(any<Pageable>()) } returns mockk {
+                every { get() } returns Stream.empty()
+            }
+        }
+        //mainnet
+        //MuxProtocol("localhost", 6000, 764824073, chainRepository).start().join()
+
+        //testnet
+        MuxProtocol("localhost", 6001, 1097911063, chainRepository).start().join()
     }
 
     @Test

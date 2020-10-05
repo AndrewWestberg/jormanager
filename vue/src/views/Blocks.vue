@@ -91,6 +91,7 @@ export default {
         { key: "at", label: "Timestamp" },
         { key: "epoch" },
         { key: "slotInEpoch", label: "Slot" },
+        { key: "slot", label: "Full Slot" },
         { key: "pool" },
         {
           key: "hash",

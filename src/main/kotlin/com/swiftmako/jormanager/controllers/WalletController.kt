@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.controllers
 
-import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
@@ -41,12 +41,11 @@ class WalletController @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,
         private val transactionRepository: TransactionRepository,
-        moshi: Moshi,
+        private val queryTipAdapter: JsonAdapter<QueryTip>,
+        private val genesisAdapter: JsonAdapter<Genesis>,
 ) {
 
     private val log = LoggerFactory.getLogger(WalletController::class.java)
-    private val queryTipAdapter by lazy { moshi.adapter(QueryTip::class.java) }
-    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
 
     @MessageMapping("/wallet")
     @SendTo("/topic/messages")

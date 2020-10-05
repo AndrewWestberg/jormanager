@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.monitors
 
-import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.Genesis
@@ -33,14 +33,13 @@ import kotlin.coroutines.CoroutineContext
 class WalletMonitor @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
-        moshi: Moshi,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>
+        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
+        private val genesisAdapter: JsonAdapter<Genesis>
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(WalletMonitor::class.java)
-    private val genesisAdapter by lazy { moshi.adapter(Genesis::class.java) }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->

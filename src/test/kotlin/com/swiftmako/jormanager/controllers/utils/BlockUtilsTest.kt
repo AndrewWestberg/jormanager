@@ -22,6 +22,7 @@ class BlockUtilsTest {
     )
 
     private val shelley = Genesis(
+            activeSlotsCoeff = 0.05,
             networkId = "Mainnet",
             networkMagic = 764824073L,
             slotLength = 1L,
@@ -55,6 +56,7 @@ class BlockUtilsTest {
     )
 
     private val shelleyTest = Genesis(
+            activeSlotsCoeff = 0.05,
             networkId = "Testnet",
             networkMagic = 1097911063L,
             slotLength = 1L,
@@ -80,7 +82,7 @@ class BlockUtilsTest {
 
     @Test
     fun `test getEpochAndSlot`() {
-        val target = BlockUtils(nodeStats)
+        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
         val (epoch, slot) = target.getEpochAndSlot(byron, shelley, 7914957L)
         println("Epoch: $epoch, Slot: $slot")
         assertThat(epoch).isEqualTo(215L)
@@ -94,11 +96,11 @@ class BlockUtilsTest {
 
     @Test
     fun `test getShelleyTransitionEpoch`() {
-        var target = BlockUtils(nodeStats)
+        var target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
         val mainnetTransitionEpoch = target.getShelleyTransitionEpoch(byron, shelley)
         assertThat(mainnetTransitionEpoch).isEqualTo(208)
 
-        target = BlockUtils(nodeStatsTest)
+        target = BlockUtils(nodeStatsTest, "/usr/local/lib/libsodium.so")
         val testnetTransitionEpoch = target.getShelleyTransitionEpoch(byronTest, shelleyTest)
         assertThat(testnetTransitionEpoch).isEqualTo(74)
     }
