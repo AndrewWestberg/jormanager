@@ -160,6 +160,7 @@ class BlockMonitor @Autowired constructor(
                             // nothing to validate. This block must have been missed
                             blockRepository.save(unvalidatedBlock.copy(status = "missed")).also {
                                 log.error("Missed Block: $it")
+                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
                             }
                         } else {
                             // we have a block hash to validate
@@ -167,10 +168,12 @@ class BlockMonitor @Autowired constructor(
                             if (chainBlock?.hash?.startsWith(unvalidatedBlock.hash) == true) {
                                 blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, status = "forged")).also {
                                     log.info("Forged Block: $it")
+                                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
                                 }
                             } else {
                                 blockRepository.save(unvalidatedBlock.copy(status = "orphaned")).also {
                                     log.error("Orphaned Block: $it")
+                                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
                                 }
                             }
                         }
