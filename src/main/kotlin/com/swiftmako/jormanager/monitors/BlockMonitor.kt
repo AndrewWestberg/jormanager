@@ -153,9 +153,8 @@ class BlockMonitor @Autowired constructor(
                 try {
                     // find the latest block we know of for sure from the repository
                     val chainTipSlotNumber = chainRepository.findSyncedTip()
-                    log.error("findSyncedTip: $chainTipSlotNumber")
                     val unvalidatedBlocks = blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
-                    log.error("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
+                    log.debug("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
                     unvalidatedBlocks.forEach { unvalidatedBlock ->
                         if (unvalidatedBlock.hash.isEmpty()) {
                             // nothing to validate. This block must have been missed
