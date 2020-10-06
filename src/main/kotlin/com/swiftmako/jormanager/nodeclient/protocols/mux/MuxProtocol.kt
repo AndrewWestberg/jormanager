@@ -89,7 +89,7 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
                             bytesReceived += byteCnt
                         }
                         receiveBuffer.flip()
-                        val timestamp = receiveBuffer.int
+                        /*val timestamp =*/ receiveBuffer.int
                         val protocolId = receiveBuffer.short
                         //log.debug("rawProtocolId: $protocolId")
                         val payloadLength = receiveBuffer.short.toInt()

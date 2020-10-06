@@ -11,20 +11,6 @@
             <column name="slot_number" type="int"/>
             <column name="hash" type="varchar(255)"/>
             <column name="prev_hash" type="varchar(255)"/>
-            <column name="node_vkey" type="varchar(255)"/>
-            <column name="node_vrf_vkey" type="varchar(255)"/>
-            <column name="eta_vrf_first" type="varchar(255)"/>
-            <column name="eta_vrf_second" type="varchar(255)"/>
-            <column name="leader_vrf_first" type="varchar(255)"/>
-            <column name="leader_vrf_second" type="varchar(255)"/>
-            <column name="block_size" type="int"/>
-            <column name="block_body_hash" type="varchar(255)"/>
-            <column name="opcert" type="varchar(255)"/>
-            <column name="unknown1" type="int"/>
-            <column name="kes_period" type="int"/>
-            <column name="unknown2" type="varchar(255)"/>
-            <column name="protocol_major_version" type="int"/>
-            <column name="protocol_minor_version" type="int"/>
         </createTable>
     </changeSet>
 </databaseChangeLog>

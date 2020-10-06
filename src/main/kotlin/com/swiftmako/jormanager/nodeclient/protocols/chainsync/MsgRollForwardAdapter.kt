@@ -10,14 +10,14 @@ import org.slf4j.LoggerFactory
 object MsgRollForwardAdapter {
     private val log = LoggerFactory.getLogger("MsgRollForwardAdapter")
 
-    private var tipDone = false
+//    private var tipDone = false
 
     fun fromCborArray(cborArray: CborArray): MsgRollForward {
         assert(MsgRollForward.MESSAGE_ID == cborArray.elementToLong(0))
 
         // parse wrappedHeader
         val headerCborArray = cborArray.elementAt(1) as CborArray
-        val someNumber = headerCborArray.elementToLong(0)
+//        val someNumber = headerCborArray.elementToLong(0)
         val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
 
         // unwrap the inner block header
@@ -26,53 +26,39 @@ object MsgRollForwardAdapter {
         val blockNumber = blockHeaderCborArrayInner.elementToLong(0)
         val slotNumber = blockHeaderCborArrayInner.elementToLong(1)
         val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
-        val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
-        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
-        val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
-        val etaVrfFirstPart = nonceCborArray.elementToHexString(0)
-        val etaVrfSecondPart = nonceCborArray.elementToHexString(1)
-        val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
-        val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
-        val leaderVrfSecondPart = leaderCborArray.elementToHexString(1)
-        val blockSize = blockHeaderCborArrayInner.elementToLong(7)
-        val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
-        val poolOpcert = blockHeaderCborArrayInner.elementToHexString(9)
-        val unknown1 = blockHeaderCborArrayInner.elementToLong(10)
-        val kesPeriod = blockHeaderCborArrayInner.elementToLong(11)
-        val unknown2 = blockHeaderCborArrayInner.elementToHexString(12) // someHashMaybeKesRelated
-        val protocolMajorVersion = blockHeaderCborArrayInner.elementToLong(13)
-        val protocolMinorVersion = blockHeaderCborArrayInner.elementToLong(14)
+//        val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
+//        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
+//        val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
+//        val etaVrfFirstPart = nonceCborArray.elementToHexString(0)
+//        val etaVrfSecondPart = nonceCborArray.elementToHexString(1)
+//        val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
+//        val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
+//        val leaderVrfSecondPart = leaderCborArray.elementToHexString(1)
+//        val blockSize = blockHeaderCborArrayInner.elementToLong(7)
+//        val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
+//        val poolOpcert = blockHeaderCborArrayInner.elementToHexString(9)
+//        val unknown1 = blockHeaderCborArrayInner.elementToLong(10)
+//        val kesPeriod = blockHeaderCborArrayInner.elementToLong(11)
+//        val unknown2 = blockHeaderCborArrayInner.elementToHexString(12) // someHashMaybeKesRelated
+//        val protocolMajorVersion = blockHeaderCborArrayInner.elementToLong(13)
+//        val protocolMinorVersion = blockHeaderCborArrayInner.elementToLong(14)
 
         // parse tip
-        val tipCborArray = cborArray.elementAt(2) as CborArray
-        val tipInfoCborArray = tipCborArray.elementAt(0) as CborArray
-        val tipSlot = tipInfoCborArray.elementToLong(0)
-        val tipHash = tipInfoCborArray.elementToHexString(1)
-        val tipBlockHeight = tipCborArray.elementToLong(1)
+//        val tipCborArray = cborArray.elementAt(2) as CborArray
+//        val tipInfoCborArray = tipCborArray.elementAt(0) as CborArray
+//        val tipSlot = tipInfoCborArray.elementToLong(0)
+//        val tipHash = tipInfoCborArray.elementToHexString(1)
+//        val tipBlockHeight = tipCborArray.elementToLong(1)
 
-        if (tipSlot == slotNumber && !tipDone) {
-            log.info("We're on tip!!!!")
-            tipDone = true
-        }
+//        if (tipSlot == slotNumber && !tipDone) {
+//            log.info("We're on tip!!!!")
+//            tipDone = true
+//        }
 
         return MsgRollForward(
                 blockNumber,
                 slotNumber,
-                prevHash,
-                nodeVkey,
-                nodeVrfVkey,
-                etaVrfFirstPart,
-                etaVrfSecondPart,
-                leaderVrfFirstPart,
-                leaderVrfSecondPart,
-                blockSize,
-                blockBodyHash,
-                poolOpcert,
-                unknown1,
-                kesPeriod,
-                unknown2,
-                protocolMajorVersion,
-                protocolMinorVersion
+                prevHash
         )
     }
 }

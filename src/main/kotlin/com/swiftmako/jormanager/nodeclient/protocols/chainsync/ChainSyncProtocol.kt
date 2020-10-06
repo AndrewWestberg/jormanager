@@ -195,40 +195,28 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
 
     private fun saveToChain(scope: CoroutineScope) {
         scope.launch {
+            val pendingBlockMap = mutableMapOf<Long, ChainBlock>()
             blockSaveChannel.consumeEach { msgRollForward ->
                 // update the hash value for the previous block now that we know it
-                chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)?.let { previousChainBlock ->
+                val previousChainBlock = pendingBlockMap[msgRollForward.blockNumber - 1]
+                        ?: chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
+                previousChainBlock?.let {
                     chainRepository.save(previousChainBlock.copy(hash = msgRollForward.prevHash))
                 }
+                pendingBlockMap.remove(msgRollForward.blockNumber - 1)
 
                 // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
-                val chainBlocks = chainRepository.findByBlockNumberAndAbove(msgRollForward.blockNumber)
-                if (chainBlocks.isNotEmpty()) {
-                    chainRepository.deleteAll(chainBlocks)
-                }
+                chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
 
                 // add this block to the database
-                chainRepository.save(
+                val savedChainBlock = chainRepository.save(
                         ChainBlock(
                                 blockNumber = msgRollForward.blockNumber,
                                 slotNumber = msgRollForward.slotNumber,
-                                prevHash = msgRollForward.prevHash,
-                                nodeVkey = msgRollForward.nodeVkey,
-                                nodeVrfVkey = msgRollForward.nodeVrfVkey,
-                                etaVrfFirstPart = msgRollForward.etaVrfFirstPart,
-                                etaVrfSecondPart = msgRollForward.etaVrfSecondPart,
-                                leaderVrfFirstPart = msgRollForward.leaderVrfFirstPart,
-                                leaderVrfSecondPart = msgRollForward.leaderVrfSecondPart,
-                                blockSize = msgRollForward.blockSize,
-                                blockBodyHash = msgRollForward.blockBodyHash,
-                                poolOpcert = msgRollForward.poolOpcert,
-                                unknown1 = msgRollForward.unknown1,
-                                kesPeriod = msgRollForward.kesPeriod,
-                                unknown2 = msgRollForward.unknown2,
-                                protocolMajorVersion = msgRollForward.protocolMajorVersion,
-                                protocolMinorVersion = msgRollForward.protocolMinorVersion
+                                prevHash = msgRollForward.prevHash
                         )
                 )
+                pendingBlockMap[savedChainBlock.blockNumber] = savedChainBlock
 
                 if (canLog()) {
                     log.info("ChainSync: Saved block: ${msgRollForward.blockNumber}, slot: ${msgRollForward.slotNumber}")
