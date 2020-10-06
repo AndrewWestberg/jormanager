@@ -10,9 +10,9 @@ import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 
 class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val chainRepository: ChainRepository) : MiniProtocol(protocolId = 0x0002.toShort(), LoggerFactory.getLogger("ChainSyncProtocol")) {
@@ -20,14 +20,15 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
     var state: State = State.Idle
     var isIntersectFound = false
 
-    private val databaseMutex = Mutex()
+    private val blockSaveChannel = Channel<MsgRollForward>(Channel.UNLIMITED)
 
     override fun startAsync(scope: CoroutineScope) = scope.async {
         log.info("Starting ChainSyncProtocol...")
+        saveToChain(scope)
         while (true) {
             when (state) {
                 State.Idle -> {
-                    if (canLog(false)) {
+                    if (canLogDebug(false)) {
                         log.debug("State.Idle")
                     }
                     state = if (!isIntersectFound) {
@@ -45,7 +46,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                     }
                 }
                 State.CanAwait -> {
-                    if (canLog(false)) {
+                    if (canLogDebug(false)) {
                         log.debug("State.CanAwait")
                     }
                     val rxBuffer = rxChannel.receive()
@@ -57,7 +58,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                         rxBuffer.get(bytes)
                         rxBuffer.position(pos)
                         rxBuffer.limit(limit)
-                        if (canLog(false)) {
+                        if (canLogDebug(false)) {
                             log.debug("received ${bytes.toHexString()}")
                         }
 
@@ -80,8 +81,8 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                                 2L -> {
                                     // Roll forward
                                     val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                    saveToChain(scope, msgRollForward)
-                                    if (canLog()) {
+                                    blockSaveChannel.send(msgRollForward)
+                                    if (canLogDebug()) {
                                         log.debug("CanAwait->RollForward: $msgRollForward")
                                     }
                                     state = State.Idle
@@ -91,7 +92,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                                     // Roll backward
                                     val point = cborArray.elementAt(1)
                                     val tip = cborArray.elementAt(2)
-                                    if (canLog()) {
+                                    if (canLogDebug()) {
                                         log.debug("CanAwait->RollBackward: point: ${point.toJsonString()}, tip: ${tip.toJsonString()}")
                                     }
                                     state = State.Idle
@@ -106,7 +107,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                     }
                 }
                 State.MustReply -> {
-                    if (canLog(false)) {
+                    if (canLogDebug(false)) {
                         log.debug("State.MustReply")
                     }
                     val rxBuffer = rxChannel.receive()
@@ -118,7 +119,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                         rxBuffer.get(bytes)
                         rxBuffer.position(pos)
                         rxBuffer.limit(limit)
-                        if (canLog(false)) {
+                        if (canLogDebug(false)) {
                             log.debug("received ${bytes.toHexString()}")
                         }
 
@@ -137,8 +138,8 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                                 2L -> {
                                     // Roll forward
                                     val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                    saveToChain(scope, msgRollForward)
-                                    if (canLog()) {
+                                    blockSaveChannel.send(msgRollForward)
+                                    if (canLogDebug()) {
                                         log.debug("CanAwait->RollForward: $msgRollForward")
                                     }
                                     state = State.Idle
@@ -148,7 +149,7 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                                     // Roll backward
                                     val point = cborArray.elementAt(1)
                                     val tip = cborArray.elementAt(2)
-                                    if (canLog()) {
+                                    if (canLogDebug()) {
                                         log.debug("MustReply->RollBackward: point: ${point.toJsonString()}, tip: ${tip.toJsonString()}")
                                     }
                                     state = State.Idle
@@ -192,9 +193,9 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
         log.info("ChainSyncProtocol exited.")
     }
 
-    private fun saveToChain(scope: CoroutineScope, msgRollForward: MsgRollForward) {
+    private fun saveToChain(scope: CoroutineScope) {
         scope.launch {
-            databaseMutex.withLock {
+            blockSaveChannel.consumeEach { msgRollForward ->
                 // update the hash value for the previous block now that we know it
                 chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)?.let { previousChainBlock ->
                     chainRepository.save(previousChainBlock.copy(hash = msgRollForward.prevHash))
@@ -228,7 +229,24 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                                 protocolMinorVersion = msgRollForward.protocolMinorVersion
                         )
                 )
+
+                if (canLog()) {
+                    log.info("ChainSync: Saved block: ${msgRollForward.blockNumber}, slot: ${msgRollForward.slotNumber}")
+                }
             }
+        }
+    }
+
+    private var nextLogTimeDebug = System.currentTimeMillis()
+    private fun canLogDebug(updateNext: Boolean = true): Boolean {
+        val now = System.currentTimeMillis()
+        return if (now > nextLogTimeDebug) {
+            if (updateNext) {
+                nextLogTimeDebug = now + 10_000L
+            }
+            true
+        } else {
+            false
         }
     }
 

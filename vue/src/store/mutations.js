@@ -11,10 +11,10 @@ export default {
         state.appVersion = appVersion
     },
     setBlocks: (state, blocks) => {
-        state.blocks = _.orderBy(_.unionWith(state.blocks, blocks, _.isEqual), ["slot"], ["desc"])
+        state.blocks = _.orderBy(_.unionWith(blocks, state.blocks, _.isEqual), ["slot"], ["desc"])
     },
     addBlock: (state, block) => {
-        state.blocks.unshift(block)
+        state.blocks = _.orderBy(_.unionWith([block], state.blocks, _.isEqual), ["slot"], ["desc"])
     },
     setHosts: (state, hosts) => {
         state.hosts = hosts

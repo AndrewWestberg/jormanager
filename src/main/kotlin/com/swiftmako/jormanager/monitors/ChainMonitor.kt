@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -46,6 +47,8 @@ class ChainMonitor @Autowired constructor(
         }
     }
 
+    private lateinit var muxProtocol: MuxProtocol
+
     override fun isAutoStartup() = true
 
     override fun isRunning(): Boolean {
@@ -72,7 +75,8 @@ class ChainMonitor @Autowired constructor(
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                                 ?: throw IOException("host for default node not found!")
 
-                        MuxProtocol(defaultHost.hostname, defaultNode.port, networkMagic, chainRepository).start().join()
+                        muxProtocol = MuxProtocol(defaultHost.hostname, defaultNode.port, networkMagic, chainRepository)
+                        muxProtocol.start().join()
                     }
                 } catch (e: Throwable) {
                     log.error("Error monitoring chain!", e)
@@ -85,6 +89,8 @@ class ChainMonitor @Autowired constructor(
 
 
     override fun stop() {
+        muxProtocol.cancel()
+        muxProtocol.job.cancelChildren()
         job.cancelChildren()
         log.info("ChainMonitor stopped.")
     }

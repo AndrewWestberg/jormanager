@@ -42,7 +42,7 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
     private val log = LoggerFactory.getLogger("MuxProtocol")
 
     val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+    override val coroutineContext: CoroutineContext = Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
         if (throwable !is CancellationException) {
             log.error("Uncaught coroutine exception!", throwable)
         }
@@ -155,9 +155,9 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
 
     private fun getChainBlocksForSyncStart(): List<ChainBlock> {
         val page = chainRepository.findAll(PageRequest.of(0, 64, Sort.Direction.DESC, "slotNumber"))
-        return page.get().toList().filterIndexed { index, _ ->
+        return page.get().toList().filterIndexed { index, chainBlock ->
             // all powers of 2 including 0th element 0, 2, 4, 8, 16, 32, 64
-            index and (index - 1) == 0
+            chainBlock.hash != null && (index and (index - 1) == 0)
         }.toMutableList().also {
             it.add(
                     // Last byron block of mainnet
@@ -169,8 +169,8 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
             it.add(
                     // Last byron block of testnet
                     ChainBlock(
-                            slotNumber = 1598392,
-                            hash = "d413b87ea6977f8913d91548e0031e911e0b00f5fe3e6c463a5278561803b2ff"
+                            slotNumber = 1598399,
+                            hash = "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4"
                     )
             )
         }

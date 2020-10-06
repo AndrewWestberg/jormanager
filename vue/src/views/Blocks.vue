@@ -6,7 +6,8 @@
         @click="$bvModal.show('modal-leader-logs')"
         v-b-tooltip.hover.bottom="'Calculate Leader Logs.'"
       >
-        Leader Logs
+        <font-awesome-icon :icon="['fas', 'clipboard-list']" />&nbsp; Leader
+        Logs
       </b-button>
     </div>
     <hr />
@@ -56,6 +57,38 @@
         <template v-slot:cell(num)="data">{{
           totalRows ? totalRows - data.index : "---"
         }}</template>
+        <template v-slot:cell(status)="data">
+          <font-awesome-icon
+            v-if="data.value === 'pending'"
+            :icon="['fas', 'clock']"
+            class="text-secondary"
+            v-b-tooltip.hover.v-secondary.right="'Pending'"
+          />
+          <font-awesome-icon
+            v-if="data.value === 'missed'"
+            :icon="['fas', 'dumpster-fire']"
+            class="text-danger"
+            v-b-tooltip.hover.v-danger.right="'Missed'"
+          />
+          <font-awesome-icon
+            v-if="data.value === 'completed'"
+            :icon="['fas', 'cube']"
+            class="text-primary"
+            v-b-tooltip.hover.v-primary.right="'Completed'"
+          />
+          <font-awesome-icon
+            v-if="data.value === 'forged'"
+            :icon="['fas', 'hammer']"
+            class="text-success"
+            v-b-tooltip.hover.v-success.right="'Forged!'"
+          />
+          <font-awesome-icon
+            v-if="data.value === 'orphaned'"
+            :icon="['fas', 'ghost']"
+            class="text-warning"
+            v-b-tooltip.hover.v-warning.right="'Orphaned'"
+          />
+        </template>
         <template v-slot:cell(hash)="data">
           <a
             :href="
@@ -88,6 +121,7 @@ export default {
     return {
       fields: [
         { key: "num" },
+        { key: "status", label: "" },
         { key: "at", label: "Timestamp" },
         { key: "epoch" },
         { key: "slotInEpoch", label: "Slot" },

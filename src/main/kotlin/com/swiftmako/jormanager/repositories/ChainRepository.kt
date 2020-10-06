@@ -17,4 +17,7 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
 
     @Query("SELECT c FROM ChainBlock c WHERE c.blockNumber >= :block_number")
     fun findByBlockNumberAndAbove(@Param("block_number") blockNumber: Long): List<ChainBlock>
+
+    @Query("SELECT MAX(c.slotNumber) FROM ChainBlock c")
+    fun findSyncedTip(): Long
 }

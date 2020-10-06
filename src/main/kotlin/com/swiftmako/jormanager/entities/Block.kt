@@ -27,4 +27,6 @@ data class Block(
         val slotInEpoch: Long,
         @Column(name = "hash")
         val hash: String,
+        @Column(name="status")
+        val status:String, // (pending(default), missed, completed, forged, orphaned)
 )

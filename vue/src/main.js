@@ -49,6 +49,12 @@ import {
   faKey,
   faCubes,
   faPercent,
+  faClock,
+  faDumpsterFire,
+  faCube,
+  faHammer,
+  faGhost,
+  faClipboardList
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -74,6 +80,12 @@ library.add(faUnlink)
 library.add(faKey)
 library.add(faCubes)
 library.add(faPercent)
+library.add(faClock)
+library.add(faDumpsterFire)
+library.add(faCube)
+library.add(faHammer)
+library.add(faGhost)
+library.add(faClipboardList)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

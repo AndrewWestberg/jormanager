@@ -9,6 +9,12 @@ import org.springframework.stereotype.Repository
 @Repository
 interface BlockRepository : JpaRepository<Block, Long> {
 
-    @Query("SELECT b FROM Block b WHERE b.slot = :slot")
-    fun findBySlot(@Param("slot") slot: Long): Block?
+    @Query("SELECT b FROM Block b WHERE b.pool = :pool AND b.slot = :slot")
+    fun findByPoolAndSlot(@Param(value = "pool") pool: String, @Param("slot") slot: Long): Block?
+
+    /**
+     * Only select blocks in pending or completed status to validate. Other states have already been validated
+     */
+    @Query("SELECT b FROM Block b WHERE b.slot < :slotNumber AND b.status != 'missed' AND b.status != 'forged' AND b.status != 'orphaned'")
+    fun findUnvalidatedBlocksOlderThan(@Param(value="slotNumber") slotNumber: Long): List<Block>
 }

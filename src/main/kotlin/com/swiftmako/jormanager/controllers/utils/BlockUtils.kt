@@ -8,6 +8,8 @@ import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.model.ledger.Ledger
+import org.joda.time.DateTime
+import org.joda.time.format.DateTimeFormat
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -33,6 +35,8 @@ class BlockUtils @Autowired constructor(
         @Value("\${libsodium.path}") libsodiumPath: String
 ) {
     final val log: Logger = LoggerFactory.getLogger("BlockUtils")
+
+    private val dateTimeFormat = DateTimeFormat.forPattern("yyyy-MM-dd'T'hh:mm:ss.SSS a z")
 
     init {
         SodiumLibrary.setLibraryPath(libsodiumPath)
@@ -71,6 +75,20 @@ class BlockUtils @Autowired constructor(
         val shelleyEpoch = shelleyTransitionEpoch + (shelleySlots / shelley.epochLength)
         val shelleySlotInEpoch = shelleySlots % shelley.epochLength
         return Pair(shelleyEpoch, shelleySlotInEpoch)
+    }
+
+    fun slotToTimestamp(byron: GenesisByron, shelley: Genesis, absoluteSlot: Long): String {
+        val networkStartTime = DateTime(byron.startTime * 1000L)
+        val shelleyTransitionEpoch = getShelleyTransitionEpoch(byron, shelley)
+        val byronEpochLength = 10L * byron.protocolConsts.k
+
+        val byronSlots = byronEpochLength * shelleyTransitionEpoch
+        val shelleySlots = absoluteSlot - byronSlots
+
+        val byronSecs = (byron.blockVersionData.slotDuration * byronSlots) / 1000L
+        val shelleySecs = shelleySlots * shelley.slotLength
+
+        return dateTimeFormat.print(networkStartTime.plusSeconds((byronSecs + shelleySecs).toInt()))
     }
 
     fun getFirstSlotOfEpoch(byron: GenesisByron, shelley: Genesis, absoluteSlot: Long): Long {

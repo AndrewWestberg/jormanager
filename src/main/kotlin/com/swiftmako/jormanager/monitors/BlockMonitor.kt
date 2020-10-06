@@ -17,6 +17,7 @@ import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.model.pooltool.Data
 import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.repositories.BlockRepository
+import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
@@ -48,6 +49,7 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.EmptyResultDataAccessException
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
@@ -60,6 +62,7 @@ import kotlin.coroutines.CoroutineContext
 @Lazy(false)
 class BlockMonitor @Autowired constructor(
         private val blockRepository: BlockRepository,
+        private val chainRepository: ChainRepository,
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
@@ -104,6 +107,7 @@ class BlockMonitor @Autowired constructor(
         }
 
         monitorBlocks()
+        validateBlocks()
     }
 
     private fun monitorBlocks() {
@@ -139,6 +143,46 @@ class BlockMonitor @Autowired constructor(
                         monitorJobMap[node.id!!] = monitoringJob
                     } ?: log.error("Host not found for id ${node.hostId}")
                 }
+            }
+        }
+    }
+
+    private fun validateBlocks() {
+        launch {
+            while (true) {
+                try {
+                    // find the latest block we know of for sure from the repository
+                    val chainTipSlotNumber = chainRepository.findSyncedTip()
+                    log.error("findSyncedTip: $chainTipSlotNumber")
+                    val unvalidatedBlocks = blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
+                    log.error("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
+                    unvalidatedBlocks.forEach { unvalidatedBlock ->
+                        if (unvalidatedBlock.hash.isEmpty()) {
+                            // nothing to validate. This block must have been missed
+                            blockRepository.save(unvalidatedBlock.copy(status = "missed")).also {
+                                log.error("Missed Block: $it")
+                            }
+                        } else {
+                            // we have a block hash to validate
+                            val chainBlock = chainRepository.findBySlot(unvalidatedBlock.slot)
+                            if (chainBlock?.hash?.startsWith(unvalidatedBlock.hash) == true) {
+                                blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, status = "forged")).also {
+                                    log.info("Forged Block: $it")
+                                }
+                            } else {
+                                blockRepository.save(unvalidatedBlock.copy(status = "orphaned")).also {
+                                    log.error("Orphaned Block: $it")
+                                }
+                            }
+                        }
+                    }
+                } catch (e: EmptyResultDataAccessException) {
+                    // ignore this one until we get some blocks in our table
+                } catch (e: Throwable) {
+                    log.error("Error validating blocks!", e)
+                }
+
+                delay(10_000)
             }
         }
     }
@@ -290,25 +334,26 @@ class BlockMonitor @Autowired constructor(
                                 slot = traceAdoptedBlock.block.slot,
                                 epoch = epoch,
                                 slotInEpoch = slotInEpoch,
-                                hash = traceAdoptedBlock.block.rawHash()
+                                hash = traceAdoptedBlock.block.rawHash(),
+                                status = "completed"
                         )
 
-                        val existingBlock = blockRepository.findBySlot(traceAdoptedBlock.block.slot)
+                        val existingBlock = blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.block.slot)
 
-                        if (existingBlock == null) {
+                        if (existingBlock == null || existingBlock.hash.isEmpty()) {
                             val hashUpdatedBlock: Block = host?.let {
                                 val hostConnection = HostConnection(host, node)
                                 val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
                                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                                     if (queryTip.headerHash.startsWith(block.hash)) {
-                                        block.copy(hash = queryTip.headerHash)
+                                        block.copy(id = existingBlock?.id, hash = queryTip.headerHash)
                                     } else {
-                                        block
+                                        block.copy(id = existingBlock?.id)
                                     }
-                                } ?: block
-                            } ?: block
+                                } ?: block.copy(id = existingBlock?.id)
+                            } ?: block.copy(id = existingBlock?.id)
 
-                            val savedBlock = blockRepository.save(hashUpdatedBlock);
+                            val savedBlock = blockRepository.save(hashUpdatedBlock)
 
                             log.info(savedBlock.toString())
                             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))

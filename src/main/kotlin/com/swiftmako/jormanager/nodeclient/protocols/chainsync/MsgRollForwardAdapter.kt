@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory
 object MsgRollForwardAdapter {
     private val log = LoggerFactory.getLogger("MsgRollForwardAdapter")
 
+    private var tipDone = false
+
     fun fromCborArray(cborArray: CborArray): MsgRollForward {
         assert(MsgRollForward.MESSAGE_ID == cborArray.elementToLong(0))
 
@@ -48,8 +50,9 @@ object MsgRollForwardAdapter {
         val tipHash = tipInfoCborArray.elementToHexString(1)
         val tipBlockHeight = tipCborArray.elementToLong(1)
 
-        if (tipSlot == slotNumber) {
-            log.debug("We're on tip!!!!")
+        if (tipSlot == slotNumber && !tipDone) {
+            log.info("We're on tip!!!!")
+            tipDone = true
         }
 
         return MsgRollForward(

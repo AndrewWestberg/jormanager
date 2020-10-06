@@ -22,5 +22,6 @@
     <include file="changelog/015-update-blocks-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/016-update-blocks-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/017-create-chain-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/018-update-blocks-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

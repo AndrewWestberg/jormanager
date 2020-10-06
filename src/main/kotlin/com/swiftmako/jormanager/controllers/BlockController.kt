@@ -127,6 +127,8 @@ class BlockController @Autowired constructor(
                         val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
                         hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("leaderlogs", "Leader Logs Started... please be patient."))
+
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                             try {
                                 val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
@@ -144,7 +146,9 @@ class BlockController @Autowired constructor(
                                 val slotsPerEpoch = (genesisShelley.epochLength / genesisShelley.slotLength).toInt()
                                 val poolIdToSigma = mutableMapOf<String, BigDecimal>()
                                 val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
-                                var leadershipCount = mutableMapOf<String, Int>()
+                                val poolIdToHostname = mutableMapOf<String, String>()
+                                val leadershipCount = mutableMapOf<String, Int>()
+                                var lastLoggedTime = System.currentTimeMillis()
                                 repeat(slotsPerEpoch) { index ->
                                     val slot = firstSlotOfEpoch + index
                                     if (blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, protocolParameters.decentralisationParam.toBigDecimal())) {
@@ -176,15 +180,44 @@ class BlockController @Autowired constructor(
                                         )
 
                                         if (isSlotLeader) {
-                                            log.error("${coreNode.name}: Selected for slot $slot")
+                                            log.info("${coreNode.name}: Selected for slot $slot")
                                             val key = "${coreNode.name}|${coreNode.poolId}"
                                             val count = leadershipCount[key] ?: 0
                                             leadershipCount[key] = count + 1
+
+                                            val existingBlock = blockRepository.findByPoolAndSlot(coreNode.name, slot)
+                                            if (existingBlock == null) {
+                                                val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(genesisByron, genesisShelley, slot)
+
+                                                blockRepository.save(
+                                                        Block(
+                                                                at = blockUtils.slotToTimestamp(genesisByron, genesisShelley, slot),
+                                                                pool = coreNode.name,
+                                                                host = poolIdToHostname[coreNode.poolId]
+                                                                        ?: hostRepository.findByIdOrNull(coreNode.hostId)!!.hostname.also {
+                                                                            poolIdToHostname[coreNode.poolId] = it
+                                                                        },
+                                                                slot = slot,
+                                                                epoch = epoch,
+                                                                slotInEpoch = slotInEpoch,
+                                                                hash = "",
+                                                                status = "pending"
+                                                        )
+                                                )
+                                            }
                                         }
+                                    }
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastLoggedTime > 10_000) {
+                                        // notify GUI every 10 seconds of progress
+                                        webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("leaderlogs", "Leader Logs ${String.format("%1.2f", (index.toFloat() / slotsPerEpoch.toFloat()) * 100)}%"))
+                                        lastLoggedTime = now
                                     }
                                 }
 
-                                log.error("Total Slots this epoch: $leadershipCount")
+                                log.info("Total Slots this epoch: $leadershipCount")
+                                val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
+                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("blocks", data = blocks))
                             } finally {
                                 // Cleanup
                                 defaultHostConnection.command("rm -f /tmp/protocol-parameters.json")
