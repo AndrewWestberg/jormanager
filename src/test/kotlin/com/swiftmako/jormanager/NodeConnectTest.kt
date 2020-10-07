@@ -2,7 +2,6 @@ package com.swiftmako.jormanager
 
 import com.google.common.truth.Truth.assertThat
 import com.muquit.libsodiumjna.SodiumLibrary
-import com.squareup.jnagmp.Gmp
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByLong
@@ -16,7 +15,6 @@ import kotlinx.coroutines.runBlocking
 import okio.buffer
 import okio.source
 import org.junit.jupiter.api.Test
-import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import java.io.File
 import java.math.BigDecimal
@@ -34,7 +32,7 @@ class NodeConnectTest {
 
     @Test
     fun test() = runBlocking {
-        val chainRepository:ChainRepository = mockk {
+        val chainRepository: ChainRepository = mockk {
             every { findAll(any<Pageable>()) } returns mockk {
                 every { get() } returns Stream.empty()
             }
@@ -244,7 +242,7 @@ class NodeConnectTest {
     }
 
     private fun getSigma(poolId: String): BigDecimal {
-        Gmp.checkLoaded()
+        //Gmp.checkLoaded()
         val moshi = Moshi.Builder().build()
         val ledgerAdapter = moshi.adapter(Ledger::class.java)
 

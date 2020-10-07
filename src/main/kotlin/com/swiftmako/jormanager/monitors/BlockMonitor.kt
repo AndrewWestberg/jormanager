@@ -38,8 +38,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
-import okio.buffer
-import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -54,6 +52,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 @Component("blockMonitor")
@@ -215,57 +214,33 @@ class BlockMonitor @Autowired constructor(
                     val logPath = "${host.nodeHomePath}/${node.name}/logs/node.json"
                     log.debug("Monitoring blocks from:  $logPath")
 
-                    var processes = ProcessBuilder.startPipeline(
-                            mutableListOf(
-                                    ProcessBuilder("cat", "${host.nodeHomePath}/${node.name}/logs/node-*.json"),
-                                    ProcessBuilder("grep", "--line-buffered", "\"TraceAdoptedBlock\"")
-                            )
-                    )
-                    processes[1].inputStream.source().buffer().use { source ->
-                        while (!source.exhausted()) {
-                            val line = source.readUtf8Line()
-                            if (line != null) {
-                                if (line.contains("TraceAdoptedBlock")) {
-                                    launch {
-                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
-                                    }
-                                } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
-                                    if (pooltoolApiKey.isNotBlank()) {
-                                        launch {
-                                            sendBlockToPooltool(host, node, magicString, line)
-                                        }
-                                    }
-                                }
+                    var process = ProcessBuilder("/bin/bash", "-c", "cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"").start()
+                    process.inputStream.bufferedReader().use { reader ->
+                        reader.forEachLine { line ->
+                            launch {
+                                saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
                             }
                         }
                     }
-                    processes[1].waitFor()
+                    process.waitFor(60, TimeUnit.SECONDS)
 
-                    processes = ProcessBuilder.startPipeline(
-                            mutableListOf(
-                                    ProcessBuilder("tail", "-Fn0", "${host.nodeHomePath}/${node.name}/logs/node.json"),
-                                    ProcessBuilder("grep", "--line-buffered", "'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
-                            )
-                    )
-                    processes[1].inputStream.source().buffer().use { source ->
-                        while (!source.exhausted()) {
-                            val line = source.readUtf8Line()
-                            if (line != null) {
-                                if (line.contains("TraceAdoptedBlock")) {
+                    process = ProcessBuilder("/bin/bash", "-c", "tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'").start()
+                    process.inputStream.bufferedReader().use { reader ->
+                        reader.forEachLine { line ->
+                            if (line.contains("TraceAdoptedBlock")) {
+                                launch {
+                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                }
+                            } else {
+                                if (pooltoolApiKey.isNotBlank()) {
                                     launch {
-                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
-                                    }
-                                } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
-                                    if (pooltoolApiKey.isNotBlank()) {
-                                        launch {
-                                            sendBlockToPooltool(host, node, magicString, line)
-                                        }
+                                        sendBlockToPooltool(host, node, magicString, line)
                                     }
                                 }
                             }
                         }
                     }
-                    processes[1].waitFor()
+                    process.waitFor(1, TimeUnit.SECONDS)
 
                     log.info("Done tailing logs at: $logPath")
                     retry = true
