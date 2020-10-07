@@ -38,8 +38,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
-import org.apache.commons.io.input.Tailer
-import org.apache.commons.io.input.TailerListenerAdapter
+import okio.buffer
+import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -53,7 +53,6 @@ import org.springframework.dao.EmptyResultDataAccessException
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
-import java.io.File
 import java.io.IOException
 import kotlin.coroutines.CoroutineContext
 
@@ -215,8 +214,16 @@ class BlockMonitor @Autowired constructor(
                 try {
                     val logPath = "${host.nodeHomePath}/${node.name}/logs/node.json"
                     log.debug("Monitoring blocks from:  $logPath")
-                    Tailer.create(File(logPath), object : TailerListenerAdapter() {
-                        override fun handle(line: String?) {
+
+                    var processes = ProcessBuilder.startPipeline(
+                            mutableListOf(
+                                    ProcessBuilder("cat", "${host.nodeHomePath}/${node.name}/logs/node-*.json"),
+                                    ProcessBuilder("grep", "--line-buffered", "\"TraceAdoptedBlock\"")
+                            )
+                    )
+                    processes[1].inputStream.source().buffer().use { source ->
+                        while (!source.exhausted()) {
+                            val line = source.readUtf8Line()
                             if (line != null) {
                                 if (line.contains("TraceAdoptedBlock")) {
                                     launch {
@@ -231,7 +238,35 @@ class BlockMonitor @Autowired constructor(
                                 }
                             }
                         }
-                    }, 100, false, true, 8192).run()
+                    }
+                    processes[1].waitFor()
+
+                    processes = ProcessBuilder.startPipeline(
+                            mutableListOf(
+                                    ProcessBuilder("tail", "-Fn0", "${host.nodeHomePath}/${node.name}/logs/node.json"),
+                                    ProcessBuilder("grep", "--line-buffered", "'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
+                            )
+                    )
+                    processes[1].inputStream.source().buffer().use { source ->
+                        while (!source.exhausted()) {
+                            val line = source.readUtf8Line()
+                            if (line != null) {
+                                if (line.contains("TraceAdoptedBlock")) {
+                                    launch {
+                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    }
+                                } else if (line.contains("TraceAddBlockEvent.AddedToCurrentChain")) {
+                                    if (pooltoolApiKey.isNotBlank()) {
+                                        launch {
+                                            sendBlockToPooltool(host, node, magicString, line)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    processes[1].waitFor()
+
                     log.info("Done tailing logs at: $logPath")
                     retry = true
                 } catch (e: IOException) {
