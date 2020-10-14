@@ -28,8 +28,8 @@ object MsgRollForwardAdapter {
         val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
 //        val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
-//        val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
-//        val etaVrfFirstPart = nonceCborArray.elementToHexString(0)
+        val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
+        val etaVrfFirstPart = nonceCborArray.elementToHexString(0)
 //        val etaVrfSecondPart = nonceCborArray.elementToHexString(1)
 //        val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
 //        val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
@@ -58,7 +58,8 @@ object MsgRollForwardAdapter {
         return MsgRollForward(
                 blockNumber,
                 slotNumber,
-                prevHash
+                prevHash,
+                etaVrfFirstPart,
         )
     }
 }

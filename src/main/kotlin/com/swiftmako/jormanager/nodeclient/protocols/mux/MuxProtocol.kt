@@ -38,7 +38,13 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.experimental.xor
 import kotlin.streams.toList
 
-class MuxProtocol(private val hostName: String, private val port: Int, private val networkMagic: Long, private val chainRepository: ChainRepository) : CoroutineScope {
+class MuxProtocol(
+        private val hostName: String,
+        private val port: Int,
+        private val networkMagic: Long,
+        private val shelleyGenesisHash: ByteArray,
+        private val chainRepository: ChainRepository
+) : CoroutineScope {
     private val log = LoggerFactory.getLogger("MuxProtocol")
 
     val job = SupervisorJob()
@@ -69,7 +75,7 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
                 launchProtocolSender(txSubmissionProtocol, asyncSocketChannel, job)
 
                 val chainBlocks = getChainBlocksForSyncStart()
-                val chainSyncProtocol = ChainSyncProtocol(chainBlocks, chainRepository)
+                val chainSyncProtocol = ChainSyncProtocol(shelleyGenesisHash, chainBlocks, chainRepository)
                 launchProtocolSender(chainSyncProtocol, asyncSocketChannel, job)
 
                 // Start the socket receiver loop
@@ -154,6 +160,9 @@ class MuxProtocol(private val hostName: String, private val port: Int, private v
     }
 
     private fun getChainBlocksForSyncStart(): List<ChainBlock> {
+        // Clean up old versions less than 20 so they re-sync
+        chainRepository.deleteEmptyEta()
+
         val page = chainRepository.findAll(PageRequest.of(0, 64, Sort.Direction.DESC, "slotNumber"))
         return page.get().toList().filterIndexed { index, chainBlock ->
             // all powers of 2 including 0th element 0, 2, 4, 8, 16, 32, 64

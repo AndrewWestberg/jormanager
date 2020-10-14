@@ -1,6 +1,8 @@
 package com.swiftmako.jormanager.monitors
 
 import com.squareup.moshi.JsonAdapter
+import com.swiftmako.jormanager.ktx.hexToByteArray
+import com.swiftmako.jormanager.model.Config
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
 import com.swiftmako.jormanager.repositories.ChainRepository
@@ -36,6 +38,7 @@ class ChainMonitor @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
         private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val configAdapter: JsonAdapter<Config>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(ChainMonitor::class.java)
@@ -74,8 +77,11 @@ class ChainMonitor @Autowired constructor(
                         val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                                 ?: throw IOException("host for default node not found!")
+                        val configFile = fileRepository.findByIdOrNull(defaultNode.configFileId)
+                                ?: throw IOException("Unable to read config file")
+                        val shelleyGenesisHash = configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
 
-                        muxProtocol = MuxProtocol(defaultHost.hostname, defaultNode.port, networkMagic, chainRepository)
+                        muxProtocol = MuxProtocol(defaultHost.hostname, defaultNode.port, networkMagic, shelleyGenesisHash, chainRepository)
                         muxProtocol.start().join()
                     }
                 } catch (e: Throwable) {

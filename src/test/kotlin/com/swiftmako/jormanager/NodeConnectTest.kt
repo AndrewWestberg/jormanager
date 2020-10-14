@@ -41,7 +41,7 @@ class NodeConnectTest {
         //MuxProtocol("localhost", 6000, 764824073, chainRepository).start().join()
 
         //testnet
-        MuxProtocol("localhost", 6001, 1097911063, chainRepository).start().join()
+        MuxProtocol("localhost", 6001, 1097911063, "849a1764f152e1b09c89c0dfdbcbdd38d711d1fec2db5dfa0f87cf2737a0eaf4".hexToByteArray(), chainRepository).start().join()
     }
 
     @Test
@@ -89,6 +89,48 @@ class NodeConnectTest {
             println("Compute Time: ${computeTime}ms")
         }
         println("Total Duration: ${duration}ms")
+    }
+
+    @Test
+    fun testEpochNonce() {
+        val libraryPath = "/usr/local/lib/libsodium.so"
+        println("Library path: $libraryPath")
+        println("loading libsodium...")
+        SodiumLibrary.setLibraryPath(libraryPath)
+
+//        val nc = "ae0d7f11742d60165518a6ed7f20c1894ea7b704701f0c45cc737ff7a9093255".hexToByteArray()
+//        val nh = "1289fc77742b1c22d7600f8a979fc392a6f8ac988aa18bd1ed4dd21e5c63d9d7".hexToByteArray()
+//
+//        val epochNonce = SodiumLibrary.cryptoBlake2bHash(nc + nh, null)
+//
+//        assertThat(epochNonce.toHexString()).isEqualTo("fa2cd68857d74b32d704c86ac94ad40c2d7b5d7143ace3ea4e1fa798794059c0")
+
+//        val firstBlockOf223 = "165774f3337e770b162cdbcf8ebf46ee3e0195bf1f3816b11d9928397c44c882".hexToByteArray()
+//        val hash = SodiumLibrary.cryptoBlake2bHash(firstBlockOf223, null)
+//        println(hash.toHexString())
+
+//        val eta_v = "1182cb17f29c6ea3e94bcfaac8d39b2c7745410d766ab3dcbb47ea4f83f1357a".hexToByteArray()
+//        val eta = "b6f4d8026277280c33d4c5b233554ef24494c5f5b0a481e17cd18d520f8b0be2".hexToByteArray()
+//        val newEtaV = SodiumLibrary.cryptoBlake2bHash(eta_v + eta, null)
+//        println(newEtaV.toHexString())
+
+        // figure out where eta comes from (working!)
+//        val vrfFirst = "300681e4cfa1826ecb520c7107a6d2e33e620ffb7ccc48b73338287792688e78bfe51fe1ac2f8f87dc87cb4ee151a9d5d2e7be57daf4935a41cf2e694dbb54d8".hexToByteArray()
+//        val eta = SodiumLibrary.cryptoBlake2bHash(vrfFirst, null)
+//        assertThat(eta.toHexString()).isEqualTo("c401c89668bd648d90c734925f577db8e4b04b209fc862a2ac66cd19e8956715")
+
+        // test eta_v progression across epoch boundary
+//        Oct 12 14:44:25 brainy local-node[679478]: UpdnState[0] -> eta_v: Nonce "8905cf1955ef85099f4479b53788dcd9aeebbf05dc3912366cb3848b36b87c3e", eta: Nonce "e11cd0dc9790794ff977468143cfeff189bdf335452f5742b39d1fe91868c5f9"
+//        Oct 12 14:44:25 brainy local-node[679478]: UpdnState[1] -> eta_c: Nonce "ae0d7f11742d60165518a6ed7f20c1894ea7b704701f0c45cc737ff7a9093255"
+//        Oct 12 14:45:01 brainy local-node[679478]: ηc = Nonce "ae0d7f11742d60165518a6ed7f20c1894ea7b704701f0c45cc737ff7a9093255", ηh = Nonce "1289fc77742b1c22d7600f8a979fc392a6f8ac988aa18bd1ed4dd21e5c63d9d7", pp = PParams {_minfeeA = 44, _minfeeB = 155381, _maxBBSize = 65536, _maxTxSize = 16384, _maxBHSize = 1100, _keyDeposit = Coin 2000000, _poolDeposit = Coin 500000000, _eMax = EpochNo 18, _nOpt = 150, _a0 = 3 % 10, _rho = UnsafeUnitInterval (3 % 1000), _tau = UnsafeUnitInterval (1 % 5), _d = UnsafeUnitInterval (29 % 50), _extraEntropy = NeutralNonce, _protocolVersion = ProtVer {pvMajor = 2, pvMinor = 0}, _minUTxOValue = Coin 1000000, _minPoolCost = Coin 340000000}, _extraEntropy pp = NeutralNonce
+//        Oct 12 14:45:01 brainy local-node[679478]: UpdnState[0] -> eta_v: Nonce "1182cb17f29c6ea3e94bcfaac8d39b2c7745410d766ab3dcbb47ea4f83f1357a", eta: Nonce "b6f4d8026277280c33d4c5b233554ef24494c5f5b0a481e17cd18d520f8b0be2"
+//        val eta_v = "8905cf1955ef85099f4479b53788dcd9aeebbf05dc3912366cb3848b36b87c3e".hexToByteArray()
+//        val eta = "e11cd0dc9790794ff977468143cfeff189bdf335452f5742b39d1fe91868c5f9".hexToByteArray()
+//        val newEtaV = SodiumLibrary.cryptoBlake2bHash(eta_v + eta, null)
+//        assertThat(newEtaV.toHexString()).isEqualTo("1182cb17f29c6ea3e94bcfaac8d39b2c7745410d766ab3dcbb47ea4f83f1357a")
+
+        println(SodiumLibrary.cryptoBlake2bHash(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00), null).toHexString())
+
     }
 
     @Test

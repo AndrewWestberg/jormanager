@@ -5,6 +5,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.model.AddedToCurrentChain
+import com.swiftmako.jormanager.model.Config
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.NodeStats
@@ -63,6 +64,10 @@ class Configuration {
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getByronGenesisAdapter(moshi: Moshi): JsonAdapter<GenesisByron> = moshi.adapter(GenesisByron::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getConfigAdapter(moshi: Moshi): JsonAdapter<Config> = moshi.adapter(Config::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)

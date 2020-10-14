@@ -21,4 +21,6 @@ data class ChainBlock(
         val hash: String? = null,
         @Column(name = "prev_hash")
         val prevHash: String = "",
+        @Column(name = "eta_v")
+        val etaV: String = "",
 )

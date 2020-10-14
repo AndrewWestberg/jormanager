@@ -2,8 +2,10 @@ package com.swiftmako.jormanager.nodeclient.protocols.chainsync
 
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
+import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.entities.ChainBlock
 import com.swiftmako.jormanager.ktx.elementToLong
+import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
@@ -15,7 +17,11 @@ import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 
-class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val chainRepository: ChainRepository) : MiniProtocol(protocolId = 0x0002.toShort(), LoggerFactory.getLogger("ChainSyncProtocol")) {
+class ChainSyncProtocol(
+        private val shelleyGenesisHash: ByteArray,
+        private val chainBlocks: List<ChainBlock>,
+        private val chainRepository: ChainRepository,
+) : MiniProtocol(protocolId = 0x0002.toShort(), LoggerFactory.getLogger("ChainSyncProtocol")) {
 
     var state: State = State.Idle
     var isIntersectFound = false
@@ -208,12 +214,18 @@ class ChainSyncProtocol(private val chainBlocks: List<ChainBlock>, private val c
                 // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
                 chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
 
+                // evolve the etaV nonce value
+                val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
+                val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
+                val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
+
                 // add this block to the database
                 val savedChainBlock = chainRepository.save(
                         ChainBlock(
                                 blockNumber = msgRollForward.blockNumber,
                                 slotNumber = msgRollForward.slotNumber,
-                                prevHash = msgRollForward.prevHash
+                                prevHash = msgRollForward.prevHash,
+                                etaV = etaV,
                         )
                 )
                 pendingBlockMap[savedChainBlock.blockNumber] = savedChainBlock

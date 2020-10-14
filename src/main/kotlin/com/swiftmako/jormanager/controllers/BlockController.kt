@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.controllers
 
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
+import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
@@ -9,6 +10,7 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.hexToByteArray
+import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.LeaderLogsRequest
@@ -17,19 +19,25 @@ import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.repositories.BlockRepository
+import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import okio.buffer
+import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.info.BuildProperties
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
+import org.springframework.http.MediaType
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.bind.annotation.GetMapping
+import java.io.File
 import java.io.IOException
 import java.math.BigDecimal
 
@@ -49,10 +57,45 @@ class BlockController @Autowired constructor(
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val ledgerAdapter: JsonAdapter<Ledger>,
         private val keyAdapter: JsonAdapter<Key>,
+
+        private val chainRepository: ChainRepository,
 ) {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
 
+    @GetMapping("/test", produces = [MediaType.APPLICATION_JSON_VALUE])
+    fun testEpochNonce(): Any {
+        val byron = byronGenesisAdapter.fromJson(File("/home/westbam/haskell/test/byron-genesis.json").source().buffer())!!
+        val shelley = shelleyGenesisAdapter.fromJson(File("/home/westbam/haskell/test/shelley-genesis.json").source().buffer())!!
+        val eightyEightEpochNonce = "7ddc22c99ca2a516b72788cf08319436ec561ae066c49e5bd86e3af335b4b1b2".hexToByteArray()
+        val eightyNineEpochNonce = "2a912c7bd52e6703c1585379cdde6e44b1908e474d278223232fd18e41a903e9".hexToByteArray()
+
+        val firstSlotOfEightyEight = 7646400L
+        val firstSlotOfEightyNine = 8078400L
+        val stabilityWindow = 172800L
+        val chainBlocks = chainRepository.findBetweenSlots(firstSlotOfEightyEight - stabilityWindow, firstSlotOfEightyNine - stabilityWindow)
+
+        // We need to figure out how to end up with
+        val expectedNc = "f531f1f76f656e1537f10c877aabbb3c4fdaa73b0522d142a2841571e5a57eb5".hexToByteArray()
+
+        var nc = eightyEightEpochNonce
+        chainBlocks.forEach { chainBlock ->
+            nc = SodiumLibrary.cryptoBlake2bHash(nc + chainBlock.hash!!.hexToByteArray() + SodiumLibrary.cryptoBlake2bHash("00000000".hexToByteArray(), null), null)
+            if (nc.contentEquals(expectedNc)) {
+                log.error("GOT our EXPECTED NC!!!")
+                log.error("Last Block we processed was: $chainBlock")
+            }
+        }
+
+        log.error("last block in sql: ${chainBlocks.last()}")
+        log.error("  Expected NC: ${expectedNc.toHexString()}")
+        log.error("Calculated NC: ${nc.toHexString()}")
+
+        return object {
+            val expectedNc = expectedNc.toHexString()
+            val actualNc = "asdfasdfasdfasdfasdf"
+        }
+    }
 
     @MessageMapping("/version")
     @SendTo("/topic/messages")
