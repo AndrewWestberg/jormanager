@@ -1,6 +1,8 @@
 package com.swiftmako.jormanager.repositories
 
 import com.swiftmako.jormanager.entities.ChainBlock
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -32,4 +34,7 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Modifying
     @Query("DELETE FROM ChainBlock c WHERE c.etaV=''")
     fun deleteEmptyEta()
+
+    @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber < :slot ORDER BY c.slotNumber DESC")
+    fun findFirstBeforeSlot(@Param("slot") slot: Long, pageable: Pageable = PageRequest.of(0, 1)): List<ChainBlock>
 }

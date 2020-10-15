@@ -37,9 +37,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.ResponseBody
 import java.io.File
 import java.io.IOException
 import java.math.BigDecimal
+import kotlin.math.ceil
 
 @Controller
 class BlockController @Autowired constructor(
@@ -64,36 +66,36 @@ class BlockController @Autowired constructor(
     private val log = LoggerFactory.getLogger(BlockController::class.java)
 
     @GetMapping("/test", produces = [MediaType.APPLICATION_JSON_VALUE])
+    @ResponseBody
     fun testEpochNonce(): Any {
         val byron = byronGenesisAdapter.fromJson(File("/home/westbam/haskell/test/byron-genesis.json").source().buffer())!!
         val shelley = shelleyGenesisAdapter.fromJson(File("/home/westbam/haskell/test/shelley-genesis.json").source().buffer())!!
-        val eightyEightEpochNonce = "7ddc22c99ca2a516b72788cf08319436ec561ae066c49e5bd86e3af335b4b1b2".hexToByteArray()
-        val eightyNineEpochNonce = "2a912c7bd52e6703c1585379cdde6e44b1908e474d278223232fd18e41a903e9".hexToByteArray()
 
-        val firstSlotOfEightyEight = 7646400L
-        val firstSlotOfEightyNine = 8078400L
-        val stabilityWindow = 172800L
-        val chainBlocks = chainRepository.findBetweenSlots(firstSlotOfEightyEight - stabilityWindow, firstSlotOfEightyNine - stabilityWindow)
+        val firstSlotOfEightyNine = blockUtils.getFirstSlotOfEpoch(byron, shelley, 8356306L) // pick any random slot during the 89 epoch
+        val firstSlotOfEightyEight = firstSlotOfEightyNine - (shelley.epochLength * shelley.slotLength)
+        val stabilityWindow = ceil(3 * byron.protocolConsts.k / shelley.activeSlotsCoeff).toLong()
 
         // We need to figure out how to end up with
-        val expectedNc = "f531f1f76f656e1537f10c877aabbb3c4fdaa73b0522d142a2841571e5a57eb5".hexToByteArray()
+        val expectedNc = "f531f1f76f656e1537f10c877aabbb3c4fdaa73b0522d142a2841571e5a57eb5"
+        val expectedNh = "d48a017f3a6f09b21ba8601595e53858a8b91dcfefde340075b0ef85bed41313"
+        val expectedEightyNineEpochNonce = "2a912c7bd52e6703c1585379cdde6e44b1908e474d278223232fd18e41a903e9"
 
-        var nc = eightyEightEpochNonce
-        chainBlocks.forEach { chainBlock ->
-            nc = SodiumLibrary.cryptoBlake2bHash(nc + chainBlock.hash!!.hexToByteArray() + SodiumLibrary.cryptoBlake2bHash("00000000".hexToByteArray(), null), null)
-            if (nc.contentEquals(expectedNc)) {
-                log.error("GOT our EXPECTED NC!!!")
-                log.error("Last Block we processed was: $chainBlock")
-            }
-        }
+        val stabilityWindowStart = firstSlotOfEightyNine - stabilityWindow
+        val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
+        val nh = chainRepository.findFirstBeforeSlot(firstSlotOfEightyEight).firstOrNull()?.prevHash
 
-        log.error("last block in sql: ${chainBlocks.last()}")
-        log.error("  Expected NC: ${expectedNc.toHexString()}")
-        log.error("Calculated NC: ${nc.toHexString()}")
+        val eightyNineEpochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null).toHexString()
 
         return object {
-            val expectedNc = expectedNc.toHexString()
-            val actualNc = "asdfasdfasdfasdfasdf"
+            val firstSlotOfEightyEight = firstSlotOfEightyEight
+            val firstSlotOfEightyNine = firstSlotOfEightyNine
+            val stabilityWindow = stabilityWindow
+            val expectedNc = expectedNc
+            val calculatedNc = nc
+            val expectedNh = expectedNh
+            val calculatedNh = nh
+            val expectedEightyNineEpochNonce = expectedEightyNineEpochNonce
+            val eightyNineEpochNonce = eightyNineEpochNonce
         }
     }
 

@@ -1182,7 +1182,7 @@ class NodeController @Autowired constructor(
                 ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
                 ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
                 ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
-                ?.replace("12788", "$ekgPort")
+                ?.replace("12788", "$ekgPort") // FIXME: If ekg is set to 12798, then next line will overwrite it!!!
                 ?.replace("12798", "$promPort")
         configFileContent?.let {
             log.debug("Creating ${nodeFolder}/config.json from db file ${configFile.name}")
