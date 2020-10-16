@@ -54,7 +54,8 @@ import {
   faCube,
   faHammer,
   faGhost,
-  faClipboardList
+  faClipboardList,
+  faHatWizard
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -86,6 +87,7 @@ library.add(faCube)
 library.add(faHammer)
 library.add(faGhost)
 library.add(faClipboardList)
+library.add(faHatWizard)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 

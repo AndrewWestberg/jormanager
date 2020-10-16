@@ -106,8 +106,18 @@
       no-close-on-backdrop
       @ok="handleLeaderLogs"
     >
-      <b-form-group label="Epoch Nonce" label-cols-md="2">
-        <b-form-input v-model="formLeaderLogs.epochNonce"></b-form-input>
+      <b-form-group label="Request Type">
+        <b-form-radio-group v-model="formLeaderLogs.requestType">
+          <b-form-radio value="currentEpoch"
+            ><font-awesome-icon
+              :icon="['fas', 'clipboard-list']"
+            />&nbsp;Current Epoch</b-form-radio
+          >
+          <b-form-radio value="futureEpoch" disabled
+            ><font-awesome-icon :icon="['fas', 'hat-wizard']" />&nbsp;Future
+            Epoch</b-form-radio
+          >
+        </b-form-radio-group>
       </b-form-group>
     </b-modal>
   </div>
@@ -139,7 +149,7 @@ export default {
       totalRows: -1,
       formLeaderLogs: {
         spendingPassword: null,
-        epochNonce: null,
+        requestType: "currentEpoch",
       },
     };
   },

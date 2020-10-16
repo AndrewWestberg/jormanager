@@ -71,8 +71,8 @@ class BlockController @Autowired constructor(
         val byron = byronGenesisAdapter.fromJson(File("/home/westbam/haskell/test/byron-genesis.json").source().buffer())!!
         val shelley = shelleyGenesisAdapter.fromJson(File("/home/westbam/haskell/test/shelley-genesis.json").source().buffer())!!
 
-        val firstSlotOfEightyNine = blockUtils.getFirstSlotOfEpoch(byron, shelley, 8356306L) // pick any random slot during the 89 epoch
-        val firstSlotOfEightyEight = firstSlotOfEightyNine - (shelley.epochLength * shelley.slotLength)
+        val firstSlotOfEightyNine = blockUtils.getFirstSlotOfEpoch(byron, shelley, 8788306) //8356306L) // pick any random slot during the 89 epoch
+        val firstSlotOfEightyEight = firstSlotOfEightyNine - shelley.epochLength
         val stabilityWindow = ceil(3 * byron.protocolConsts.k / shelley.activeSlotsCoeff).toLong()
 
         // We need to figure out how to end up with
@@ -187,8 +187,23 @@ class BlockController @Autowired constructor(
                                 val ledger = ledgerAdapter.fromJson(ledgerStateJson)
                                         ?: throw IOException("Error dumping ledger state!")
 
-                                val firstSlotOfEpoch = blockUtils.getFirstSlotOfEpoch(genesisByron, genesisShelley, tipSlotNumber)
-                                val slotsPerEpoch = (genesisShelley.epochLength / genesisShelley.slotLength).toInt()
+                                // Pretend our tip came from the next epoch if user wants to grab future blocks before current epoch is done.
+                                // This only works as long as the decentralizationParam isn't going to change in the next epoch.
+                                val slotsPerEpoch = genesisShelley.epochLength.toInt()
+                                val additionalSlots = if (request.requestType == "futureEpoch") slotsPerEpoch else 0
+                                val firstSlotOfEpoch = blockUtils.getFirstSlotOfEpoch(genesisByron, genesisShelley, tipSlotNumber + additionalSlots)
+                                val firstSlotOfPreviousEpoch = firstSlotOfEpoch - slotsPerEpoch
+                                val stabilityWindow = ceil(3 * genesisByron.protocolConsts.k / genesisShelley.activeSlotsCoeff).toLong()
+
+                                val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
+                                val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
+                                        ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                                val nh = chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
+                                        ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+
+                                val epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
+                                log.info("Leader Logs Epoch Nonce: ${epochNonce.toHexString()}")
+
                                 val poolIdToSigma = mutableMapOf<String, BigDecimal>()
                                 val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
                                 val poolIdToHostname = mutableMapOf<String, String>()
@@ -220,7 +235,7 @@ class BlockController @Autowired constructor(
                                                 slot = slot,
                                                 f = genesisShelley.activeSlotsCoeff,
                                                 sigma = sigma,
-                                                eta0 = request.epochNonce.hexToByteArray(),
+                                                eta0 = epochNonce,
                                                 poolVrfSkey = poolVrfSkey
                                         )
 
@@ -249,6 +264,7 @@ class BlockController @Autowired constructor(
                                                                 status = "pending"
                                                         )
                                                 )
+                                                log.debug("Saved elected block for slot $slot")
                                             }
                                         }
                                     }

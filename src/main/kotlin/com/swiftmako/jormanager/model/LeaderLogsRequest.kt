@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 data class LeaderLogsRequest(
         @JsonProperty("spendingPassword") val spendingPassword: String,
-        @JsonProperty("epochNonce") val epochNonce: String,
+        @JsonProperty("requestType") val requestType: String, // "currentEpoch", "futureEpoch"
 )
