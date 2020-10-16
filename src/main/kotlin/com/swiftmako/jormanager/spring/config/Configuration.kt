@@ -17,6 +17,7 @@ import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
+import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.Channel

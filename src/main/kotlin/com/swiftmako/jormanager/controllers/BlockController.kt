@@ -4,6 +4,7 @@ import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -17,30 +18,23 @@ import com.swiftmako.jormanager.model.LeaderLogsRequest
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.key.Key
-import com.swiftmako.jormanager.model.ledger.Ledger
+import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
 import com.swiftmako.jormanager.repositories.BlockRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import okio.buffer
-import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.info.BuildProperties
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
-import org.springframework.http.MediaType
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.ResponseBody
-import java.io.File
 import java.io.IOException
-import java.math.BigDecimal
 import kotlin.math.ceil
 
 @Controller
@@ -57,47 +51,12 @@ class BlockController @Autowired constructor(
         private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
-        private val ledgerAdapter: JsonAdapter<Ledger>,
         private val keyAdapter: JsonAdapter<Key>,
-
         private val chainRepository: ChainRepository,
+        private val moshi: Moshi,
 ) {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
-
-    @GetMapping("/test", produces = [MediaType.APPLICATION_JSON_VALUE])
-    @ResponseBody
-    fun testEpochNonce(): Any {
-        val byron = byronGenesisAdapter.fromJson(File("/home/westbam/haskell/test/byron-genesis.json").source().buffer())!!
-        val shelley = shelleyGenesisAdapter.fromJson(File("/home/westbam/haskell/test/shelley-genesis.json").source().buffer())!!
-
-        val firstSlotOfEightyNine = blockUtils.getFirstSlotOfEpoch(byron, shelley, 8788306) //8356306L) // pick any random slot during the 89 epoch
-        val firstSlotOfEightyEight = firstSlotOfEightyNine - shelley.epochLength
-        val stabilityWindow = ceil(3 * byron.protocolConsts.k / shelley.activeSlotsCoeff).toLong()
-
-        // We need to figure out how to end up with
-        val expectedNc = "f531f1f76f656e1537f10c877aabbb3c4fdaa73b0522d142a2841571e5a57eb5"
-        val expectedNh = "d48a017f3a6f09b21ba8601595e53858a8b91dcfefde340075b0ef85bed41313"
-        val expectedEightyNineEpochNonce = "2a912c7bd52e6703c1585379cdde6e44b1908e474d278223232fd18e41a903e9"
-
-        val stabilityWindowStart = firstSlotOfEightyNine - stabilityWindow
-        val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
-        val nh = chainRepository.findFirstBeforeSlot(firstSlotOfEightyEight).firstOrNull()?.prevHash
-
-        val eightyNineEpochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null).toHexString()
-
-        return object {
-            val firstSlotOfEightyEight = firstSlotOfEightyEight
-            val firstSlotOfEightyNine = firstSlotOfEightyNine
-            val stabilityWindow = stabilityWindow
-            val expectedNc = expectedNc
-            val calculatedNc = nc
-            val expectedNh = expectedNh
-            val calculatedNh = nh
-            val expectedEightyNineEpochNonce = expectedEightyNineEpochNonce
-            val eightyNineEpochNonce = eightyNineEpochNonce
-        }
-    }
 
     @MessageMapping("/version")
     @SendTo("/topic/messages")
@@ -175,114 +134,113 @@ class BlockController @Autowired constructor(
                             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("leaderlogs", "Leader Logs Started... please be patient."))
 
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                            try {
-                                val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
-                                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                                val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
-                                        ?: throw IOException("Invalid protocol params!")
-                                val tipJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query tip $magicString").trim()
-                                val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slotNo
-                                        ?: throw IOException("Unable to query tip!")
-                                val ledgerStateJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query ledger-state --cardano-mode $magicString").trim()
-                                val ledger = ledgerAdapter.fromJson(ledgerStateJson)
-                                        ?: throw IOException("Error dumping ledger state!")
+                            val tipJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query tip $magicString").trim()
+                            val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slotNo
+                                    ?: throw IOException("Unable to query tip!")
+                            val ledgerStateJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query ledger-state --cardano-mode $magicString").trim()
+                            val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                            val ledgerAdapter = LeaderLogLedgerJsonAdapter(moshi, poolIds)
+                            val ledger = ledgerAdapter.fromJson(ledgerStateJson)
+                                    ?: throw IOException("Error dumping ledger state!")
 
-                                // Pretend our tip came from the next epoch if user wants to grab future blocks before current epoch is done.
-                                // This only works as long as the decentralizationParam isn't going to change in the next epoch.
-                                val slotsPerEpoch = genesisShelley.epochLength.toInt()
-                                val additionalSlots = if (request.requestType == "futureEpoch") slotsPerEpoch else 0
-                                val firstSlotOfEpoch = blockUtils.getFirstSlotOfEpoch(genesisByron, genesisShelley, tipSlotNumber + additionalSlots)
-                                val firstSlotOfPreviousEpoch = firstSlotOfEpoch - slotsPerEpoch
-                                val stabilityWindow = ceil(3 * genesisByron.protocolConsts.k / genesisShelley.activeSlotsCoeff).toLong()
+                            // Pretend our tip came from the next epoch if user wants to grab future blocks before current epoch is done.
+                            // This only works as long as the decentralizationParam isn't going to change in the next epoch.
+                            val slotsPerEpoch = genesisShelley.epochLength.toInt()
+                            val additionalSlots = if (request.requestType == "futureEpoch") slotsPerEpoch else 0
+                            val firstSlotOfEpoch = blockUtils.getFirstSlotOfEpoch(genesisByron, genesisShelley, tipSlotNumber + additionalSlots)
+                            val firstSlotOfPreviousEpoch = firstSlotOfEpoch - slotsPerEpoch
+                            val stabilityWindow = ceil(3 * genesisByron.protocolConsts.k / genesisShelley.activeSlotsCoeff).toLong()
+                            val decentralizationParam = if (request.requestType == "futureEpoch") ledger.futureDecentralizationParameter.toBigDecimal() else ledger.decentralizationParameter.toBigDecimal()
 
-                                val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
-                                val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
-                                        ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
-                                val nh = chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
-                                        ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                            val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
+                            val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
+                                    ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                            val nh = chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
+                                    ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
 
-                                val epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
-                                log.info("Leader Logs Epoch Nonce: ${epochNonce.toHexString()}")
+                            val epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
+                            log.info("Leader Logs Epoch Nonce: ${epochNonce.toHexString()}")
+                            log.info("Ledger State: $ledger")
 
-                                val poolIdToSigma = mutableMapOf<String, BigDecimal>()
-                                val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
-                                val poolIdToHostname = mutableMapOf<String, String>()
-                                val leadershipCount = mutableMapOf<String, Int>()
-                                var lastLoggedTime = System.currentTimeMillis()
-                                repeat(slotsPerEpoch) { index ->
-                                    val slot = firstSlotOfEpoch + index
-                                    if (blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, protocolParameters.decentralisationParam.toBigDecimal())) {
-                                        // Nobody is allowed to make a block in this slot except maybe BFT nodes.
-                                        return@repeat
+                            val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
+                            val poolIdToHostname = mutableMapOf<String, String>()
+                            val leadershipCount = mutableMapOf<String, Int>()
+                            var lastLoggedTime = System.currentTimeMillis()
+                            repeat(slotsPerEpoch) { index ->
+                                val slot = firstSlotOfEpoch + index
+                                if (blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, decentralizationParam)) {
+                                    // Nobody is allowed to make a block in this slot except maybe BFT nodes.
+                                    return@repeat
+                                }
+                                coreNodes.forEach { coreNode ->
+                                    requireNotNull(coreNode.poolId)
+                                    val sigma = if (request.requestType == "futureEpoch") {
+                                        ledger.futurePoolIdToSigma[coreNode.poolId]
+                                                ?: throw IOException("No sigma found for poolId ${coreNode.poolId}")
+                                    } else {
+                                        ledger.poolIdToSigma[coreNode.poolId]
+                                                ?: throw IOException("No sigma found for poolId ${coreNode.poolId}")
                                     }
-                                    coreNodes.forEach { coreNode ->
-                                        val sigma = poolIdToSigma[coreNode.poolId!!]
-                                                ?: blockUtils.getSigma(coreNode.poolId, ledger).also {
-                                                    poolIdToSigma[coreNode.poolId] = it
-                                                }
-                                        val poolVrfSkey = poolIdToVrfSkey[coreNode.poolId] ?: run {
-                                            val vrfSkeyFile = fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
-                                                    ?: throw IOException("No VRF Skey for ${coreNode.name}")
-                                            val vrfJsonString = walletUtils.getSKeyContent(vrfSkeyFile, request.spendingPassword)
-                                            val vrfSkey = keyAdapter.fromJson(vrfJsonString)
-                                                    ?: throw IOException("Unable to parse VRF Skey!")
-                                            val reader = CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
-                                            (reader.readDataItem() as CborByteString).byteArrayValue().also {
-                                                poolIdToVrfSkey[coreNode.poolId] = it
-                                            }
-                                        }
-                                        val isSlotLeader = blockUtils.isSlotLeader(
-                                                slot = slot,
-                                                f = genesisShelley.activeSlotsCoeff,
-                                                sigma = sigma,
-                                                eta0 = epochNonce,
-                                                poolVrfSkey = poolVrfSkey
-                                        )
 
-                                        if (isSlotLeader) {
-                                            log.info("${coreNode.name}: Selected for slot $slot")
-                                            val key = "${coreNode.name}|${coreNode.poolId}"
-                                            val count = leadershipCount[key] ?: 0
-                                            leadershipCount[key] = count + 1
-
-                                            val existingBlock = blockRepository.findByPoolAndSlot(coreNode.name, slot)
-                                            if (existingBlock == null) {
-                                                val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(genesisByron, genesisShelley, slot)
-
-                                                blockRepository.save(
-                                                        Block(
-                                                                at = blockUtils.slotToTimestamp(genesisByron, genesisShelley, slot),
-                                                                pool = coreNode.name,
-                                                                host = poolIdToHostname[coreNode.poolId]
-                                                                        ?: hostRepository.findByIdOrNull(coreNode.hostId)!!.hostname.also {
-                                                                            poolIdToHostname[coreNode.poolId] = it
-                                                                        },
-                                                                slot = slot,
-                                                                epoch = epoch,
-                                                                slotInEpoch = slotInEpoch,
-                                                                hash = "",
-                                                                status = "pending"
-                                                        )
-                                                )
-                                                log.debug("Saved elected block for slot $slot")
-                                            }
+                                    val poolVrfSkey = poolIdToVrfSkey[coreNode.poolId] ?: run {
+                                        val vrfSkeyFile = fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
+                                                ?: throw IOException("No VRF Skey for ${coreNode.name}")
+                                        val vrfJsonString = walletUtils.getSKeyContent(vrfSkeyFile, request.spendingPassword)
+                                        val vrfSkey = keyAdapter.fromJson(vrfJsonString)
+                                                ?: throw IOException("Unable to parse VRF Skey!")
+                                        val reader = CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
+                                        (reader.readDataItem() as CborByteString).byteArrayValue().also {
+                                            poolIdToVrfSkey[coreNode.poolId] = it
                                         }
                                     }
-                                    val now = System.currentTimeMillis()
-                                    if (now - lastLoggedTime > 10_000) {
-                                        // notify GUI every 10 seconds of progress
-                                        webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("leaderlogs", "Leader Logs ${String.format("%1.2f", (index.toFloat() / slotsPerEpoch.toFloat()) * 100)}%"))
-                                        lastLoggedTime = now
+                                    val isSlotLeader = blockUtils.isSlotLeader(
+                                            slot = slot,
+                                            f = genesisShelley.activeSlotsCoeff,
+                                            sigma = sigma,
+                                            eta0 = epochNonce,
+                                            poolVrfSkey = poolVrfSkey
+                                    )
+
+                                    if (isSlotLeader) {
+                                        log.info("${coreNode.name}: Selected for slot $slot")
+                                        val key = "${coreNode.name}|${coreNode.poolId}"
+                                        val count = leadershipCount[key] ?: 0
+                                        leadershipCount[key] = count + 1
+
+                                        val existingBlock = blockRepository.findByPoolAndSlot(coreNode.name, slot)
+                                        if (existingBlock == null) {
+                                            val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(genesisByron, genesisShelley, slot)
+
+                                            blockRepository.save(
+                                                    Block(
+                                                            at = blockUtils.slotToTimestamp(genesisByron, genesisShelley, slot),
+                                                            pool = coreNode.name,
+                                                            host = poolIdToHostname[coreNode.poolId]
+                                                                    ?: hostRepository.findByIdOrNull(coreNode.hostId)!!.hostname.also {
+                                                                        poolIdToHostname[coreNode.poolId] = it
+                                                                    },
+                                                            slot = slot,
+                                                            epoch = epoch,
+                                                            slotInEpoch = slotInEpoch,
+                                                            hash = "",
+                                                            status = "pending"
+                                                    )
+                                            )
+                                            log.debug("Saved elected block for slot $slot")
+                                        }
                                     }
                                 }
-
-                                log.info("Total Slots this epoch: $leadershipCount")
-                                val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
-                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("blocks", data = blocks))
-                            } finally {
-                                // Cleanup
-                                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json")
+                                val now = System.currentTimeMillis()
+                                if (now - lastLoggedTime > 10_000) {
+                                    // notify GUI every 10 seconds of progress
+                                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("leaderlogs", "Leader Logs ${String.format("%1.2f", (index.toFloat() / slotsPerEpoch.toFloat()) * 100)}%"))
+                                    lastLoggedTime = now
+                                }
                             }
+
+                            log.info("Total Slots this epoch: $leadershipCount")
+                            val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
+                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("blocks", data = blocks))
                         } ?: throw IOException("Host not found for default node!")
                     } ?: throw IOException("Genesis Byron file for default node not found!")
                 } ?: throw IOException("Genesis file for default node not found!")

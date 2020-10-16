@@ -113,7 +113,7 @@
               :icon="['fas', 'clipboard-list']"
             />&nbsp;Current Epoch</b-form-radio
           >
-          <b-form-radio value="futureEpoch" disabled
+          <b-form-radio value="futureEpoch"
             ><font-awesome-icon :icon="['fas', 'hat-wizard']" />&nbsp;Future
             Epoch</b-form-radio
           >

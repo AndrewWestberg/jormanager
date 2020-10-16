@@ -141,25 +141,6 @@ class BlockUtils @Autowired constructor(
     }
 
     /**
-     * Calculate the amount of controlled stake (stake proportion) by a given pool from the ledger
-     * e.g. 0.0034 == 0.34% of the total stake
-     */
-    fun getSigma(poolId: String, ledger: Ledger): BigDecimal {
-        val stakeMap = ledger.esSnapshots.pstakeSet.stake.map { stakeItem ->
-            (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
-        }.toMap()
-        val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
-            it[1] == poolId
-        }.mapNotNull { delegation ->
-            val keyHash = (delegation[0] as Map<String, String>)["key hash"]
-            stakeMap[keyHash]
-        }.sumByLong { it }
-
-        val totalStake = stakeMap.map { entry -> entry.value }.sumByLong { it }
-        return BigDecimal(activeStake).divide(BigDecimal(totalStake), 34, RoundingMode.HALF_UP)
-    }
-
-    /**
      * Determine if our pool is a slot leader for this given slot
      * @param slot The slot to check
      * @param f The activeSlotsCoeff value from protocol params

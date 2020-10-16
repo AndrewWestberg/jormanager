@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.ledger.Ledger
+import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
 import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
 import com.swiftmako.jormanager.repositories.ChainRepository
 import io.mockk.every
@@ -64,29 +65,43 @@ class NodeConnectTest {
             val ledgerAdapter = moshi.adapter(Ledger::class.java)
 
 //            val source = File("/tmp/ledger-state-219.json").source().buffer()
-            val source = File("/tmp/ledger-state-87-testnet.json").source().buffer()
-            val ledger = ledgerAdapter.fromJson(source)
+            File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
+                val ledger = ledgerAdapter.fromJson(source)
 
-            val computeTime = measureTimeMillis {
-                val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-                    (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
-                }.toMap()
-                val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
+                val computeTime = measureTimeMillis {
+                    val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
+                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
+                    }.toMap()
+                    val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
 //                    it[1] == "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
-                    it[1] == "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
-                }.mapNotNull { delegation ->
-                    val keyHash = (delegation[0] as Map<String, String>)["key hash"]
-                    stakeMap[keyHash]
-                }.sumByLong { it }
+                        it[1] == "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
+                    }.mapNotNull { delegation ->
+                        val keyHash = (delegation[0] as Map<String, String>)["key hash"]
+                        stakeMap[keyHash]
+                    }.sumByLong { it }
 
-                val totalStake = stakeMap.map { entry -> entry.value }.sumByLong { it }
-                val percentOfTotalStake = BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP).times(BigDecimal(100L))
+                    val totalStake = stakeMap.map { entry -> entry.value }.sumByLong { it }
+                    val percentOfTotalStake = BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP).times(BigDecimal(100L))
 
-                println("Active Stake: $activeStake lovelace")
-                println("Total Stake: $totalStake lovelace")
-                println("Stake Percentage: ${percentOfTotalStake}%")
+                    println("Active Stake: $activeStake lovelace")
+                    println("Total Stake: $totalStake lovelace")
+                    println("Stake Percentage: ${percentOfTotalStake}%")
+                }
+                println("Compute Time: ${computeTime}ms")
             }
-            println("Compute Time: ${computeTime}ms")
+        }
+        println("Total Duration: ${duration}ms")
+    }
+
+    @Test
+    fun testNewLedgerState() {
+        val duration = measureTimeMillis {
+            val moshi = Moshi.Builder().build()
+            val leaderLogLedgerAdapter = LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
+            File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
+                val leaderLogLedger = leaderLogLedgerAdapter.fromJson(source)
+                println(leaderLogLedger)
+            }
         }
         println("Total Duration: ${duration}ms")
     }
