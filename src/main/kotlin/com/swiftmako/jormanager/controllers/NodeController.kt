@@ -966,24 +966,30 @@ class NodeController @Autowired constructor(
             NODE_TYPE_RELAY -> {
                 """
                     |#!/bin/bash
+                    |OLDPWD=`pwd`
                     |cd ${host.nodeHomePath}/${request.name}
                     |source ${host.nodeHomePath}/${request.name}/env
-                    |${host.cardanoNodePath} \
+                    |nohup ${host.cardanoNodePath} \
                     |  +RTS -N${request.processorThreads} -RTS run \
                     |  --topology ${'$'}{TOPOLOGY} \
                     |  --database-path ${'$'}{DATABASE_PATH} \
                     |  --socket-path ${'$'}{SOCKET_PATH} \
                     |  --host-addr ${'$'}{HOST_ADDR} \
                     |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG}
+                    |  --config ${'$'}{CONFIG} \
+                    |  > ${request.name}.log 2>&1 &
+                    |echo ${'$'}! > ${request.name}.pid
+                    |cd ${'$'}OLDPWD
+                    |echo "Started with logfile ${request.name}.log"
                 """.trimMargin()
             }
             else -> {
                 """
                     |#!/bin/bash
+                    |OLDPWD=`pwd`
                     |cd ${host.nodeHomePath}/${request.name}
                     |source ${host.nodeHomePath}/${request.name}/env
-                    |${host.cardanoNodePath} \
+                    |nohup ${host.cardanoNodePath} \
                     |  +RTS -N${request.processorThreads} -RTS run \
                     |  --topology ${'$'}{TOPOLOGY} \
                     |  --database-path ${'$'}{DATABASE_PATH} \
@@ -993,7 +999,11 @@ class NodeController @Autowired constructor(
                     |  --config ${'$'}{CONFIG} \
                     |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
                     |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
-                    |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}
+                    |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
+                    |  > ${request.name}.log 2>&1 &
+                    |echo ${'$'}! > ${request.name}.pid
+                    |cd ${'$'}OLDPWD
+                    |echo "Started with logfile ${request.name}.log"
                 """.trimMargin()
             }
         }
@@ -1003,10 +1013,14 @@ class NodeController @Autowired constructor(
 
         val stopNodeContent = """
             |#!/bin/bash
-            |PID=`ps -Af | grep cardano-node | grep ${request.name}\/topology | awk '{ print ${'$'}2 }'`
-            |kill -s INT ${'$'}PID
+            |OLDPWD=`pwd`
+            |cd ${host.nodeHomePath}/${request.name}
+            |PID=`cat ${request.name}.pid`
+            |kill -s INT ${'$'}PID >/dev/null 2>&1
             |sleep 3
-            |kill -s KILL ${'$'}PID
+            |kill -s KILL ${'$'}PID >/dev/null 2>&1
+            |rm -f ${request.name}.pid
+            |cd ${'$'}OLDPWD
         """.trimMargin()
         hostConnection.commandWriteFile("${host.nodeHomePath}/${request.name}/stopNode.sh", stopNodeContent)
         hostConnection.command("chmod 555 ${host.nodeHomePath}/${request.name}/stopNode.sh")
