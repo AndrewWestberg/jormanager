@@ -3,7 +3,7 @@ package com.swiftmako.jormanager.monitors
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import kotlinx.coroutines.CancellationException
@@ -36,7 +36,7 @@ class WalletMonitor @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
-        private val genesisAdapter: JsonAdapter<Genesis>
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(WalletMonitor::class.java)
@@ -71,7 +71,7 @@ class WalletMonitor @Autowired constructor(
                     if (magicString.isBlank()) {
                         nodeRepository.findDefault()?.let { defaultNode ->
                             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                                 magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                                     "--testnet-magic ${genesis.networkMagic}"
                                 } else {

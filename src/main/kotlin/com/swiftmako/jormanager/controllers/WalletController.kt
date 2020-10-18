@@ -12,7 +12,7 @@ import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CalculateFeeRequest
 import com.swiftmako.jormanager.model.CreateWalletEntryRequest
 import com.swiftmako.jormanager.model.DeleteWalletEntryRequest
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.SubmitTransactionRequest
 import com.swiftmako.jormanager.model.WalletItem
@@ -42,7 +42,7 @@ class WalletController @Autowired constructor(
         private val hostRepository: HostRepository,
         private val transactionRepository: TransactionRepository,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
-        private val genesisAdapter: JsonAdapter<Genesis>,
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
 ) {
 
     private val log = LoggerFactory.getLogger(WalletController::class.java)
@@ -53,7 +53,7 @@ class WalletController @Autowired constructor(
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                     val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {
@@ -76,7 +76,7 @@ class WalletController @Autowired constructor(
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                     val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {
@@ -171,7 +171,7 @@ class WalletController @Autowired constructor(
     private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                 val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                     "--testnet-magic ${genesis.networkMagic}"
                 } else {
@@ -277,7 +277,7 @@ class WalletController @Autowired constructor(
     private fun createPaymentWalletEntry(request: CreateWalletEntryRequest): WalletEntry {
         return nodeRepository.findDefault()?.let { defaultNode ->
             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                 val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                     "--testnet-magic ${genesis.networkMagic}"
                 } else {
@@ -369,7 +369,7 @@ class WalletController @Autowired constructor(
         return try {
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                     val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {

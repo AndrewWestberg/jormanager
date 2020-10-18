@@ -3,7 +3,7 @@ package com.swiftmako.jormanager.monitors
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.Config
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
@@ -37,7 +37,7 @@ class ChainMonitor @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
-        private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val configAdapter: JsonAdapter<Config>,
 ) : SmartLifecycle, CoroutineScope {
 
@@ -73,7 +73,7 @@ class ChainMonitor @Autowired constructor(
                     nodeRepository.findDefault()?.let { defaultNode ->
                         val shelleyGenesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                                 ?: throw IOException("Unable to read shelley genesis file!")
-                        val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+                        val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
                         val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                                 ?: throw IOException("host for default node not found!")

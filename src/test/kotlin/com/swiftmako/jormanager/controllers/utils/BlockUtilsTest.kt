@@ -2,11 +2,12 @@ package com.swiftmako.jormanager.controllers.utils
 
 import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.model.BlockVersionData
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.model.ProtocolConsts
 import org.junit.jupiter.api.Test
+import java.math.BigDecimal
 import java.util.concurrent.atomic.AtomicReference
 
 class BlockUtilsTest {
@@ -21,7 +22,7 @@ class BlockUtilsTest {
             )
     )
 
-    private val shelley = Genesis(
+    private val shelley = GenesisShelley(
             activeSlotsCoeff = 0.05,
             networkId = "Mainnet",
             networkMagic = 764824073L,
@@ -43,6 +44,8 @@ class BlockUtilsTest {
             epoch = 215L,
             slot = 7938583L,
             slotInEpoch = 421783L,
+            txsProcessed = 15L,
+            incomingPeers = 15,
     ))
 
     private val byronTest = GenesisByron(
@@ -55,7 +58,7 @@ class BlockUtilsTest {
             )
     )
 
-    private val shelleyTest = Genesis(
+    private val shelleyTest = GenesisShelley(
             activeSlotsCoeff = 0.05,
             networkId = "Testnet",
             networkMagic = 1097911063L,
@@ -77,6 +80,8 @@ class BlockUtilsTest {
             epoch = 82L,
             slot = 5140657L,
             slotInEpoch = 86257L,
+            txsProcessed = 15L,
+            incomingPeers = 15,
     ))
 
 
@@ -107,4 +112,15 @@ class BlockUtilsTest {
         val testnetTransitionEpoch = target.getShelleyTransitionEpoch(byronTest, shelleyTest)
         assertThat(testnetTransitionEpoch).isEqualTo(74)
     }
+
+    @Test
+    fun testOverlaySlot() {
+        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
+
+        val firstSlotOfEpoch = 11404800L
+        val testSlot = 11553190L
+        val result = target.isOverlaySlot(firstSlotOfEpoch, testSlot, BigDecimal("0.56"))
+        assertThat(result).isFalse()
+    }
+
 }

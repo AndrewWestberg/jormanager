@@ -10,7 +10,7 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.AddedToCurrentChain
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
@@ -70,7 +70,7 @@ class BlockMonitor @Autowired constructor(
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
         private val blockUtils: BlockUtils,
         private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
-        private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val blockAdapter: JsonAdapter<AddedToCurrentChain>,
@@ -195,7 +195,7 @@ class BlockMonitor @Autowired constructor(
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
                     ?: throw IOException("Unable to read shelley genesis file!")
-            val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+            val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
             } else {
@@ -264,7 +264,7 @@ class BlockMonitor @Autowired constructor(
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
                     ?: throw IOException("Unable to read shelley genesis file!")
-            val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+            val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
             } else {
@@ -333,7 +333,7 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private suspend fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: Genesis, line: String) {
+    private suspend fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: GenesisShelley, line: String) {
         coroutineScope {
             blockFoundMutex.withLock {
                 adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->

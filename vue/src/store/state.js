@@ -23,6 +23,7 @@ export default {
     nodeColors: [],
     peersSeries: [],
     blockHeightSeries: [],
+    incomingPeersSeries: [],
     remainingKESSeriesCategories: [],
     remainingKESSeriesCategoryLabels: [],
     remainingKESSeries: [{
@@ -35,6 +36,7 @@ export default {
         name: 'All Good',
         data: []
     }],
+    txsProcessedSeries: [],
 
     epoch: 0,
     slot: 0,

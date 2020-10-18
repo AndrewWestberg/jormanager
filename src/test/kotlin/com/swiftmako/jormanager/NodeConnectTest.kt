@@ -3,6 +3,7 @@ package com.swiftmako.jormanager
 import com.google.common.truth.Truth.assertThat
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.ktx.toHexString

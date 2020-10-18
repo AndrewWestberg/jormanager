@@ -2,12 +2,10 @@ package com.swiftmako.jormanager.controllers.utils
 
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.ktx.hexToByteArray
-import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.Genesis
 import com.swiftmako.jormanager.model.GenesisByron
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
-import com.swiftmako.jormanager.model.ledger.Ledger
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.slf4j.Logger
@@ -55,7 +53,7 @@ class BlockUtils @Autowired constructor(
         )
     }
 
-    fun getEpoch(byron: GenesisByron, shelley: Genesis): Long {
+    fun getEpoch(byron: GenesisByron, shelley: GenesisShelley): Long {
         val currentTimeSec = System.currentTimeMillis() / 1000L
         val byronEpochLength = 10L * byron.protocolConsts.k
         val byronSlotLength = byron.blockVersionData.slotDuration / 1000L
@@ -64,7 +62,7 @@ class BlockUtils @Autowired constructor(
         return shelleyTransitionEpoch + ((currentTimeSec - byronEndTime) / shelley.slotLength / shelley.epochLength)
     }
 
-    fun getEpochAndSlot(byron: GenesisByron, shelley: Genesis, absoluteSlot: Long): Pair<Long, Long> {
+    fun getEpochAndSlot(byron: GenesisByron, shelley: GenesisShelley, absoluteSlot: Long): Pair<Long, Long> {
         val shelleyTransitionEpoch = getShelleyTransitionEpoch(byron, shelley)
         if (shelleyTransitionEpoch == -1L) {
             return Pair(-1L, -1L)
@@ -77,7 +75,7 @@ class BlockUtils @Autowired constructor(
         return Pair(shelleyEpoch, shelleySlotInEpoch)
     }
 
-    fun slotToTimestamp(byron: GenesisByron, shelley: Genesis, absoluteSlot: Long): String {
+    fun slotToTimestamp(byron: GenesisByron, shelley: GenesisShelley, absoluteSlot: Long): String {
         val networkStartTime = DateTime(byron.startTime * 1000L)
         val shelleyTransitionEpoch = getShelleyTransitionEpoch(byron, shelley)
         val byronEpochLength = 10L * byron.protocolConsts.k
@@ -91,7 +89,7 @@ class BlockUtils @Autowired constructor(
         return dateTimeFormat.print(networkStartTime.plusSeconds((byronSecs + shelleySecs).toInt()))
     }
 
-    fun getFirstSlotOfEpoch(byron: GenesisByron, shelley: Genesis, absoluteSlot: Long): Long {
+    fun getFirstSlotOfEpoch(byron: GenesisByron, shelley: GenesisShelley, absoluteSlot: Long): Long {
         val shelleyTransitionEpoch = getShelleyTransitionEpoch(byron, shelley)
         if (shelleyTransitionEpoch == -1L) {
             return -1L
@@ -103,7 +101,7 @@ class BlockUtils @Autowired constructor(
         return absoluteSlot - shelleySlotInEpoch
     }
 
-    fun getShelleyTransitionEpoch(byron: GenesisByron, shelley: Genesis): Long {
+    fun getShelleyTransitionEpoch(byron: GenesisByron, shelley: GenesisShelley): Long {
         latestNodeStats.get()?.let { nodeStats ->
             if (nodeStats.epoch == null || nodeStats.slot == null || nodeStats.slotInEpoch == null) {
                 return -1L
@@ -164,6 +162,9 @@ class BlockUtils @Autowired constructor(
         val sigmaOfF = exp(-sigma.toDouble() * c)
 
         // return true if q <= sigmaOfF
+        if (q.compareTo(sigmaOfF.toBigDecimal()) != 1) {
+            log.warn("isLeader($slot): $q <= $sigmaOfF Difference Of: ${sigmaOfF.toBigDecimal() - q}")
+        }
         return q.compareTo(sigmaOfF.toBigDecimal()) != 1
     }
 

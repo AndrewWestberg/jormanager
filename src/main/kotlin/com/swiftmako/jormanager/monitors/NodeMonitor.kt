@@ -1,12 +1,18 @@
 package com.swiftmako.jormanager.monitors
 
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.SSHClientPool
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.model.ekg.EkgMetrics
+import com.swiftmako.jormanager.moshi.adapters.PoolLedgerJsonAdapter
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.EkgService
@@ -26,8 +32,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder
 import net.schmizz.sshj.connection.channel.direct.Parameters
+import okio.buffer
+import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -44,6 +53,7 @@ import java.net.ConnectException
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
@@ -55,8 +65,11 @@ import kotlin.random.Random
 class NodeMonitor @Autowired constructor(
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
+        private val fileRepository: FileRepository,
         private val retrofit: Retrofit,
         private val webSocketTemplate: SimpMessagingTemplate,
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val moshi: Moshi,
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
         @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
         @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
@@ -93,6 +106,7 @@ class NodeMonitor @Autowired constructor(
 //            }
 //        }
 
+        loadLedgerValuesIfNecessary()
         monitorNodes()
         collectAndGroupStats()
     }
@@ -100,6 +114,56 @@ class NodeMonitor @Autowired constructor(
     override fun stop() {
         job.cancelChildren()
         log.info("NodeMonitor stopped.")
+    }
+
+    /**
+     * Load some values from ledger state into our db if they don't exist already
+     */
+    private fun loadLedgerValuesIfNecessary() {
+        launch {
+            try {
+                // core nodes that need updating from the ledger state
+                val coreNodes = nodeRepository.findAll().filter { it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                if (coreNodes.isEmpty()) {
+                    return@launch
+                }
+
+                nodeRepository.findDefault()?.let { defaultNode ->
+                    fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
+                        val genesisShelley = shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
+                        val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
+                            "--testnet-magic ${genesisShelley.networkMagic}"
+                        } else {
+                            "--mainnet"
+                        }
+                        hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                            val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                            val ledgerStateJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query ledger-state --cardano-mode $magicString").trim()
+                            val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                            val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
+                            val poolLedger = poolLedgerAdapter.fromJson(ledgerStateJson)
+                                    ?: throw IOException("Error dumping ledger state!")
+
+                            coreNodes.forEach { coreNode ->
+                                val updatedCoreNode = nodeRepository.save(
+                                        coreNode.copy(
+                                                poolPledge = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.pledge
+                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.pledge,
+                                                poolCost = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.cost
+                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.cost,
+                                                poolMargin = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.margin?.toString()
+                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.margin?.toString(),
+                                        )
+                                )
+                                log.warn("Updated ${updatedCoreNode.name} based on Ledger State: pledge: ${updatedCoreNode.poolPledge}, cost: ${updatedCoreNode.poolCost}, margin: ${updatedCoreNode.poolMargin}")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                log.error("Error updating core node values from ledger!", e)
+            }
+        }
     }
 
     private fun monitorNodes() {
@@ -163,7 +227,7 @@ class NodeMonitor @Autowired constructor(
                 }.start()
 
                 val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${localPort}").build().create(EkgService::class.java)
-                monitorNode(node.id!!, ekgService, true)
+                monitorNode(node.id!!, ekgService, ssh, true)
             } catch (e: IOException) {
                 log.error("IOException communicating with ${node.name}")
                 retry = true
@@ -184,7 +248,7 @@ class NodeMonitor @Autowired constructor(
         }
     }
 
-    private suspend fun monitorNode(nodeId: Long, ekgService: EkgService, rethrowExceptions: Boolean = false) {
+    private suspend fun monitorNode(nodeId: Long, ekgService: EkgService, ssh: SSHClient? = null, rethrowExceptions: Boolean = false) {
         // delay a bit so the node has time to be saved in the db.
         delay(5000)
         var node = nodeRepository.findByIdOrNull(nodeId)!!
@@ -198,11 +262,36 @@ class NodeMonitor @Autowired constructor(
             try {
                 node = nodeRepository.findByIdOrNull(nodeId)!!
                 delay(delay)
+
+                // Calculate incoming peers
+                lateinit var output: String
+                lateinit var errorOutput: String
+                val incomingPeers: Int = ssh?.let {
+                    ssh.startSession().use { session ->
+                        val command = "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
+                        session.exec(command).use { cmd ->
+                            output = cmd.inputStream.source().buffer().use { it.readUtf8() }
+                            errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
+                            cmd.join(5, TimeUnit.SECONDS)
+                            if (cmd.exitStatus != 0) {
+                                throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
+                            }
+                            output.trim().toInt()
+                        }
+                    }
+                } ?: run {
+                    val process = ProcessBuilder("/bin/bash", "-c", "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l").start()
+                    output = process.inputStream.source().buffer().use { it.readUtf8() }
+                    process.waitFor(5, TimeUnit.SECONDS)
+                    output.trim().toInt()
+                }
+                //log.debug("${node.name} incoming peers: $incomingPeers")
+
                 val ekgMetrics = ekgService.getNodeMetrics(now)
 
                 if (ekgMetrics.cardano.node.chainDB.metrics.blockNum.intX.valX > 0) {
                     // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
-                    val nodeStats = ekgMetrics.toNodeStats(now, node)
+                    val nodeStats = ekgMetrics.toNodeStats(now, node, incomingPeers)
                     eventsChannel.send(nodeStats)
                     if (node.isDefault) {
                         nodeStats.blockHeight?.let { newBlockHeight ->
@@ -214,35 +303,40 @@ class NodeMonitor @Autowired constructor(
                         latestNodeStats.set(nodeStats)
                     }
                 } else {
-                    eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
+                    eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
                 }
             } catch (e: ConnectException) {
-                eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
+                eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
                 if (rethrowExceptions) {
                     throw e
+                } else {
+                    log.error("Connection problem!", e)
                 }
             } catch (e: IOException) {
-                log.error("Error communicating with Ekg!")
-                eventsChannel.send(NodeStats(isDefault = node.isDefault, now, node.name, node.color, null, null, null, null, null, null))
+                eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
                 if (rethrowExceptions) {
                     throw e
+                } else {
+                    log.error("Error communicating with Ekg or ss!", e)
                 }
             }
         }
     }
 
-    private fun EkgMetrics.toNodeStats(timestamp: Long, node: Node): NodeStats {
+    private fun EkgMetrics.toNodeStats(timestamp: Long, node: Node, incomingPeers: Int): NodeStats {
         return NodeStats(
                 isDefault = node.isDefault,
                 timestamp = timestamp,
                 nodeName = node.name,
                 color = node.color,
                 peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
+                incomingPeers = incomingPeers,
                 blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX,
                 remainingKESPeriods = this.cardano.node.forge.metrics.remainingKESPeriods.intX.valX.toInt(),
                 epoch = this.cardano.node.chainDB.metrics.epoch.intX.valX,
                 slot = this.cardano.node.chainDB.metrics.slotNum.intX.valX,
                 slotInEpoch = this.cardano.node.chainDB.metrics.slotInEpoch.intX.valX,
+                txsProcessed = this.cardano.node.metrics.txsProcessedNum.intX.valX,
         )
     }
 

@@ -100,6 +100,34 @@ export default {
             if (nodeStats.slotInEpoch > state.slot) {
                 state.slot = nodeStats.slotInEpoch;
             }
+
+            let index3 = _.findIndex(state.incomingPeersSeries, ["name", nodeStats.nodeName]);
+            if (index3 > -1) {
+                state.incomingPeersSeries[index3].data.push([nodeStats.timestamp, nodeStats.incomingPeers]);
+                state.incomingPeersSeries[index3].data = state.incomingPeersSeries[index3].data.slice(-60); // keep 5 minutes worth of data
+            } else {
+                state.incomingPeersSeries.push({
+                    name: nodeStats.nodeName,
+                    data: [
+                        [nodeStats.timestamp, nodeStats.incomingPeers]
+                    ]
+                });
+                state.incomingPeersSeries = _.sortBy(state.incomingPeersSeries, ["name"]);
+            }
+
+            let index4 = _.findIndex(state.txsProcessedSeries, ["name", nodeStats.nodeName]);
+            if (index4 > -1) {
+                state.txsProcessedSeries[index4].data.push([nodeStats.timestamp, nodeStats.txsProcessed]);
+                state.txsProcessedSeries[index4].data = state.txsProcessedSeries[index4].data.slice(-60); // keep 5 minutes worth of data
+            } else {
+                state.txsProcessedSeries.push({
+                    name: nodeStats.nodeName,
+                    data: [
+                        [nodeStats.timestamp, nodeStats.txsProcessed]
+                    ]
+                });
+                state.txsProcessedSeries = _.sortBy(state.txsProcessedSeries, ["name"]);
+            }
         }
 
         // This is a terrible code smell, but I can't get the charts to update otherwise
@@ -114,6 +142,12 @@ export default {
         }
         if (state.remainingKESSeries.length > 0) {
             state.remainingKESSeries.__ob__.dep.notify();
+        }
+        if (state.incomingPeersSeries.length > 0) {
+            state.incomingPeersSeries.__ob__.dep.notify();
+        }
+        if (state.txsProcessedSeries.length > 0) {
+            state.txsProcessedSeries.__ob__.dep.notify();
         }
     },
     saveWallet: (state, walletItems) => {

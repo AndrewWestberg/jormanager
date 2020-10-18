@@ -1,0 +1,17 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="021" author="Andrew Westberg">
+
+        <addColumn tableName="nodes">
+            <column name="pool_pledge" type="bigint"/>
+            <column name="pool_cost" type="int"/>
+            <column name="pool_margin" type="varchar(255)"/>
+        </addColumn>
+
+        <modifyDataType tableName="chain" columnName="block_number" newDataType="bigint"/>
+        <modifyDataType tableName="chain" columnName="slot_number" newDataType="bigint"/>
+
+    </changeSet>
+</databaseChangeLog>

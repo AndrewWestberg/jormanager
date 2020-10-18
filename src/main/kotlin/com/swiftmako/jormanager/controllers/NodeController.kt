@@ -11,7 +11,7 @@ import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.EditPoolConfigRequest
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
@@ -65,8 +65,8 @@ class NodeController @Autowired constructor(
         @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
         private val retrofit: Retrofit,
         private val okHttpClient: OkHttpClient,
-        private val genesisAdapter: JsonAdapter<Genesis>,
-        private val genesisByronAdapter: JsonAdapter<GenesisByron>,
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val extendedMetadataAdapter: JsonAdapter<ExtendedMetadata>,
@@ -192,14 +192,14 @@ class NodeController @Autowired constructor(
                     NODE_TYPE_CORE -> {
                         nodeRepository.findDefault()?.let { defaultNode ->
                             fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                                val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                                 val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                                     "--testnet-magic ${genesis.networkMagic}"
                                 } else {
                                     "--mainnet"
                                 }
                                 fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
-                                    val genesisByron = genesisByronAdapter.fromJson(genesisByronFile.content)!!
+                                    val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
                                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
@@ -555,6 +555,9 @@ class NodeController @Autowired constructor(
                                                     configFileId = configFileId,
                                                     isDefault = false,
                                                     poolId = poolId,
+                                                    poolPledge = request.poolPledge,
+                                                    poolCost = request.poolCost,
+                                                    poolMargin = request.poolMargin,
                                                     ownerStakingAccountId = ownerStakingAccount.id!!,
                                                     rewardsStakingAccountId = rewardsStakingAccount.id!!,
                                                     coreSKeyId = coreSKeyId,
@@ -622,7 +625,7 @@ class NodeController @Autowired constructor(
             }
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                     val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesis.networkMagic}"
                     } else {
@@ -820,9 +823,9 @@ class NodeController @Autowired constructor(
             }
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                    val genesis = genesisAdapter.fromJson(genesisFile.content)!!
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                     fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
-                        val genesisByron = genesisByronAdapter.fromJson(genesisByronFile.content)!!
+                        val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
                         hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)

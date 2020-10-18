@@ -3,7 +3,7 @@ package com.swiftmako.jormanager.model
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class Genesis(
+data class GenesisShelley(
         val activeSlotsCoeff: Double,
         val networkId: String,
         val networkMagic: Long? = null,

@@ -4,7 +4,7 @@
       <div>
         <b-button
           variant="outline-primary"
-          @click="showAddNodeWizard=true"
+          @click="showAddNodeWizard = true"
           v-b-tooltip.hover.bottom="'Add a new cardano-node.'"
         >
           <b-icon-plus />&nbsp;Node
@@ -23,31 +23,31 @@
           <template v-slot:cell(name)="data">
             <div>
               <font-awesome-icon
-                :style="{color: data.item.color}"
-                :icon="['fas','circle']"
+                :style="{ color: data.item.color }"
+                :icon="['fas', 'circle']"
                 v-if="!data.item.isDefault"
                 v-b-tooltip.hover.left="'Update Color'"
                 @click="updateColor(data.item.id, data.item.color)"
               />
               <font-awesome-icon
-                :style="{color: data.item.color}"
-                :icon="['fas','check-circle']"
+                :style="{ color: data.item.color }"
+                :icon="['fas', 'check-circle']"
                 v-if="data.item.isDefault"
                 v-b-tooltip.hover.left="'Update Color'"
                 @click="updateColor(data.item.id, data.item.color)"
               />
-              &nbsp;{{data.value}}
+              &nbsp;{{ data.value }}
             </div>
           </template>
           <template v-slot:cell(type)="data">
-            <div v-if="data.value==='relay'">
+            <div v-if="data.value === 'relay'">
               <font-awesome-icon
                 :icon="['fas', 'dice-d20']"
                 v-b-tooltip.hover.right="'Relay Node'"
                 class="text-danger text-center"
               />
             </div>
-            <div v-if="data.value==='core'">
+            <div v-if="data.value === 'core'">
               <font-awesome-icon
                 :icon="['fas', 'dice-d20']"
                 v-b-tooltip.hover.right="'Core Node'"
@@ -57,9 +57,11 @@
           </template>
           <template v-slot:cell(kesExpireTimeSec)="data">
             <span v-if="data.value > -1">
-              {{data.value | moment("YYYY-MM-DD h:mma UTCZ")}}&nbsp;({{data.value | moment("from")}})&nbsp;
+              {{ data.value | moment("YYYY-MM-DD h:mma UTCZ") }}&nbsp;({{
+                data.value | moment("from")
+              }})&nbsp;
               <font-awesome-icon
-                :icon="['fas','key']"
+                :icon="['fas', 'key']"
                 class="text-warning"
                 v-b-tooltip.hover.v-warning.right="'Rotate KES Key'"
                 @click="rotateKesKey(displayNodes[data.index].name)"
@@ -68,24 +70,40 @@
           </template>
           <template v-slot:cell(edit)="data">
             <font-awesome-icon
-              :icon="['fas','power-off']"
+              :icon="['fas', 'power-off']"
               class="text-danger"
               v-b-tooltip.hover.v-danger.right="'Restart Node'"
               @click="restartNode(displayNodes[data.index].name)"
             />&nbsp;
             <font-awesome-icon
               v-if="data.item.type === 'core'"
-              :icon="['fas','percent']"
+              :icon="['fas', 'percent']"
               class="text-warning"
               v-b-tooltip.hover.v-warning.right="'Edit Pool Config'"
               @click="editPoolConfig(data.item.id)"
+            />
+            &nbsp;
+            <font-awesome-icon
+              v-if="data.item.type === 'core'"
+              :icon="['fas', 'info-circle']"
+              class="text-primary"
+              v-b-tooltip.hover.v-primary.right="'Edit Metadata'"
+              @click="editMetadata(data.item.id)"
             />
           </template>
         </b-table>
       </div>
     </div>
-    <AddNodeWizard v-if="showAddNodeWizard" @hideAddNodeWizard="showAddNodeWizard = false" />
-    <b-modal id="modal-edit-color" title="Edit Color" no-close-on-backdrop @ok="handleSaveColor">
+    <AddNodeWizard
+      v-if="showAddNodeWizard"
+      @hideAddNodeWizard="showAddNodeWizard = false"
+    />
+    <b-modal
+      id="modal-edit-color"
+      title="Edit Color"
+      no-close-on-backdrop
+      @ok="handleSaveColor"
+    >
       <b-form-group label="Color" label-cols-md="2">
         <b-form-input v-model="editColorForm.color" type="color"></b-form-input>
       </b-form-group>
@@ -110,16 +128,21 @@
             id="registration-fees-account-select"
             aria-describedby="registration-fees-account-live-feedback"
             v-model="editPoolConfigForm.registrationFeesAccount"
-            :options="reregistrationFeesSelectOptions($options.filters.currency)"
+            :options="
+              reregistrationFeesSelectOptions($options.filters.currency)
+            "
             :state="registrationFeesAccountState"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
-          <b-form-invalid-feedback
-            id="registration-fees-account-live-feedback"
-          >Account must hold enough to pay pool registration and delegation fees.</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="registration-fees-account-live-feedback"
+            >Account must hold enough to pay pool registration and delegation
+            fees.</b-form-invalid-feedback
+          >
         </b-form-group>
         <b-form-group
           label="Owner (Pledge) Account"
@@ -134,7 +157,9 @@
             :state="ownerStakingAccountState"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
         </b-form-group>
@@ -152,16 +177,23 @@
             :state="rewardsStakingAccountState"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
-          <b-form-invalid-feedback
-            id="rewards-staking-account-live-feedback"
-          >May be the same as owner account.</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="rewards-staking-account-live-feedback"
+            >May be the same as owner account.</b-form-invalid-feedback
+          >
         </b-form-group>
       </b-form-group>
       <b-form-group label="Pledge &amp; Fees">
-        <b-form-group label="Pledge" label-for="pledge-input" label-cols-md="1" label-align="right">
+        <b-form-group
+          label="Pledge"
+          label-for="pledge-input"
+          label-cols-md="1"
+          label-align="right"
+        >
           <b-form-input
             id="pledge-input"
             v-model="editPoolConfigForm.poolPledge"
@@ -171,7 +203,12 @@
             v-currency
           />
         </b-form-group>
-        <b-form-group label="Cost" label-for="cost-input" label-cols-md="1" label-align="right">
+        <b-form-group
+          label="Cost"
+          label-for="cost-input"
+          label-cols-md="1"
+          label-align="right"
+        >
           <b-form-input
             id="cost-input"
             v-model="editPoolConfigForm.poolCost"
@@ -181,7 +218,12 @@
             v-currency
           />
         </b-form-group>
-        <b-form-group label="Margin" label-for="margin-input" label-cols-md="1" label-align="right">
+        <b-form-group
+          label="Margin"
+          label-for="margin-input"
+          label-cols-md="1"
+          label-align="right"
+        >
           <b-form-input
             id="margin-input"
             v-model="editPoolConfigForm.poolMargin"
@@ -193,7 +235,417 @@
             step="0.0025"
             trim
           />
-          <p class="text-center">{{(editPoolConfigForm.poolMargin * 100).toFixed(2)}}%</p>
+          <p class="text-center">
+            {{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%
+          </p>
+        </b-form-group>
+      </b-form-group>
+    </b-modal>
+    <b-modal
+      id="modal-edit-metadata"
+      title="Edit Metadata"
+      no-close-on-backdrop
+      @ok="handleSaveMetadata"
+      size="xl"
+      scrollable
+      ok-title="Save"
+    >
+      <b-form-group>
+        <b-form-group
+          label="Fees Account"
+          label-for="registration-fees-account-select"
+          label-cols-md="2"
+          label-align="right"
+        >
+          <b-form-select
+            aria-describedby="registration-fees-account-live-feedback-metadata"
+            v-model="editMetadataForm.registrationFeesAccount"
+            :options="
+              reregistrationFeesSelectOptions($options.filters.currency)
+            "
+            :state="registrationFeesAccountStateMetadata"
+          >
+            <template v-slot:first>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
+            </template>
+          </b-form-select>
+          <b-form-invalid-feedback
+            id="registration-fees-account-live-feedback-metadata"
+            >Account must hold enough to pay pool registration and delegation
+            fees.</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <h5>Primary (Required)</h5>
+        <b-form-group
+          label="Ticker"
+          label-for="metadata-ticker-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-ticker-input"
+            v-model="editMetadataForm.ticker"
+            :state="tickerState"
+            aria-describedby="metadata-ticker-input-live-feedback"
+            placeholder="e.g. TICKR, ABC1, etc..."
+            :formatter="formatTicker"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-ticker-input-live-feedback"
+            >Ticker must only contain 'A-Z', '0-9' and be 3 to 5 characters in
+            length</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <b-form-group
+          label="Name"
+          label-for="metadata-name-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-name-input"
+            v-model="editMetadataForm.name"
+            :state="metadataNameState"
+            aria-describedby="metadata-name-input-live-feedback"
+            placeholder="e.g. My Awesome Stakepool"
+            :formatter="formatMetadataName"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-name-input-live-feedback"
+            >Name must be between 1 and 50 characters in
+            length</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <b-form-group
+          label="Description"
+          label-for="metadata-description-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-description-input"
+            v-model="editMetadataForm.description"
+            :state="metadataDescriptionState"
+            aria-describedby="metadata-description-input-live-feedback"
+            placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
+            :formatter="formatMetadataDescription"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-description-input-live-feedback"
+            >Description must be between 1 and 255 characters in
+            length</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <b-form-group
+          label="Homepage"
+          label-for="metadata-homepage-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-homepage-input"
+            v-model="editMetadataForm.homepage"
+            :state="metadataHomepageState"
+            aria-describedby="metadata-homepage-input-live-feedback"
+            placeholder="e.g. https://flippin-stakes.com"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-homepage-input-live-feedback"
+            >Homepage must be https and 64 characters or less in
+            length</b-form-invalid-feedback
+          >
+        </b-form-group>
+      </b-form-group>
+      <b-form-group>
+        <h5>ITN Ticker Validation (Optional)</h5>
+        <b-form-group
+          label="ITN Pool prv"
+          label-for="itn-prv-file"
+          label-cols-md="2"
+        >
+          <b-form-file
+            id="itn-prv-file"
+            placeholder="Choose file or drop it here..."
+            drop-placeholder="Drop file here..."
+            v-model="editMetadataForm.extended.itn.privateKey"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="ITN Pool pub"
+          label-for="itn-pub-file"
+          label-cols-md="2"
+        >
+          <b-form-file
+            id="itn-pub-file"
+            placeholder="Choose file or drop it here..."
+            drop-placeholder="Drop file here..."
+            v-model="editMetadataForm.extended.itn.publicKey"
+            trim
+          />
+        </b-form-group>
+      </b-form-group>
+      <b-form-group>
+        <h5>Extended (Optional)</h5>
+        <b-form-group
+          label="Icon 64x64 URL"
+          label-for="metadata-icon64-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-icon64-input"
+            v-model="editMetadataForm.extended.info.icon64"
+            :state="metadataIcon64State"
+            aria-describedby="metadata-icon64-input-live-feedback"
+            placeholder="e.g. https://flippin-stakes.com/icon64.png"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-icon64-input-live-feedback"
+            >Icon url must be a url</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <b-form-group
+          label="Logo URL"
+          label-for="metadata-logo-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-logo-input"
+            v-model="editMetadataForm.extended.info.logo"
+            :state="metadataLogoState"
+            aria-describedby="metadata-logo-input-live-feedback"
+            placeholder="e.g. https://flippin-stakes.com/logo512.png"
+            trim
+          />
+          <b-form-invalid-feedback id="metadata-logo-input-live-feedback"
+            >Logo url must be a url</b-form-invalid-feedback
+          >
+        </b-form-group>
+        <b-form-group
+          label="Location"
+          label-for="metadata-location-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-location-input"
+            v-model="editMetadataForm.extended.info.location"
+            placeholder="e.g. United States, North America"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Twitter"
+          label-for="metadata-twitter-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-twitter-input"
+            v-model="editMetadataForm.extended.info.social.twitter"
+            placeholder="e.g. IOHK_Charles"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Telegram"
+          label-for="metadata-telegram-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-telegram-input"
+            v-model="editMetadataForm.extended.info.social.telegram"
+            placeholder="e.g. flippin_stakes_group"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Facebook"
+          label-for="metadata-facebook-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-facebook-input"
+            v-model="editMetadataForm.extended.info.social.facebook"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="YouTube"
+          label-for="metadata-youtube-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-youtube-input"
+            v-model="editMetadataForm.extended.info.social.youtube"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Twitch"
+          label-for="metadata-twitch-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-twitch-input"
+            v-model="editMetadataForm.extended.info.social.twitch"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Discord"
+          label-for="metadata-discord-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-discord-input"
+            v-model="editMetadataForm.extended.info.social.discord"
+            placeholder="e.g. FlippinStakes"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Github"
+          label-for="metadata-github-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-github-input"
+            v-model="editMetadataForm.extended.info.social.github"
+            placeholder="e.g. FlippinStakes"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="RSS"
+          label-for="metadata-rss-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-rss-input"
+            v-model="editMetadataForm.extended.info.rss"
+            placeholder="e.g. https://flippin-stakes/feed.atom"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Company Name"
+          label-for="metadata-companyname-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-companyname-input"
+            v-model="editMetadataForm.extended.info.company.name"
+            placeholder="e.g. Flippin Stakes, LLC."
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Company Address"
+          label-for="metadata-companyaddress-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-companyaddress-input"
+            v-model="editMetadataForm.extended.info.company.addr"
+            placeholder="e.g. 123 Backflip Lane"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Company City"
+          label-for="metadata-companycity-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-companycity-input"
+            v-model="editMetadataForm.extended.info.company.city"
+            placeholder="e.g. Flippin, AK"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Company Country"
+          label-for="metadata-companycountry-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-companycountry-input"
+            v-model="editMetadataForm.extended.info.company.country"
+            placeholder="e.g. United States"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Company ID"
+          label-for="metadata-companyid-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-companyid-input"
+            v-model="editMetadataForm.extended.info.company.company_id"
+            placeholder="e.g. 27-0641272"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="VAT ID"
+          label-for="metadata-vatid-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-vatid-input"
+            v-model="editMetadataForm.extended.info.company.vat_id"
+            placeholder="e.g. J-30595991-8"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="About Me"
+          label-for="metadata-aboutme-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-aboutme-input"
+            v-model="editMetadataForm.extended.info.about.me"
+            placeholder="e.g. 10-year veteran as a DevOps Engineer"
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="About Server"
+          label-for="metadata-aboutserver-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-aboutserver-input"
+            v-model="editMetadataForm.extended.info.about.server"
+            placeholder="e.g. Cloud Hosted at AWS around the world."
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="About Company"
+          label-for="metadata-aboutcompany-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-aboutcompany-input"
+            v-model="editMetadataForm.extended.info.about.company"
+            placeholder="e.g. Founded in 2020 for stakepool operations, Flippin Stakes, LLC has grown to 3 people."
+            trim
+          />
+        </b-form-group>
+        <b-form-group
+          label="Telegram Admin"
+          label-for="metadata-telegramadmin-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-telegramadmin-input"
+            v-model="editMetadataForm.extended.telegramAdminHandle"
+            placeholder="e.g. CottonEyedJoe"
+            trim
+          />
         </b-form-group>
       </b-form-group>
     </b-modal>
@@ -233,6 +685,49 @@ export default {
         poolPledge: null,
         poolCost: null,
         poolMargin: 0.05,
+      },
+      editMetadataForm: {
+        id: -1,
+        spendingPassword: null,
+        registrationFeesAccount: null,
+        ticker: null,
+        name: null,
+        description: null,
+        homepage: null,
+        extended: {
+          itn: {
+            publicKey: null,
+            privateKey: null,
+          },
+          info: {
+            icon64: null,
+            logo: null,
+            location: null,
+            social: {
+              twitter: null,
+              telegram: null,
+              facebook: null,
+              youtube: null,
+              discord: null,
+              github: null,
+            },
+            company: {
+              name: null,
+              addr: null,
+              city: null,
+              country: null,
+              company_id: null,
+              vat_id: null,
+            },
+            about: {
+              me: null,
+              server: null,
+              company: null,
+            },
+            rss: null,
+          },
+          telegramAdminHandle: null,
+        },
       },
     };
   },
@@ -317,6 +812,44 @@ export default {
         });
       }
     },
+    editMetadata(nodeId) {
+      this.$bvModal.show("modal-edit-metadata");
+      this.editMetadataForm.id = nodeId;
+    },
+    handleSaveMetadata(bvModalEvt) {
+      bvModalEvt.preventDefault();
+      if (
+        this.registrationFeesAccountStateMetadata &&
+        this.tickerState &&
+        this.metadataNameState &&
+        this.metadataDescriptionState &&
+        this.metadataHomepageState &&
+        this.metadataIcon64State &&
+        this.metadataLogoState
+      ) {
+        this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+          (spendingPassword) => {
+            this.editMetadataForm.spendingPassword = spendingPassword;
+            this.updateMetadata(this.editMetadataForm);
+            this.$bvModal.hide("modal-edit-metadata");
+          }
+        );
+      } else {
+        this.toastError({
+          title: "Error",
+          message: "You must fill out all fields.",
+        });
+      }
+    },
+    formatTicker(value) {
+      return value.substring(0, 5).toUpperCase();
+    },
+    formatMetadataName(value) {
+      return value.substring(0, 50);
+    },
+    formatMetadataDescription(value) {
+      return value.substring(0, 255);
+    },
   },
   computed: {
     ...mapGetters([
@@ -363,6 +896,49 @@ export default {
         this.editPoolConfigForm.poolMargin <= 1.0
       );
     },
+    registrationFeesAccountStateMetadata() {
+      return this.editMetadataForm.registrationFeesAccount != null;
+    },
+    tickerState() {
+      return (
+        this.editMetadataForm.ticker != null &&
+        this.editMetadataForm.ticker.match(/^[A-Z0-9]{3,5}$/) != null
+      );
+    },
+    metadataNameState() {
+      return (
+        this.editMetadataForm.name != null &&
+        this.editMetadataForm.name.length > 0
+      );
+    },
+    metadataDescriptionState() {
+      return (
+        this.editMetadataForm.description != null &&
+        this.editMetadataForm.name.length > 0
+      );
+    },
+    metadataHomepageState() {
+      return (
+        this.editMetadataForm.homepage != null &&
+        this.editMetadataForm.homepage.length < 65 &&
+        this.editMetadataForm.homepage.match(/^https:\/\/.*/) != null
+      );
+    },
+    metadataIcon64State() {
+      return (
+        this.editMetadataForm.extended.info.icon64 == null ||
+        this.editMetadataForm.extended.info.icon64.length == 0 ||
+        this.editMetadataForm.extended.info.icon64.match(/^https?:\/\/.*/) !=
+          null
+      );
+    },
+    metadataLogoState() {
+      return (
+        this.editMetadataForm.extended.info.logo == null ||
+        this.editMetadataForm.extended.info.logo.length == 0 ||
+        this.editMetadataForm.extended.info.logo.match(/^https?:\/\/.*/) != null
+      );
+    },
   },
   mounted() {
     this.requestHosts();
@@ -373,6 +949,7 @@ export default {
 </script>
 
 <style scoped>
+.fa-info-circle:hover,
 .fa-percent:hover,
 .fa-circle:hover,
 .fa-check-circle:hover,

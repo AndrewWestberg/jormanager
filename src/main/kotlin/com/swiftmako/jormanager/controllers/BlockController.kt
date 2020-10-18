@@ -12,7 +12,7 @@ import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.Genesis
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.LeaderLogsRequest
 import com.swiftmako.jormanager.model.ProtocolParameters
@@ -48,7 +48,7 @@ class BlockController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
-        private val shelleyGenesisAdapter: JsonAdapter<Genesis>,
+        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val keyAdapter: JsonAdapter<Key>,
@@ -75,7 +75,7 @@ class BlockController @Autowired constructor(
                     fileRepository.findByIdOrNull(node.genesisByronFileId)?.let { byronFile ->
                         byronGenesisAdapter.fromJson(byronFile.content)?.let { byron ->
                             fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { shelleyFile ->
-                                shelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
+                                shelleyShelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
                                     val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, block.slot)
                                     if (epoch > 0L && slotInEpoch > 0L) {
                                         blockRepository.save(block.copy(epoch = epoch, slotInEpoch = slotInEpoch))
@@ -121,7 +121,7 @@ class BlockController @Autowired constructor(
             nodeRepository.findDefault()?.let { defaultNode ->
                 val coreNodes = nodeRepository.findAll().filter { it.type == "core" }
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
-                    val genesisShelley = shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
+                    val genesisShelley = shelleyShelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
                     val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesisShelley.networkMagic}"
                     } else {
