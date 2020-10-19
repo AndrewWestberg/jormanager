@@ -11,8 +11,8 @@ import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.EditPoolConfigRequest
-import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.RotateKesRequest
@@ -927,6 +927,43 @@ class NodeController @Autowired constructor(
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "rotatekes", exception = e))
             // rethrow so db transaction is rolled back
             throw RuntimeException(e)
+        }
+    }
+
+    @MessageMapping("/getmetadata")
+    fun getMetadata(nodeId: Long) {
+        try {
+            val node = nodeRepository.findByIdOrNull(nodeId) ?: throw IOException("Node id not found!")
+            val metadataRequest = Request.Builder()
+                    .get()
+                    .cacheControl(CacheControl.FORCE_NETWORK)
+                    .url(node.metadataUrl!!)
+                    .build()
+            val metadataResponse = okHttpClient.newCall(metadataRequest).execute()
+            if (metadataResponse.isSuccessful) {
+                val metadata = metadataAdapter.fromJson(metadataResponse.body!!.source())
+                val extendedMetadataRequest = Request.Builder()
+                        .get()
+                        .cacheControl(CacheControl.FORCE_NETWORK)
+                        .url(node.extendedMetadataUrl!!)
+                        .build()
+                val extendedMetadataResponse = okHttpClient.newCall(extendedMetadataRequest).execute()
+                if (extendedMetadataResponse.isSuccessful) {
+                    val extendedMetadata = extendedMetadataAdapter.fromJson(extendedMetadataResponse.body!!.source())
+                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "getmetadata", data = mapOf(
+                            "metadata" to metadata,
+                            "extendedMetadata" to extendedMetadata
+                    )))
+                } else {
+                    throw IOException("Unable to download extendedmetadata!")
+                }
+            } else {
+                throw IOException("Unable to download metadata!")
+            }
+
+        } catch (e: Throwable) {
+            log.error("Error fetching metadata!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "getmetadata", exception = e))
         }
     }
 

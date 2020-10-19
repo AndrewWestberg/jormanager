@@ -26,5 +26,6 @@
     <include file="changelog/019-update-chain-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/020-update-chain-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/021-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/022-update-identity-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

@@ -1,0 +1,40 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="022" author="Andrew Westberg">
+
+        <modifyDataType tableName="blocks" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="blocks" columnName="slot" newDataType="bigint"/>
+        <modifyDataType tableName="chain" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="files" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="hosts" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="host_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="genesis_byron_file_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="config_file_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="owner_staking_account_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="rewards_staking_account_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="core_skey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="core_vkey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="core_counter_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="vrf_skey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="vrf_vkey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="kes_skey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="kes_vkey_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="opcert_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="itn_private_key_id" newDataType="bigint"/>
+        <modifyDataType tableName="nodes" columnName="itn_public_key_id" newDataType="bigint"/>
+        <modifyDataType tableName="relays" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="relays" columnName="node_id" newDataType="bigint"/>
+        <modifyDataType tableName="topology_entries" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="topology_entries" columnName="node_id" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="id" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="payment_skey" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="payment_vkey" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="staking_skey" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="staking_vkey" newDataType="bigint"/>
+        <modifyDataType tableName="wallet" columnName="staking_reg_cert" newDataType="bigint"/>
+
+    </changeSet>
+</databaseChangeLog>

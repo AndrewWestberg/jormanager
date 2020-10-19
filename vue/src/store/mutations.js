@@ -156,6 +156,9 @@ export default {
     saveTxFee: (state, fee) => {
         state.txFee = fee
     },
+    saveMetadata: (state, data) => {
+        state.editorMetadata = data
+    },
 
     toastError: (state, toast) => {
         state.toastError = toast

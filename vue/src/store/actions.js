@@ -224,6 +224,17 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "getmetadata":
+                    if (message.data) {
+                        commit('saveMetadata', message.data)
+                    } else {
+                        commit('toastError', {
+                            title: "Metadata Fetch Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -346,6 +357,17 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("Leader Logs: " + JSON.stringify(formLeaderLogs));
             state.stompClient.send("/jormanager/leaderlogs", JSON.stringify(formLeaderLogs));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    requestMetadata: ({state,commit}, nodeId) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("fetch metadata: " + JSON.stringify(nodeId));
+            state.stompClient.send("/jormanager/getmetadata", nodeId);
         } else {
             commit('toastError', {
                 title: "Communication Error!",

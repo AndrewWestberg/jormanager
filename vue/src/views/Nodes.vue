@@ -736,6 +736,7 @@ export default {
       "requestHosts",
       "requestNodes",
       "requestFileOptions",
+      "requestMetadata",
       "restartNodeByName",
       "createNode",
       "rotateKesByName",
@@ -815,6 +816,7 @@ export default {
     editMetadata(nodeId) {
       this.$bvModal.show("modal-edit-metadata");
       this.editMetadataForm.id = nodeId;
+      this.requestMetadata(nodeId);
     },
     handleSaveMetadata(bvModalEvt) {
       bvModalEvt.preventDefault();
@@ -858,7 +860,7 @@ export default {
       "stakingSelectOptions",
       "rewardsSelectOptions",
     ]),
-    ...mapState(["nodes"]),
+    ...mapState(["nodes", "editorMetadata"]),
     registrationFeesAccountState() {
       return this.editPoolConfigForm.registrationFeesAccount != null;
     },
@@ -938,6 +940,58 @@ export default {
         this.editMetadataForm.extended.info.logo.length == 0 ||
         this.editMetadataForm.extended.info.logo.match(/^https?:\/\/.*/) != null
       );
+    },
+  },
+  watch: {
+    editorMetadata(data) {
+      this.editMetadataForm.ticker = data.metadata.ticker;
+      this.editMetadataForm.name = data.metadata.name;
+      this.editMetadataForm.description = data.metadata.description;
+      this.editMetadataForm.homepage = data.metadata.homepage;
+      this.editMetadataForm.extended.info.icon64 =
+        data.extendedMetadata.info.urlPngIcon64x64;
+      this.editMetadataForm.extended.info.logo =
+        data.extendedMetadata.info.urlPngLogo;
+      this.editMetadataForm.extended.info.location =
+        data.extendedMetadata.info.location;
+      this.editMetadataForm.extended.info.social.twitter =
+        data.extendedMetadata.info.social.twitterHandle;
+      this.editMetadataForm.extended.info.social.telegram =
+        data.extendedMetadata.info.social.telegramHandle;
+      this.editMetadataForm.extended.info.social.facebook =
+        data.extendedMetadata.info.social.facebookHandle;
+      this.editMetadataForm.extended.info.social.youtube =
+        data.extendedMetadata.info.social.youtubeHandle;
+      this.editMetadataForm.extended.info.social.discord =
+        data.extendedMetadata.info.social.discordHandle;
+      this.editMetadataForm.extended.info.social.github =
+        data.extendedMetadata.info.social.githubHandle;
+      this.editMetadataForm.extended.info.company.name =
+        data.extendedMetadata.info.company.name;
+      this.editMetadataForm.extended.info.company.addr =
+        data.extendedMetadata.info.company.addr;
+      this.editMetadataForm.extended.info.company.city =
+        data.extendedMetadata.info.company.city;
+      this.editMetadataForm.extended.info.company.country =
+        data.extendedMetadata.info.company.country;
+      this.editMetadataForm.extended.info.company.company_id =
+        data.extendedMetadata.info.company.companyId;
+      this.editMetadataForm.extended.info.company.vat_id =
+        data.extendedMetadata.info.company.vatId;
+      this.editMetadataForm.extended.info.about.me =
+        data.extendedMetadata.info.about.me;
+      this.editMetadataForm.extended.info.about.server =
+        data.extendedMetadata.info.about.server;
+      this.editMetadataForm.extended.info.about.company =
+        data.extendedMetadata.info.about.company;
+      this.editMetadataForm.extended.info.rss = data.extendedMetadata.info.rss;
+      if (
+        data.extendedMetadata.telegramAdminHandle != null &&
+        data.extendedMetadata.telegramAdminHandle.length > 0
+      ) {
+        this.editMetadataForm.extended.telegramAdminHandle =
+          data.extendedMetadata.telegramAdminHandle[0];
+      }
     },
   },
   mounted() {
