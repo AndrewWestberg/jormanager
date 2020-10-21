@@ -780,6 +780,9 @@ export default {
       this.editPoolConfigForm.ownerStakingAccount = node.ownerStakingAccountId;
       this.editPoolConfigForm.rewardsStakingAccount =
         node.rewardsStakingAccountId;
+      this.editPoolConfigForm.poolPledge = node.poolPledge;
+      this.editPoolConfigForm.poolCost = node.poolCost;
+      this.editPoolConfigForm.poolMargin = node.poolMargin;
     },
     handleSavePoolConfig(bvModalEvt) {
       bvModalEvt.preventDefault();
