@@ -7,7 +7,7 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class UpdateMetadataRequest(
     @Json(name = "id")
-    val id: Int,
+    val id: Long,
     @Json(name = "spendingPassword")
     val spendingPassword: String,
     @Json(name = "registrationFeesAccount")
@@ -21,5 +21,5 @@ data class UpdateMetadataRequest(
     @Json(name = "homepage")
     val homepage: String,
     @Json(name = "extended")
-    val extended: Extended
+    val extended: Extended?
 )

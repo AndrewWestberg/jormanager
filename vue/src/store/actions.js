@@ -529,7 +529,7 @@ export default {
         state, commit
     }, editMetadataForm) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Update Pool Metadata: " + JSON.stringify(editMetadataForm));
+            // console.log("Update Pool Metadata: " + JSON.stringify(editMetadataForm));
             state.stompClient.send("/jormanager/updatemetadata", JSON.stringify(editMetadataForm));
         } else {
             commit('toastError', {

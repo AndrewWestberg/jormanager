@@ -972,7 +972,273 @@ class NodeController @Autowired constructor(
     @Transactional
     fun updateMetadata(request: UpdateMetadataRequest) {
         try {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                throw IllegalArgumentException("Invalid spending password!")
+            }
+            nodeRepository.findDefault()?.let { defaultNode ->
+                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+                    val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                        "--testnet-magic ${genesis.networkMagic}"
+                    } else {
+                        "--mainnet"
+                    }
 
+                    hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                        val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                        try {
+                            val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
+                            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+                            val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
+                                    ?: throw IOException("Invalid protocol params!")
+
+                            // 1. Create a transaction to dump EVERYTHING into
+                            var depositAndFees = 0L
+                            var witnessCount = 0
+                            val transaction = StringBuilder()
+                            val certificates = StringBuilder()
+                            val signingKeys = StringBuilder()
+                            transaction.append("${defaultHost.cardanoCliPath} shelley transaction build-raw ")
+                            val feePayerAccount = walletRepository.findByIdOrNull(request.registrationFeesAccount)
+                                    ?: throw IOException("Registration fees account not found!")
+                            val utxos = walletUtils.getUtxos(defaultHost, defaultHostConnection, magicString, feePayerAccount.paymentAddr)
+                            utxos.forEach { utxo ->
+                                transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                            }
+                            log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                            witnessCount++ // fee payer is a witness
+                            defaultHostConnection.commandWriteFile("/tmp/feepayer.payment.skey", walletUtils.getSKeyContent(requireNotNull(feePayerAccount.paymentSkey), request.spendingPassword))
+                            signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
+
+                            // initial dummy value to return change to the fee payer account.
+                            // We'll replace this with the actual change to return later
+                            transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
+
+                            val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query tip $magicString").trim()
+                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
+                                    ?: -1
+                            transaction.append("--ttl $ttl ")
+                            transaction.append("--fee 100 ")
+
+                            nodeRepository.findByIdOrNull(request.id)?.let { node ->
+                                // 2. Register owner address on the chain if not yet registered
+                                val ownerStakingAccount = walletRepository.findByIdOrNull(node.ownerStakingAccountId)
+                                        ?: throw IOException("Owner staking account not found!")
+                                defaultHostConnection.commandWriteFile("/tmp/owner.staking.skey", walletUtils.getSKeyContent(requireNotNull(ownerStakingAccount.stakingSkey), request.spendingPassword))
+                                defaultHostConnection.commandWriteFile("/tmp/owner.staking.vkey", requireNotNull(ownerStakingAccount.stakingVkey?.content))
+                                val ownerStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, ownerStakingAccount)
+                                if (!ownerStakingWalletItem.stakingAddrRegistered) {
+                                    // owner staking address is *not* registered. We should register it on chain as part of the transaction
+                                    ownerStakingAccount.stakingRegCert?.let { stakingRegCert ->
+                                        defaultHostConnection.commandWriteFile("/tmp/owner.staking.cert", stakingRegCert.content)
+                                    }
+                                            ?: throw IOException("Staking reg cert not found on owner account!")
+                                    depositAndFees += protocolParameters.keyDeposit
+                                    certificates.append("--certificate /tmp/owner.staking.cert ")
+                                }
+                                witnessCount++ // the owner.staking.skey is a witness
+                                signingKeys.append("--signing-key-file /tmp/owner.staking.skey ")
+
+                                // 3. Register rewards address on the chain if not yet registered
+                                val rewardsStakingAccount = walletRepository.findByIdOrNull(node.rewardsStakingAccountId)
+                                        ?: throw IOException("Rewards staking account not found!")
+                                defaultHostConnection.commandWriteFile("/tmp/rewards.staking.skey", walletUtils.getSKeyContent(requireNotNull(rewardsStakingAccount.stakingSkey), request.spendingPassword))
+                                defaultHostConnection.commandWriteFile("/tmp/rewards.staking.vkey", requireNotNull(rewardsStakingAccount.stakingVkey?.content))
+                                if (node.rewardsStakingAccountId != node.ownerStakingAccountId) {
+                                    val rewardsStakingWalletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, rewardsStakingAccount)
+                                    if (!rewardsStakingWalletItem.stakingAddrRegistered) {
+                                        // rewards staking address is *not* registered. We should register it on chain as part of the transaction
+                                        rewardsStakingAccount.stakingRegCert?.let { stakingRegCert ->
+                                            defaultHostConnection.commandWriteFile("/tmp/rewards.staking.cert", stakingRegCert.content)
+                                        }
+                                                ?: throw IOException("Staking reg cert not found on rewards account!")
+                                        depositAndFees += protocolParameters.keyDeposit
+                                        certificates.append("--certificate /tmp/rewards.staking.cert ")
+                                    }
+                                }
+                                if (ownerStakingAccount != rewardsStakingAccount) {
+                                    witnessCount++ // the rewards account is a witness
+                                    signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
+                                }
+
+                                val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)
+                                        ?: throw IOException("Cold skey not found!")
+                                defaultHostConnection.commandWriteFile("/tmp/core.node.skey", walletUtils.getSKeyContent(coldSKeyFile, request.spendingPassword).trim())
+                                val coldVKeyFile = fileRepository.findByIdOrNull(node.coreVKeyId)
+                                        ?: throw IOException("Cold vkey not found!")
+                                defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", coldVKeyFile.content)
+                                val vrfVKeyFile = fileRepository.findByIdOrNull(node.vrfVKeyId)
+                                        ?: throw IOException("vrf vkey not found!")
+                                defaultHostConnection.commandWriteFile("/tmp/core.vrf.vkey", vrfVKeyFile.content)
+
+                                witnessCount++ // the core.node.skey is always a witness
+                                signingKeys.append("--signing-key-file /tmp/core.node.skey ")
+
+                                val relays = relayRepository.findByNodeId(requireNotNull(node.id))
+
+                                // 5. Create and upload metadata files
+                                var itnPrivateKeyId = -1L
+                                var itnPublicKeyId = -1L
+                                val itnWitnessSign = if (request.extended?.itn?.privateKey != null && defaultHost.jcliPath != null) {
+                                    val itnPrivateKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.skey", content = walletUtils.encryptSKeyContent(request.extended.itn.privateKey.trim(), request.spendingPassword))
+                                    itnPrivateKeyId = fileRepository.save(itnPrivateKey).id!!
+                                    defaultHostConnection.commandWriteFile("/tmp/core.pool.id", node.poolId!!)
+                                    defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", request.extended.itn.privateKey.trim())
+                                    defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id").trim()
+                                } else {
+                                    if (node.itnPrivateKeyId > -1) {
+                                        val itnPrivateKey = fileRepository.findByIdOrNull(node.itnPrivateKeyId)
+                                                ?: throw IOException("ITN private key not found in db!")
+                                        defaultHostConnection.commandWriteFile("/tmp/core.pool.id", node.poolId!!)
+                                        defaultHostConnection.commandWriteFile("/tmp/core.itn.skey", walletUtils.getSKeyContent(itnPrivateKey, request.spendingPassword))
+                                        defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id").trim()
+                                    } else {
+                                        null
+                                    }
+                                }
+                                val itnWitnessOwner = if (request.extended?.itn?.publicKey != null) {
+                                    val itnPublicKey = com.swiftmako.jormanager.entities.File(name = "${request.name}.itn.vkey", content = request.extended.itn.publicKey.trim())
+                                    itnPublicKeyId = fileRepository.save(itnPublicKey).id!!
+                                    request.extended.itn.publicKey.trim()
+                                } else {
+                                    if (node.itnPublicKeyId > -1) {
+                                        val itnPublicKey = fileRepository.findByIdOrNull(node.itnPublicKeyId)
+                                                ?: throw IOException("ITN public key not found in db!")
+                                        itnPublicKey.content
+                                    } else {
+                                        null
+                                    }
+                                }
+
+                                val otherPoolIds = nodeRepository.findAll().filter { otherNode -> otherNode.type == "core" }.mapNotNull { otherNode -> otherNode.poolId }
+
+                                val extendedMetadata = ExtendedMetadata(
+                                        itn = itnWitnessSign?.let { Itn(owner = itnWitnessOwner, witness = itnWitnessSign) },
+                                        info = Info(
+                                                urlPngIcon64x64 = request.extended?.info?.icon64,
+                                                urlPngLogo = request.extended?.info?.logo,
+                                                location = request.extended?.info?.location,
+                                                social = Social(
+                                                        twitterHandle = request.extended?.info?.social?.twitter,
+                                                        telegramHandle = request.extended?.info?.social?.telegram,
+                                                        facebookHandle = request.extended?.info?.social?.facebook,
+                                                        youtubeHandle = request.extended?.info?.social?.youtube,
+                                                        twitchHandle = request.extended?.info?.social?.twitch,
+                                                        discordHandle = request.extended?.info?.social?.discord,
+                                                        githubHandle = request.extended?.info?.social?.github
+                                                ),
+                                                company = Company(
+                                                        name = request.extended?.info?.company?.name,
+                                                        addr = request.extended?.info?.company?.addr,
+                                                        city = request.extended?.info?.company?.city,
+                                                        country = request.extended?.info?.company?.country,
+                                                        companyId = request.extended?.info?.company?.companyId,
+                                                        vatId = request.extended?.info?.company?.vatId
+                                                ),
+                                                about = About(
+                                                        me = request.extended?.info?.about?.me,
+                                                        server = request.extended?.info?.about?.server,
+                                                        company = request.extended?.info?.about?.company
+                                                ),
+                                                rss = request.extended?.info?.rss
+                                        ),
+                                        telegramAdminHandle = request.extended?.telegramAdminHandle?.let { listOf(it) }
+                                                ?: emptyList(),
+                                        myPoolIds = otherPoolIds,
+                                        whenSaturedThenRecommend = otherPoolIds.filterNot { it == node.poolId }
+                                )
+
+                                val extendedMetadataJson = extendedMetadataAdapter.indent(" ").toJson(extendedMetadata)
+                                val extendedMetadataUrl = uploadMetadata(extendedMetadataJson)
+                                log.debug("extendedMetadataUrl: $extendedMetadataUrl")
+
+                                val metadata = com.swiftmako.jormanager.model.metadata.pool.Metadata(
+                                        name = requireNotNull(request.name),
+                                        description = requireNotNull(request.description),
+                                        ticker = requireNotNull(request.ticker),
+                                        homepage = requireNotNull(request.homepage),
+                                        extended = extendedMetadataUrl
+                                )
+                                val metadataJson = metadataAdapter.indent(" ").toJson(metadata)
+                                val metadataUrl = uploadMetadata(metadataJson)
+                                log.debug("metadataUrl: $metadataUrl")
+
+                                // download and get the hash!
+                                defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
+                                val metadataHash = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json").trim()
+
+                                // 6. create the pool registration certificate
+                                val poolRegcertCommand = StringBuilder().apply {
+                                    append("${defaultHost.cardanoCliPath} shelley stake-pool registration-certificate ")
+                                    append("--cold-verification-key-file /tmp/core.node.vkey ")
+                                    append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
+                                    append("--pool-pledge ${node.poolPledge} ")
+                                    append("--pool-cost ${node.poolCost} ")
+                                    append("--pool-margin ${node.poolMargin} ")
+                                    append("--pool-reward-account-verification-key-file /tmp/rewards.staking.vkey ")
+                                    append("--pool-owner-stake-verification-key-file /tmp/owner.staking.vkey ")
+                                    relays.forEach { relay ->
+                                        if (relay.addr.matches(IP4_ADDRESS)) {
+                                            append("--pool-relay-ipv4 ${relay.addr} --pool-relay-port ${relay.port} ")
+                                        } else {
+                                            append("--single-host-pool-relay ${relay.addr} --pool-relay-port ${relay.port} ")
+                                        }
+                                    }
+                                    append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
+                                    append("$magicString ")
+                                    append("--out-file /tmp/core.pool.cert")
+                                }
+                                log.debug("poolRegcertCommand: $poolRegcertCommand")
+                                defaultHostConnection.command(poolRegcertCommand.toString())
+                                certificates.append("--certificate /tmp/core.pool.cert ")
+
+                                // 8. Calculate fees
+                                transaction.append(certificates)
+                                transaction.append("--out-file /tmp/transaction.txbody")
+                                defaultHostConnection.command(transaction.toString())
+
+                                log.debug("depositAndFees: $depositAndFees")
+                                val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                                val fees = feesString.split(" ")[0].toLong()
+                                log.debug("fees: $fees")
+                                depositAndFees += fees
+                                log.debug("final depositAndFees: $depositAndFees")
+
+                                // 9. Create the transaction
+                                val change = utxos.sumByLong { it.lovelace } - depositAndFees
+                                if (change < 1) {
+                                    throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
+                                }
+
+                                val realTransaction = transaction.toString()
+                                        .replace("--fee 100 ", "--fee $fees ")
+                                        .replace("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ", "--tx-out ${feePayerAccount.paymentAddr}+$change ")
+                                log.debug("Pool Transaction Command: $realTransaction")
+                                defaultHostConnection.command(realTransaction)
+
+                                // 10. Sign the transaction
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+
+                                // 11. Submit the transaction
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                                val txid = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction txid --tx-body-file /tmp/transaction.txbody")
+                                transactionRepository.save(Transaction(txid = txid))
+
+                                // 13. Save node information
+                                nodeRepository.save(node.copy(metadataUrl = metadataUrl, extendedMetadataUrl = extendedMetadataUrl, itnPrivateKeyId = itnPrivateKeyId, itnPublicKeyId = itnPublicKeyId))
+
+                                // send all to the client for ui updates
+                                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+                            } ?: throw IOException("Node not found!")
+                        } finally {
+                            // Cleanup
+                            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/core.pool.cert  /tmp/feepayer.payment.skey /tmp/owner.staking.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert /tmp/rewards.staking.skey /tmp/rewards.staking.vkey /tmp/rewards.staking.cert /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/metadata.json")
+                        }
+                    } ?: throw IOException("Host not found for default node!")
+                } ?: throw IOException("Genesis file for default node not found!")
+            } ?: throw IOException("Default node not found!")
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "updatemetadata", data = "Metadata Update Success!"))
         } catch (e: Throwable) {
             log.error("Error Updating Metadata!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "updatemetadata", exception = e))
