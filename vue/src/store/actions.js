@@ -235,6 +235,20 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "updatemetadata":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Update Metadata...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Update Metadata Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -502,7 +516,7 @@ export default {
         commit
     }, editPoolForm) => {
         if (state.stompClient && state.stompClient.connected) {
-            console.log("Update Pool Config: " + JSON.stringify(editPoolForm));
+            // console.log("Update Pool Config: " + JSON.stringify(editPoolForm));
             state.stompClient.send("/jormanager/updatepoolconfig", JSON.stringify(editPoolForm));
         } else {
             commit('toastError', {
@@ -510,5 +524,18 @@ export default {
                 message: "stompClient not connected!"
             })
         }
-    }
+    },
+    updateMetadata: ({
+        state, commit
+    }, editMetadataForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            console.log("Update Pool Metadata: " + JSON.stringify(editMetadataForm));
+            state.stompClient.send("/jormanager/updatemetadata", JSON.stringify(editMetadataForm));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
 }

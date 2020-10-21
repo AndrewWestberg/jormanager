@@ -273,7 +273,7 @@
           </b-form-select>
           <b-form-invalid-feedback
             id="registration-fees-account-live-feedback-metadata"
-            >Account must hold enough to pay pool registration and delegation
+            >Account must hold enough to pay pool re-registration
             fees.</b-form-invalid-feedback
           >
         </b-form-group>
@@ -742,6 +742,8 @@ export default {
       "rotateKesByName",
       "updateNodeColor",
       "updatePoolConfig",
+      "updateMetadata",
+      "fetchWalletItems",
     ]),
     ...mapMutations(["toastError"]),
     restartNode(node) {
@@ -818,7 +820,7 @@ export default {
       this.editMetadataForm.id = nodeId;
       this.requestMetadata(nodeId);
     },
-    handleSaveMetadata(bvModalEvt) {
+    async handleSaveMetadata(bvModalEvt) {
       bvModalEvt.preventDefault();
       if (
         this.registrationFeesAccountStateMetadata &&
@@ -830,8 +832,15 @@ export default {
         this.metadataLogoState
       ) {
         this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
-          (spendingPassword) => {
+          async (spendingPassword) => {
             this.editMetadataForm.spendingPassword = spendingPassword;
+
+            if (this.editMetadataForm.extended.itn.privateKey != null) {
+              this.editMetadataForm.extended.itn.privateKey = await this.editMetadataForm.extended.itn.privateKey.text();
+            }
+            if (this.editMetadataForm.extended.itn.publicKey != null) {
+              this.editMetadataForm.extended.itn.publicKey = await this.editMetadataForm.extended.itn.publicKey.text();
+            }
             this.updateMetadata(this.editMetadataForm);
             this.$bvModal.hide("modal-edit-metadata");
           }
@@ -998,6 +1007,7 @@ export default {
     this.requestHosts();
     this.requestNodes();
     this.requestFileOptions();
+    this.fetchWalletItems();
   },
 };
 </script>

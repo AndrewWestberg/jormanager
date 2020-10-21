@@ -17,6 +17,7 @@ import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.RotateKesRequest
 import com.swiftmako.jormanager.model.UpdateColorRequest
+import com.swiftmako.jormanager.model.UpdateMetadataRequest
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
@@ -964,6 +965,19 @@ class NodeController @Autowired constructor(
         } catch (e: Throwable) {
             log.error("Error fetching metadata!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "getmetadata", exception = e))
+        }
+    }
+
+    @MessageMapping("/updatemetadata")
+    @Transactional
+    fun updateMetadata(request: UpdateMetadataRequest) {
+        try {
+
+        } catch (e: Throwable) {
+            log.error("Error Updating Metadata!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "updatemetadata", exception = e))
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
         }
     }
 
