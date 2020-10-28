@@ -39,6 +39,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.internal.closeQuietly
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -199,6 +200,11 @@ class NodeController @Autowired constructor(
                                 } else {
                                     "--mainnet"
                                 }
+                                val byronToShelleyEpochs = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                                    BYRON_TO_SHELLEY_EPOCHS_TESTNET
+                                } else {
+                                    BYRON_TO_SHELLEY_EPOCHS_MAINNET
+                                }
                                 fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
                                     val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
@@ -349,9 +355,9 @@ class NodeController @Autowired constructor(
                                             val startTimeGenesis = genesis.systemStart
 
                                             val startTimeSec = defaultHostConnection.command("date --date=$startTimeGenesis +%s").trim().toLong()
-                                            val transTimeEnd = startTimeSec + (BYRON_TO_SHELLEY_EPOCHS * epochLength)
+                                            val transTimeEnd = startTimeSec + (byronToShelleyEpochs * epochLength)
                                             val byronSlots = (startTimeSec - startTimeByron) / 20L
-                                            val transSlots = (BYRON_TO_SHELLEY_EPOCHS * epochLength) / 20L
+                                            val transSlots = (byronToShelleyEpochs * epochLength) / 20L
 
                                             val currentTimeSec = defaultHostConnection.command("date -u +%s").trim().toLong()
 
@@ -825,6 +831,12 @@ class NodeController @Autowired constructor(
             nodeRepository.findDefault()?.let { defaultNode ->
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
                     val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+                    val byronToShelleyEpochs = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                        BYRON_TO_SHELLEY_EPOCHS_TESTNET
+                    } else {
+                        BYRON_TO_SHELLEY_EPOCHS_MAINNET
+                    }
+
                     fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))?.let { genesisByronFile ->
                         val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
@@ -869,9 +881,9 @@ class NodeController @Autowired constructor(
                                         val startTimeGenesis = genesis.systemStart
 
                                         val startTimeSec = defaultHostConnection.command("date --date=$startTimeGenesis +%s").trim().toLong()
-                                        val transTimeEnd = startTimeSec + (BYRON_TO_SHELLEY_EPOCHS * epochLength)
+                                        val transTimeEnd = startTimeSec + (byronToShelleyEpochs * epochLength)
                                         val byronSlots = (startTimeSec - startTimeByron) / 20L
-                                        val transSlots = (BYRON_TO_SHELLEY_EPOCHS * epochLength) / 20L
+                                        val transSlots = (byronToShelleyEpochs * epochLength) / 20L
 
                                         val currentTimeSec = defaultHostConnection.command("date -u +%s").trim().toLong()
 
@@ -942,7 +954,7 @@ class NodeController @Autowired constructor(
                     .build()
             val metadataResponse = okHttpClient.newCall(metadataRequest).execute()
             if (metadataResponse.isSuccessful) {
-                val metadata = metadataAdapter.fromJson(metadataResponse.body!!.source())
+                val metadata = metadataResponse.body!!.source().use { source -> metadataAdapter.fromJson(source) }
                 val extendedMetadataRequest = Request.Builder()
                         .get()
                         .cacheControl(CacheControl.FORCE_NETWORK)
@@ -950,7 +962,7 @@ class NodeController @Autowired constructor(
                         .build()
                 val extendedMetadataResponse = okHttpClient.newCall(extendedMetadataRequest).execute()
                 if (extendedMetadataResponse.isSuccessful) {
-                    val extendedMetadata = extendedMetadataAdapter.fromJson(extendedMetadataResponse.body!!.source())
+                    val extendedMetadata = extendedMetadataResponse.body!!.source().use { source -> extendedMetadataAdapter.fromJson(source) }
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "getmetadata", data = mapOf(
                             "metadata" to metadata,
                             "extendedMetadata" to extendedMetadata
@@ -1161,11 +1173,11 @@ class NodeController @Autowired constructor(
                                 )
                                 val metadataJson = metadataAdapter.indent(" ").toJson(metadata)
                                 val metadataUrl = uploadMetadata(metadataJson)
-                                log.debug("metadataUrl: $metadataUrl")
 
                                 // download and get the hash!
                                 defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
                                 val metadataHash = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json").trim()
+                                log.debug("metadata hash for $metadataUrl is $metadataHash")
 
                                 // 6. create the pool registration certificate
                                 val poolRegcertCommand = StringBuilder().apply {
@@ -1184,7 +1196,7 @@ class NodeController @Autowired constructor(
                                             append("--single-host-pool-relay ${relay.addr} --pool-relay-port ${relay.port} ")
                                         }
                                     }
-                                    append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
+                                    append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
                                     append("$magicString ")
                                     append("--out-file /tmp/core.pool.cert")
                                 }
@@ -1254,6 +1266,7 @@ class NodeController @Autowired constructor(
                 .url("https://js.adapools.org/pools/$poolId/summary.json")
                 .build()
         val response = okHttpClient.newCall(request).execute()
+        response.body?.closeQuietly()
         return response.isSuccessful
     }
 
@@ -1560,6 +1573,7 @@ class NodeController @Autowired constructor(
         const val NODE_TYPE_RELAY = "relay"
         const val NODE_TYPE_CORE = "core"
         private val IP4_ADDRESS = Regex("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)")
-        private const val BYRON_TO_SHELLEY_EPOCHS = 208L
+        private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L
+        private const val BYRON_TO_SHELLEY_EPOCHS_TESTNET = 74L
     }
 }
