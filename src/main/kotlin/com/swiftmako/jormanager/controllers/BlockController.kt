@@ -154,7 +154,7 @@ class BlockController @Autowired constructor(
 
                             val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
                             val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
-                                    ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                                    ?: throw IOException("Not enough blocks sync'd to calculate! Try again later after slot $stabilityWindowStart is sync'd.")
                             val nh = chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
                                     ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
 
