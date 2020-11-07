@@ -799,7 +799,7 @@ class NodeController @Autowired constructor(
                                 transactionRepository.save(Transaction(txid = txid))
 
                                 // 13. Save node information
-                                nodeRepository.save(node.copy(ownerStakingAccountId = request.ownerStakingAccount, rewardsStakingAccountId = request.rewardsStakingAccount))
+                                nodeRepository.save(node.copy(ownerStakingAccountId = request.ownerStakingAccount, rewardsStakingAccountId = request.rewardsStakingAccount, poolPledge = request.poolPledge, poolCost = request.poolCost, poolMargin = request.poolMargin))
 
                                 // send all to the client for ui updates
                                 val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))

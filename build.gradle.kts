@@ -3,9 +3,9 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.3.4.RELEASE"
+    id("org.springframework.boot") version "2.3.5.RELEASE"
     id("io.spring.dependency-management") version "1.0.10.RELEASE"
-    id("com.github.ben-manes.versions") version "0.33.0"
+    id("com.github.ben-manes.versions") version "0.34.0"
     kotlin("jvm") version "1.4.10"
     kotlin("kapt") version "1.4.10"
     kotlin("plugin.spring") version "1.4.10"
@@ -13,10 +13,10 @@ plugins {
 }
 
 object Versions {
-    const val bouncycastle = "1.66"
+    const val bouncycastle = "1.67"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.01"
-    const val coroutines = "1.4.0"
+    const val coroutines = "1.4.1"
     const val googleTruth = "1.1"
     const val jackson = "2.11.3"
     const val joda = "2.10.8"
@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.1.7-SNAPSHOT"
+version = "1.1.8-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
