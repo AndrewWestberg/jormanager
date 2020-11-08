@@ -15,7 +15,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
     private val doubleAdapter: JsonAdapter<Double> = moshi.adapter(Double::class.java, emptySet(), "decentralisationParam")
 
     private val options: List<JsonReader.Options> = listOf(
-            JsonReader.Options.of("esPp", "esSnapshots", "esLState"),
+            JsonReader.Options.of("nesEs", "esPp", "esSnapshots", "esLState"),
             JsonReader.Options.of("decentralisationParam"),
             JsonReader.Options.of("_pstakeSet", "_pstakeMark"), //_pstakeSet is current epoch, _pstakeMark is future epoch
             JsonReader.Options.of("_stake", "_delegations"),
@@ -31,11 +31,18 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         val poolIdToSigma = mutableMapOf<String, BigDecimal>()
         val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
         var dProposalVotes = 0
+        var isLedgerV2 = false
 
         reader.beginObject()
         while (reader.hasNext()) {
             when (reader.selectName(options[0])) {
                 0 -> {
+                    //nesEs
+                    reader.beginObject()
+                    isLedgerV2 = true
+                    continue
+                }
+                1 -> {
                     // esPp
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -53,7 +60,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                     }
                     reader.endObject()
                 }
-                1 -> {
+                2 -> {
                     // esSnapshots
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -75,7 +82,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                     reader.endObject()
 
                 }
-                2 -> {
+                3 -> {
                     // esLState
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -153,6 +160,13 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
             }
         }
         reader.endObject()
+        if (isLedgerV2) {
+            while (reader.hasNext()) {
+                reader.skipName()
+                reader.skipValue()
+            }
+            reader.endObject()
+        }
 
         // There is no proposal to update d that we found.
         if (futureDecentralizationParameter < 0.0) {
