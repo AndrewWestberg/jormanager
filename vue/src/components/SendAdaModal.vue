@@ -19,7 +19,9 @@
                 :options="paymentSelectOptions($options.filters.currency)"
               >
                 <template v-slot:first>
-                  <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+                  <b-form-select-option :value="null" disabled
+                    >-- Please select an option --</b-form-select-option
+                  >
                 </template>
               </b-form-select>
             </b-form-group>
@@ -29,10 +31,14 @@
                 :state="typeState(index, toAccount.type)"
               >
                 <b-form-radio value="amount">
-                  <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
+                  <font-awesome-icon
+                    :icon="['fas', 'weight-hanging']"
+                  />&nbsp;Amount
                 </b-form-radio>
                 <b-form-radio value="percent">
-                  <font-awesome-icon :icon="['fas', 'balance-scale-right']" />&nbsp;Percent
+                  <font-awesome-icon
+                    :icon="['fas', 'balance-scale-right']"
+                  />&nbsp;Percent
                 </b-form-radio>
               </b-form-radio-group>
             </b-form-group>
@@ -51,9 +57,12 @@
                 trim
                 v-currency
               />
-              <b-form-invalid-feedback
-                id="amount-input-live-feedback"
-              >Enter a non-zero amount up to {{calculateSpentLovelace(index) / 1000000 | currency('₳', 6)}}</b-form-invalid-feedback>
+              <b-form-invalid-feedback id="amount-input-live-feedback"
+                >Enter a non-zero amount up to
+                {{
+                  (calculateSpentLovelace(index) / 1000000) | currency("₳", 6)
+                }}</b-form-invalid-feedback
+              >
             </b-form-group>
             <b-form-group
               label="Percent"
@@ -72,7 +81,9 @@
                 step="1"
                 trim
               />
-              <p class="text-center">{{percentLabel(index, toAccount.percent)}}</p>
+              <p class="text-center">
+                {{ percentLabel(index, toAccount.percent) }}
+              </p>
             </b-form-group>
           </b-card>
           <hr />
@@ -181,7 +192,7 @@ export default {
         this.formSendAda.toAccounts.length
       );
       if (amount != null) {
-        let lovelaces = this.$root.$parseCurrency(amount);
+        let lovelaces = this.$ci.parse(amount);
         let spentLovelace = this.calculateSpentLovelace(index + 1);
         return lovelaces > 0 && spentLovelace >= 0;
       }
@@ -298,7 +309,7 @@ export default {
             amount:
               toAccount.amount == null
                 ? null
-                : this.$root.$parseCurrency(toAccount.amount),
+                : this.$ci.parse(toAccount.amount),
             percent: toAccount.percent,
           };
         }),
@@ -374,7 +385,7 @@ export default {
         let account = this.formSendAda.toAccounts[i];
         let amount = 0;
         if (account.type === "amount" && account.amount != null) {
-          amount = this.$root.$parseCurrency(account.amount);
+          amount = this.$ci.parse(account.amount);
           if (
             this.formSendAda.isClaim &&
             account.account === feePayerAccountId
@@ -428,7 +439,7 @@ export default {
         let account = this.formSendAda.toAccounts[i];
         amount = 0;
         if (account.type === "amount" && account.amount != null) {
-          amount = this.$root.$parseCurrency(account.amount);
+          amount = this.$ci.parse(account.amount);
           if (
             this.formSendAda.isClaim &&
             account.account === feePayerAccountId

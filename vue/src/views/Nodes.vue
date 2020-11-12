@@ -798,12 +798,12 @@ export default {
           (spendingPassword) => {
             this.editPoolConfigForm.spendingPassword = spendingPassword;
             if (isNaN(this.editPoolConfigForm.poolPledge)) {
-              this.editPoolConfigForm.poolPledge = this.$root.$parseCurrency(
+              this.editPoolConfigForm.poolPledge = this.$ci.parse(
                 this.editPoolConfigForm.poolPledge
               );
             }
             if (isNaN(this.editPoolConfigForm.poolCost)) {
-              this.editPoolConfigForm.poolCost = this.$root.$parseCurrency(
+              this.editPoolConfigForm.poolCost = this.$ci.parse(
                 this.editPoolConfigForm.poolCost
               );
             }
@@ -887,9 +887,7 @@ export default {
         return false;
       }
       if (isNaN(this.editPoolConfigForm.poolPledge)) {
-        return (
-          this.$root.$parseCurrency(this.editPoolConfigForm.poolPledge) > 0
-        );
+        return this.$ci.parse(this.editPoolConfigForm.poolPledge) > 0;
       } else {
         return this.editPoolConfigForm.poolPledge > 0;
       }
@@ -899,7 +897,7 @@ export default {
         return false;
       }
       if (isNaN(this.editPoolConfigForm.poolCost)) {
-        return this.$root.$parseCurrency(this.editPoolConfigForm.poolCost) > 0;
+        return this.$ci.parse(this.editPoolConfigForm.poolCost) > 0;
       } else {
         return this.editPoolConfigForm.poolCost > 0;
       }

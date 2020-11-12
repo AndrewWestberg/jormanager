@@ -4,9 +4,16 @@
     <vue-good-wizard :steps="steps" :onNext="nextClicked" :onBack="backClicked">
       <div slot="page1">
         <h4>Node Basics</h4>
-        <b-form-group label="Other Node Colors" label-cols-md="2" v-if="nodeColors.length > 0">
+        <b-form-group
+          label="Other Node Colors"
+          label-cols-md="2"
+          v-if="nodeColors.length > 0"
+        >
           <span v-for="(nodeColor, index) in nodeColors" :key="index">
-            <font-awesome-icon :style="{color: nodeColor}" :icon="['fas','circle']" />
+            <font-awesome-icon
+              :style="{ color: nodeColor }"
+              :icon="['fas', 'circle']"
+            />
           </span>
         </b-form-group>
         <b-form-group label="Color" label-for="color-input" label-cols-md="2">
@@ -20,11 +27,17 @@
             :options="hostSelectOptions"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
         </b-form-group>
-        <b-form-group label="Name (TICKER)" label-for="name-input" label-cols-md="2">
+        <b-form-group
+          label="Name (TICKER)"
+          label-for="name-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="name-input"
             v-model="formNode.name"
@@ -34,25 +47,45 @@
             placeholder="e.g. tickr, relay2, etc..."
             trim
           ></b-form-input>
-          <b-form-invalid-feedback id="name-input-live-feedback">Enter at least 3 letters</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="name-input-live-feedback"
+            >Enter at least 3 letters</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Node Type" label-for="type-radio" label-cols-md="2">
-          <b-form-radio-group id="type-radio" v-model="formNode.type" :state="typeState">
+        <b-form-group
+          label="Node Type"
+          label-for="type-radio"
+          label-cols-md="2"
+        >
+          <b-form-radio-group
+            id="type-radio"
+            v-model="formNode.type"
+            :state="typeState"
+          >
             <b-form-radio value="relay">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-danger text-center" />&nbsp;Relay
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                class="text-danger text-center"
+              />&nbsp;Relay
             </b-form-radio>
             <b-form-radio value="core">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success" />&nbsp;Core
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                class="text-success"
+              />&nbsp;Core
             </b-form-radio>
           </b-form-radio-group>
         </b-form-group>
-        <b-form-group label-cols-md="2" v-if="formNode.type=='relay'">
-          <b-form-checkbox
-            id="default-checkbox"
-            v-model="formNode.isDefault"
-          >Make this node the default for sending transactions</b-form-checkbox>
+        <b-form-group label-cols-md="2" v-if="formNode.type == 'relay'">
+          <b-form-checkbox id="default-checkbox" v-model="formNode.isDefault"
+            >Make this node the default for sending
+            transactions</b-form-checkbox
+          >
         </b-form-group>
-        <b-form-group label="Processor Threads" label-for="threads-input" label-cols-md="2">
+        <b-form-group
+          label="Processor Threads"
+          label-for="threads-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="threads-input"
             v-model="formNode.processorThreads"
@@ -64,9 +97,13 @@
             step="1"
             trim
           />
-          <p class="text-center">{{formNode.processorThreads}} Threads</p>
+          <p class="text-center">{{ formNode.processorThreads }} Threads</p>
         </b-form-group>
-        <b-form-group label="Listen Address" label-for="listen-input" label-cols-md="2">
+        <b-form-group
+          label="Listen Address"
+          label-for="listen-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="listen-input"
             v-model="formNode.listen"
@@ -75,11 +112,15 @@
             placeholder="e.g. 0.0.0.0, 127.0.0.1, 192.168.16.12"
             trim
           ></b-form-input>
-          <b-form-invalid-feedback
-            id="listen-input-live-feedback"
-          >Listen ip address for incoming connections</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="listen-input-live-feedback"
+            >Listen ip address for incoming connections</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Node Port" label-for="port-input" label-cols-md="2">
+        <b-form-group
+          label="Node Port"
+          label-for="port-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="port-input"
             type="number"
@@ -92,11 +133,16 @@
             v-model="formNode.port"
             trim
           />
-          <b-form-invalid-feedback
-            id="port-input-live-feedback"
-          >The port number the node will listen for connections on</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="port-input-live-feedback"
+            >The port number the node will listen for connections
+            on</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="EKG Port" label-for="ekg-port-input" label-cols-md="2">
+        <b-form-group
+          label="EKG Port"
+          label-for="ekg-port-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="ekg-port-input"
             type="number"
@@ -109,11 +155,16 @@
             v-model="formNode.ekgPort"
             trim
           />
-          <b-form-invalid-feedback
-            id="ekg-port-input-live-feedback"
-          >The port number the node will run EKG monitoring on. -1 to auto-generate it.</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="ekg-port-input-live-feedback"
+            >The port number the node will run EKG monitoring on. -1 to
+            auto-generate it.</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Prometheus Port" label-for="prom-port-input" label-cols-md="2">
+        <b-form-group
+          label="Prometheus Port"
+          label-for="prom-port-input"
+          label-cols-md="2"
+        >
           <b-form-input
             id="prom-port-input"
             type="number"
@@ -126,11 +177,16 @@
             v-model="formNode.promPort"
             trim
           />
-          <b-form-invalid-feedback
-            id="ekg-port-input-live-feedback"
-          >The port number the node will run Prometheus monitoring on. -1 to auto-generate it.</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="ekg-port-input-live-feedback"
+            >The port number the node will run Prometheus monitoring on. -1 to
+            auto-generate it.</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Genesis Byron" label-for="genesis-byron-select" label-cols-md="2">
+        <b-form-group
+          label="Genesis Byron"
+          label-for="genesis-byron-select"
+          label-cols-md="2"
+        >
           <b-form-select
             id="genesis-byron-select"
             v-model="formNode.genesisByron"
@@ -138,11 +194,17 @@
             :options="genesisFiles"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
         </b-form-group>
-        <b-form-group label="Genesis Shelley" label-for="genesis-shelley-select" label-cols-md="2">
+        <b-form-group
+          label="Genesis Shelley"
+          label-for="genesis-shelley-select"
+          label-cols-md="2"
+        >
           <b-form-select
             id="genesis-shelley-select"
             v-model="formNode.genesisShelley"
@@ -150,7 +212,9 @@
             :options="genesisFiles"
           >
             <template v-slot:first>
-              <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
             </template>
           </b-form-select>
         </b-form-group>
@@ -161,7 +225,8 @@
           <b-form-checkbox
             id="cold-skey-generate-checkbox"
             v-model="formNode.generateColdKeys"
-          >Generate</b-form-checkbox>
+            >Generate</b-form-checkbox
+          >
           <b-form-group
             label="skey"
             label-for="cold-skey-file"
@@ -171,7 +236,11 @@
             <b-form-file
               id="cold-skey-file"
               :disabled="formNode.generateColdKeys"
-              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateColdKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.coldSKey"
               :state="coldSKeyState"
@@ -187,7 +256,11 @@
             <b-form-file
               id="cold-vkey-file"
               :disabled="formNode.generateColdKeys"
-              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateColdKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.coldVKey"
               :state="coldVKeyState"
@@ -203,7 +276,11 @@
             <b-form-file
               id="cold-counter-file"
               :disabled="formNode.generateColdKeys"
-              :placeholder="formNode.generateColdKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateColdKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.coldCounter"
               :state="coldCounterState"
@@ -215,7 +292,8 @@
           <b-form-checkbox
             id="vrf-skey-generate-checkbox"
             v-model="formNode.generateVRFKeys"
-          >Generate</b-form-checkbox>
+            >Generate</b-form-checkbox
+          >
           <b-form-group
             label="skey"
             label-for="vrf-skey-file"
@@ -225,7 +303,11 @@
             <b-form-file
               id="vrf-skey-file"
               :disabled="formNode.generateVRFKeys"
-              :placeholder="formNode.generateVRFKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateVRFKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.vrfSKey"
               :state="vrfSKeyState"
@@ -241,7 +323,11 @@
             <b-form-file
               id="vrf-vkey-file"
               :disabled="formNode.generateVRFKeys"
-              :placeholder="formNode.generateVRFKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateVRFKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.vrfVKey"
               :state="vrfVKeyState"
@@ -253,7 +339,8 @@
           <b-form-checkbox
             id="kes-skey-generate-checkbox"
             v-model="formNode.generateKESKeys"
-          >Generate</b-form-checkbox>
+            >Generate</b-form-checkbox
+          >
           <b-form-group
             label="skey"
             label-for="kes-skey-file"
@@ -263,7 +350,11 @@
             <b-form-file
               id="kes-skey-file"
               :disabled="formNode.generateKESKeys"
-              :placeholder="formNode.generateKESKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateKESKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.kesSKey"
               :state="kesSKeyState"
@@ -279,7 +370,11 @@
             <b-form-file
               id="kes-vkey-file"
               :disabled="formNode.generateKESKeys"
-              :placeholder="formNode.generateKESKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formNode.generateKESKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formNode.kesVKey"
               :state="kesVKeyState"
@@ -301,16 +396,22 @@
               id="registration-fees-account-select"
               aria-describedby="registration-fees-account-live-feedback"
               v-model="formNode.registrationFeesAccount"
-              :options="registrationFeesSelectOptions($options.filters.currency)"
+              :options="
+                registrationFeesSelectOptions($options.filters.currency)
+              "
               :state="registrationFeesAccountState"
             >
               <template v-slot:first>
-                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+                <b-form-select-option :value="null" disabled
+                  >-- Please select an option --</b-form-select-option
+                >
               </template>
             </b-form-select>
             <b-form-invalid-feedback
               id="registration-fees-account-live-feedback"
-            >Account must hold enough to pay pool registration and delegation fees.</b-form-invalid-feedback>
+              >Account must hold enough to pay pool registration and delegation
+              fees.</b-form-invalid-feedback
+            >
           </b-form-group>
           <b-form-group
             label="Owner (Pledge) Account"
@@ -325,7 +426,9 @@
               :state="ownerStakingAccountState"
             >
               <template v-slot:first>
-                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+                <b-form-select-option :value="null" disabled
+                  >-- Please select an option --</b-form-select-option
+                >
               </template>
             </b-form-select>
           </b-form-group>
@@ -343,12 +446,14 @@
               :state="rewardsStakingAccountState"
             >
               <template v-slot:first>
-                <b-form-select-option :value="null" disabled>-- Please select an option --</b-form-select-option>
+                <b-form-select-option :value="null" disabled
+                  >-- Please select an option --</b-form-select-option
+                >
               </template>
             </b-form-select>
-            <b-form-invalid-feedback
-              id="rewards-staking-account-live-feedback"
-            >May be the same as owner account.</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="rewards-staking-account-live-feedback"
+              >May be the same as owner account.</b-form-invalid-feedback
+            >
           </b-form-group>
         </b-form-group>
         <b-form-group label="Pledge &amp; Fees">
@@ -367,7 +472,12 @@
               v-currency
             />
           </b-form-group>
-          <b-form-group label="Cost" label-for="cost-input" label-cols-md="1" label-align="right">
+          <b-form-group
+            label="Cost"
+            label-for="cost-input"
+            label-cols-md="1"
+            label-align="right"
+          >
             <b-form-input
               id="cost-input"
               v-model="formNode.poolCost"
@@ -394,7 +504,9 @@
               step="0.0025"
               trim
             />
-            <p class="text-center">{{(formNode.poolMargin * 100).toFixed(2)}}%</p>
+            <p class="text-center">
+              {{ (formNode.poolMargin * 100).toFixed(2) }}%
+            </p>
           </b-form-group>
         </b-form-group>
       </div>
@@ -402,7 +514,11 @@
         <h4>Relays</h4>
         <div v-for="(relay, index) in formNode.relays" :key="index">
           <b-card border-variant="secondary">
-            <b-form-group label="Address" label-for="relay-address-input" label-cols-md="1">
+            <b-form-group
+              label="Address"
+              label-for="relay-address-input"
+              label-cols-md="1"
+            >
               <b-form-input
                 id="relay-address-input"
                 v-model="relay.addr"
@@ -411,11 +527,16 @@
                 placeholder="e.g. 240.116.25.34, relay1.mystakepool.com"
                 trim
               ></b-form-input>
-              <b-form-invalid-feedback
-                id="relay-address-input-live-feedback"
-              >Enter a valid dns name or ip address for your relay server.</b-form-invalid-feedback>
+              <b-form-invalid-feedback id="relay-address-input-live-feedback"
+                >Enter a valid dns name or ip address for your relay
+                server.</b-form-invalid-feedback
+              >
             </b-form-group>
-            <b-form-group label="Port" label-for="relay-port-input" label-cols-md="1">
+            <b-form-group
+              label="Port"
+              label-for="relay-port-input"
+              label-cols-md="1"
+            >
               <b-form-input
                 id="relay-port-input"
                 type="number"
@@ -428,9 +549,9 @@
                 v-model="relay.port"
                 trim
               />
-              <b-form-invalid-feedback
-                id="relay-port-input-live-feedback"
-              >The port number of the relay node.</b-form-invalid-feedback>
+              <b-form-invalid-feedback id="relay-port-input-live-feedback"
+                >The port number of the relay node.</b-form-invalid-feedback
+              >
             </b-form-group>
           </b-card>
           <hr />
@@ -443,7 +564,11 @@
         <h4>Metadata</h4>
         <b-form-group>
           <h5>Primary (Required)</h5>
-          <b-form-group label="Ticker" label-for="metadata-ticker-input" label-cols-md="2">
+          <b-form-group
+            label="Ticker"
+            label-for="metadata-ticker-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-ticker-input"
               v-model="formNode.metadata.ticker"
@@ -453,11 +578,16 @@
               :formatter="formatTicker"
               trim
             />
-            <b-form-invalid-feedback
-              id="metadata-ticker-input-live-feedback"
-            >Ticker must only contain 'A-Z', '0-9' and be 3 to 5 characters in length</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="metadata-ticker-input-live-feedback"
+              >Ticker must only contain 'A-Z', '0-9' and be 3 to 5 characters in
+              length</b-form-invalid-feedback
+            >
           </b-form-group>
-          <b-form-group label="Name" label-for="metadata-name-input" label-cols-md="2">
+          <b-form-group
+            label="Name"
+            label-for="metadata-name-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-name-input"
               v-model="formNode.metadata.name"
@@ -467,9 +597,10 @@
               :formatter="formatMetadataName"
               trim
             />
-            <b-form-invalid-feedback
-              id="metadata-name-input-live-feedback"
-            >Name must be between 1 and 50 characters in length</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="metadata-name-input-live-feedback"
+              >Name must be between 1 and 50 characters in
+              length</b-form-invalid-feedback
+            >
           </b-form-group>
           <b-form-group
             label="Description"
@@ -487,9 +618,15 @@
             />
             <b-form-invalid-feedback
               id="metadata-description-input-live-feedback"
-            >Description must be between 1 and 255 characters in length</b-form-invalid-feedback>
+              >Description must be between 1 and 255 characters in
+              length</b-form-invalid-feedback
+            >
           </b-form-group>
-          <b-form-group label="Homepage" label-for="metadata-homepage-input" label-cols-md="2">
+          <b-form-group
+            label="Homepage"
+            label-for="metadata-homepage-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-homepage-input"
               v-model="formNode.metadata.homepage"
@@ -498,14 +635,19 @@
               placeholder="e.g. https://flippin-stakes.com"
               trim
             />
-            <b-form-invalid-feedback
-              id="metadata-homepage-input-live-feedback"
-            >Homepage must be https and 64 characters or less in length</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="metadata-homepage-input-live-feedback"
+              >Homepage must be https and 64 characters or less in
+              length</b-form-invalid-feedback
+            >
           </b-form-group>
         </b-form-group>
         <b-form-group>
           <h5>ITN Ticker Validation (Optional)</h5>
-          <b-form-group label="ITN Pool prv" label-for="itn-prv-file" label-cols-md="2">
+          <b-form-group
+            label="ITN Pool prv"
+            label-for="itn-prv-file"
+            label-cols-md="2"
+          >
             <b-form-file
               id="itn-prv-file"
               placeholder="Choose file or drop it here..."
@@ -514,7 +656,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="ITN Pool pub" label-for="itn-pub-file" label-cols-md="2">
+          <b-form-group
+            label="ITN Pool pub"
+            label-for="itn-pub-file"
+            label-cols-md="2"
+          >
             <b-form-file
               id="itn-pub-file"
               placeholder="Choose file or drop it here..."
@@ -526,7 +672,11 @@
         </b-form-group>
         <b-form-group>
           <h5>Extended (Optional)</h5>
-          <b-form-group label="Icon 64x64 URL" label-for="metadata-icon64-input" label-cols-md="2">
+          <b-form-group
+            label="Icon 64x64 URL"
+            label-for="metadata-icon64-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-icon64-input"
               v-model="formNode.metadata.extended.info.icon64"
@@ -535,9 +685,15 @@
               placeholder="e.g. https://flippin-stakes.com/icon64.png"
               trim
             />
-            <b-form-invalid-feedback id="metadata-icon64-input-live-feedback">Icon url must be a url</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="metadata-icon64-input-live-feedback"
+              >Icon url must be a url</b-form-invalid-feedback
+            >
           </b-form-group>
-          <b-form-group label="Logo URL" label-for="metadata-logo-input" label-cols-md="2">
+          <b-form-group
+            label="Logo URL"
+            label-for="metadata-logo-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-logo-input"
               v-model="formNode.metadata.extended.info.logo"
@@ -546,9 +702,15 @@
               placeholder="e.g. https://flippin-stakes.com/logo512.png"
               trim
             />
-            <b-form-invalid-feedback id="metadata-logo-input-live-feedback">Logo url must be a url</b-form-invalid-feedback>
+            <b-form-invalid-feedback id="metadata-logo-input-live-feedback"
+              >Logo url must be a url</b-form-invalid-feedback
+            >
           </b-form-group>
-          <b-form-group label="Location" label-for="metadata-location-input" label-cols-md="2">
+          <b-form-group
+            label="Location"
+            label-for="metadata-location-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-location-input"
               v-model="formNode.metadata.extended.info.location"
@@ -556,7 +718,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Twitter" label-for="metadata-twitter-input" label-cols-md="2">
+          <b-form-group
+            label="Twitter"
+            label-for="metadata-twitter-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-twitter-input"
               v-model="formNode.metadata.extended.info.social.twitter"
@@ -564,7 +730,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Telegram" label-for="metadata-telegram-input" label-cols-md="2">
+          <b-form-group
+            label="Telegram"
+            label-for="metadata-telegram-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-telegram-input"
               v-model="formNode.metadata.extended.info.social.telegram"
@@ -572,7 +742,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Facebook" label-for="metadata-facebook-input" label-cols-md="2">
+          <b-form-group
+            label="Facebook"
+            label-for="metadata-facebook-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-facebook-input"
               v-model="formNode.metadata.extended.info.social.facebook"
@@ -580,7 +754,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="YouTube" label-for="metadata-youtube-input" label-cols-md="2">
+          <b-form-group
+            label="YouTube"
+            label-for="metadata-youtube-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-youtube-input"
               v-model="formNode.metadata.extended.info.social.youtube"
@@ -588,7 +766,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Twitch" label-for="metadata-twitch-input" label-cols-md="2">
+          <b-form-group
+            label="Twitch"
+            label-for="metadata-twitch-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-twitch-input"
               v-model="formNode.metadata.extended.info.social.twitch"
@@ -596,7 +778,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Discord" label-for="metadata-discord-input" label-cols-md="2">
+          <b-form-group
+            label="Discord"
+            label-for="metadata-discord-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-discord-input"
               v-model="formNode.metadata.extended.info.social.discord"
@@ -604,7 +790,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Github" label-for="metadata-github-input" label-cols-md="2">
+          <b-form-group
+            label="Github"
+            label-for="metadata-github-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-github-input"
               v-model="formNode.metadata.extended.info.social.github"
@@ -612,7 +802,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="RSS" label-for="metadata-rss-input" label-cols-md="2">
+          <b-form-group
+            label="RSS"
+            label-for="metadata-rss-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-rss-input"
               v-model="formNode.metadata.extended.info.rss"
@@ -668,7 +862,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="Company ID" label-for="metadata-companyid-input" label-cols-md="2">
+          <b-form-group
+            label="Company ID"
+            label-for="metadata-companyid-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-companyid-input"
               v-model="formNode.metadata.extended.info.company.company_id"
@@ -676,7 +874,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="VAT ID" label-for="metadata-vatid-input" label-cols-md="2">
+          <b-form-group
+            label="VAT ID"
+            label-for="metadata-vatid-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-vatid-input"
               v-model="formNode.metadata.extended.info.company.vat_id"
@@ -684,7 +886,11 @@
               trim
             />
           </b-form-group>
-          <b-form-group label="About Me" label-for="metadata-aboutme-input" label-cols-md="2">
+          <b-form-group
+            label="About Me"
+            label-for="metadata-aboutme-input"
+            label-cols-md="2"
+          >
             <b-form-input
               id="metadata-aboutme-input"
               v-model="formNode.metadata.extended.info.about.me"
@@ -734,10 +940,15 @@
         <h4>Confirmation</h4>
         <p>
           Creating a node requires
-          <b>sudo</b> privileges to configure the systemd and rsyslog scripts. Leave empty if your host does not require a sudo password.
+          <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
+          Leave empty if your host does not require a sudo password.
         </p>
         <b-form-group label="SUDO Password" label-for="sudo-input">
-          <b-form-input id="sudo-input" type="password" v-model="formNode.sudoPassword" />
+          <b-form-input
+            id="sudo-input"
+            type="password"
+            v-model="formNode.sudoPassword"
+          />
         </b-form-group>
       </div>
     </vue-good-wizard>
@@ -965,7 +1176,7 @@ export default {
         return false;
       }
       if (isNaN(this.formNode.poolPledge)) {
-        return this.$root.$parseCurrency(this.formNode.poolPledge) > 0;
+        return this.$ci.parse(this.formNode.poolPledge) > 0;
       } else {
         return this.formNode.poolPledge > 0;
       }
@@ -975,7 +1186,7 @@ export default {
         return false;
       }
       if (isNaN(this.formNode.poolCost)) {
-        return this.$root.$parseCurrency(this.formNode.poolCost) > 0;
+        return this.$ci.parse(this.formNode.poolCost) > 0;
       } else {
         return this.formNode.poolCost > 0;
       }
@@ -1089,14 +1300,10 @@ export default {
           this.poolMarginState
         ) {
           if (isNaN(this.formNode.poolPledge)) {
-            this.formNode.poolPledge = this.$root.$parseCurrency(
-              this.formNode.poolPledge
-            );
+            this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
           }
           if (isNaN(this.formNode.poolCost)) {
-            this.formNode.poolCost = this.$root.$parseCurrency(
-              this.formNode.poolCost
-            );
+            this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
           }
           return true;
         } else {
@@ -1145,14 +1352,10 @@ export default {
       } else if (currentPage === 5) {
         // core node save!
         if (isNaN(this.formNode.poolPledge)) {
-          this.formNode.poolPledge = this.$root.$parseCurrency(
-            this.formNode.poolPledge
-          );
+          this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
         }
         if (isNaN(this.formNode.poolCost)) {
-          this.formNode.poolCost = this.$root.$parseCurrency(
-            this.formNode.poolCost
-          );
+          this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
         }
         if (this.formNode.coldSKey != null) {
           this.formNode.coldSKey = await this.formNode.coldSKey.text();
@@ -1198,14 +1401,10 @@ export default {
       // console.log("back clicked", currentPage);
       if (currentPage === 2) {
         if (this.poolPledgeState && isNaN(this.formNode.poolPledge)) {
-          this.formNode.poolPledge = this.$root.$parseCurrency(
-            this.formNode.poolPledge
-          );
+          this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
         }
         if (this.poolCostState && isNaN(this.formNode.poolCost)) {
-          this.formNode.poolCost = this.$root.$parseCurrency(
-            this.formNode.poolCost
-          );
+          this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
         }
       }
       return true; //return false if you want to prevent moving to previous page
