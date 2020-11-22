@@ -78,6 +78,9 @@ class TxSubmissionProtocol : MiniProtocol(protocolId = 0x0004, LoggerFactory.get
                     rxChannel.cancel()
                     break
                 }
+                State.Txs -> {
+                    //noop
+                }
             }
         }
 

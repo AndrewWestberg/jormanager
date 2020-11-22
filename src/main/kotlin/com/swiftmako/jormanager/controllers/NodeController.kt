@@ -388,7 +388,12 @@ class NodeController @Autowired constructor(
                                             val coreCounter = com.swiftmako.jormanager.entities.File(name = "${request.name}.node.counter", content = coreCounterContent)
                                             coreCounterId = fileRepository.save(coreCounter).id!!
 
-                                            val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex").trim()
+                                            val poolId = try {
+                                                // 0.23.0 and above
+                                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex").trim()
+                                            } catch (e: Throwable) {
+                                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex").trim()
+                                            }
                                             log.debug("poolId: $poolId")
                                             val isPoolOnChain = isPoolOnChain(poolId)
 
