@@ -90,6 +90,14 @@
               v-b-tooltip.hover.v-primary.right="'Edit Metadata'"
               @click="editMetadata(data.item.id)"
             />
+            &nbsp;
+            <font-awesome-icon
+              v-if="data.item.type === 'core'"
+              :icon="['fas', 'skull']"
+              class="text-danger"
+              v-b-tooltip.hover.v-danger.right="'Retire Pool'"
+              @click="retirePool(data.item.id)"
+            />
           </template>
         </b-table>
       </div>
@@ -649,6 +657,58 @@
         </b-form-group>
       </b-form-group>
     </b-modal>
+    <b-modal
+      id="modal-retire-pool"
+      title="Retire Pool"
+      no-close-on-backdrop
+      size="lg"
+      @ok="handleRetirePool"
+    >
+      <b-form-group
+        label="Fees Account"
+        label-for="retire-pool-account-select"
+        label-cols-md="2"
+        label-align="right"
+      >
+        <b-form-select
+          aria-describedby="retire-pool-account-live-feedback"
+          v-model="retirePoolForm.retireFeesAccount"
+          :options="reregistrationFeesSelectOptions($options.filters.currency)"
+          :state="retireFeesAccountState"
+        >
+          <template v-slot:first>
+            <b-form-select-option :value="null" disabled
+              >-- Please select an option --</b-form-select-option
+            >
+          </template>
+        </b-form-select>
+        <b-form-invalid-feedback id="retire-pool-account-live-feedback"
+          >Account must hold enough to pay retirement
+          fees.</b-form-invalid-feedback
+        >
+      </b-form-group>
+      <b-form-group
+        label="Retire Epoch"
+        label-for="retire-epoch-input"
+        label-cols-md="2"
+        label-align="right"
+      >
+        <b-form-input
+          id="retire-epoch-input"
+          type="number"
+          step="1"
+          :state="retireEpochState"
+          placeholder="e.g. 261"
+          aria-describedby="retire-epoch-input-live-feedback"
+          v-model="retirePoolForm.retireEpoch"
+          trim
+        />
+        <b-form-invalid-feedback id="retire-epoch-input-live-feedback"
+          >Must be at least 1 epoch in the future and maximum of 18 epochs in
+          the future.</b-form-invalid-feedback
+        >
+      </b-form-group>
+    </b-modal>
   </div>
 </template>
 
@@ -729,6 +789,12 @@ export default {
           telegramAdminHandle: null,
         },
       },
+      retirePoolForm: {
+        id: null,
+        spendingPassword: null,
+        retireFeesAccount: null,
+        retireEpoch: null,
+      },
     };
   },
   methods: {
@@ -744,6 +810,7 @@ export default {
       "updatePoolConfig",
       "updateMetadata",
       "fetchWalletItems",
+      "sendRetirePool",
     ]),
     ...mapMutations(["toastError"]),
     restartNode(node) {
@@ -808,6 +875,7 @@ export default {
               );
             }
             this.updatePoolConfig(this.editPoolConfigForm);
+            this.editPoolConfigForm.spendingPassword = null;
             this.$bvModal.hide("modal-edit-pool-config");
           }
         );
@@ -845,7 +913,31 @@ export default {
               this.editMetadataForm.extended.itn.publicKey = await this.editMetadataForm.extended.itn.publicKey.text();
             }
             this.updateMetadata(this.editMetadataForm);
+            this.editMetadataForm.spendingPassword = null;
             this.$bvModal.hide("modal-edit-metadata");
+          }
+        );
+      } else {
+        this.toastError({
+          title: "Error",
+          message: "You must fill out all fields.",
+        });
+      }
+    },
+    retirePool(nodeId) {
+      this.retirePoolForm.id = nodeId;
+      this.$bvModal.show("modal-retire-pool");
+    },
+    handleRetirePool(bvModalEvt) {
+      bvModalEvt.preventDefault();
+      if (this.retireFeesAccountState && this.retireEpochState) {
+        this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+          (spendingPassword) => {
+            this.retirePoolForm.spendingPassword = spendingPassword;
+
+            this.sendRetirePool(this.retirePoolForm);
+            this.retirePoolForm.spendingPassword = null;
+            this.$bvModal.hide("modal-retire-pool");
           }
         );
       } else {
@@ -951,6 +1043,12 @@ export default {
         this.editMetadataForm.extended.info.logo.match(/^https?:\/\/.*/) != null
       );
     },
+    retireFeesAccountState() {
+      return this.retirePoolForm.retireFeesAccount != null;
+    },
+    retireEpochState() {
+      return this.retirePoolForm.retireEpoch != null;
+    },
   },
   watch: {
     editorMetadata(data) {
@@ -1019,6 +1117,7 @@ export default {
 .fa-circle:hover,
 .fa-check-circle:hover,
 .fa-power-off:hover,
+.fa-skull:hover,
 .fa-key:hover {
   cursor: pointer;
 }

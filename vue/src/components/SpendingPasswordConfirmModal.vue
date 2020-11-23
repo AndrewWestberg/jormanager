@@ -8,6 +8,7 @@
       ok-title="Confirm"
       ok-variant="danger"
       @ok="confirmClicked()"
+      @hidden="spendingPassword = null"
     >
       <b-form-input
         id="spending-password-input"

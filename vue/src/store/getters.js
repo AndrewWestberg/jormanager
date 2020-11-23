@@ -147,6 +147,23 @@ export default {
                 }
             }), ['text'])
     },
+    stakingFeesSelectOptions: (state) => (currency) => {
+        return _.sortBy(
+            _.map(_.filter(state.walletItems, (walletItem) => {
+                // must have over 3 ada to pay fees for registering a stake address.
+                return walletItem.type !== "address" && walletItem.hasPaymentKeys && walletItem.paymentAddrLovelace > 3000000
+            }), (walletItem) => {
+                return {
+                    value: walletItem.id,
+                    text: walletItem.name + " - " +
+                        currency(
+                            walletItem.paymentAddrLovelace / 1000000,
+                            "₳",
+                            6
+                        )
+                }
+            }), ['text'])
+    },
     stakingSelectOptions: (state) => (currency) => {
         return _.sortBy(
             _.map(_.filter(state.walletItems, (walletItem) => {

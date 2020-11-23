@@ -15,6 +15,7 @@ import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.RetirePoolRequest
 import com.swiftmako.jormanager.model.RotateKesRequest
 import com.swiftmako.jormanager.model.UpdateColorRequest
 import com.swiftmako.jormanager.model.UpdateMetadataRequest
@@ -389,7 +390,7 @@ class NodeController @Autowired constructor(
                                             coreCounterId = fileRepository.save(coreCounter).id!!
 
                                             val poolId = try {
-                                                // 0.23.0 and above
+                                                // 1.23.0 and above
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex").trim()
                                             } catch (e: Throwable) {
                                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex").trim()
@@ -1259,6 +1260,20 @@ class NodeController @Autowired constructor(
         } catch (e: Throwable) {
             log.error("Error Updating Metadata!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "updatemetadata", exception = e))
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
+        }
+    }
+
+    @MessageMapping("/retirepool")
+    @Transactional
+    fun retirePool(request: RetirePoolRequest) {
+        try {
+
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "retirepool", data = "Success!"))
+        } catch (e: Throwable) {
+            log.error("Error Retiring Pool!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "retirepool", exception = e))
             // rethrow so db transaction is rolled back
             throw RuntimeException(e)
         }

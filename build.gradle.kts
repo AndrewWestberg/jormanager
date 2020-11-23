@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.1.11-SNAPSHOT"
+version = "1.2.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

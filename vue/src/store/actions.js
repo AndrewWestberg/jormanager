@@ -249,6 +249,34 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "updatestakingaddress":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Update Staking Address...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Update Staking Address Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
+                case "retirepool":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Retire Pool...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Retire Pool Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
             }
         });
         commit('setConnected', true)
@@ -531,6 +559,32 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("Update Pool Metadata: " + JSON.stringify(editMetadataForm));
             state.stompClient.send("/jormanager/updatemetadata", JSON.stringify(editMetadataForm));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    updateStakingAddress: ({
+        state, commit
+    }, stakingAddressForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Update Staking Address: " + JSON.stringify(stakingAddressForm));
+            state.stompClient.send("/jormanager/updatestakingaddress", JSON.stringify(stakingAddressForm));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    sendRetirePool:  ({
+        state, commit
+    }, retirePoolForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Send Retire Pool: " + JSON.stringify(retirePoolForm));
+            state.stompClient.send("/jormanager/retirepool", JSON.stringify(retirePoolForm));
         } else {
             commit('toastError', {
                 title: "Communication Error!",

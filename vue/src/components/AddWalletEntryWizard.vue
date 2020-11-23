@@ -13,12 +13,20 @@
             placeholder="e.g. tickr_owner, funds, etc..."
             trim
           ></b-form-input>
-          <b-form-invalid-feedback
-            id="name-input-live-feedback"
-          >Enter at least 3 letters with no spaces</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="name-input-live-feedback"
+            >Enter at least 3 letters with no spaces</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Entry Type" label-for="type-radio" label-cols-md="2">
-          <b-form-radio-group id="type-radio" v-model="formWallet.type" :state="typeState">
+        <b-form-group
+          label="Entry Type"
+          label-for="type-radio"
+          label-cols-md="2"
+        >
+          <b-form-radio-group
+            id="type-radio"
+            v-model="formWallet.type"
+            :state="typeState"
+          >
             <b-form-radio value="address">Simple Address</b-form-radio>
             <b-form-radio value="payment">Payment</b-form-radio>
             <b-form-radio value="stake">Stake</b-form-radio>
@@ -29,7 +37,7 @@
           label="Address"
           label-for="address-input"
           label-cols-md="2"
-          v-if="formWallet.type=='address' || formWallet.type=='pledge'"
+          v-if="formWallet.type == 'address' || formWallet.type == 'pledge'"
         >
           <b-form-input
             id="address-input"
@@ -39,27 +47,36 @@
             placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
             trim
           ></b-form-input>
-          <b-form-invalid-feedback
-            id="address-input-live-feedback"
-          >Wallet address that can only receive payments or monitor funds it holds</b-form-invalid-feedback>
+          <b-form-invalid-feedback id="address-input-live-feedback"
+            >Wallet address that can only receive payments or monitor funds it
+            holds</b-form-invalid-feedback
+          >
         </b-form-group>
-        <b-form-group label="Keys" v-if="formWallet.type != null && formWallet.type != 'address'">
+        <b-form-group
+          label="Keys"
+          v-if="formWallet.type != null && formWallet.type != 'address'"
+        >
           <b-form-checkbox
             id="keys-generate-checkbox"
             v-model="formWallet.generateKeys"
-            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
-          >Generate</b-form-checkbox>
+            v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
+            >Generate</b-form-checkbox
+          >
           <b-form-group
             label="payment skey"
             label-for="payment-skey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
+            v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
           >
             <b-form-file
               id="payment-skey-file"
               :disabled="formWallet.generateKeys"
-              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formWallet.generateKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formWallet.paymentSKey"
               :state="paymentSKeyState"
@@ -71,12 +88,16 @@
             label-for="payment-vkey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type==='payment' || formWallet.type==='stake'"
+            v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
           >
             <b-form-file
               id="payment-vkey-file"
               :disabled="formWallet.generateKeys"
-              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formWallet.generateKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formWallet.paymentVKey"
               :state="paymentVKeyState"
@@ -88,12 +109,16 @@
             label-for="staking-skey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type==='stake' || formWallet.type==='pledge'"
+            v-if="formWallet.type === 'stake' || formWallet.type === 'pledge'"
           >
             <b-form-file
               id="staking-skey-file"
               :disabled="formWallet.generateKeys"
-              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formWallet.generateKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formWallet.stakingSKey"
               :state="stakingSKeyState"
@@ -105,12 +130,16 @@
             label-for="staking-vkey-file"
             label-cols-md="1"
             label-align="right"
-            v-if="formWallet.type=='stake' || formWallet.type==='pledge'"
+            v-if="formWallet.type == 'stake' || formWallet.type === 'pledge'"
           >
             <b-form-file
               id="staking-vkey-file"
               :disabled="formWallet.generateKeys"
-              :placeholder="formWallet.generateKeys ? '---' : 'Choose file or drop it here...'"
+              :placeholder="
+                formWallet.generateKeys
+                  ? '---'
+                  : 'Choose file or drop it here...'
+              "
               drop-placeholder="Drop file here..."
               v-model="formWallet.stakingVKey"
               :state="stakingVKeyState"
@@ -207,6 +236,7 @@ export default {
             (spendingPassword) => {
               this.formWallet.spendingPassword = spendingPassword;
               this.createWalletEntry(this.formWallet);
+              this.formWallet.spendingPassword = null;
               this.$emit("hideWalletEntryWizard");
             }
           );

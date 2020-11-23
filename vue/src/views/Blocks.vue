@@ -174,6 +174,7 @@ export default {
         (spendingPassword) => {
           this.formLeaderLogs.spendingPassword = spendingPassword;
           this.requestLeaderLogs(this.formLeaderLogs);
+          this.formLeaderLogs.spendingPassword = null;
         }
       );
     },
