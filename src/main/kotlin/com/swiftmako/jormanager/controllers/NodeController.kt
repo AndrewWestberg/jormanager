@@ -1371,6 +1371,37 @@ class NodeController @Autowired constructor(
                     hostConnection.sudoCommand("systemctl stop ${node.name}-node.service", request.sudoPassword)
                     hostConnection.sudoCommand("systemctl disable ${node.name}-node.service", request.sudoPassword)
                 }
+                val now = System.currentTimeMillis()
+                fileRepository.findByIdOrNull(node.coreSKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.coreVKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.vrfVKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.vrfSKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.kesSKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.kesVKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.opcertId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.coreCounterId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.itnPublicKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
+                fileRepository.findByIdOrNull(node.itnPrivateKeyId)?.let {
+                    fileRepository.save(it.copy(name = it.name + "-$now"))
+                }
 
                 // 11. Submit the transaction
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
