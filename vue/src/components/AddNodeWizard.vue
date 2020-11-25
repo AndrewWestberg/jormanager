@@ -1288,6 +1288,7 @@ export default {
               this.formNode.spendingPassword = spendingPassword;
               this.createNode(this.formNode);
               this.formNode.spendingPassword = null;
+              this.formNode.sudoPassword = null;
             }
           );
         }
@@ -1392,6 +1393,7 @@ export default {
             this.formNode.spendingPassword = spendingPassword;
             this.createNode(this.formNode);
             this.formNode.spendingPassword = null;
+            this.formNode.sudoPassword = null;
           }
         );
       }

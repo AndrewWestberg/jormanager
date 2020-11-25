@@ -119,7 +119,7 @@ class BlockController @Autowired constructor(
             }
 
             nodeRepository.findDefault()?.let { defaultNode ->
-                val coreNodes = nodeRepository.findAll().filter { it.type == "core" }
+                val coreNodes = nodeRepository.findAll().filter { it.type == "core" && !it.isDeleted }
                 fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
                     val genesisShelley = shelleyShelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
                     val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {

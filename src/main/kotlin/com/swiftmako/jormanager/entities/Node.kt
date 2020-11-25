@@ -80,4 +80,6 @@ data class Node(
         val metadataUrl: String? = null,
         @Column(name = "extended_metadata_url")
         val extendedMetadataUrl: String? = null,
+        @Column(name = "deleted")
+        val isDeleted: Boolean = false,
 )

@@ -101,7 +101,7 @@ class NodeMonitor @Autowired constructor(
 
         // Don't need to do this as the BlockMonitor already gets our nodes from the db and offers them on the channel
 //        launch {
-//            nodeRepository.findAll().forEach { node ->
+//            nodeRepository.findAll().filter { !it.isDeleted }.forEach { node ->
 //                nodesChannel.offer(node)
 //            }
 //        }
@@ -123,7 +123,7 @@ class NodeMonitor @Autowired constructor(
         launch {
             try {
                 // core nodes that need updating from the ledger state
-                val coreNodes = nodeRepository.findAll().filter { it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                val coreNodes = nodeRepository.findAll().filter { !it.isDeleted && it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
                 if (coreNodes.isEmpty()) {
                     return@launch
                 }
@@ -261,6 +261,10 @@ class NodeMonitor @Autowired constructor(
             val now = before + delay
             try {
                 node = nodeRepository.findByIdOrNull(nodeId)!!
+                if (node.isDeleted) {
+                    log.warn("Node deleted. Stop Monitoring...")
+                    return
+                }
                 delay(delay)
 
                 // Calculate incoming peers

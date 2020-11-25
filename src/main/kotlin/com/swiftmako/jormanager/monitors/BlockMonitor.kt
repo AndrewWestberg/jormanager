@@ -99,7 +99,7 @@ class BlockMonitor @Autowired constructor(
     override fun start() {
         log.info("Starting BlockMonitor...")
         launch {
-            nodeRepository.findAll().forEach { node ->
+            nodeRepository.findAll().filter { !it.isDeleted }.forEach { node ->
                 nodesChannel.offer(node)
             }
         }
@@ -211,30 +211,34 @@ class BlockMonitor @Autowired constructor(
                 delay(RECONNECT_DELAY_MS)
 
                 try {
-                    val logPath = "${host.nodeHomePath}/${node.name}/logs/node.json"
+                    val monitoredNode = nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                    if(monitoredNode.isDeleted) {
+                        throw CancellationException("Node has been deleted!")
+                    }
+                    val logPath = "${host.nodeHomePath}/${monitoredNode.name}/logs/node.json"
                     log.debug("Monitoring blocks from:  $logPath")
 
-                    var process = ProcessBuilder("/bin/bash", "-c", "cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"").start()
+                    var process = ProcessBuilder("/bin/bash", "-c", "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"").start()
                     process.inputStream.bufferedReader().use { reader ->
                         reader.forEachLine { line ->
                             launch {
-                                saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
+                                saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
                             }
                         }
                     }
                     process.waitFor(60, TimeUnit.SECONDS)
 
-                    process = ProcessBuilder("/bin/bash", "-c", "tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'").start()
+                    process = ProcessBuilder("/bin/bash", "-c", "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'").start()
                     process.inputStream.bufferedReader().use { reader ->
                         reader.forEachLine { line ->
                             if (line.contains("TraceAdoptedBlock")) {
                                 launch {
-                                    saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                    saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
                                 }
                             } else {
                                 if (pooltoolApiKey.isNotBlank()) {
                                     launch {
-                                        sendBlockToPooltool(host, node, magicString, line)
+                                        sendBlockToPooltool(host, monitoredNode, magicString, line)
                                     }
                                 }
                             }
@@ -283,14 +287,19 @@ class BlockMonitor @Autowired constructor(
                 ssh.loadKnownHosts()
                 ssh.addHostKeyVerifier(PromiscuousVerifier())
                 try {
+                    val monitoredNode = nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                    if(monitoredNode.isDeleted) {
+                        throw CancellationException("Node has been deleted!")
+                    }
+
                     ssh.connect(host.hostname, host.sshPort)
                     ssh.authPublickey(host.sshUser, host.sshPemPath)
                     ssh.startSession().use { session ->
-                        val cmd = session.exec("cat ${host.nodeHomePath}/${node.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                        val cmd = session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 launch {
-                                    saveBlocksFromRemoteNode(null, node, magicString, byron, shelley, line)
+                                    saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
                                 }
                             }
                         }
@@ -298,17 +307,17 @@ class BlockMonitor @Autowired constructor(
                     }
                     ssh.startSession().use { session ->
 
-                        val cmd = session.exec("tail -Fn0 ${host.nodeHomePath}/${node.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
+                        val cmd = session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
                                     launch {
-                                        saveBlocksFromRemoteNode(host, node, magicString, byron, shelley, line)
+                                        saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
                                     }
                                 } else {
                                     if (pooltoolApiKey.isNotBlank()) {
                                         launch {
-                                            sendBlockToPooltool(host, node, magicString, line)
+                                            sendBlockToPooltool(host, monitoredNode, magicString, line)
                                         }
                                     }
                                 }

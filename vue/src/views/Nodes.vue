@@ -708,6 +708,18 @@
           the future.</b-form-invalid-feedback
         >
       </b-form-group>
+      <b-form-group
+        label="SUDO Password"
+        label-for="sudo-input"
+        label-cols-md="2"
+        label-align="right"
+      >
+        <b-form-input
+          id="sudo-input"
+          type="password"
+          v-model="retirePoolForm.sudoPassword"
+        />
+      </b-form-group>
     </b-modal>
   </div>
 </template>
@@ -791,6 +803,7 @@ export default {
       },
       retirePoolForm: {
         id: null,
+        sudoPassword: null,
         spendingPassword: null,
         retireFeesAccount: null,
         retireEpoch: null,
@@ -930,13 +943,18 @@ export default {
     },
     handleRetirePool(bvModalEvt) {
       bvModalEvt.preventDefault();
-      if (this.retireFeesAccountState && this.retireEpochState) {
+      if (
+        this.retireFeesAccountState &&
+        this.retireEpochState &&
+        this.retireSudoPasswordState
+      ) {
         this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
           (spendingPassword) => {
             this.retirePoolForm.spendingPassword = spendingPassword;
 
             this.sendRetirePool(this.retirePoolForm);
             this.retirePoolForm.spendingPassword = null;
+            this.retirePoolForm.sudoPassword = null;
             this.$bvModal.hide("modal-retire-pool");
           }
         );
@@ -1048,6 +1066,9 @@ export default {
     },
     retireEpochState() {
       return this.retirePoolForm.retireEpoch != null;
+    },
+    retireSudoPasswordState() {
+      return this.retirePoolForm.sudoPassword != null;
     },
   },
   watch: {

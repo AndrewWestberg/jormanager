@@ -80,7 +80,7 @@ class NodeController @Autowired constructor(
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")
     fun getNodes(): SocketResponse<List<Node>> {
-        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
         return SocketResponse.Success(type = "nodes", data = nodes)
     }
 
@@ -123,7 +123,7 @@ class NodeController @Autowired constructor(
                 nodeRepository.save(node.copy(color = request.color))
 
                 // send all to the client for ui updates
-                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
 
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("updatenodecolor", "Updated successfully!"))
@@ -189,7 +189,7 @@ class NodeController @Autowired constructor(
                         nodesChannel.offer(savedNode)
 
                         // send all to the client for ui updates
-                        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                         webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                     }
                     NODE_TYPE_CORE -> {
@@ -418,7 +418,7 @@ class NodeController @Autowired constructor(
                                                 null
                                             }
 
-                                            val otherPoolIds = nodeRepository.findAll().filter { node -> node.type == "core" }.mapNotNull { node -> node.poolId }
+                                            val otherPoolIds = nodeRepository.findAll().filter { node -> node.type == "core" && !node.isDeleted }.mapNotNull { node -> node.poolId }
 
                                             val extendedMetadata = ExtendedMetadata(
                                                     itn = itnWitnessSign?.let { Itn(owner = itnWitnessOwner, witness = itnWitnessSign) },
@@ -603,7 +603,7 @@ class NodeController @Autowired constructor(
                                             nodesChannel.offer(savedNode)
 
                                             // send all to the client for ui updates
-                                            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                                            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                                             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                                         } finally {
                                             // Cleanup
@@ -808,7 +808,7 @@ class NodeController @Autowired constructor(
                                 nodeRepository.save(node.copy(ownerStakingAccountId = request.ownerStakingAccount, rewardsStakingAccountId = request.rewardsStakingAccount, poolPledge = request.poolPledge, poolCost = request.poolCost, poolMargin = request.poolMargin))
 
                                 // send all to the client for ui updates
-                                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                             } ?: throw IOException("Node not found!")
                         } finally {
@@ -1128,7 +1128,7 @@ class NodeController @Autowired constructor(
                                     }
                                 }
 
-                                val otherPoolIds = nodeRepository.findAll().filter { otherNode -> otherNode.type == "core" }.mapNotNull { otherNode -> otherNode.poolId }
+                                val otherPoolIds = nodeRepository.findAll().filter { otherNode -> otherNode.type == "core" && !otherNode.isDeleted }.mapNotNull { otherNode -> otherNode.poolId }
 
                                 val extendedMetadata = ExtendedMetadata(
                                         itn = itnWitnessSign?.let { Itn(owner = itnWitnessOwner, witness = itnWitnessSign) },
@@ -1246,7 +1246,7 @@ class NodeController @Autowired constructor(
                                 nodeRepository.save(node.copy(metadataUrl = metadataUrl, extendedMetadataUrl = extendedMetadataUrl, itnPrivateKeyId = itnPrivateKeyId, itnPublicKeyId = itnPublicKeyId))
 
                                 // send all to the client for ui updates
-                                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+                                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                             } ?: throw IOException("Node not found!")
                         } finally {
@@ -1269,8 +1269,123 @@ class NodeController @Autowired constructor(
     @Transactional
     fun retirePool(request: RetirePoolRequest) {
         try {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                throw IllegalArgumentException("Invalid spending password!")
+            }
+            val defaultNode = nodeRepository.findDefault() ?: throw IOException("Default node not found!")
+            val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
+                    ?: throw IOException("Default Host not found!")
+            val defaultHostConnection = HostConnection(defaultHost, defaultNode)
 
-            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "retirepool", data = "Success!"))
+            val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Node not found!")
+            if (node.isDefault) {
+                throw IOException("Cannot delete the default node!")
+            }
+            val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host not found for node!")
+            val hostConnection = HostConnection(host)
+
+            // validate sudo password right away
+            hostConnection.sudoCommand("pwd", request.sudoPassword)
+
+            val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                    ?: throw IOException("Shelley genesis filenot found!")
+            val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+            val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                "--testnet-magic ${genesis.networkMagic}"
+            } else {
+                "--mainnet"
+            }
+
+            try {
+                // 1. Create a transaction to dump EVERYTHING into
+                var depositAndFees = 0L
+                var witnessCount = 0
+                val transaction = StringBuilder()
+                val certificates = StringBuilder()
+                val signingKeys = StringBuilder()
+                transaction.append("${defaultHost.cardanoCliPath} shelley transaction build-raw ")
+                val feePayerAccount = walletRepository.findByIdOrNull(request.retireFeesAccount)
+                        ?: throw IOException("Registration fees account not found!")
+                val utxos = walletUtils.getUtxos(defaultHost, defaultHostConnection, magicString, feePayerAccount.paymentAddr)
+                utxos.forEach { utxo ->
+                    transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                }
+                log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                witnessCount++ // fee payer is a witness
+                defaultHostConnection.commandWriteFile("/tmp/feepayer.payment.skey", walletUtils.getSKeyContent(requireNotNull(feePayerAccount.paymentSkey), request.spendingPassword))
+                signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
+
+                // initial dummy value to return change to the fee payer account.
+                // We'll replace this with the actual change to return later
+                transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
+
+                val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query tip $magicString").trim()
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
+                        ?: -1
+                transaction.append("--ttl $ttl ")
+                transaction.append("--fee 100 ")
+
+                val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)
+                        ?: throw IOException("Cold skey not found!")
+                defaultHostConnection.commandWriteFile("/tmp/core.node.skey", walletUtils.getSKeyContent(coldSKeyFile, request.spendingPassword).trim())
+                val coldVKeyFile = fileRepository.findByIdOrNull(node.coreVKeyId)
+                        ?: throw IOException("Cold vkey not found!")
+                defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", coldVKeyFile.content)
+
+                // generate dereg cert
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-pool deregistration-certificate --cold-verification-key-file /tmp/core.node.vkey --epoch ${request.retireEpoch} --out-file /tmp/core.dereg-cert")
+                certificates.append("--certificate /tmp/core.dereg-cert ")
+
+                witnessCount++ // the core.node.skey is a witness
+                signingKeys.append("--signing-key-file /tmp/core.node.skey ")
+
+                // 8. Calculate fees
+                transaction.append(certificates)
+                transaction.append("--out-file /tmp/transaction.txbody")
+                defaultHostConnection.command(transaction.toString())
+
+                log.debug("depositAndFees: $depositAndFees")
+                val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                val fees = feesString.split(" ")[0].toLong()
+                log.debug("fees: $fees")
+                depositAndFees += fees
+                log.debug("final depositAndFees: $depositAndFees")
+
+                // 9. Create the transaction
+                val change = utxos.sumByLong { it.lovelace } - depositAndFees
+                if (change < 1) {
+                    throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
+                }
+
+                val realTransaction = transaction.toString()
+                        .replace("--fee 100 ", "--fee $fees ")
+                        .replace("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ", "--tx-out ${feePayerAccount.paymentAddr}+$change ")
+                log.debug("Pool Transaction Command: $realTransaction")
+                defaultHostConnection.command(realTransaction)
+
+                // 10. Sign the transaction
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+
+                nodeRepository.save(node.copy(isDeleted = true))
+                if (hostConnection.hasSystemd) {
+                    hostConnection.sudoCommand("systemctl stop ${node.name}-node.service", request.sudoPassword)
+                    hostConnection.sudoCommand("systemctl disable ${node.name}-node.service", request.sudoPassword)
+                }
+
+                // 11. Submit the transaction
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                val txid = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction txid --tx-body-file /tmp/transaction.txbody")
+                transactionRepository.save(Transaction(txid = txid))
+
+                // send all to the client for ui updates
+                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "retirepool", data = "${node.name} scheduled for retirement. TxId: $txid"))
+            } finally {
+                // Cleanup
+                defaultHostConnection.command("rm -f /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/feepayer.payment.skey /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.dereg-cert")
+            }
         } catch (e: Throwable) {
             log.error("Error Retiring Pool!", e)
             webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "retirepool", exception = e))

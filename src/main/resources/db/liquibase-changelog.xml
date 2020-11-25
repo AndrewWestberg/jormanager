@@ -28,5 +28,6 @@
     <include file="changelog/021-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/022-update-identity-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/023-create-chain-index-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/024-update-node-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>
