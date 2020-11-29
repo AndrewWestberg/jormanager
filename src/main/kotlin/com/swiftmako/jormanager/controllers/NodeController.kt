@@ -1297,6 +1297,9 @@ class NodeController @Autowired constructor(
             }
 
             try {
+                val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query protocol-parameters --cardano-mode $magicString").trim()
+                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+
                 // 1. Create a transaction to dump EVERYTHING into
                 var depositAndFees = 0L
                 var witnessCount = 0
@@ -1415,7 +1418,7 @@ class NodeController @Autowired constructor(
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "retirepool", data = "${node.name} scheduled for retirement. TxId: $txid"))
             } finally {
                 // Cleanup
-                defaultHostConnection.command("rm -f /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/feepayer.payment.skey /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.dereg-cert")
+                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/feepayer.payment.skey /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.dereg-cert")
             }
         } catch (e: Throwable) {
             log.error("Error Retiring Pool!", e)
