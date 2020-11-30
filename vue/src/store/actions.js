@@ -269,6 +269,10 @@ export default {
                             title: "Retire Pool...",
                             message: message.data
                         })
+                        commit('toastInfo', {
+                            title: "Retire Pool",
+                            message: "Pool has been left running intentionally. You should be stop it and disable systemd scripts manually after retirement."
+                        })
                     } else {
                         commit('toastError', {
                             title: "Retire Pool Error",

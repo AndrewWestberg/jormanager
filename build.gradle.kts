@@ -16,15 +16,15 @@ object Versions {
     const val bouncycastle = "1.67"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.01"
-    const val coroutines = "1.4.1"
+    const val coroutines = "1.4.2"
     const val googleTruth = "1.1"
-    const val jackson = "2.11.3"
+    const val jackson = "2.12.0"
     const val joda = "2.10.8"
     const val json = "20201115"
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.2.0"
-    const val mockk = "1.10.2"
+    const val mockk = "1.10.3"
     const val moshi = "1.11.0"
     const val okhttp = "4.9.0"
     const val retrofit = "2.9.0"
@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.2.2-SNAPSHOT"
+version = "1.2.3-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

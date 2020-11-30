@@ -1370,10 +1370,12 @@ class NodeController @Autowired constructor(
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                 nodeRepository.save(node.copy(isDeleted = true))
-                if (hostConnection.hasSystemd) {
-                    hostConnection.sudoCommand("systemctl stop ${node.name}-node.service", request.sudoPassword)
-                    hostConnection.sudoCommand("systemctl disable ${node.name}-node.service", request.sudoPassword)
-                }
+
+                // do not stop node right now. It might be retiring in the future.
+//                if (hostConnection.hasSystemd) {
+//                    hostConnection.sudoCommand("systemctl stop ${node.name}-node.service", request.sudoPassword)
+//                    hostConnection.sudoCommand("systemctl disable ${node.name}-node.service", request.sudoPassword)
+//                }
                 val now = System.currentTimeMillis()
                 fileRepository.findByIdOrNull(node.coreSKeyId)?.let {
                     fileRepository.save(it.copy(name = it.name + "-$now"))
