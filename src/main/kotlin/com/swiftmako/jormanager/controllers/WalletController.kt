@@ -23,8 +23,6 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
-import okio.buffer
-import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.repository.findByIdOrNull
@@ -314,16 +312,15 @@ class WalletController @Autowired constructor(
                 } else {
                     "--mainnet"
                 }
-                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                    val hostConnection = HostConnection(host, defaultNode)
+                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                    val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                     try {
                         val (pskeyContent, pvkeyContent) = when {
                             request.generateKeys -> {
-                                hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
-                                Pair(
-                                        java.io.File("/tmp/jormanager-pskey").source().buffer().use { it.readUtf8() },
-                                        java.io.File("/tmp/jormanager-pvkey").source().buffer().use { it.readUtf8() }
-                                )
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                                val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
+                                val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
+                                Pair(paymentSKey, paymentVKey)
                             }
                             request.type == "pledge" -> {
                                 Pair(null, null)
@@ -351,11 +348,10 @@ class WalletController @Autowired constructor(
                         }
 
                         val (sskeyContent, svkeyContent) = if (request.generateKeys) {
-                            hostConnection.command("${host.cardanoCliPath} shelley stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
-                            Pair(
-                                    java.io.File("/tmp/jormanager-sskey").source().buffer().use { it.readUtf8() },
-                                    java.io.File("/tmp/jormanager-svkey").source().buffer().use { it.readUtf8() }
-                            )
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
+                            val stakingSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-sskey")
+                            val stakingVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-svkey")
+                            Pair(stakingSKey, stakingVKey)
                         } else {
                             Pair(request.stakingSKey!!, request.stakingVKey!!)
                         }
@@ -374,11 +370,11 @@ class WalletController @Autowired constructor(
                         )
 
                         if (pvkeyContent != null) {
-                            hostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
+                            defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
                         }
-                        hostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
-                        hostConnection.command("${host.cardanoCliPath} shelley stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert").trim()
-                        val regcertContent = java.io.File("/tmp/jormanager-regcert").source().buffer().use { it.readUtf8() }
+                        defaultHostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert").trim()
+                        val regcertContent = defaultHostConnection.commandReadFile("/tmp/jormanager-regcert")
                         val savedRegcertFile = fileRepository.save(
                                 File(
                                         name = "${request.name}.staking.cert",
@@ -389,9 +385,9 @@ class WalletController @Autowired constructor(
                         val paymentAddr = if (request.type == "pledge") {
                             request.paymentAddr
                         } else {
-                            hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                         }
-                        val stakingAddr = hostConnection.command("${host.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
+                        val stakingAddr = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString").trim()
                         WalletEntry(
                                 name = request.name,
                                 type = request.type,
@@ -404,7 +400,7 @@ class WalletController @Autowired constructor(
                                 stakingRegCert = savedRegcertFile
                         )
                     } finally {
-                        hostConnection.command("rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey /tmp/jormanager-sskey /tmp/jormanager-svkey /tmp/jormanager-regcert")
+                        defaultHostConnection.command("rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey /tmp/jormanager-sskey /tmp/jormanager-svkey /tmp/jormanager-regcert")
                     }
                 } ?: throw IOException("Host not found for default node!")
             } ?: throw IOException("Genesis file for default node not found!")
@@ -420,15 +416,14 @@ class WalletController @Autowired constructor(
                 } else {
                     "--mainnet"
                 }
-                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
-                    val hostConnection = HostConnection(host, defaultNode)
+                hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
+                    val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                     try {
                         val (skeyContent, vkeyContent) = if (request.generateKeys) {
-                            hostConnection.command("${host.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
-                            Pair(
-                                    java.io.File("/tmp/jormanager-pskey").inputStream().bufferedReader().use { it.readText() },
-                                    java.io.File("/tmp/jormanager-pvkey").inputStream().bufferedReader().use { it.readText() }
-                            )
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                            val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
+                            val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
+                            Pair(paymentSKey, paymentVKey)
                         } else {
                             Pair(request.paymentSKey!!, request.paymentVKey!!)
                         }
@@ -446,8 +441,8 @@ class WalletController @Autowired constructor(
                                 )
                         )
 
-                        hostConnection.commandWriteFile("/tmp/jormanager-pvkey", vkeyContent)
-                        val paymentAddr = hostConnection.command("${host.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString").trim()
+                        defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", vkeyContent)
+                        val paymentAddr = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString").trim()
                         WalletEntry(
                                 name = request.name,
                                 type = request.type,
@@ -456,7 +451,7 @@ class WalletController @Autowired constructor(
                                 paymentVkey = savedPaymentVKeyFile
                         )
                     } finally {
-                        hostConnection.command("rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey")
+                        defaultHostConnection.command("rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey")
                     }
                 } ?: throw IOException("Host not found for default node!")
             } ?: throw IOException("Genesis file for default node not found!")
