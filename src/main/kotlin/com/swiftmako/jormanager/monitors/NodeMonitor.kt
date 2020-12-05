@@ -63,16 +63,16 @@ import kotlin.random.Random
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class NodeMonitor @Autowired constructor(
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val retrofit: Retrofit,
-        private val webSocketTemplate: SimpMessagingTemplate,
-        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val moshi: Moshi,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
-        @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val retrofit: Retrofit,
+    private val webSocketTemplate: SimpMessagingTemplate,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val moshi: Moshi,
+    @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+    @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
+    @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(NodeMonitor::class.java)
@@ -123,7 +123,8 @@ class NodeMonitor @Autowired constructor(
         launch {
             try {
                 // core nodes that need updating from the ledger state
-                val coreNodes = nodeRepository.findAll().filter { !it.isDeleted && it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                val coreNodes = nodeRepository.findAll()
+                    .filter { !it.isDeleted && it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
                 if (coreNodes.isEmpty()) {
                     return@launch
                 }
@@ -138,22 +139,25 @@ class NodeMonitor @Autowired constructor(
                         }
                         hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                            val ledgerStateJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} shelley query ledger-state --cardano-mode $magicString").trim()
+                            val eraString = defaultHostConnection.calculateEraString(magicString)
+                            val ledgerStateJson =
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString --cardano-mode $magicString")
+                                    .trim()
                             val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
                             val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
                             val poolLedger = poolLedgerAdapter.fromJson(ledgerStateJson)
-                                    ?: throw IOException("Error dumping ledger state!")
+                                ?: throw IOException("Error dumping ledger state!")
 
                             coreNodes.forEach { coreNode ->
                                 val updatedCoreNode = nodeRepository.save(
-                                        coreNode.copy(
-                                                poolPledge = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.pledge
-                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.pledge,
-                                                poolCost = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.cost
-                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.cost,
-                                                poolMargin = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.margin?.toString()
-                                                        ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.margin?.toString(),
-                                        )
+                                    coreNode.copy(
+                                        poolPledge = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.pledge
+                                            ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.pledge,
+                                        poolCost = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.cost
+                                            ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.cost,
+                                        poolMargin = poolLedger.poolIdToFutureLedgerParams[coreNode.poolId]?.margin?.toString()
+                                            ?: poolLedger.poolIdToLedgerParams[coreNode.poolId]?.margin?.toString(),
+                                    )
                                 )
                                 log.warn("Updated ${updatedCoreNode.name} based on Ledger State: pledge: ${updatedCoreNode.poolPledge}, cost: ${updatedCoreNode.poolCost}, margin: ${updatedCoreNode.poolMargin}")
                             }
@@ -198,7 +202,8 @@ class NodeMonitor @Autowired constructor(
     }
 
     private suspend fun monitorNodeLocal(node: Node) {
-        val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${node.ekgPort}").build().create(EkgService::class.java)
+        val ekgService =
+            retrofit.newBuilder().baseUrl("http://127.0.0.1:${node.ekgPort}").build().create(EkgService::class.java)
         monitorNode(node.id!!, ekgService)
     }
 
@@ -226,7 +231,8 @@ class NodeMonitor @Autowired constructor(
                     }
                 }.start()
 
-                val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${localPort}").build().create(EkgService::class.java)
+                val ekgService = retrofit.newBuilder().baseUrl("http://127.0.0.1:${localPort}").build()
+                    .create(EkgService::class.java)
                 monitorNode(node.id!!, ekgService, ssh, true)
             } catch (e: IOException) {
                 log.error("IOException communicating with ${node.name}")
@@ -248,7 +254,12 @@ class NodeMonitor @Autowired constructor(
         }
     }
 
-    private suspend fun monitorNode(nodeId: Long, ekgService: EkgService, ssh: SSHClient? = null, rethrowExceptions: Boolean = false) {
+    private suspend fun monitorNode(
+        nodeId: Long,
+        ekgService: EkgService,
+        ssh: SSHClient? = null,
+        rethrowExceptions: Boolean = false
+    ) {
         // delay a bit so the node has time to be saved in the db.
         delay(5000)
         var node = nodeRepository.findByIdOrNull(nodeId)!!
@@ -272,7 +283,8 @@ class NodeMonitor @Autowired constructor(
                 lateinit var errorOutput: String
                 val incomingPeers: Int = ssh?.let {
                     ssh.startSession().use { session ->
-                        val command = "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
+                        val command =
+                            "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
                         session.exec(command).use { cmd ->
                             output = cmd.inputStream.source().buffer().use { it.readUtf8() }
                             errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
@@ -284,7 +296,11 @@ class NodeMonitor @Autowired constructor(
                         }
                     }
                 } ?: run {
-                    val process = ProcessBuilder("/bin/bash", "-c", "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l").start()
+                    val process = ProcessBuilder(
+                        "/bin/bash",
+                        "-c",
+                        "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
+                    ).start()
                     output = process.inputStream.source().buffer().use { it.readUtf8() }
                     process.waitFor(5, TimeUnit.SECONDS)
                     output.trim().toInt()
@@ -307,17 +323,62 @@ class NodeMonitor @Autowired constructor(
                         latestNodeStats.set(nodeStats)
                     }
                 } else {
-                    eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
+                    eventsChannel.send(
+                        NodeStats(
+                            isDefault = node.isDefault,
+                            timestamp = now,
+                            nodeName = node.name,
+                            color = node.color,
+                            peers = null,
+                            incomingPeers = null,
+                            blockHeight = null,
+                            remainingKESPeriods = null,
+                            epoch = null,
+                            slot = null,
+                            slotInEpoch = null,
+                            txsProcessed = null
+                        )
+                    )
                 }
             } catch (e: ConnectException) {
-                eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
+                eventsChannel.send(
+                    NodeStats(
+                        isDefault = node.isDefault,
+                        timestamp = now,
+                        nodeName = node.name,
+                        color = node.color,
+                        peers = null,
+                        incomingPeers = null,
+                        blockHeight = null,
+                        remainingKESPeriods = null,
+                        epoch = null,
+                        slot = null,
+                        slotInEpoch = null,
+                        txsProcessed = null
+                    )
+                )
                 if (rethrowExceptions) {
                     throw e
                 } else {
                     log.error("Connection problem!", e)
                 }
             } catch (e: IOException) {
-                eventsChannel.send(NodeStats(isDefault = node.isDefault, timestamp = now, nodeName = node.name, color = node.color, peers = null, incomingPeers = null, blockHeight = null, remainingKESPeriods = null, epoch = null, slot = null, slotInEpoch = null, txsProcessed = null))
+                eventsChannel.send(
+                    NodeStats(
+                        isDefault = node.isDefault,
+                        timestamp = now,
+                        nodeName = node.name,
+                        color = node.color,
+                        peers = null,
+                        incomingPeers = null,
+                        blockHeight = null,
+                        remainingKESPeriods = null,
+                        epoch = null,
+                        slot = null,
+                        slotInEpoch = null,
+                        txsProcessed = null
+                    )
+                )
                 if (rethrowExceptions) {
                     throw e
                 } else {
@@ -329,18 +390,18 @@ class NodeMonitor @Autowired constructor(
 
     private fun EkgMetrics.toNodeStats(timestamp: Long, node: Node, incomingPeers: Int): NodeStats {
         return NodeStats(
-                isDefault = node.isDefault,
-                timestamp = timestamp,
-                nodeName = node.name,
-                color = node.color,
-                peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
-                incomingPeers = incomingPeers,
-                blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX,
-                remainingKESPeriods = this.cardano.node.forge.metrics.remainingKESPeriods.intX.valX.toInt(),
-                epoch = this.cardano.node.chainDB.metrics.epoch.intX.valX,
-                slot = this.cardano.node.chainDB.metrics.slotNum.intX.valX,
-                slotInEpoch = this.cardano.node.chainDB.metrics.slotInEpoch.intX.valX,
-                txsProcessed = this.cardano.node.metrics.txsProcessedNum.intX.valX,
+            isDefault = node.isDefault,
+            timestamp = timestamp,
+            nodeName = node.name,
+            color = node.color,
+            peers = this.cardano.node.blockFetchDecision.peers.connectedPeers.intX.valX.toInt(),
+            incomingPeers = incomingPeers,
+            blockHeight = this.cardano.node.chainDB.metrics.blockNum.intX.valX,
+            remainingKESPeriods = this.cardano.node.forge.metrics.remainingKESPeriods.intX.valX.toInt(),
+            epoch = this.cardano.node.chainDB.metrics.epoch.intX.valX,
+            slot = this.cardano.node.chainDB.metrics.slotNum.intX.valX,
+            slotInEpoch = this.cardano.node.chainDB.metrics.slotInEpoch.intX.valX,
+            txsProcessed = this.cardano.node.metrics.txsProcessedNum.intX.valX,
         )
     }
 
@@ -362,7 +423,10 @@ class NodeMonitor @Autowired constructor(
                 val delay = RECONNECT_DELAY_MS - (before % RECONNECT_DELAY_MS)
                 delay(delay + 3000)
                 collectMutex.withLock {
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodestats", data = nodeStatEvents))
+                    webSocketTemplate.convertAndSend(
+                        "/topic/messages",
+                        SocketResponse.Success(type = "nodestats", data = nodeStatEvents)
+                    )
                     nodeStatEvents.clear()
                 }
             }

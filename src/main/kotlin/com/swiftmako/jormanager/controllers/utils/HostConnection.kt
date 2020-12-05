@@ -29,6 +29,26 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         command("ps --no-headers -o comm 1").trim() == "systemd"
     }
 
+    fun calculateEraString(magicString: String): String {
+        return try {
+            command("${host.cardanoCliPath} query protocol-parameters --mary-era --cardano-mode $magicString")
+            "--mary-era"
+        } catch (e: Throwable) {
+            try {
+                command("${host.cardanoCliPath} query protocol-parameters --allegra-era --cardano-mode $magicString")
+                "--allegra-era"
+            } catch (e: Throwable) {
+                try {
+                    command("${host.cardanoCliPath} query protocol-parameters --shelley-era --cardano-mode $magicString")
+                    "--shelley-era"
+                } catch (e: Throwable) {
+                    command("${host.cardanoCliPath} query protocol-parameters --byron-era --cardano-mode $magicString")
+                    "--byron-era"
+                }
+            }
+        }
+    }
+
     fun commandFileExists(filePath: String): Boolean {
         return if (host.isRemote) {
             command("if test -f $filePath; then echo true; fi").trim().toBoolean()

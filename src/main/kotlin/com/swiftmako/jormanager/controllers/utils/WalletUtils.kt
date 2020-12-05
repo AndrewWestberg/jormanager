@@ -26,13 +26,13 @@ import org.springframework.stereotype.Component
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class WalletUtils @Autowired constructor(
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val walletRepository: WalletRepository,
-        private val fileRepository: FileRepository,
-        private val argon2PasswordEncoder: Argon2PasswordEncoder,
-        @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
-        private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val walletRepository: WalletRepository,
+    private val fileRepository: FileRepository,
+    private val argon2PasswordEncoder: Argon2PasswordEncoder,
+    @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+    private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
 
@@ -41,9 +41,10 @@ class WalletUtils @Autowired constructor(
         nodeRepository.findDefault()?.let { defaultNode ->
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 val hostConnection = HostConnection(host, defaultNode)
+                val eraString = hostConnection.calculateEraString(magicString)
                 walletRepository.findAllNotDeleted().forEach { walletEntry ->
                     walletItems.add(
-                            getWalletItem(host, hostConnection, magicString, walletEntry)
+                        getWalletItem(host, hostConnection, eraString, magicString, walletEntry)
                     )
                 }
             } ?: log.error("Host for default node not found!")
@@ -52,13 +53,19 @@ class WalletUtils @Autowired constructor(
         return walletItems
     }
 
-    fun getWalletItem(host: Host, hostConnection: HostConnection, magicString: String, walletEntry: WalletEntry): WalletItem {
-        val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
+    fun getWalletItem(
+        host: Host,
+        hostConnection: HostConnection,
+        eraString: String,
+        magicString: String,
+        walletEntry: WalletEntry
+    ): WalletItem {
+        val utxos = getUtxos(host, hostConnection, eraString, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
         val stakingInfoString = if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
             try {
-                hostConnection.command("${host.cardanoCliPath} shelley query stake-address-info --address ${walletEntry.stakingAddr} --cardano-mode $magicString")
+                hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $eraString --cardano-mode $magicString")
             } catch (t: Throwable) {
                 if (t.message?.contains("EraMismatch") == false) {
                     log.error("Error getting stake addr info!", t)
@@ -79,14 +86,25 @@ class WalletUtils @Autowired constructor(
 
         val stakingAddrRegistered = stakingAddrLovelace != null
 
-        return WalletItem(walletEntry.id!!, walletEntry.name, walletEntry.type, walletEntry.paymentAddr, walletEntry.paymentSkey != null, utxos.size.toLong(), utxos.sumByLong { it.lovelace }, walletEntry.stakingAddr, stakingAddrRegistered, stakingAddrLovelace
-                ?: 0L)
+        return WalletItem(
+            walletEntry.id!!,
+            walletEntry.name,
+            walletEntry.type,
+            walletEntry.paymentAddr,
+            walletEntry.paymentSkey != null,
+            utxos.size.toLong(),
+            utxos.sumByLong { it.lovelace },
+            walletEntry.stakingAddr,
+            stakingAddrRegistered,
+            stakingAddrLovelace
+                ?: 0L
+        )
     }
 
-    fun getUtxos(host: Host, hostConnection: HostConnection, magicString: String, paymentAddr: String): List<Utxo> {
+    fun getUtxos(host: Host, hostConnection: HostConnection, eraString: String, magicString: String, paymentAddr: String): List<Utxo> {
         // find payment_addr balance
         val addressInfoString = try {
-            hostConnection.command("${host.cardanoCliPath} shelley query utxo --address $paymentAddr --cardano-mode $magicString")
+            hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $eraString --cardano-mode $magicString")
         } catch (t: Throwable) {
             if (t.message?.contains("EraMismatch") == false) {
                 log.error("Error getting payment addr info!", t)
@@ -96,11 +114,11 @@ class WalletUtils @Autowired constructor(
         val utxos = mutableListOf<Utxo>()
         UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
             utxos.add(
-                    Utxo(
-                            hash = matchResult.groupValues[1],
-                            ix = matchResult.groupValues[2].toLong(),
-                            lovelace = matchResult.groupValues[3].toLong()
-                    )
+                Utxo(
+                    hash = matchResult.groupValues[1],
+                    ix = matchResult.groupValues[2].toLong(),
+                    lovelace = matchResult.groupValues[3].toLong()
+                )
             )
         }
 

@@ -59,21 +59,21 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class BlockMonitor @Autowired constructor(
-        private val blockRepository: BlockRepository,
-        private val chainRepository: ChainRepository,
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val webSocketTemplate: SimpMessagingTemplate,
-        private val pooltoolService: PooltoolService,
-        @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        private val blockUtils: BlockUtils,
-        private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
-        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
-        private val queryTipAdapter: JsonAdapter<QueryTip>,
-        private val blockAdapter: JsonAdapter<AddedToCurrentChain>,
+    private val blockRepository: BlockRepository,
+    private val chainRepository: ChainRepository,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val webSocketTemplate: SimpMessagingTemplate,
+    private val pooltoolService: PooltoolService,
+    @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
+    @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+    private val blockUtils: BlockUtils,
+    private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
+    private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
+    private val queryTipAdapter: JsonAdapter<QueryTip>,
+    private val blockAdapter: JsonAdapter<AddedToCurrentChain>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -151,27 +151,38 @@ class BlockMonitor @Autowired constructor(
                 try {
                     // find the latest block we know of for sure from the repository
                     val chainTipSlotNumber = chainRepository.findSyncedTip()
-                    val unvalidatedBlocks = blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
+                    val unvalidatedBlocks =
+                        blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
                     // log.debug("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
                     unvalidatedBlocks.forEach { unvalidatedBlock ->
                         if (unvalidatedBlock.hash.isEmpty()) {
                             // nothing to validate. This block must have been missed
                             blockRepository.save(unvalidatedBlock.copy(status = "missed")).also {
                                 log.error("Missed Block: $it")
-                                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
+                                webSocketTemplate.convertAndSend(
+                                    "/topic/messages",
+                                    SocketResponse.Success(type = "block", data = it)
+                                )
                             }
                         } else {
                             // we have a block hash to validate
                             val chainBlock = chainRepository.findBySlot(unvalidatedBlock.slot)
                             if (chainBlock?.hash?.startsWith(unvalidatedBlock.hash) == true) {
-                                blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, status = "forged")).also {
-                                    log.info("Forged Block: $it")
-                                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
-                                }
+                                blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, status = "forged"))
+                                    .also {
+                                        log.info("Forged Block: $it")
+                                        webSocketTemplate.convertAndSend(
+                                            "/topic/messages",
+                                            SocketResponse.Success(type = "block", data = it)
+                                        )
+                                    }
                             } else {
                                 blockRepository.save(unvalidatedBlock.copy(status = "orphaned")).also {
                                     log.error("Orphaned Block: $it")
-                                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = it))
+                                    webSocketTemplate.convertAndSend(
+                                        "/topic/messages",
+                                        SocketResponse.Success(type = "block", data = it)
+                                    )
                                 }
                             }
                         }
@@ -191,10 +202,10 @@ class BlockMonitor @Autowired constructor(
     private suspend fun monitorBlocksLocal(host: Host, node: Node) {
         coroutineScope {
             val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
-                    ?: throw IOException("Unable to read byron genesis file!")
+                ?: throw IOException("Unable to read byron genesis file!")
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
-                    ?: throw IOException("Unable to read shelley genesis file!")
+                ?: throw IOException("Unable to read shelley genesis file!")
             val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
@@ -211,14 +222,19 @@ class BlockMonitor @Autowired constructor(
                 delay(RECONNECT_DELAY_MS)
 
                 try {
-                    val monitoredNode = nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
-                    if(monitoredNode.isDeleted) {
+                    val monitoredNode =
+                        nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                    if (monitoredNode.isDeleted) {
                         throw CancellationException("Node has been deleted!")
                     }
                     val logPath = "${host.nodeHomePath}/${monitoredNode.name}/logs/node.json"
                     log.debug("Monitoring blocks from:  $logPath")
 
-                    var process = ProcessBuilder("/bin/bash", "-c", "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"").start()
+                    var process = ProcessBuilder(
+                        "/bin/bash",
+                        "-c",
+                        "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\""
+                    ).start()
                     process.inputStream.bufferedReader().use { reader ->
                         reader.forEachLine { line ->
                             launch {
@@ -228,7 +244,11 @@ class BlockMonitor @Autowired constructor(
                     }
                     process.waitFor(60, TimeUnit.SECONDS)
 
-                    process = ProcessBuilder("/bin/bash", "-c", "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'").start()
+                    process = ProcessBuilder(
+                        "/bin/bash",
+                        "-c",
+                        "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'"
+                    ).start()
                     process.inputStream.bufferedReader().use { reader ->
                         reader.forEachLine { line ->
                             if (line.contains("TraceAdoptedBlock")) {
@@ -264,10 +284,10 @@ class BlockMonitor @Autowired constructor(
     private suspend fun monitorBlocksRemote(host: Host, node: Node) {
         coroutineScope {
             val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
-                    ?: throw IOException("Unable to read byron genesis file!")
+                ?: throw IOException("Unable to read byron genesis file!")
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
-                    ?: throw IOException("Unable to read shelley genesis file!")
+                ?: throw IOException("Unable to read shelley genesis file!")
             val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
@@ -287,15 +307,17 @@ class BlockMonitor @Autowired constructor(
                 ssh.loadKnownHosts()
                 ssh.addHostKeyVerifier(PromiscuousVerifier())
                 try {
-                    val monitoredNode = nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
-                    if(monitoredNode.isDeleted) {
+                    val monitoredNode =
+                        nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                    if (monitoredNode.isDeleted) {
                         throw CancellationException("Node has been deleted!")
                     }
 
                     ssh.connect(host.hostname, host.sshPort)
                     ssh.authPublickey(host.sshUser, host.sshPemPath)
                     ssh.startSession().use { session ->
-                        val cmd = session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
+                        val cmd =
+                            session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 launch {
@@ -307,7 +329,8 @@ class BlockMonitor @Autowired constructor(
                     }
                     ssh.startSession().use { session ->
 
-                        val cmd = session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
+                        val cmd =
+                            session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
                         cmd.inputStream.bufferedReader().use { reader ->
                             reader.forEachLine { line ->
                                 if (line.contains("TraceAdoptedBlock")) {
@@ -342,21 +365,32 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    private suspend fun saveBlocksFromRemoteNode(host: Host?, node: Node, magicString: String, byron: GenesisByron, shelley: GenesisShelley, line: String) {
+    private suspend fun saveBlocksFromRemoteNode(
+        host: Host?,
+        node: Node,
+        magicString: String,
+        byron: GenesisByron,
+        shelley: GenesisShelley,
+        line: String
+    ) {
         coroutineScope {
             blockFoundMutex.withLock {
                 adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
                     try {
-                        val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, traceAdoptedBlock.block.slot)
+                        val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(
+                            byron,
+                            shelley,
+                            traceAdoptedBlock.block.slot
+                        )
                         val block = Block(
-                                at = traceAdoptedBlock.localTimeString(),
-                                pool = node.name,
-                                host = traceAdoptedBlock.host,
-                                slot = traceAdoptedBlock.block.slot,
-                                epoch = epoch,
-                                slotInEpoch = slotInEpoch,
-                                hash = traceAdoptedBlock.block.rawHash(),
-                                status = "completed"
+                            at = traceAdoptedBlock.localTimeString(),
+                            pool = node.name,
+                            host = traceAdoptedBlock.host,
+                            slot = traceAdoptedBlock.block.slot,
+                            epoch = epoch,
+                            slotInEpoch = slotInEpoch,
+                            hash = traceAdoptedBlock.block.rawHash(),
+                            status = "completed"
                         )
 
                         val existingBlock = blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.block.slot)
@@ -364,7 +398,8 @@ class BlockMonitor @Autowired constructor(
                         if (existingBlock == null || existingBlock.hash.isEmpty()) {
                             val hashUpdatedBlock: Block = host?.let {
                                 val hostConnection = HostConnection(host, node)
-                                val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+                                val tipJson =
+                                    hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
                                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                                     if (queryTip.headerHash.startsWith(block.hash)) {
                                         block.copy(id = existingBlock?.id, hash = queryTip.headerHash)
@@ -377,7 +412,10 @@ class BlockMonitor @Autowired constructor(
                             val savedBlock = blockRepository.save(hashUpdatedBlock)
 
                             log.info(savedBlock.toString())
-                            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "block", data = savedBlock))
+                            webSocketTemplate.convertAndSend(
+                                "/topic/messages",
+                                SocketResponse.Success(type = "block", data = savedBlock)
+                            )
                         }
                     } catch (e: DataIntegrityViolationException) {
                         log.warn("Block Exists! (${node.name}): $traceAdoptedBlock", e)
@@ -393,20 +431,20 @@ class BlockMonitor @Autowired constructor(
     private suspend fun sendBlockToPooltool(host: Host, node: Node, magicString: String, line: String) {
         blockAdapter.fromJson(line)?.let { addedToCurrentChain ->
             val hostConnection = HostConnection(host, node)
-            val tipJson = hostConnection.command("${host.cardanoCliPath} shelley query tip $magicString").trim()
+            val tipJson = hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
             queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                 try {
                     val stats = PooltoolStats(
-                            apiKey = pooltoolApiKey,
-                            poolId = requireNotNull(node.poolId),
-                            data = Data(
-                                    nodeId = "", // future use
-                                    version = addedToCurrentChain.env,
-                                    at = addedToCurrentChain.at,
-                                    blockNo = queryTip.blockNo,
-                                    slotNo = queryTip.slotNo,
-                                    blockHash = queryTip.headerHash
-                            )
+                        apiKey = pooltoolApiKey,
+                        poolId = requireNotNull(node.poolId),
+                        data = Data(
+                            nodeId = "", // future use
+                            version = addedToCurrentChain.env,
+                            at = addedToCurrentChain.at,
+                            blockNo = queryTip.blockNo,
+                            slotNo = queryTip.slotNo,
+                            blockHash = queryTip.headerHash
+                        )
                     )
                     log.info("Pooltool Request: $stats")
                     val response = pooltoolService.sendStats(stats)
