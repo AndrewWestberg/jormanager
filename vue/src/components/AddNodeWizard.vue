@@ -1192,9 +1192,7 @@ export default {
       }
     },
     poolMarginState() {
-      return (
-        this.formNode.poolMargin >= 0.01 && this.formNode.poolMargin <= 1.0
-      );
+      return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
     },
     tickerState() {
       return (
@@ -1241,7 +1239,7 @@ export default {
   methods: {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
-    async nextClicked(currentPage) {
+    nextClicked(currentPage) {
       if (currentPage === 0) {
         if (
           this.hostState &&
@@ -1305,7 +1303,9 @@ export default {
             this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
           }
           if (isNaN(this.formNode.poolCost)) {
+            console.log("poolCost: " + this.formNode.poolCost);
             this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
+            console.log("converted poolCost: " + this.formNode.poolCost);
           }
           return true;
         } else {
@@ -1357,40 +1357,46 @@ export default {
           this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
         }
         if (isNaN(this.formNode.poolCost)) {
+          console.log("before save poolCost: " + this.formNode.poolCost);
           this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-        }
-        if (this.formNode.coldSKey != null) {
-          this.formNode.coldSKey = await this.formNode.coldSKey.text();
-        }
-        if (this.formNode.coldVKey != null) {
-          this.formNode.coldVKey = await this.formNode.coldVKey.text();
-        }
-        if (this.formNode.coldCounter != null) {
-          this.formNode.coldCounter = await this.formNode.coldCounter.text();
-        }
-        if (this.formNode.vrfSKey != null) {
-          this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
-        }
-        if (this.formNode.vrfVKey != null) {
-          this.formNode.vrfVKey = await this.formNode.vrfVKey.text();
-        }
-        if (this.formNode.kesSKey != null) {
-          this.formNode.kesSKey = await this.formNode.kesSKey.text();
-        }
-        if (this.formNode.kesVKey != null) {
-          this.formNode.kesVKey = await this.formNode.kesVKey.text();
-        }
-        if (this.formNode.metadata.extended.itn.privateKey != null) {
-          this.formNode.metadata.extended.itn.privateKey = await this.formNode.metadata.extended.itn.privateKey.text();
-        }
-        if (this.formNode.metadata.extended.itn.publicKey != null) {
-          this.formNode.metadata.extended.itn.publicKey = await this.formNode.metadata.extended.itn.publicKey.text();
+          console.log(
+            "before save converted poolCost: " + this.formNode.poolCost
+          );
         }
         this.formNode.isDefault = false;
 
         this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
-          (spendingPassword) => {
+          async (spendingPassword) => {
             this.formNode.spendingPassword = spendingPassword;
+
+            if (this.formNode.coldSKey != null) {
+              this.formNode.coldSKey = await this.formNode.coldSKey.text();
+            }
+            if (this.formNode.coldVKey != null) {
+              this.formNode.coldVKey = await this.formNode.coldVKey.text();
+            }
+            if (this.formNode.coldCounter != null) {
+              this.formNode.coldCounter = await this.formNode.coldCounter.text();
+            }
+            if (this.formNode.vrfSKey != null) {
+              this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
+            }
+            if (this.formNode.vrfVKey != null) {
+              this.formNode.vrfVKey = await this.formNode.vrfVKey.text();
+            }
+            if (this.formNode.kesSKey != null) {
+              this.formNode.kesSKey = await this.formNode.kesSKey.text();
+            }
+            if (this.formNode.kesVKey != null) {
+              this.formNode.kesVKey = await this.formNode.kesVKey.text();
+            }
+            if (this.formNode.metadata.extended.itn.privateKey != null) {
+              this.formNode.metadata.extended.itn.privateKey = await this.formNode.metadata.extended.itn.privateKey.text();
+            }
+            if (this.formNode.metadata.extended.itn.publicKey != null) {
+              this.formNode.metadata.extended.itn.publicKey = await this.formNode.metadata.extended.itn.publicKey.text();
+            }
+
             this.createNode(this.formNode);
             this.formNode.spendingPassword = null;
             this.formNode.sudoPassword = null;

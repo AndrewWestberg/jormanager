@@ -153,6 +153,7 @@ class NodeController @Autowired constructor(
             if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
+            log.debug("$request")
             hostRepository.findByIdOrNull(request.hostId)?.let { host ->
                 val hostConnection = HostConnection(host)
                 // validate sudo password right away
@@ -242,9 +243,10 @@ class NodeController @Autowired constructor(
                                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                                             try {
                                                 val eraString = defaultHostConnection.calculateEraString(magicString)
-                                                val protocolParamsJson =
-                                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString --cardano-mode $magicString")
-                                                        .trim()
+                                                val protocolParamsJson = defaultHostConnection.command(
+                                                    "${defaultHost.cardanoCliPath} query protocol-parameters $eraString --cardano-mode $magicString"
+                                                )
+                                                    .trim()
                                                 defaultHostConnection.commandWriteFile(
                                                     "/tmp/protocol-parameters.json",
                                                     protocolParamsJson
@@ -294,7 +296,7 @@ class NodeController @Autowired constructor(
                                                 val ttl =
                                                     queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                                         ?: -1
-                                                transaction.append("--upper-bound $ttl ")
+                                                transaction.append("--invalid-hereafter $ttl ")
                                                 transaction.append("--fee 100 ")
 
                                                 // 2. Register owner address on the chain if not yet registered
@@ -575,14 +577,9 @@ class NodeController @Autowired constructor(
                                                 )
                                                 coreCounterId = fileRepository.save(coreCounter).id!!
 
-                                                val poolId = try {
-                                                    // 1.23.0 and above
+                                                val poolId =
                                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex")
                                                         .trim()
-                                                } catch (e: Throwable) {
-                                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --verification-key-file /tmp/core.node.vkey --output-format hex")
-                                                        .trim()
-                                                }
                                                 log.debug("poolId: $poolId")
                                                 val isPoolOnChain = isPoolOnChain(poolId)
 
@@ -968,7 +965,7 @@ class NodeController @Autowired constructor(
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                 ?: -1
-                            transaction.append("--upper-bound $ttl ")
+                            transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
 
                             // 2. Register owner address on the chain if not yet registered
@@ -1458,7 +1455,7 @@ class NodeController @Autowired constructor(
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                 ?: -1
-                            transaction.append("--upper-bound $ttl ")
+                            transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
 
                             nodeRepository.findByIdOrNull(request.id)?.let { node ->
@@ -1852,7 +1849,7 @@ class NodeController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                     ?: -1
-                transaction.append("--upper-bound $ttl ")
+                transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 
                 val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)

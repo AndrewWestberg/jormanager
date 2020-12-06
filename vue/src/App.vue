@@ -44,6 +44,7 @@ export default {
       // console.log("Warn: " + toast);
       this.$root.$bvToast.toast(toast.message, {
         title: toast.title,
+        noAutoHide: true,
         variant: "warning",
         appendToast: true,
       });

@@ -118,9 +118,9 @@ class WalletController @Autowired constructor(
                             if (request.isClaim) {
                                 val walletItem =
                                     walletUtils.getWalletItem(defaultHost, defaultHostConnection, eraString, magicString, fromWalletEntry)
-                                dummyTransaction.append("--upper-bound $ttl --fee 300000 --withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
+                                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 --withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
                             } else {
-                                dummyTransaction.append("--upper-bound $ttl --fee 300000 --out-file /tmp/dummy.txbody")
+                                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 --out-file /tmp/dummy.txbody")
                             }
                             defaultHostConnection.command(dummyTransaction.toString())
 
@@ -245,7 +245,7 @@ class WalletController @Autowired constructor(
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
                                 ?: -1
-                            transaction.append("--upper-bound $ttl ")
+                            transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
 
                             // 2. Register staking address on the chain if not yet registered
@@ -683,7 +683,7 @@ class WalletController @Autowired constructor(
                                 val queryTipString =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
                                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
-                                transaction.append("--upper-bound $ttl ")
+                                transaction.append("--invalid-hereafter $ttl ")
                                 transaction.append("--fee ${request.txFee} ")
                                 if (request.isClaim) {
                                     transaction.append("--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} ")
