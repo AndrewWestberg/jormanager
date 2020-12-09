@@ -380,20 +380,20 @@ class BlockMonitor @Autowired constructor(
                         val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(
                             byron,
                             shelley,
-                            traceAdoptedBlock.block.slot
+                            traceAdoptedBlock.data.block.slot
                         )
                         val block = Block(
                             at = traceAdoptedBlock.localTimeString(),
                             pool = node.name,
                             host = traceAdoptedBlock.host,
-                            slot = traceAdoptedBlock.block.slot,
+                            slot = traceAdoptedBlock.data.block.slot,
                             epoch = epoch,
                             slotInEpoch = slotInEpoch,
-                            hash = traceAdoptedBlock.block.rawHash(),
+                            hash = traceAdoptedBlock.data.block.rawHash(),
                             status = "completed"
                         )
 
-                        val existingBlock = blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.block.slot)
+                        val existingBlock = blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.data.block.slot)
 
                         if (existingBlock == null || existingBlock.hash.isEmpty()) {
                             val hashUpdatedBlock: Block = host?.let {

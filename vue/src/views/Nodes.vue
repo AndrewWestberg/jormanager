@@ -1014,7 +1014,7 @@ export default {
     },
     poolMarginState() {
       return (
-        this.editPoolConfigForm.poolMargin >= 0.01 &&
+        this.editPoolConfigForm.poolMargin >= 0.0 &&
         this.editPoolConfigForm.poolMargin <= 1.0
       );
     },
