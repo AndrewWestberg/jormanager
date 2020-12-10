@@ -38,6 +38,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import okio.buffer
+import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -233,11 +235,12 @@ class BlockMonitor @Autowired constructor(
                     var process = ProcessBuilder(
                         "/bin/bash",
                         "-c",
-                        "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\""
+                        "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock"
                     ).start()
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.forEachLine { line ->
-                            launch {
+                    process.inputStream.source().buffer().use { source ->
+                        while (true) {
+                            val line = source.readUtf8Line() ?: break
+                            if (line.contains("val")) {
                                 saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
                             }
                         }
@@ -249,18 +252,13 @@ class BlockMonitor @Autowired constructor(
                         "-c",
                         "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'"
                     ).start()
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.forEachLine { line ->
-                            if (line.contains("TraceAdoptedBlock")) {
-                                launch {
-                                    saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
-                                }
-                            } else {
-                                if (pooltoolApiKey.isNotBlank()) {
-                                    launch {
-                                        sendBlockToPooltool(host, monitoredNode, magicString, line)
-                                    }
-                                }
+                    process.inputStream.source().buffer().use { source ->
+                        while (true) {
+                            val line = source.readUtf8Line() ?: break
+                            if (line.contains("TraceAdoptedBlock") && line.contains("val")) {
+                                saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
+                            } else if (pooltoolApiKey.isNotBlank()) {
+                                sendBlockToPooltool(host, monitoredNode, magicString, line)
                             }
                         }
                     }
@@ -313,14 +311,18 @@ class BlockMonitor @Autowired constructor(
                         throw CancellationException("Node has been deleted!")
                     }
 
+                    val logPath = "${host.nodeHomePath}/${monitoredNode.name}/logs/node.json"
+                    log.debug("Monitoring blocks from:  $logPath")
+
                     ssh.connect(host.hostname, host.sshPort)
                     ssh.authPublickey(host.sshUser, host.sshPemPath)
                     ssh.startSession().use { session ->
                         val cmd =
-                            session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"")
-                        cmd.inputStream.bufferedReader().use { reader ->
-                            reader.forEachLine { line ->
-                                launch {
+                            session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock")
+                        cmd.inputStream.source().buffer().use { source ->
+                            while (true) {
+                                val line = source.readUtf8Line() ?: break
+                                if (line.contains("val")) {
                                     saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
                                 }
                             }
@@ -328,21 +330,15 @@ class BlockMonitor @Autowired constructor(
                         cmd.join()
                     }
                     ssh.startSession().use { session ->
-
                         val cmd =
                             session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
-                        cmd.inputStream.bufferedReader().use { reader ->
-                            reader.forEachLine { line ->
-                                if (line.contains("TraceAdoptedBlock")) {
-                                    launch {
-                                        saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
-                                    }
-                                } else {
-                                    if (pooltoolApiKey.isNotBlank()) {
-                                        launch {
-                                            sendBlockToPooltool(host, monitoredNode, magicString, line)
-                                        }
-                                    }
+                        cmd.inputStream.source().buffer().use { source ->
+                            while (true) {
+                                val line = source.readUtf8Line() ?: break
+                                if (line.contains("TraceAdoptedBlock") && line.contains("val")) {
+                                    saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
+                                } else if (pooltoolApiKey.isNotBlank()) {
+                                    sendBlockToPooltool(host, monitoredNode, magicString, line)
                                 }
                             }
                         }
@@ -393,7 +389,8 @@ class BlockMonitor @Autowired constructor(
                             status = "completed"
                         )
 
-                        val existingBlock = blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.data.block.slot)
+                        val existingBlock =
+                            blockRepository.findByPoolAndSlot(node.name, traceAdoptedBlock.data.block.slot)
 
                         if (existingBlock == null || existingBlock.hash.isEmpty()) {
                             val hashUpdatedBlock: Block = host?.let {
@@ -422,7 +419,7 @@ class BlockMonitor @Autowired constructor(
                     } catch (e: Throwable) {
                         log.error("Save Block Error!", e)
                     }
-                }
+                } ?: log.error("Unable to parse block json!")
             }
         }
     }
