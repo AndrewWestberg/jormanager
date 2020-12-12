@@ -8,6 +8,7 @@ import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
@@ -101,28 +102,26 @@ class WalletUtils @Autowired constructor(
         )
     }
 
-    fun getUtxos(host: Host, hostConnection: HostConnection, eraString: String, magicString: String, paymentAddr: String): List<Utxo> {
+    fun getUtxos(
+        host: Host,
+        hostConnection: HostConnection,
+        eraString: String,
+        magicString: String,
+        paymentAddr: String
+    ): List<Utxo> {
         // find payment_addr balance
-        val addressInfoString = try {
-            hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $eraString --cardano-mode $magicString")
+        val addressInfoJson = try {
+            hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $eraString --cardano-mode $magicString --out-file=/dev/stdout")
+                .trim()
         } catch (t: Throwable) {
             if (t.message?.contains("EraMismatch") == false) {
                 log.error("Error getting payment addr info!", t)
             }
             ""
         }
-        val utxos = mutableListOf<Utxo>()
-        UTXO_MATCHER.findAll(addressInfoString).forEach { matchResult ->
-            utxos.add(
-                Utxo(
-                    hash = matchResult.groupValues[1],
-                    ix = matchResult.groupValues[2].toLong(),
-                    lovelace = matchResult.groupValues[3].toLong()
-                )
-            )
-        }
+        val utxos = QueryUtxoJsonAdapter().fromJson(addressInfoJson)
 
-        return utxos
+        return utxos ?: emptyList()
     }
 
     fun getSKeyContent(skey: File, spendingPassword: String): String {
@@ -156,7 +155,6 @@ class WalletUtils @Autowired constructor(
     }
 
     companion object {
-        private val UTXO_MATCHER = Regex("\"?([a-fA-F\\d]{64})\"?\\s+(\\d+)\\s+(\\d+)")
         const val S = "4b38652a506b513742655764375270794e3273473961596266670a"
         private val HEX_REGEX = Regex("^[0-9a-fA-F]+$")
         val String.isHex: Boolean
