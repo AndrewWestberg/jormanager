@@ -6,7 +6,6 @@ import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.ChainBlock
 import com.swiftmako.jormanager.entities.Host
-import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
@@ -24,12 +23,8 @@ import kotlinx.coroutines.launch
 import org.bouncycastle.crypto.digests.Blake2bDigest
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
-import org.joda.time.format.DateTimeFormat
-import org.joda.time.format.DateTimeFormatter
 import org.joda.time.format.ISODateTimeFormat
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
-import java.io.IOException
 
 class ChainSyncProtocol(
     private val host: Host,
@@ -351,6 +346,7 @@ class ChainSyncProtocol(
                     blockHash = msgRollForward.hash,
                     parentHash = msgRollForward.prevHash,
                     leaderVrf = msgRollForward.leaderVrf,
+                    nodeVKey = msgRollForward.nodeVKey,
                 )
             )
             log.info("Pooltool Request: $stats")

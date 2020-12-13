@@ -37,8 +37,10 @@ data class Data(
     val leaderVrf: String,
     @Json(name = "platform")
     val platform: String = "JorManager",
+    @Json(name= "nodeVKey")
+    val nodeVKey: String,
 ) {
     override fun toString(): String {
-        return "Data(nodeId='$nodeId', version='$version', at='$at', blockNo=$blockNo, slotNo=$slotNo, blockHash='${blockHash.substring(0..8)}...', parentHash='${parentHash.substring(0..8)}...', leaderVrf='${leaderVrf.substring(0..8)}...', platform='$platform')"
+        return "Data(nodeId='$nodeId', version='$version', at='$at', blockNo=$blockNo, slotNo=$slotNo, blockHash='${blockHash.substring(0..8)}...', parentHash='${parentHash.substring(0..8)}...', leaderVrf='${leaderVrf.substring(0..8)}...', nodeVKey='${nodeVKey.substring(0..8)}...', platform='$platform')"
     }
 }
