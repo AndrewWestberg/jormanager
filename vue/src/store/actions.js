@@ -263,6 +263,20 @@ export default {
                         console.log(message.exception)
                     }
                     break
+                case "editrelays":
+                    if (message.data) {
+                        commit('toastSuccess', {
+                            title: "Edit Relays...",
+                            message: message.data
+                        })
+                    } else {
+                        commit('toastError', {
+                            title: "Edit Relays Error",
+                            message: message.exception.message
+                        })
+                        console.log(message.exception)
+                    }
+                    break
                 case "retirepool":
                     if (message.data) {
                         commit('toastSuccess', {
@@ -576,6 +590,19 @@ export default {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("Update Staking Address: " + JSON.stringify(stakingAddressForm));
             state.stompClient.send("/jormanager/updatestakingaddress", JSON.stringify(stakingAddressForm));
+        } else {
+            commit('toastError', {
+                title: "Communication Error!",
+                message: "stompClient not connected!"
+            })
+        }
+    },
+    sendEditRelays: ({
+        state, commit
+    }, editRelaysForm) => {
+        if (state.stompClient && state.stompClient.connected) {
+            // console.log("Send Edit Relays: " + JSON.stringify(editRelaysForm));
+            state.stompClient.send("/jormanager/editrelays", JSON.stringify(editRelaysForm));
         } else {
             commit('toastError', {
                 title: "Communication Error!",

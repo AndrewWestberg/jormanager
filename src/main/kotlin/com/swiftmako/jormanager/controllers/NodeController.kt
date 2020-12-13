@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.EditPoolConfigRequest
+import com.swiftmako.jormanager.model.EditRelaysRequest
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
@@ -1769,6 +1770,32 @@ class NodeController @Autowired constructor(
             webSocketTemplate.convertAndSend(
                 "/topic/messages",
                 SocketResponse.Error(type = "updatemetadata", exception = e)
+            )
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
+        }
+    }
+
+    @MessageMapping("/editrelays")
+    @Transactional
+    fun editRelays(request: EditRelaysRequest) {
+        try {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                throw IllegalArgumentException("Invalid spending password!")
+            }
+
+            log.error(request.toString())
+
+            webSocketTemplate.convertAndSend(
+                "/topic/messages",
+                SocketResponse.Success(type = "editrelays", data = "Update Relays Success!")
+            )
+
+        } catch (e: Throwable) {
+            log.error("Error Editing Relays!", e)
+            webSocketTemplate.convertAndSend(
+                "/topic/messages",
+                SocketResponse.Error(type = "editrelays", exception = e)
             )
             // rethrow so db transaction is rolled back
             throw RuntimeException(e)

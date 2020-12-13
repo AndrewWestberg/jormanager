@@ -93,6 +93,14 @@
             &nbsp;
             <font-awesome-icon
               v-if="data.item.type === 'core'"
+              :icon="['fas', 'project-diagram']"
+              class="text-success"
+              v-b-tooltip.hover.v-success.right="'Edit Relays'"
+              @click="editRelays(data.item.id)"
+            />
+            &nbsp;
+            <font-awesome-icon
+              v-if="data.item.type === 'core'"
               :icon="['fas', 'skull']"
               class="text-danger"
               v-b-tooltip.hover.v-danger.right="'Retire Pool'"
@@ -658,6 +666,85 @@
       </b-form-group>
     </b-modal>
     <b-modal
+      id="modal-edit-relays"
+      title="Edit Relays"
+      no-close-on-backdrop
+      size="xl"
+      @ok="handleEditRelays"
+    >
+      <b-form-group
+        label="Fees Account"
+        label-for="registration-fees-account-select"
+        label-cols-md="1"
+        label-align="right"
+      >
+        <b-form-select
+          id="registration-fees-account-select"
+          aria-describedby="registration-fees-account-live-feedback"
+          v-model="editRelaysForm.registrationFeesAccount"
+          :options="reregistrationFeesSelectOptions($options.filters.currency)"
+          :state="registrationFeesAccountStateRelays"
+        >
+          <template v-slot:first>
+            <b-form-select-option :value="null" disabled
+              >-- Please select an option --</b-form-select-option
+            >
+          </template>
+        </b-form-select>
+        <b-form-invalid-feedback id="registration-fees-account-live-feedback"
+          >Account must hold enough to pay pool registration and delegation
+          fees.</b-form-invalid-feedback
+        >
+      </b-form-group>
+      <div v-for="(relay, index) in editRelaysForm.relays" :key="index">
+        <b-card border-variant="secondary">
+          <b-form-group
+            label="Address"
+            label-for="relay-address-input"
+            label-cols-md="1"
+          >
+            <b-form-input
+              id="relay-address-input"
+              v-model="relay.addr"
+              :state="relayAddrState(relay.addr)"
+              aria-describedby="relay-address-input-live-feedback"
+              placeholder="e.g. 240.116.25.34, relay1.mystakepool.com"
+              trim
+            ></b-form-input>
+            <b-form-invalid-feedback id="relay-address-input-live-feedback"
+              >Enter a valid dns name or ip address for your relay
+              server.</b-form-invalid-feedback
+            >
+          </b-form-group>
+          <b-form-group
+            label="Port"
+            label-for="relay-port-input"
+            label-cols-md="1"
+          >
+            <b-form-input
+              id="relay-port-input"
+              type="number"
+              step="1"
+              min="1024"
+              max="65535"
+              :state="relayPortState(relay.port)"
+              placeholder="e.g. 3001"
+              aria-describedby="relay-port-input-live-feedback"
+              v-model="relay.port"
+              trim
+            />
+            <b-form-invalid-feedback id="relay-port-input-live-feedback"
+              >The port number of the relay node.</b-form-invalid-feedback
+            >
+          </b-form-group>
+        </b-card>
+        <hr />
+      </div>
+      <b-button variant="primary" @click="addRelay()">
+        <b-icon-plus />&nbsp;Add Relay
+      </b-button>
+    </b-modal>
+    <b-modal
       id="modal-retire-pool"
       title="Retire Pool"
       no-close-on-backdrop
@@ -801,6 +888,12 @@ export default {
           telegramAdminHandle: null,
         },
       },
+      editRelaysForm: {
+        id: -1,
+        spendingPassword: null,
+        registrationFeesAccount: null,
+        relays: [],
+      },
       retirePoolForm: {
         id: null,
         sudoPassword: null,
@@ -823,6 +916,7 @@ export default {
       "updatePoolConfig",
       "updateMetadata",
       "fetchWalletItems",
+      "sendEditRelays",
       "sendRetirePool",
     ]),
     ...mapMutations(["toastError"]),
@@ -937,6 +1031,63 @@ export default {
         });
       }
     },
+    editRelays(nodeId) {
+      this.$bvModal.show("modal-edit-relays");
+      this.editRelaysForm.id = nodeId;
+    },
+    handleEditRelays(bvModalEvt) {
+      bvModalEvt.preventDefault();
+      if (!this.registrationFeesAccountStateRelays) {
+        this.toastError({
+          title: "Error",
+          message: "You must fill out all fields.",
+        });
+        return;
+      }
+      for (let i = 0; i < this.editRelaysForm.relays.length; i++) {
+        let relay = this.editRelaysForm.relays[i];
+        if (
+          !this.relayAddrState(relay.addr) ||
+          !this.relayPortState(relay.port)
+        ) {
+          this.toastError({
+            title: "Error",
+            message: "You must fill out all fields.",
+          });
+          return;
+        }
+      }
+
+      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
+        (spendingPassword) => {
+          this.editRelaysForm.spendingPassword = spendingPassword;
+
+          this.sendEditRelays(this.editRelaysForm);
+          this.editRelaysForm.spendingPassword = null;
+          this.$bvModal.hide("modal-edit-relays");
+        }
+      );
+    },
+    addRelay() {
+      this.editRelaysForm.relays.push({
+        addr: null,
+        port: 3000,
+      });
+    },
+    relayAddrState(relayAddr) {
+      return (
+        relayAddr != null &&
+        (relayAddr.match(
+          /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+        ) != null ||
+          relayAddr.match(
+            /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])$/
+          ) != null)
+      );
+    },
+    relayPortState(port) {
+      return port > 1023;
+    },
     retirePool(nodeId) {
       this.retirePoolForm.id = nodeId;
       this.$bvModal.show("modal-retire-pool");
@@ -1020,6 +1171,9 @@ export default {
     },
     registrationFeesAccountStateMetadata() {
       return this.editMetadataForm.registrationFeesAccount != null;
+    },
+    registrationFeesAccountStateRelays() {
+      return this.editRelaysForm.registrationFeesAccount != null;
     },
     tickerState() {
       return (
