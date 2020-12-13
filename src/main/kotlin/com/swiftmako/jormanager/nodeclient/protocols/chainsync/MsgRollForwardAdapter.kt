@@ -2,9 +2,11 @@ package com.swiftmako.jormanager.nodeclient.protocols.chainsync
 
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
+import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.ktx.elementToByteArray
 import com.swiftmako.jormanager.ktx.elementToHexString
 import com.swiftmako.jormanager.ktx.elementToLong
+import com.swiftmako.jormanager.ktx.toHexString
 import org.slf4j.LoggerFactory
 
 object MsgRollForwardAdapter {
@@ -20,19 +22,22 @@ object MsgRollForwardAdapter {
 //        val someNumber = headerCborArray.elementToLong(0)
         val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
 
+        // calculate the block hash
+        val hash = SodiumLibrary.cryptoBlake2bHash(wrappedBlockHeaderBytes,null).toHexString()
+
         // unwrap the inner block header
         val blockHeaderCborArray = CborReader.createFromByteArray(wrappedBlockHeaderBytes).readDataItem() as CborArray
         val blockHeaderCborArrayInner = blockHeaderCborArray.elementAt(0) as CborArray
         val blockNumber = blockHeaderCborArrayInner.elementToLong(0)
         val slotNumber = blockHeaderCborArrayInner.elementToLong(1)
         val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
-//        val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
+        val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
         val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
         val etaVrfFirstPart = nonceCborArray.elementToHexString(0)
 //        val etaVrfSecondPart = nonceCborArray.elementToHexString(1)
-//        val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
-//        val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
+        val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
+        val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
 //        val leaderVrfSecondPart = leaderCborArray.elementToHexString(1)
 //        val blockSize = blockHeaderCborArrayInner.elementToLong(7)
 //        val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
@@ -44,22 +49,21 @@ object MsgRollForwardAdapter {
 //        val protocolMinorVersion = blockHeaderCborArrayInner.elementToLong(14)
 
         // parse tip
-//        val tipCborArray = cborArray.elementAt(2) as CborArray
-//        val tipInfoCborArray = tipCborArray.elementAt(0) as CborArray
-//        val tipSlot = tipInfoCborArray.elementToLong(0)
-//        val tipHash = tipInfoCborArray.elementToHexString(1)
-//        val tipBlockHeight = tipCborArray.elementToLong(1)
-
-//        if (tipSlot == slotNumber && !tipDone) {
-//            log.info("We're on tip!!!!")
-//            tipDone = true
-//        }
+        val tipCborArray = cborArray.elementAt(2) as CborArray
+        val tipInfoCborArray = tipCborArray.elementAt(0) as CborArray
+        val tipSlot = tipInfoCborArray.elementToLong(0)
+        val tipHash = tipInfoCborArray.elementToHexString(1)
+        val tipBlockHeight = tipCborArray.elementToLong(1)
 
         return MsgRollForward(
-                blockNumber,
-                slotNumber,
-                prevHash,
-                etaVrfFirstPart,
+            blockNumber,
+            slotNumber,
+            hash,
+            prevHash,
+            nodeVkey,
+            etaVrfFirstPart,
+            leaderVrfFirstPart,
+            ChainTip(tipSlot, tipBlockHeight, tipHash)
         )
     }
 }

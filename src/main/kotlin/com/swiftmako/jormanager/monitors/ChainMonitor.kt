@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,7 @@ class ChainMonitor @Autowired constructor(
         private val fileRepository: FileRepository,
         private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val configAdapter: JsonAdapter<Config>,
+        private val pooltoolService: PooltoolService,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(ChainMonitor::class.java)
@@ -81,7 +83,18 @@ class ChainMonitor @Autowired constructor(
                                 ?: throw IOException("Unable to read config file")
                         val shelleyGenesisHash = configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
 
-                        muxProtocol = MuxProtocol(defaultHost.hostname, defaultNode.port, networkMagic, shelleyGenesisHash, chainRepository)
+                        muxProtocol = MuxProtocol(
+                            defaultHost,
+                            "",
+                            defaultHost.hostname,
+                            defaultNode.port,
+                            networkMagic,
+                            shelleyGenesisHash,
+                            chainRepository,
+                            isPooltool = false,
+                            pooltoolService = pooltoolService,
+                            pooltoolApiKey = "",
+                        )
                         muxProtocol.start().join()
                     }
                 } catch (e: Throwable) {

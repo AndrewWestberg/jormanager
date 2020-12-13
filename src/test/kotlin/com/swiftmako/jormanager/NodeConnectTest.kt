@@ -3,7 +3,6 @@ package com.swiftmako.jormanager
 import com.google.common.truth.Truth.assertThat
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.moshi.Moshi
-import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.ktx.toHexString
@@ -31,20 +30,6 @@ import kotlin.math.ln
 import kotlin.system.measureTimeMillis
 
 class NodeConnectTest {
-
-    @Test
-    fun test() = runBlocking {
-        val chainRepository: ChainRepository = mockk {
-            every { findAll(any<Pageable>()) } returns mockk {
-                every { get() } returns Stream.empty()
-            }
-        }
-        //mainnet
-        //MuxProtocol("localhost", 6000, 764824073, chainRepository).start().join()
-
-        //testnet
-        MuxProtocol("localhost", 6001, 1097911063, "849a1764f152e1b09c89c0dfdbcbdd38d711d1fec2db5dfa0f87cf2737a0eaf4".hexToByteArray(), chainRepository).start().join()
-    }
 
     @Test
     fun libsodiumTest() {

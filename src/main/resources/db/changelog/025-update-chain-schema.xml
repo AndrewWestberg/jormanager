@@ -1,0 +1,12 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="025" author="Andrew Westberg">
+        <delete tableName="chain"/>
+        <addColumn tableName="chain">
+            <column name="pool_id" type="varchar(255)" defaultOnNull="true" defaultValue=""/>
+            <column name="leader_vrf" type="varchar(255)" defaultOnNull="true" defaultValue=""/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

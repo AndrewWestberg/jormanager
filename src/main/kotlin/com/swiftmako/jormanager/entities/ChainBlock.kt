@@ -14,13 +14,17 @@ data class ChainBlock(
         @GeneratedValue(strategy = GenerationType.AUTO)
         val id: Long? = null,
         @Column(name = "block_number")
-        val blockNumber: Long = 0L,
+        val blockNumber: Long,
         @Column(name = "slot_number")
-        val slotNumber: Long = 0L,
+        val slotNumber: Long,
         @Column(name = "hash")
-        val hash: String? = null,
+        val hash: String,
         @Column(name = "prev_hash")
-        val prevHash: String = "",
+        val prevHash: String,
         @Column(name = "eta_v")
-        val etaV: String = "",
+        val etaV: String,
+        @Column(name = "pool_id")
+        val poolId: String,
+        @Column(name = "leader_vrf")
+        val leaderVrf: String,
 )

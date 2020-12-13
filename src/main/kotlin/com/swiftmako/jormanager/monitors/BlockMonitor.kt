@@ -9,19 +9,15 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
-import com.swiftmako.jormanager.model.AddedToCurrentChain
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
-import com.swiftmako.jormanager.model.pooltool.Data
-import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.repositories.BlockRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.services.PooltoolService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +39,6 @@ import okio.source
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
@@ -67,15 +62,12 @@ class BlockMonitor @Autowired constructor(
     private val nodeRepository: NodeRepository,
     private val fileRepository: FileRepository,
     private val webSocketTemplate: SimpMessagingTemplate,
-    private val pooltoolService: PooltoolService,
-    @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
     @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
     private val blockUtils: BlockUtils,
     private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
     private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
     private val queryTipAdapter: JsonAdapter<QueryTip>,
-    private val blockAdapter: JsonAdapter<AddedToCurrentChain>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -257,8 +249,6 @@ class BlockMonitor @Autowired constructor(
                             val line = source.readUtf8Line() ?: break
                             if (line.contains("TraceAdoptedBlock") && line.contains("val")) {
                                 saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
-                            } else if (pooltoolApiKey.isNotBlank()) {
-                                sendBlockToPooltool(host, monitoredNode, magicString, line)
                             }
                         }
                     }
@@ -331,14 +321,12 @@ class BlockMonitor @Autowired constructor(
                     }
                     ssh.startSession().use { session ->
                         val cmd =
-                            session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock\\|TraceAddBlockEvent.AddedToCurrentChain'")
+                            session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock'")
                         cmd.inputStream.source().buffer().use { source ->
                             while (true) {
                                 val line = source.readUtf8Line() ?: break
                                 if (line.contains("TraceAdoptedBlock") && line.contains("val")) {
                                     saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
-                                } else if (pooltoolApiKey.isNotBlank()) {
-                                    sendBlockToPooltool(host, monitoredNode, magicString, line)
                                 }
                             }
                         }
@@ -422,35 +410,6 @@ class BlockMonitor @Autowired constructor(
                 } ?: log.error("Unable to parse block json!")
             }
         }
-    }
-
-    @Suppress("BlockingMethodInNonBlockingContext")
-    private suspend fun sendBlockToPooltool(host: Host, node: Node, magicString: String, line: String) {
-        blockAdapter.fromJson(line)?.let { addedToCurrentChain ->
-            val hostConnection = HostConnection(host, node)
-            val tipJson = hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
-            queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
-                try {
-                    val stats = PooltoolStats(
-                        apiKey = pooltoolApiKey,
-                        poolId = requireNotNull(node.poolId),
-                        data = Data(
-                            nodeId = "", // future use
-                            version = addedToCurrentChain.env,
-                            at = addedToCurrentChain.at,
-                            blockNo = queryTip.blockNo,
-                            slotNo = queryTip.slotNo,
-                            blockHash = queryTip.headerHash
-                        )
-                    )
-                    log.info("Pooltool Request: $stats")
-                    val response = pooltoolService.sendStats(stats)
-                    log.debug("pooltool response: ${response.body()}")
-                } catch (e: Throwable) {
-                    log.error("Error sending stats to pooltool!", e)
-                }
-            } ?: throw IOException("Could not query json tip for node!")
-        } ?: throw IOException("Could not parse AddedToCurrentChain json!")
     }
 
     override fun stop() {

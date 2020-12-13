@@ -50,8 +50,8 @@ class NodeControllerTest {
                 okHttpClient = OkHttpClient.Builder().build(),
                 relayRepository = mockk(relaxed = true),
                 extendedMetadataAdapter = config.getExtendedMetadataAdapter(moshi),
-                genesisAdapter = config.getShelleyGenesisAdapter(moshi),
-                genesisByronAdapter = config.getByronGenesisAdapter(moshi),
+                shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
+                byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
                 metadataAdapter = config.getMetadataAdapter(moshi),
                 protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
                 queryTipAdapter = config.getQueryTipAdapter(moshi)

@@ -18,7 +18,7 @@ class MsgFindIntersect(val chainBlocks:List<ChainBlock>) : MiniProtocolMessage {
         chainBlocks.forEach { chainBlock ->
             val point = CborArray.create()
             point.add(CborInteger.create(chainBlock.slotNumber))
-            point.add(CborByteString.create(chainBlock.hash!!.hexToByteArray()))
+            point.add(CborByteString.create(chainBlock.hash.hexToByteArray()))
             points.add(point)
         }
 

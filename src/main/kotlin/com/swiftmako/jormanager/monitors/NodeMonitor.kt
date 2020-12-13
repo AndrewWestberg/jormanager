@@ -439,7 +439,7 @@ class NodeMonitor @Autowired constructor(
     private fun availableLocalPort(): Int {
         val random = Random(System.currentTimeMillis())
         while (true) {
-            val port = random.nextInt(13000, 65534)
+            val port = random.nextInt(23000, 65534)
             try {
                 ServerSocket(port).apply { reuseAddress = true }.use {
                     DatagramSocket(port).apply { reuseAddress = true }.use {
