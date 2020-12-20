@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.4.0"
+    id("org.springframework.boot") version "2.4.1"
     id("io.spring.dependency-management") version "1.0.10.RELEASE"
     id("com.github.ben-manes.versions") version "0.36.0"
     kotlin("jvm") version "1.4.21"
@@ -23,7 +23,7 @@ object Versions {
     const val json = "20201115"
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
-    const val liquibase = "4.2.1"
+    const val liquibase = "4.2.2"
     const val mockk = "1.10.3"
     const val moshi = "1.11.0"
     const val okhttp = "4.9.0"
@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "1.4.0-SNAPSHOT"
+version = "1.4.2-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

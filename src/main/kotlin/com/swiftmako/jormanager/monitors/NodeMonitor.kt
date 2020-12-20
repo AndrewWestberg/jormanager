@@ -235,7 +235,7 @@ class NodeMonitor @Autowired constructor(
                     .create(EkgService::class.java)
                 monitorNode(node.id!!, ekgService, ssh, true)
             } catch (e: IOException) {
-                log.error("IOException communicating with ${node.name}")
+                log.error("IOException communicating with ${node.name}", e)
                 retry = true
             } catch (e: CancellationException) {
                 log.warn("Monitoring job canceled: ${node.name}")

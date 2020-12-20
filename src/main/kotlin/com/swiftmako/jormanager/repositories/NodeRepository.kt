@@ -14,4 +14,7 @@ interface NodeRepository : JpaRepository<Node, Long> {
 
     @Query("SELECT n FROM Node n WHERE n.isDefault = true")
     fun findDefault(): Node?
+
+    @Query( "SELECT n.poolId FROM Node n WHERE n.isDeleted=false AND n.poolId IS NOT NULL")
+    fun findPoolIds(): List<String>
 }

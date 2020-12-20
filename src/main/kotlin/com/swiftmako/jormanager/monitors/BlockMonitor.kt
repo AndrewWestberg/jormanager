@@ -143,13 +143,21 @@ class BlockMonitor @Autowired constructor(
         launch {
             while (true) {
                 try {
+                    val poolIds = nodeRepository.findPoolIds()
                     // find the latest block we know of for sure from the repository
                     val chainTipSlotNumber = chainRepository.findSyncedTip()
                     val unvalidatedBlocks =
                         blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
                     // log.debug("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
                     unvalidatedBlocks.forEach { unvalidatedBlock ->
-                        if (unvalidatedBlock.hash.isEmpty()) {
+                        val chainBlock = chainRepository.findBySlot(unvalidatedBlock.slot)
+                        val hash = if(poolIds.contains(chainBlock?.poolId)) {
+                            chainBlock?.hash ?: unvalidatedBlock.hash
+                        } else {
+                            unvalidatedBlock.hash
+                        }
+
+                        if (hash.isEmpty()) {
                             // nothing to validate. This block must have been missed
                             blockRepository.save(unvalidatedBlock.copy(status = "missed")).also {
                                 log.error("Missed Block: $it")
@@ -160,8 +168,7 @@ class BlockMonitor @Autowired constructor(
                             }
                         } else {
                             // we have a block hash to validate
-                            val chainBlock = chainRepository.findBySlot(unvalidatedBlock.slot)
-                            if (chainBlock?.hash?.startsWith(unvalidatedBlock.hash) == true) {
+                            if (chainBlock?.hash?.startsWith(hash) == true) {
                                 blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, status = "forged"))
                                     .also {
                                         log.info("Forged Block: $it")

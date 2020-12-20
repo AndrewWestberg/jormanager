@@ -56,7 +56,7 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
                 when (messageId) {
                     MsgAcceptVersion.MESSAGE_ID -> {
                         val msgAcceptVersion = MsgAcceptVersion(cborArray)
-                        if (msgAcceptVersion.extraParams != networkMagic) {
+                        if (msgAcceptVersion.networkMagic != networkMagic) {
                             throw IOException("Handshake succeeded, but networkMagic did not match!")
                         }
                         log.info("Handshake Successful: $msgAcceptVersion")
