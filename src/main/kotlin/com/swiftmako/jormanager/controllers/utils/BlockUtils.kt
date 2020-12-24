@@ -147,14 +147,15 @@ class BlockUtils @Autowired constructor(
      * @param poolVrfSkey The vrf signing key for the pool
      */
     fun isSlotLeader(slot: Long, f: Double, sigma: BigDecimal, eta0: ByteArray, poolVrfSkey: ByteArray): Boolean {
-
         val seed = mkSeed(slot, eta0)
         // add 00 to make sure we don't get a negative number by accident
-        val certVRF = ("00" + vrfEvalCertified(seed, poolVrfSkey).toHexString()).hexToByteArray()
+        val certVrfHex = "00${vrfEvalCertified(seed, poolVrfSkey).toHexString()}"
 
-        val certVRFHex = certVRF.toHexString()
+        return isLeaderVrfAllowedToLead(slot, certVrfHex, f, sigma)
+    }
 
-        val certNat = BigInteger(certVRF)
+    fun isLeaderVrfAllowedToLead(slot: Long, certVrfHex: String, f: Double, sigma: BigDecimal): Boolean {
+        val certNat = BigInteger(certVrfHex.hexToByteArray())
 
         val certNatMax = BigInteger("2").pow(8 * 64) // 8 * vrfoutput bytes
         val denominator = certNatMax.minus(certNat)
@@ -165,10 +166,11 @@ class BlockUtils @Autowired constructor(
         val sigmaOfF = exp(-sigma.toDouble() * c)
 
         // return true if q <= sigmaOfF
-        if (q.compareTo(sigmaOfF.toBigDecimal()) != 1) {
-            log.warn("isLeader($slot): $q <= $sigmaOfF Difference Of: ${sigmaOfF.toBigDecimal() - q}")
+        return (q.compareTo(sigmaOfF.toBigDecimal()) != 1).also { isLeader ->
+            if (isLeader) {
+                log.warn("isLeader($slot): $q <= $sigmaOfF Difference Of: ${sigmaOfF.toBigDecimal() - q}")
+            }
         }
-        return q.compareTo(sigmaOfF.toBigDecimal()) != 1
     }
 
     /**
