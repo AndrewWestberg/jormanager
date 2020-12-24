@@ -121,6 +121,11 @@ class BlockUtilsTest {
         val testSlot = 11553190L
         val result = target.isOverlaySlot(firstSlotOfEpoch, testSlot, BigDecimal("0.56"))
         assertThat(result).isFalse()
+
+        val firstSlotOfEpoch2 = 17020800L
+        val testSlot2 = 17043333L
+        val result2 = target.isOverlaySlot(firstSlotOfEpoch2, testSlot2, BigDecimal("0.32"))
+        assertThat(result2).isFalse()
     }
 
 }

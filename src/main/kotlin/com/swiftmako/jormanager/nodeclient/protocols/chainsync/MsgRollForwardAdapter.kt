@@ -23,7 +23,7 @@ object MsgRollForwardAdapter {
         val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
 
         // calculate the block hash
-        val hash = SodiumLibrary.cryptoBlake2bHash(wrappedBlockHeaderBytes,null).toHexString()
+        val hash = SodiumLibrary.cryptoBlake2bHash(wrappedBlockHeaderBytes, null).toHexString()
 
         // unwrap the inner block header
         val blockHeaderCborArray = CborReader.createFromByteArray(wrappedBlockHeaderBytes).readDataItem() as CborArray
@@ -38,7 +38,7 @@ object MsgRollForwardAdapter {
 //        val etaVrfSecondPart = nonceCborArray.elementToHexString(1)
         val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
         val leaderVrfFirstPart = leaderCborArray.elementToHexString(0)
-//        val leaderVrfSecondPart = leaderCborArray.elementToHexString(1)
+        val leaderVrfSecondPart = leaderCborArray.elementToHexString(1)
 //        val blockSize = blockHeaderCborArrayInner.elementToLong(7)
 //        val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
 //        val poolOpcert = blockHeaderCborArrayInner.elementToHexString(9)
@@ -56,14 +56,14 @@ object MsgRollForwardAdapter {
         val tipBlockHeight = tipCborArray.elementToLong(1)
 
         return MsgRollForward(
-            blockNumber,
-            slotNumber,
-            hash,
-            prevHash,
-            nodeVkey,
-            etaVrfFirstPart,
-            leaderVrfFirstPart,
-            ChainTip(tipSlot, tipBlockHeight, tipHash)
+                blockNumber,
+                slotNumber,
+                hash,
+                prevHash,
+                nodeVkey,
+                etaVrfFirstPart,
+                leaderVrfFirstPart,
+                ChainTip(tipSlot, tipBlockHeight, tipHash)
         )
     }
 }

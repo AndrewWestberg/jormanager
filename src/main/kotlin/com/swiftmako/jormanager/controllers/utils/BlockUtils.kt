@@ -151,6 +151,9 @@ class BlockUtils @Autowired constructor(
         val seed = mkSeed(slot, eta0)
         // add 00 to make sure we don't get a negative number by accident
         val certVRF = ("00" + vrfEvalCertified(seed, poolVrfSkey).toHexString()).hexToByteArray()
+
+        val certVRFHex = certVRF.toHexString()
+
         val certNat = BigInteger(certVRF)
 
         val certNatMax = BigInteger("2").pow(8 * 64) // 8 * vrfoutput bytes
@@ -173,7 +176,7 @@ class BlockUtils @Autowired constructor(
      * @param slot The slot to create the leadership seed value for
      * @param eta0 The epoch nonce value
      */
-    private fun mkSeed(slot: Long, eta0: ByteArray): ByteArray {
+    fun mkSeed(slot: Long, eta0: ByteArray): ByteArray {
 //        // The epoch nonce for 87 on testnet (figure out how to calculate it ourselves later instead of trace from the node)
 //        val eta0 = "70c0f591099a8de944e02585841d602479493f2d7e360f04c8b8cf990988eda3".hexToByteArray()
 
