@@ -2573,6 +2573,7 @@ class NodeController @Autowired constructor(
             ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
             ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
             ?.replace(Regex(""""hasEkg.*,"""), """"hasEkg": $ekgPort,""")
+            ?.replace(Regex(""""hasEKG.*,"""), """"hasEKG": $ekgPort,""")
             ?.replace("12798", "$promPort")
         configFileContent?.let {
             log.debug("Creating ${nodeFolder}/config.json from db file ${configFile.name}")

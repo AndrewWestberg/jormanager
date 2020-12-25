@@ -27,14 +27,14 @@ import org.joda.time.format.ISODateTimeFormat
 import org.slf4j.LoggerFactory
 
 class ChainSyncProtocol(
-    private val host: Host,
-    private val shelleyGenesisHash: ByteArray,
-    private val chainBlocks: List<ChainBlock>,
-    private val chainRepository: ChainRepository,
-    private val isPooltool: Boolean,
-    private val pooltoolService: PooltoolService,
-    private val pooltoolApiKey: String,
-    private val poolId: String,
+        private val host: Host,
+        private val shelleyGenesisHash: ByteArray,
+        private val chainBlocks: List<ChainBlock>,
+        private val chainRepository: ChainRepository,
+        private val isPooltool: Boolean,
+        private val pooltoolService: PooltoolService,
+        private val pooltoolApiKey: String,
+        private val poolId: String,
 ) : MiniProtocol(protocolId = 0x0002.toShort(), LoggerFactory.getLogger("ChainSyncProtocol")) {
 
     var state: State = State.Idle
@@ -105,34 +105,37 @@ class ChainSyncProtocol(
                                 }
                                 2L -> {
                                     // Roll forward
-                                    val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                    if (isPooltool) {
-                                        // SendTip mode
-                                        if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
-                                            // We're on tip! Send to pooltool
-                                            blockSaveChannel.send(msgRollForward)
-                                            state = State.Idle
-                                        } else {
-                                            _tipToIntersect = mutableListOf(
-                                                ChainBlock(
-                                                    slotNumber = msgRollForward.chainTip.slot,
-                                                    hash = msgRollForward.chainTip.hash,
-                                                    blockNumber = 0L,
-                                                    prevHash = "",
-                                                    etaV = "",
-                                                    poolId = "",
-                                                    leaderVrf = ""
-                                                )
-                                            ).apply {
-                                                addAll(chainBlocks)
+                                    val optionalMsgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
+                                    if (optionalMsgRollForward.isPresent) {
+                                        val msgRollForward = optionalMsgRollForward.get()
+                                        if (isPooltool) {
+                                            // SendTip mode
+                                            if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
+                                                // We're on tip! Send to pooltool
+                                                blockSaveChannel.send(msgRollForward)
+                                                state = State.Idle
+                                            } else {
+                                                _tipToIntersect = mutableListOf(
+                                                        ChainBlock(
+                                                                slotNumber = msgRollForward.chainTip.slot,
+                                                                hash = msgRollForward.chainTip.hash,
+                                                                blockNumber = 0L,
+                                                                prevHash = "",
+                                                                etaV = "",
+                                                                poolId = "",
+                                                                leaderVrf = ""
+                                                        )
+                                                ).apply {
+                                                    addAll(chainBlocks)
+                                                }
+                                                isIntersectFound = false
                                             }
-                                            isIntersectFound = false
-                                        }
-                                    } else {
-                                        // Sync mode
-                                        blockSaveChannel.send(msgRollForward)
-                                        if (canLogDebug()) {
-                                            log.debug("CanAwait->RollForward: $msgRollForward")
+                                        } else {
+                                            // Sync mode
+                                            blockSaveChannel.send(msgRollForward)
+                                            if (canLogDebug()) {
+                                                log.debug("CanAwait->RollForward: $msgRollForward")
+                                            }
                                         }
                                     }
                                     state = State.Idle
@@ -187,34 +190,37 @@ class ChainSyncProtocol(
                                 //chainSyncMsgDone       = [7]
                                 2L -> {
                                     // Roll forward
-                                    val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                    if (isPooltool) {
-                                        // SendTip mode
-                                        if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
-                                            // We're on tip! Send to pooltool
-                                            blockSaveChannel.send(msgRollForward)
-                                            state = State.Idle
-                                        } else {
-                                            _tipToIntersect = mutableListOf(
-                                                ChainBlock(
-                                                    slotNumber = msgRollForward.chainTip.slot,
-                                                    hash = msgRollForward.chainTip.hash,
-                                                    blockNumber = 0L,
-                                                    prevHash = "",
-                                                    etaV = "",
-                                                    poolId = "",
-                                                    leaderVrf = ""
-                                                )
-                                            ).apply {
-                                                addAll(chainBlocks)
+                                    val optionalMsgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
+                                    if (optionalMsgRollForward.isPresent) {
+                                        val msgRollForward = optionalMsgRollForward.get()
+                                        if (isPooltool) {
+                                            // SendTip mode
+                                            if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
+                                                // We're on tip! Send to pooltool
+                                                blockSaveChannel.send(msgRollForward)
+                                                state = State.Idle
+                                            } else {
+                                                _tipToIntersect = mutableListOf(
+                                                        ChainBlock(
+                                                                slotNumber = msgRollForward.chainTip.slot,
+                                                                hash = msgRollForward.chainTip.hash,
+                                                                blockNumber = 0L,
+                                                                prevHash = "",
+                                                                etaV = "",
+                                                                poolId = "",
+                                                                leaderVrf = ""
+                                                        )
+                                                ).apply {
+                                                    addAll(chainBlocks)
+                                                }
+                                                isIntersectFound = false
                                             }
-                                            isIntersectFound = false
-                                        }
-                                    } else {
-                                        // Sync mode
-                                        blockSaveChannel.send(msgRollForward)
-                                        if (canLogDebug()) {
-                                            log.debug("MustReply->RollForward: $msgRollForward")
+                                        } else {
+                                            // Sync mode
+                                            blockSaveChannel.send(msgRollForward)
+                                            if (canLogDebug()) {
+                                                log.debug("MustReply->RollForward: $msgRollForward")
+                                            }
                                         }
                                     }
                                     state = State.Idle
@@ -277,7 +283,7 @@ class ChainSyncProtocol(
                     sendBlockToPooltool(msgRollForward)
                 } else {
                     val previousChainBlock = previousBlockMap[msgRollForward.blockNumber - 1]
-                        ?: chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
+                            ?: chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
                     previousBlockMap.remove(msgRollForward.blockNumber - 1)
 
                     // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
@@ -290,25 +296,25 @@ class ChainSyncProtocol(
 
                     // add this block to the database
                     val savedChainBlock = chainRepository.save(
-                        ChainBlock(
-                            blockNumber = msgRollForward.blockNumber,
-                            slotNumber = msgRollForward.slotNumber,
-                            hash = msgRollForward.hash,
-                            prevHash = msgRollForward.prevHash,
-                            etaV = etaV,
-                            poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
-                            leaderVrf = msgRollForward.leaderVrf,
-                        )
+                            ChainBlock(
+                                    blockNumber = msgRollForward.blockNumber,
+                                    slotNumber = msgRollForward.slotNumber,
+                                    hash = msgRollForward.hash,
+                                    prevHash = msgRollForward.prevHash,
+                                    etaV = etaV,
+                                    poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
+                                    leaderVrf = msgRollForward.leaderVrf,
+                            )
                     )
                     previousBlockMap[savedChainBlock.blockNumber] = savedChainBlock
 
                     if (canLog()) {
                         log.info(
-                            "ChainSync: Saved block: ${msgRollForward.blockNumber}, slot: ${msgRollForward.slotNumber}, poolId: ${
-                                savedChainBlock.poolId.substring(
-                                    0..8
-                                )
-                            }..."
+                                "ChainSync: Saved block: ${msgRollForward.blockNumber}, slot: ${msgRollForward.slotNumber}, poolId: ${
+                                    savedChainBlock.poolId.substring(
+                                            0..8
+                                    )
+                                }..."
                         )
                     }
                 }
@@ -326,28 +332,29 @@ class ChainSyncProtocol(
             val hostConnection = HostConnection(host)
             val versionString = hostConnection.command("${host.cardanoNodePath} --version").trim()
             Regex("cardano-node (\\d+\\.\\d+\\.\\d+) .*\ngit rev ([a-f0-9]{5}).*").matchEntire(versionString)
-                ?.let { matchResult ->
-                    nodeVersion = "${matchResult.groupValues[1]}:${matchResult.groupValues[2]}"
-                }
+                    ?.let { matchResult ->
+                        nodeVersion = "${matchResult.groupValues[1]}:${matchResult.groupValues[2]}"
+                    }
             lastNodeVersionTime = now
         }
         try {
 
             val at = DateTime(now, DateTimeZone.UTC).toString(ISODateTimeFormat.dateTime())
             val stats = PooltoolStats(
-                apiKey = pooltoolApiKey,
-                poolId = poolId,
-                data = Data(
-                    nodeId = "", // future use
-                    version = nodeVersion,
-                    at = at, // 2020-12-12T23:47:04.112Z
-                    blockNo = msgRollForward.blockNumber,
-                    slotNo = msgRollForward.slotNumber,
-                    blockHash = msgRollForward.hash,
-                    parentHash = msgRollForward.prevHash,
-                    leaderVrf = msgRollForward.leaderVrf,
-                    nodeVKey = msgRollForward.nodeVKey,
-                )
+                    apiKey = pooltoolApiKey,
+                    poolId = poolId,
+                    data = Data(
+                            nodeId = "", // future use
+                            version = nodeVersion,
+                            at = at, // 2020-12-12T23:47:04.112Z
+                            blockNo = msgRollForward.blockNumber,
+                            slotNo = msgRollForward.slotNumber,
+                            blockHash = msgRollForward.hash,
+                            parentHash = msgRollForward.prevHash,
+                            leaderVrf = msgRollForward.leaderVrf,
+                            leaderVrfProof = msgRollForward.leaderVrfProof,
+                            nodeVKey = msgRollForward.nodeVKey,
+                    )
             )
             log.info("Pooltool Request: $stats")
             val response = pooltoolService.sendStats(stats)

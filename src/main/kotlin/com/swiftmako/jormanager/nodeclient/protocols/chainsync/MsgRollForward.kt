@@ -4,21 +4,22 @@ import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocolMessage
 import java.nio.ByteBuffer
 
 class MsgRollForward(
-    val blockNumber: Long,
-    val slotNumber: Long,
-    val hash: String,
-    val prevHash: String,
-    val nodeVKey: String,
-    val etaVrf: String,
-    val leaderVrf: String,
-    val chainTip: ChainTip,
+        val blockNumber: Long,
+        val slotNumber: Long,
+        val hash: String,
+        val prevHash: String,
+        val nodeVKey: String,
+        val etaVrf: String,
+        val leaderVrf: String,
+        val leaderVrfProof: String,
+        val chainTip: ChainTip,
 ) : MiniProtocolMessage {
     override fun writeToBuffer(buffer: ByteBuffer) {
         //noop
     }
 
     override fun toString(): String {
-        return "MsgRollForward(blockNumber=$blockNumber, slotNumber=$slotNumber, hash='$hash', prevHash='$prevHash', nodeVKey='$nodeVKey', etaVrf='$etaVrf', leaderVrf='$leaderVrf')"
+        return "MsgRollForward(blockNumber=$blockNumber, slotNumber=$slotNumber, hash='$hash', prevHash='$prevHash', nodeVKey='$nodeVKey', etaVrf='$etaVrf', leaderVrf='$leaderVrf', leaderVrfProof='$leaderVrfProof', chainTip=$chainTip)"
     }
 
     companion object {
