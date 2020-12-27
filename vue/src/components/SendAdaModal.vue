@@ -495,6 +495,14 @@ export default {
       // received claim-ada message from parent component
       this.showSendAdaModal(walletItem, true);
     });
+    this.$root.$on("send-native-asset", (eventData) => {
+      // received claim-ada message from parent component
+      console.log("handle send-native-asset event!");
+      // received send-native-asset from parent component
+      // TODO fix for sending native assets
+      console.log(JSON.stringify(eventData));
+      this.showSendAdaModal(eventData.walletItem, false);
+    });
   },
   mounted() {
     this.clearFormSendAda();
@@ -502,6 +510,7 @@ export default {
   beforeDestroy() {
     this.$root.$off("send-ada");
     this.$root.$off("claim-ada");
+    this.$root.$off("send-native-asset");
   },
 };
 </script>

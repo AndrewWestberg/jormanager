@@ -8,6 +8,7 @@ import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -27,13 +28,14 @@ import org.springframework.stereotype.Component
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class WalletUtils @Autowired constructor(
-    private val hostRepository: HostRepository,
-    private val nodeRepository: NodeRepository,
-    private val walletRepository: WalletRepository,
-    private val fileRepository: FileRepository,
-    private val argon2PasswordEncoder: Argon2PasswordEncoder,
-    @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
-    private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
+        private val hostRepository: HostRepository,
+        private val nodeRepository: NodeRepository,
+        private val walletRepository: WalletRepository,
+        private val fileRepository: FileRepository,
+        private val argon2PasswordEncoder: Argon2PasswordEncoder,
+        @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+        private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
+        private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
 ) {
     private val log = LoggerFactory.getLogger(WalletUtils::class.java)
 
@@ -45,7 +47,7 @@ class WalletUtils @Autowired constructor(
                 val eraString = hostConnection.calculateEraString(magicString)
                 walletRepository.findAllNotDeleted().forEach { walletEntry ->
                     walletItems.add(
-                        getWalletItem(host, hostConnection, eraString, magicString, walletEntry)
+                            getWalletItem(host, hostConnection, eraString, magicString, walletEntry)
                     )
                 }
             } ?: log.error("Host for default node not found!")
@@ -55,11 +57,11 @@ class WalletUtils @Autowired constructor(
     }
 
     fun getWalletItem(
-        host: Host,
-        hostConnection: HostConnection,
-        eraString: String,
-        magicString: String,
-        walletEntry: WalletEntry
+            host: Host,
+            hostConnection: HostConnection,
+            eraString: String,
+            magicString: String,
+            walletEntry: WalletEntry
     ): WalletItem {
         val utxos = getUtxos(host, hostConnection, eraString, magicString, walletEntry.paymentAddr)
 
@@ -88,38 +90,38 @@ class WalletUtils @Autowired constructor(
         val stakingAddrRegistered = stakingAddrLovelace != null
 
         return WalletItem(
-            walletEntry.id!!,
-            walletEntry.name,
-            walletEntry.type,
-            walletEntry.paymentAddr,
-            walletEntry.paymentSkey != null,
-            utxos.size.toLong(),
-            utxos.sumByLong { it.lovelace },
-            walletEntry.stakingAddr,
-            stakingAddrRegistered,
-            stakingAddrLovelace
-                ?: 0L
+                walletEntry.id!!,
+                walletEntry.name,
+                walletEntry.type,
+                walletEntry.paymentAddr,
+                walletEntry.paymentSkey != null,
+                utxos.size.toLong(),
+                utxos.sumByLong { it.lovelace },
+                walletEntry.stakingAddr,
+                stakingAddrRegistered,
+                stakingAddrLovelace ?: 0L,
+                utxos.toNativeAssetMap(),
         )
     }
 
     fun getUtxos(
-        host: Host,
-        hostConnection: HostConnection,
-        eraString: String,
-        magicString: String,
-        paymentAddr: String
+            host: Host,
+            hostConnection: HostConnection,
+            eraString: String,
+            magicString: String,
+            paymentAddr: String
     ): List<Utxo> {
         // find payment_addr balance
         val addressInfoJson = try {
             hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $eraString --cardano-mode $magicString --out-file=/dev/stdout")
-                .trim()
+                    .trim()
         } catch (t: Throwable) {
             if (t.message?.contains("EraMismatch") == false) {
                 log.error("Error getting payment addr info!", t)
             }
             ""
         }
-        val utxos = QueryUtxoJsonAdapter().fromJson(addressInfoJson)
+        val utxos = queryUtxoJsonAdapter.fromJson(addressInfoJson)
 
         return utxos ?: emptyList()
     }

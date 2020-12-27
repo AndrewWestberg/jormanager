@@ -10,5 +10,6 @@ data class WalletItem(
         val paymentAddrLovelace: Long,
         val stakingAddr: String?,
         val stakingAddrRegistered: Boolean,
-        val stakingAddrLovelace: Long?
+        val stakingAddrLovelace: Long?,
+        val nativeAssetMap: Map<String, Long>,
 )

@@ -58,7 +58,8 @@ import {
   faHatWizard,
   faInfoCircle,
   faSkull,
-  faProjectDiagram
+  faProjectDiagram,
+  faCoins
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -94,6 +95,7 @@ library.add(faHatWizard)
 library.add(faInfoCircle)
 library.add(faSkull)
 library.add(faProjectDiagram)
+library.add(faCoins)
 
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
