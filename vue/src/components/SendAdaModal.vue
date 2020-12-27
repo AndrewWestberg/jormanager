@@ -10,85 +10,135 @@
       @ok="handleValidateAndSend"
     >
       <b-form ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
-        <div v-for="(toAccount, index) in formSendAda.toAccounts" :key="index">
-          <b-card border-variant="secondary">
-            <b-form-group label="Account" label-cols-md="2">
-              <b-form-select
-                v-model="toAccount.account"
-                :state="accountState(toAccount.account)"
-                :options="paymentSelectOptions($options.filters.currency)"
+        <div class="accordion" role="tablist">
+          <b-card
+            border-variant="dark"
+            header-border-variant="dark"
+            no-body
+            class="mb-1"
+            v-for="(toAccount, index) in formSendAda.toAccounts"
+            :key="index"
+          >
+            <b-card-header header-tag="header" class="p-1" role="tab">
+              <b-button
+                block
+                v-b-toggle="'accordion-' + index"
+                :variant="headerVariant(index, toAccount)"
               >
-                <template v-slot:first>
-                  <b-form-select-option :value="null" disabled
-                    >-- Please select an option --</b-form-select-option
+                <div class="clearfix">
+                  <span class="float-left">{{
+                    headerLabel(index, toAccount)
+                  }}</span>
+                  <b-icon-caret-up class="float-right when-open" />
+                  <b-icon-caret-down class="float-right when-closed" />
+                </div>
+              </b-button>
+            </b-card-header>
+            <b-collapse
+              :id="'accordion-' + index"
+              visible
+              accordion="accounts-accordion"
+              role="tabpanel"
+            >
+              <b-card-body>
+                <b-form-group label="Currency" label-cols-md="2">
+                  <b-form-select
+                    v-model="toAccount.currency"
+                    :state="currencyState(toAccount.currency)"
+                    :options="currencySelectOptions(fromWalletItem)"
+                    @input="
+                      toAccount.amount = null;
+                      toAccount.percent = 0;
+                    "
                   >
-                </template>
-              </b-form-select>
-            </b-form-group>
-            <b-form-group label="Entry Type" label-cols-md="2">
-              <b-form-radio-group
-                v-model="toAccount.type"
-                :state="typeState(index, toAccount.type)"
-              >
-                <b-form-radio value="amount">
-                  <font-awesome-icon
-                    :icon="['fas', 'weight-hanging']"
-                  />&nbsp;Amount
-                </b-form-radio>
-                <b-form-radio value="percent">
-                  <font-awesome-icon
-                    :icon="['fas', 'balance-scale-right']"
-                  />&nbsp;Percent
-                </b-form-radio>
-              </b-form-radio-group>
-            </b-form-group>
-            <b-form-group
-              label="Amount"
-              label-for="amount-input"
-              label-cols-md="2"
-              v-show="toAccount.type === 'amount'"
-            >
-              <b-form-input
-                id="amount-input"
-                :state="amountState(index, toAccount.amount)"
-                aria-describedby="amount-input-live-feedback"
-                v-model="toAccount.amount"
-                placeholder="e.g. ₳1,230.987000"
-                trim
-                v-currency
-              />
-              <b-form-invalid-feedback id="amount-input-live-feedback"
-                >Enter a non-zero amount up to
-                {{
-                  (calculateSpentLovelace(index) / 1000000) | currency("₳", 6)
-                }}</b-form-invalid-feedback
-              >
-            </b-form-group>
-            <b-form-group
-              label="Percent"
-              label-for="percent-input"
-              label-cols-md="2"
-              v-show="toAccount.type === 'percent'"
-            >
-              <b-form-input
-                id="percent-input"
-                v-model="toAccount.percent"
-                :state="percentState(index, toAccount.percent)"
-                placeholder="e.g. 2"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                trim
-              />
-              <p class="text-center">
-                {{ percentLabel(index, toAccount.percent) }}
-              </p>
-            </b-form-group>
+                  </b-form-select>
+                </b-form-group>
+                <b-form-group label="To Account" label-cols-md="2">
+                  <b-form-select
+                    v-model="toAccount.account"
+                    :state="accountState(toAccount.account)"
+                    :options="paymentSelectOptions($options.filters.currency)"
+                  >
+                    <template v-slot:first>
+                      <b-form-select-option :value="null" disabled
+                        >-- Please select an option --</b-form-select-option
+                      >
+                    </template>
+                  </b-form-select>
+                </b-form-group>
+                <b-form-group label="Entry Type" label-cols-md="2">
+                  <b-form-radio-group
+                    v-model="toAccount.type"
+                    :state="typeState(index, toAccount.type)"
+                  >
+                    <b-form-radio value="amount">
+                      <font-awesome-icon
+                        :icon="['fas', 'weight-hanging']"
+                      />&nbsp;Amount
+                    </b-form-radio>
+                    <b-form-radio value="percent">
+                      <font-awesome-icon
+                        :icon="['fas', 'balance-scale-right']"
+                      />&nbsp;Percent
+                    </b-form-radio>
+                  </b-form-radio-group>
+                </b-form-group>
+                <b-form-group
+                  label="Amount"
+                  :label-for="'amount-input-' + index"
+                  label-cols-md="2"
+                  v-show="toAccount.type === 'amount'"
+                >
+                  <b-form-input
+                    :id="'amount-input-' + index"
+                    :state="
+                      amountState(index, toAccount.amount, toAccount.currency)
+                    "
+                    :aria-describedby="'amount-input-live-feedback-' + index"
+                    v-model="toAccount.amount"
+                    :placeholder="amountPlaceholder(toAccount.currency)"
+                    trim
+                    v-currency="amountCurrencyOptions(toAccount.currency)"
+                  />
+                  <b-form-invalid-feedback
+                    :id="'amount-input-live-feedback-' + index"
+                    >Enter a non-zero amount up to
+                    {{
+                      amountRemainingLabel(index, toAccount.currency)
+                    }}</b-form-invalid-feedback
+                  >
+                </b-form-group>
+                <b-form-group
+                  label="Percent"
+                  :label-for="'percent-input-' + index"
+                  label-cols-md="2"
+                  v-show="toAccount.type === 'percent'"
+                >
+                  <b-form-input
+                    :id="'percent-input-' + index"
+                    v-model="toAccount.percent"
+                    :state="
+                      percentState(index, toAccount.percent, toAccount.currency)
+                    "
+                    placeholder="e.g. 2"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    trim
+                  />
+                  <p class="text-center">
+                    {{
+                      percentLabel(index, toAccount.percent, toAccount.currency)
+                    }}
+                  </p>
+                </b-form-group>
+              </b-card-body>
+            </b-collapse>
           </b-card>
-          <hr />
         </div>
       </b-form>
+      <hr />
       <b-button
         variant="primary"
         @click="addPaymentEntry()"
@@ -120,6 +170,7 @@ export default {
         isClaim: false,
         toAccounts: [
           {
+            currency: "ada",
             account: null,
             type: null,
             amount: null,
@@ -149,10 +200,14 @@ export default {
   },
   computed: {
     ...mapState(["walletItems", "txFee", "toastSuccess"]),
-    ...mapGetters(["paymentSelectOptions"]),
+    ...mapGetters([
+      "currencySelectOptions",
+      "paymentSelectOptions",
+      "walletItemById",
+    ]),
     modalTitle() {
       return (
-        (this.formSendAda.isClaim ? "Claim Rewards (" : "Send Ada (") +
+        (this.formSendAda.isClaim ? "Claim Rewards (" : "Send (") +
         this.fromWalletItem.name +
         " - " +
         this.$options.filters.currency(
@@ -162,7 +217,7 @@ export default {
           "₳",
           6
         ) +
-        "), Fee: " +
+        "), TxFee: " +
         this.$options.filters.currency(this.txFee / 1000000, "₳", 6) +
         ", Remaining: " +
         this.$options.filters.currency(this.remainingLovelace / 1000000, "₳", 6)
@@ -172,13 +227,16 @@ export default {
   methods: {
     ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
     ...mapMutations(["toastError"]),
+    currencyState(currency) {
+      return currency != null;
+    },
     accountState(account) {
       return account != null;
     },
     typeState(index, type) {
-      this.remainingLovelace = this.calculateSpentLovelace(
+      this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
-      );
+      ).remaining["ada"];
       if (type !== "amount") {
         this.formSendAda.toAccounts[index].amount = null;
       }
@@ -187,29 +245,149 @@ export default {
       }
       return type != null;
     },
-    amountState(index, amount) {
-      this.remainingLovelace = this.calculateSpentLovelace(
-        this.formSendAda.toAccounts.length
-      );
+    amountState(index, amount, currency) {
+      let spent = this.calculateSpent(this.formSendAda.toAccounts.length);
+      this.remainingLovelace = spent.remaining["ada"];
       if (amount != null) {
-        let lovelaces = this.$ci.parse(amount);
-        let spentLovelace = this.calculateSpentLovelace(index + 1);
-        return lovelaces > 0 && spentLovelace >= 0;
+        let tokens = this.$ci.parse(
+          amount,
+          this.amountCurrencyOptions(currency)
+        );
+        let remainingTokens = this.calculateSpent(index + 1).remaining[
+          currency
+        ];
+        return tokens > 0 && remainingTokens >= 0;
       }
       return false;
     },
-    percentState(index, percent) {
-      this.remainingLovelace = this.calculateSpentLovelace(
+    percentState(index, percent, currency) {
+      this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
-      );
+      ).remaining["ada"];
       if (percent != null && percent > 0) {
-        let spentLovelace = this.calculateSpentLovelace(index + 1);
-        return spentLovelace >= 0;
+        let spent = this.calculateSpent(index + 1);
+        let tokens = spent.amount[currency];
+        let remainingTokens = spent.remaining[currency];
+        return tokens > 0 && remainingTokens >= 0;
       }
       return false;
+    },
+    headerLabel(index, toAccount) {
+      let label = "";
+      if (toAccount.account) {
+        label += this.walletItemById(toAccount.account).name;
+        label += " - ";
+      }
+      let spent = this.calculateSpent(index);
+      label += "Available: ";
+      label += this.formatCurrency(
+        spent.remaining[toAccount.currency],
+        toAccount.currency
+      );
+
+      if (toAccount.type === "amount" && toAccount.amount != null) {
+        label +=
+          ", Amount: " +
+          this.formatCurrency(toAccount.amount, toAccount.currency);
+      } else if (toAccount.type === "percent") {
+        label +=
+          ", Amount: " +
+          this.percentLabel(index, toAccount.percent, toAccount.currency);
+      }
+
+      if (toAccount.currency !== "ada") {
+        label +=
+          ", TokenFee: " +
+          this.formatCurrency(
+            this.calculateTokenFee(index, toAccount.account),
+            "ada"
+          );
+      }
+
+      label += ", Remaining: ";
+      label += this.formatCurrency(
+        this.calculateSpent(index + 1).remaining[toAccount.currency],
+        toAccount.currency
+      );
+
+      return label;
+    },
+    headerVariant(index, toAccount) {
+      return this.currencyState(toAccount.account) &&
+        this.accountState(toAccount.account) &&
+        this.typeState(index, toAccount.type) &&
+        (this.amountState(index, toAccount.amount, toAccount.currency) ||
+          this.percentState(index, toAccount.percent, toAccount.currency))
+        ? "outline-success"
+        : "outline-danger";
+    },
+    formatCurrency(amount, currency) {
+      let tokens = 0;
+      if (isNaN(amount)) {
+        tokens = this.$ci.parse(amount, this.amountCurrencyOptions(currency));
+      } else {
+        tokens = amount;
+      }
+
+      if (currency === "ada") {
+        return this.$options.filters.currency(tokens / 1000000, "₳", 6);
+      }
+
+      return this.$options.filters.currency(
+        tokens,
+        "(" + currency.split(".")[0] + ") ",
+        0
+      );
+    },
+    amountCurrencyOptions(currency) {
+      if (currency === "ada") {
+        return {
+          currency: {
+            prefix: "₳",
+          },
+          precision: 6,
+          valueAsInteger: true,
+          allowNegative: false,
+          distractionFree: {
+            hideNegligibleDecimalDigits: true,
+            hideCurrencySymbol: false,
+            hideGroupingSymbol: true,
+          },
+        };
+      }
+      return {
+        currency: {
+          prefix: "(" + currency.split(".")[0] + ") ",
+          suffix: null,
+        },
+        allowNegative: false,
+        precision: 0,
+        distractionFree: {
+          hideNegligibleDecimalDigits: true,
+          hideCurrencySymbol: false,
+          hideGroupingSymbol: true,
+        },
+      };
+    },
+    amountPlaceholder(currency) {
+      if (currency === "ada") return "e.g. ₳1,230.987000";
+      return "e.g. (" + currency.split(".")[0] + ") 1,230";
+    },
+    amountRemainingLabel(index, currency) {
+      let remaining = this.calculateSpent(index).remaining[currency];
+      if (currency === "ada") {
+        return this.$options.filters.currency(remaining / 1000000, "₳", 6);
+      } else {
+        return this.$options.filters.currency(
+          remaining,
+          "(" + currency.split(".")[0] + ") ",
+          0
+        );
+      }
     },
     addPaymentEntry() {
       this.formSendAda.toAccounts.push({
+        currency: "ada",
         account: null,
         type: null,
         amount: null,
@@ -230,6 +408,7 @@ export default {
         isClaim: false,
         toAccounts: [
           {
+            currency: "ada",
             account: null,
             type: null,
             amount: null,
@@ -261,12 +440,13 @@ export default {
       for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
         let toAccount = this.formSendAda.toAccounts[i];
         if (
+          !this.currencyState(toAccount.currency) ||
           !this.accountState(toAccount.account) ||
           !this.typeState(i, toAccount.type) ||
           (toAccount.type === "amount" &&
-            !this.amountState(i, toAccount.amount)) ||
+            !this.amountState(i, toAccount.amount, toAccount.currency)) ||
           (toAccount.type === "percent" &&
-            !this.percentState(i, toAccount.percent))
+            !this.percentState(i, toAccount.percent, toAccount.currency))
         ) {
           isValidForm = false;
           break;
@@ -304,6 +484,7 @@ export default {
         txFee: this.txFee,
         toAccounts: _.map(this.formSendAda.toAccounts, (toAccount) => {
           return {
+            currency: toAccount.currency,
             account: toAccount.account,
             type: toAccount.type,
             amount:
@@ -316,9 +497,9 @@ export default {
       });
     },
     prepareCalculateSendAdaFees() {
-      this.remainingLovelace = this.calculateSpentLovelace(
+      this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
-      );
+      ).remaining["ada"];
 
       if (
         this.remainingLovelace == 0 &&
@@ -370,120 +551,125 @@ export default {
       }
       return -1;
     },
-    calculateSpentLovelace(index) {
-      let feePayerAccountId = -1;
-      if (this.formSendAda.isClaim) {
-        feePayerAccountId = this.calculateClaimRewardsFeePayer();
-      } else {
-        feePayerAccountId = this.fromWalletItem.id;
-      }
-      let baseAmount = this.formSendAda.isClaim
-        ? this.fromWalletItem.stakingAddrLovelace
-        : this.fromWalletItem.paymentAddrLovelace - this.txFee;
-      let alreadySpentPercentages = 0;
+    calculateTokenFee(index, accountId) {
+      let idx = 0;
+      let totalAdaSentToAccount = _.sumBy(
+        this.formSendAda.toAccounts,
+        (account) => {
+          let index = idx;
+          idx++;
+          if (account.account !== accountId) {
+            return 0;
+          }
+          if (account.currency !== "ada") {
+            return 0;
+          }
+          return this.calculateSpent(index + 1).amount[account.currency];
+        }
+      );
+
+      let tokenFee = 2000000;
+      let minUtxoMet = false;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
-        let amount = 0;
-        if (account.type === "amount" && account.amount != null) {
-          amount = this.$ci.parse(account.amount);
-          if (
-            this.formSendAda.isClaim &&
-            account.account === feePayerAccountId
-          ) {
-            // Reimburse payer for the txFee when claiming rewards
-            amount += this.txFee;
-          }
-          baseAmount -= amount;
-          // reset percentages since this is an amount
-          alreadySpentPercentages = 0;
-        } else if (
-          account.type === "percent" &&
-          account.percent != null &&
-          account.percent > 0
-        ) {
-          let percent = parseInt(account.percent);
-          amount = Math.round(
-            baseAmount * (percent / (100.0 - alreadySpentPercentages))
-          );
-          baseAmount -= amount;
-          alreadySpentPercentages += percent;
-          if (alreadySpentPercentages == 100) {
-            alreadySpentPercentages = 0;
-          }
-          if (
-            this.formSendAda.isClaim &&
-            account.account === feePayerAccountId
-          ) {
-            if (baseAmount >= this.txFee) {
-              amount += this.txFee;
-              baseAmount -= this.txFee;
-            }
-          }
+        if (account.account !== accountId || account.currency === "ada") {
+          continue;
+        }
+
+        // there is a token above us, it will contain the minutxo 1 ada
+        if (!minUtxoMet) {
+          minUtxoMet = true;
+          tokenFee -= 1000000;
+          totalAdaSentToAccount -= 2000000; // minutxo and token fee come out of our total ada
+        } else {
+          totalAdaSentToAccount -= 1000000; // just token fee come out of our total ada
         }
       }
-      return baseAmount;
+
+      if (totalAdaSentToAccount - tokenFee >= 0) {
+        // enough left in ada tx to pay for our fee
+        return 0;
+      }
+      if (totalAdaSentToAccount > 0) {
+        return tokenFee - totalAdaSentToAccount;
+      }
+      return tokenFee;
     },
-    calculateSpentLovelaceAt(index) {
+    calculateSpent(index) {
       let feePayerAccountId = -1;
       if (this.formSendAda.isClaim) {
         feePayerAccountId = this.calculateClaimRewardsFeePayer();
       } else {
         feePayerAccountId = this.fromWalletItem.id;
       }
-      let baseAmount = this.formSendAda.isClaim
+      let baseAmount = this.fromWalletItem.nativeAssetMap
+        ? _.clone(this.fromWalletItem.nativeAssetMap)
+        : {};
+      baseAmount["ada"] = this.formSendAda.isClaim
         ? this.fromWalletItem.stakingAddrLovelace
         : this.fromWalletItem.paymentAddrLovelace - this.txFee;
-      let alreadySpentPercentages = 0;
-      let amount = 0;
-      for (let i = 0; i <= index; i++) {
+      let alreadySpentPercentages = {};
+      let amount = {};
+      for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
-        amount = 0;
+        amount[account.currency] = 0;
         if (account.type === "amount" && account.amount != null) {
-          amount = this.$ci.parse(account.amount);
+          amount[account.currency] = this.$ci.parse(
+            account.amount,
+            this.amountCurrencyOptions(account.currency)
+          );
           if (
             this.formSendAda.isClaim &&
-            account.account === feePayerAccountId
+            account.account === feePayerAccountId &&
+            account.currency === "ada"
           ) {
             // Reimburse payer for the txFee when claiming rewards
-            amount += this.txFee;
+            amount[account.currency] += this.txFee;
           }
-          baseAmount -= amount;
+          baseAmount[account.currency] -= amount[account.currency];
           // reset percentages since this is an amount
-          alreadySpentPercentages = 0;
+          alreadySpentPercentages[account.currency] = 0;
         } else if (
           account.type === "percent" &&
           account.percent != null &&
           account.percent > 0
         ) {
-          let percent = parseInt(account.percent);
-          amount = Math.round(
-            baseAmount * (percent / (100.0 - alreadySpentPercentages))
-          );
-          baseAmount -= amount;
-          alreadySpentPercentages += percent;
-          if (alreadySpentPercentages == 100) {
-            alreadySpentPercentages = 0;
+          if (alreadySpentPercentages[account.currency] === undefined) {
+            alreadySpentPercentages[account.currency] = 0;
           }
+          let percent = parseInt(account.percent);
+          if (alreadySpentPercentages[account.currency] == 100) {
+            amount[account.currency] = 0;
+          } else {
+            amount[account.currency] = Math.round(
+              baseAmount[account.currency] *
+                (percent / (100.0 - alreadySpentPercentages[account.currency]))
+            );
+            alreadySpentPercentages[account.currency] += percent;
+          }
+          baseAmount[account.currency] -= amount[account.currency];
           if (
             this.formSendAda.isClaim &&
-            account.account === feePayerAccountId
+            account.account === feePayerAccountId &&
+            account.currency === "ada"
           ) {
-            if (baseAmount >= this.txFee) {
-              amount += this.txFee;
-              baseAmount -= this.txFee;
+            if (baseAmount[account.currency] >= this.txFee) {
+              amount[account.currency] += this.txFee;
+              baseAmount[account.currency] -= this.txFee;
             }
           }
         }
+
+        if (account.currency !== "ada") {
+          // subtract any token fees from our total available ada
+          baseAmount["ada"] -= this.calculateTokenFee(i, account.account);
+        }
       }
-      return amount;
+      return { remaining: baseAmount, amount: amount };
     },
-    percentLabel(index, percent) {
-      let lovelace = this.calculateSpentLovelaceAt(index);
-      return (
-        percent +
-        "% - " +
-        this.$options.filters.currency(lovelace / 1000000, "₳", 6)
-      );
+    percentLabel(index, percent, currency) {
+      let amount = this.calculateSpent(index + 1).amount[currency] || 0;
+      return percent + "% - " + this.formatCurrency(amount, currency);
     },
   },
   beforeCreate() {
@@ -495,14 +681,6 @@ export default {
       // received claim-ada message from parent component
       this.showSendAdaModal(walletItem, true);
     });
-    this.$root.$on("send-native-asset", (eventData) => {
-      // received claim-ada message from parent component
-      console.log("handle send-native-asset event!");
-      // received send-native-asset from parent component
-      // TODO fix for sending native assets
-      console.log(JSON.stringify(eventData));
-      this.showSendAdaModal(eventData.walletItem, false);
-    });
   },
   mounted() {
     this.clearFormSendAda();
@@ -510,7 +688,13 @@ export default {
   beforeDestroy() {
     this.$root.$off("send-ada");
     this.$root.$off("claim-ada");
-    this.$root.$off("send-native-asset");
   },
 };
 </script>
+
+<style scoped>
+.collapsed .when-open,
+.not-collapsed .when-closed {
+  display: none;
+}
+</style>

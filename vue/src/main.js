@@ -8,7 +8,9 @@ import {
   BIconServer,
   BIconGraphUp,
   BIconPencilSquare,
-  BIconHexagonHalf
+  BIconHexagonHalf,
+  BIconCaretUp,
+  BIconCaretDown
 } from 'bootstrap-vue'
 
 Vue.use(BootstrapVue)
@@ -18,6 +20,8 @@ Vue.component('BIconServer', BIconServer)
 Vue.component('BIconGraphUp', BIconGraphUp)
 Vue.component('BIconPencilSquare', BIconPencilSquare)
 Vue.component('BIconHexagonHalf', BIconHexagonHalf)
+Vue.component('BIconCaretUp', BIconCaretUp)
+Vue.component('BIconCaretDown', BIconCaretDown)
 
 Vue.use(require('vue-moment'))
 Vue.use(Vue2Filters)

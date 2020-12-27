@@ -65,18 +65,17 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                                                 }
                                                             }
                                                             reader.endArray()
+                                                            if (name.isNotBlank() && policy.isNotBlank() && amount > 0L) {
+                                                                nativeAssets.add(NativeAsset(name, policy, amount))
+                                                                name = ""
+                                                                amount = 0L
+                                                            }
                                                         }
                                                         reader.endArray()
                                                     }
                                                     else -> {
                                                         reader.skipValue()
                                                     }
-                                                }
-                                                if (name.isNotBlank() && policy.isNotBlank() && amount > 0L) {
-                                                    nativeAssets.add(NativeAsset(name, policy, amount))
-                                                    name = ""
-                                                    policy = ""
-                                                    amount = 0L
                                                 }
                                             }
                                             reader.endArray()

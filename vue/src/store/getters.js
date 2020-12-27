@@ -99,6 +99,22 @@ export default {
             }
         })
     },
+    currencySelectOptions: () => (walletItem) => {
+        let options = [{ value: "ada", text: "₳ - Ada" }]
+        if (walletItem.nativeAssetMap === undefined) {
+            return options;
+        }
+        let assetKeys = Object.keys(walletItem.nativeAssetMap);
+        if (assetKeys.length === 0) {
+            return options;
+        }
+        return options.concat(_.sortBy(_.map(assetKeys, (assetKey) => {
+            return {
+                value: assetKey,
+                text: assetKey.substring(0, assetKey.indexOf('.')),
+            };
+        }), ['text']));
+    },
     paymentSelectOptions: (state) => (currency) => {
         return _.sortBy(
             _.map(state.walletItems, (walletItem) => {
@@ -195,6 +211,11 @@ export default {
                         )
                 }
             }), ['text'])
+    },
+    walletItemById: (state) => (walletId) => {
+        return _.find(state.walletItems, (walletItem) => {
+            return walletItem.id === walletId;
+        }) || { name: "" };
     },
     epochTimeRemaining: (state) => {
         // console.log("state.slot = " + state.slot);

@@ -6,6 +6,8 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class ToAccount(
+        @Json(name = "currency")
+        val currency: String,
         @Json(name = "account")
         val account: Long,
         @Json(name = "amount")

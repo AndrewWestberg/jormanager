@@ -49,24 +49,33 @@
                   data.item.type != 'pledge' &&
                   data.value > 0
                 "
-                v-b-tooltip.hover.v-success.bottom="'Send Ada'"
+                v-b-tooltip.hover.v-success.bottom="'Send'"
                 @click="$root.$emit('send-ada', walletItems[data.index])"
               />
             </div>
-            <hr v-if="Object.keys(walletItems[data.index].nativeAssetMap).length > 0"/>
-            <div v-for="(name, index) in Object.keys(walletItems[data.index].nativeAssetMap).sort()" :key="index">
-              {{name.substring(0, name.indexOf('.'))}} - {{walletItems[data.index].nativeAssetMap[name]}}
+            <hr
+              v-if="
+                Object.keys(walletItems[data.index].nativeAssetMap).length > 0
+              "
+            />
+            <div
+              v-for="(name, index) in Object.keys(
+                walletItems[data.index].nativeAssetMap
+              ).sort()"
+              :key="index"
+            >
+              {{ name.substring(0, name.indexOf(".")) }} -
+              {{ walletItems[data.index].nativeAssetMap[name] }}
               <font-awesome-icon
                 :icon="['fas', 'coins']"
                 class="text-warning"
-                v-b-tooltip.hover.v-warning.bottom="'Send Native Asset'"
-                @click="$root.$emit('send-native-asset', {walletItem: walletItems[data.index], name: name})"
+                v-b-tooltip.hover.v-warning.bottom="'Native Asset'"
               />
             </div>
           </template>
           <template v-slot:cell(stakingAddr)="data">
             <div v-if="data.value.length > 0">
-              {{ data.value.substring(0, 10) }}... &nbsp;
+              {{ data.value.substring(0, 15) }}... &nbsp;
               <font-awesome-icon
                 :icon="['fas', 'link']"
                 class="text-success"
@@ -277,7 +286,6 @@ export default {
 .fa-hand-holding-usd:hover,
 .fa-link:hover,
 .fa-unlink:hover,
-.fa-coins:hover,
 span.text-success:hover {
   cursor: pointer;
 }

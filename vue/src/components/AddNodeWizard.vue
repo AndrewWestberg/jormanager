@@ -1303,9 +1303,7 @@ export default {
             this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
           }
           if (isNaN(this.formNode.poolCost)) {
-            console.log("poolCost: " + this.formNode.poolCost);
             this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-            console.log("converted poolCost: " + this.formNode.poolCost);
           }
           return true;
         } else {
@@ -1357,11 +1355,7 @@ export default {
           this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
         }
         if (isNaN(this.formNode.poolCost)) {
-          console.log("before save poolCost: " + this.formNode.poolCost);
           this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-          console.log(
-            "before save converted poolCost: " + this.formNode.poolCost
-          );
         }
         this.formNode.isDefault = false;
 
