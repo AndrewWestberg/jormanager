@@ -9,6 +9,19 @@
       ok-title="Send"
       @ok="handleValidateAndSend"
     >
+      <template #modal-footer="{ ok, cancel }">
+        <b-button
+          style="margin-right: 4em"
+          variant="outline-primary"
+          @click="addPaymentEntry()"
+          v-b-tooltip.hover.v-primary.top="'Add a new payment entry.'"
+        >
+          <b-icon-plus />&nbsp;Add Entry
+        </b-button>
+
+        <b-button variant="secondary" @click="cancel()">Cancel</b-button>
+        <b-button variant="primary" @click="ok()">Send</b-button>
+      </template>
       <b-form ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
         <div class="accordion" role="tablist">
           <b-card
@@ -26,9 +39,25 @@
                 :variant="headerVariant(index, toAccount)"
               >
                 <div class="clearfix">
-                  <span class="float-left">{{
-                    headerLabel(index, toAccount)
-                  }}</span>
+                  <span
+                    class="float-left"
+                    v-show="toAccount.isFeePayer"
+                    style="margin: 0 1em 0 0"
+                  >
+                    <font-awesome-icon
+                      :icon="['fas', 'hand-holding-usd']"
+                      class="text-warning"
+                      v-b-tooltip.hover.v-warning.bottom="'Fee Payer'"
+                    />
+                  </span>
+                  <span class="float-left">
+                    {{ headerLabel(index, toAccount) }}
+                  </span>
+                  <b-icon-x
+                    class="float-right"
+                    v-show="index > 0"
+                    @click="formSendAda.toAccounts.splice(index, 1)"
+                  />
                   <b-icon-caret-up class="float-right when-open" />
                   <b-icon-caret-down class="float-right when-closed" />
                 </div>
@@ -49,6 +78,7 @@
                     @input="
                       toAccount.amount = null;
                       toAccount.percent = 0;
+                      prepareCalculateSendAdaFees();
                     "
                   >
                   </b-form-select>
@@ -58,6 +88,7 @@
                     v-model="toAccount.account"
                     :state="accountState(toAccount.account)"
                     :options="paymentSelectOptions($options.filters.currency)"
+                    @input="prepareCalculateSendAdaFees()"
                   >
                     <template v-slot:first>
                       <b-form-select-option :value="null" disabled
@@ -70,6 +101,13 @@
                   <b-form-radio-group
                     v-model="toAccount.type"
                     :state="typeState(index, toAccount.type)"
+                    @input="
+                      if (toAccount.type === 'amount') {
+                        toAccount.percent = 0;
+                      } else {
+                        toAccount.amount = null;
+                      }
+                    "
                   >
                     <b-form-radio value="amount">
                       <font-awesome-icon
@@ -102,7 +140,13 @@
                   />
                   <b-form-invalid-feedback
                     :id="'amount-input-live-feedback-' + index"
-                    >Enter a non-zero amount up to
+                    >Enter an amount between
+                    {{
+                      toAccount.currency === "ada"
+                        ? formatCurrency(1000000, toAccount.currency)
+                        : formatCurrency(1, toAccount.currency)
+                    }}
+                    and
                     {{
                       amountRemainingLabel(index, toAccount.currency)
                     }}</b-form-invalid-feedback
@@ -138,14 +182,14 @@
           </b-card>
         </div>
       </b-form>
-      <hr />
+      <!-- <hr />
       <b-button
         variant="primary"
         @click="addPaymentEntry()"
         v-b-tooltip.hover.right="'Add a new payment entry.'"
       >
         <b-icon-plus />&nbsp;Add Entry
-      </b-button>
+      </b-button> -->
     </b-modal>
   </div>
 </template>
@@ -159,6 +203,7 @@ export default {
   data() {
     return {
       remainingLovelace: 1,
+      tokenKeepFee: 0,
       fromWalletItem: {
         name: null,
         paymentAddrLovelace: null,
@@ -175,6 +220,7 @@ export default {
             type: null,
             amount: null,
             percent: 0,
+            tokenFee: 0,
           },
         ],
       },
@@ -196,6 +242,9 @@ export default {
         // if we previously had no change to return.
         this.prepareCalculateSendAdaFees();
       }
+    },
+    tokenKeepFee() {
+      this.prepareCalculateSendAdaFees();
     },
   },
   computed: {
@@ -221,7 +270,7 @@ export default {
           ? ", TokenKeep: " + this.formatCurrency(tokenKeepFee, "ada")
           : "") +
         ", Remaining: " +
-        this.formatCurrency(this.remainingLovelace, "ada")
+        this.formatCurrency(this.remainingLovelace + tokenKeepFee, "ada")
       );
     },
   },
@@ -229,26 +278,30 @@ export default {
     ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
     ...mapMutations(["toastError"]),
     currencyState(currency) {
+      this.remainingLovelace = this.calculateSpent(
+        this.formSendAda.toAccounts.length
+      ).remaining["ada"];
+      this.tokenKeepFee = this.calculateTokenKeepFee();
       return currency != null;
     },
     accountState(account) {
+      this.remainingLovelace = this.calculateSpent(
+        this.formSendAda.toAccounts.length
+      ).remaining["ada"];
+      this.tokenKeepFee = this.calculateTokenKeepFee();
       return account != null;
     },
     typeState(index, type) {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      if (type !== "amount") {
-        this.formSendAda.toAccounts[index].amount = null;
-      }
-      if (type !== "percent") {
-        this.formSendAda.toAccounts[index].percent = 0;
-      }
+      this.tokenKeepFee = this.calculateTokenKeepFee();
       return type != null;
     },
     amountState(index, amount, currency) {
       let spent = this.calculateSpent(this.formSendAda.toAccounts.length);
       this.remainingLovelace = spent.remaining["ada"];
+      this.tokenKeepFee = this.calculateTokenKeepFee();
       if (amount != null) {
         let tokens = this.$ci.parse(
           amount,
@@ -256,7 +309,9 @@ export default {
         );
         let spent = this.calculateSpent(index + 1);
         let remainingTokens = spent.remaining[currency];
-        return tokens > 0 && remainingTokens >= 0;
+        return (
+          tokens >= (currency === "ada" ? 1000000 : 1) && remainingTokens >= 0
+        );
       }
       return false;
     },
@@ -264,11 +319,14 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
+      this.tokenKeepFee = this.calculateTokenKeepFee();
       if (percent != null && percent > 0) {
         let spent = this.calculateSpent(index + 1);
         let tokens = spent.amount[currency];
         let remainingTokens = spent.remaining[currency];
-        return tokens > 0 && remainingTokens >= 0;
+        return (
+          tokens >= (currency === "ada" ? 1000000 : 1) && remainingTokens >= 0
+        );
       }
       return false;
     },
@@ -319,7 +377,7 @@ export default {
         (this.amountState(index, toAccount.amount, toAccount.currency) ||
           this.percentState(index, toAccount.percent, toAccount.currency))
         ? "outline-success"
-        : "outline-danger";
+        : "danger";
     },
     formatCurrency(amount, currency) {
       let tokens = 0;
@@ -335,7 +393,7 @@ export default {
 
       return this.$options.filters.currency(
         tokens,
-        "(" + currency.split(".")[0] + ") ",
+        "(" + currency.split(".")[1] + ") ",
         0
       );
     },
@@ -357,7 +415,7 @@ export default {
       }
       return {
         currency: {
-          prefix: "(" + currency.split(".")[0] + ") ",
+          prefix: "(" + currency.split(".")[1] + ") ",
           suffix: null,
         },
         allowNegative: false,
@@ -371,19 +429,13 @@ export default {
     },
     amountPlaceholder(currency) {
       if (currency === "ada") return "e.g. ₳1,230.987000";
-      return "e.g. (" + currency.split(".")[0] + ") 1,230";
+      return "e.g. (" + currency.split(".")[1] + ") 1,230";
     },
     amountRemainingLabel(index, currency) {
-      let remaining = this.calculateSpent(index).remaining[currency];
-      if (currency === "ada") {
-        return this.$options.filters.currency(remaining / 1000000, "₳", 6);
-      } else {
-        return this.$options.filters.currency(
-          remaining,
-          "(" + currency.split(".")[0] + ") ",
-          0
-        );
-      }
+      return this.formatCurrency(
+        this.calculateSpent(index).remaining[currency],
+        currency
+      );
     },
     addPaymentEntry() {
       this.formSendAda.toAccounts.push({
@@ -392,6 +444,7 @@ export default {
         type: null,
         amount: null,
         percent: 0,
+        tokenFee: 0,
       });
 
       this.prepareCalculateSendAdaFees();
@@ -413,6 +466,7 @@ export default {
             type: null,
             amount: null,
             percent: 0,
+            tokenFee: 0,
           },
         ],
       };
@@ -422,6 +476,10 @@ export default {
       this.formSendAda.fromId = walletItem.id;
       this.formSendAda.isClaim = isClaim;
       this.fromWalletItem = _.cloneDeep(walletItem);
+      if (isClaim) {
+        // for claims, we ignore native assets
+        this.fromWalletItem.nativeAssetMap = undefined;
+      }
       if (isClaim) {
         // Fully claim to same account by default
         (this.formSendAda.toAccounts[0].account = walletItem.id),
@@ -434,6 +492,10 @@ export default {
     handleValidateAndSend(bvModalEvt) {
       bvModalEvt.preventDefault();
       if (this.txFee <= 0) {
+        this.toastError({
+          title: "Calculate Fee Error",
+          message: "No Account found capable of covering the claim fee!",
+        });
         return;
       }
       let isValidForm = true;
@@ -482,6 +544,7 @@ export default {
         fromId: this.formSendAda.fromId,
         isClaim: this.formSendAda.isClaim,
         txFee: this.txFee,
+        tokenKeepFee: this.calculateTokenKeepFee(),
         toAccounts: _.map(this.formSendAda.toAccounts, (toAccount, index) => {
           return {
             currency: toAccount.currency,
@@ -490,8 +553,12 @@ export default {
             amount:
               toAccount.amount == null
                 ? this.calculateSpent(index + 1).amount[toAccount.currency]
-                : this.$ci.parse(toAccount.amount),
+                : this.$ci.parse(
+                    toAccount.amount,
+                    this.amountCurrencyOptions(toAccount.currency)
+                  ),
             percent: toAccount.percent,
+            tokenFee: toAccount.tokenFee,
           };
         }),
       });
@@ -500,35 +567,17 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
+      this.tokenKeepFee = this.calculateTokenKeepFee();
 
-      if (
-        this.remainingLovelace == 0 &&
-        this.formSendAda.toAccounts[this.formSendAda.toAccounts.length - 1]
-          .type === "amount"
-      ) {
-        // We're trying to spend everything with an amount value. Change it to a percentage
-        let percent = 100;
-        let i = this.formSendAda.toAccounts.length - 2;
-        while (i >= 0 && this.formSendAda.toAccounts[i].type === "percent") {
-          percent -= this.formSendAda.toAccounts[i].percent;
-          i--;
-        }
-        this.formSendAda.toAccounts[
-          this.formSendAda.toAccounts.length - 1
-        ].amount = null;
-        this.formSendAda.toAccounts[
-          this.formSendAda.toAccounts.length - 1
-        ].percent = percent;
-        this.formSendAda.toAccounts[
-          this.formSendAda.toAccounts.length - 1
-        ].type = "percent";
-      }
-
-      let returnChangeTxOut = this.remainingLovelace > 0 ? 1 : 0;
+      let uniqueToAccounts = Object.keys(
+        _.countBy(this.formSendAda.toAccounts, "account")
+      ).length;
+      let returnChangeTxOut =
+        this.remainingLovelace + this.tokenKeepFee > 0 ? 1 : 0;
       let request = {
         fromId: this.fromWalletItem.id,
         toAccounts: _.map(this.formSendAda.toAccounts, "account"),
-        txOut: this.formSendAda.toAccounts.length + returnChangeTxOut,
+        txOut: uniqueToAccounts + returnChangeTxOut,
         isClaim: this.formSendAda.isClaim,
       };
       if (request.fromId) {
@@ -544,7 +593,8 @@ export default {
         if (
           walletItem &&
           walletItem.type !== "address" &&
-          walletItem.paymentAddrLovelace > 1000000
+          walletItem.type !== "pledge" &&
+          walletItem.paymentAddrLovelace >= 1000000 + this.txFee
         ) {
           return walletItem.id;
         }
@@ -598,20 +648,20 @@ export default {
     calculateTokenKeepFee() {
       // minimum amount of ada we need to keep on the sending address to retain unspent tokens
       // 1 ada minutxo + 1 ada for each token that isn't completely spent
+      let remaining = this.calculateSpent(
+        this.formSendAda.toAccounts.length,
+        true
+      ).remaining;
       let unspentTokensCount = _.sum(
-        _.map(
-          this.calculateSpent(this.formSendAda.toAccounts.length, true)
-            .remaining,
-          (amount, currency) => {
-            if (currency === "ada") {
-              return 0;
-            }
-            if (amount > 0) {
-              return 1;
-            }
+        _.map(remaining, (amount, currency) => {
+          if (currency === "ada") {
             return 0;
           }
-        )
+          if (amount > 0) {
+            return 1;
+          }
+          return 0;
+        })
       );
 
       if (unspentTokensCount > 0) {
@@ -631,27 +681,34 @@ export default {
         ? _.clone(this.fromWalletItem.nativeAssetMap)
         : {};
       baseAmount["ada"] = this.formSendAda.isClaim
-        ? this.fromWalletItem.stakingAddrLovelace - tokenKeepFee
+        ? this.fromWalletItem.stakingAddrLovelace
         : this.fromWalletItem.paymentAddrLovelace - this.txFee - tokenKeepFee;
       let alreadySpentPercentages = {};
       let amount = {};
+
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
         amount[account.currency] = 0;
+        if (feePayerAccountId === account.account) {
+          account.isFeePayer = true;
+        } else {
+          account.isFeePayer = false;
+        }
         if (account.type === "amount" && account.amount != null) {
           amount[account.currency] = this.$ci.parse(
             account.amount,
             this.amountCurrencyOptions(account.currency)
           );
+          baseAmount[account.currency] -= amount[account.currency];
           if (
             this.formSendAda.isClaim &&
             account.account === feePayerAccountId &&
             account.currency === "ada"
           ) {
-            // Reimburse payer for the txFee when claiming rewards
-            amount[account.currency] += this.txFee;
+            // We'll reimburse the payer for the txFee when claiming rewards
+            // so take it out of the base amount now
+            baseAmount[account.currency] -= this.txFee;
           }
-          baseAmount[account.currency] -= amount[account.currency];
           // reset percentages since this is an amount
           alreadySpentPercentages[account.currency] = 0;
         } else if (
@@ -679,15 +736,19 @@ export default {
             account.currency === "ada"
           ) {
             if (baseAmount[account.currency] >= this.txFee) {
-              amount[account.currency] += this.txFee;
+              // Only reimburse the fee payer if we have some left. If they are sending 100%, there won't be any left
               baseAmount[account.currency] -= this.txFee;
+            } else {
+              // Show that this account will be paying the txFee
+              amount[account.currency] -= this.txFee;
             }
           }
         }
 
         if (!skipTokenFees && account.currency !== "ada") {
           // subtract any token fees from our total available ada
-          baseAmount["ada"] -= this.calculateTokenFee(i, account.account);
+          account.tokenFee = this.calculateTokenFee(i, account.account);
+          baseAmount["ada"] -= account.tokenFee;
         }
       }
       return { remaining: baseAmount, amount: amount };

@@ -111,7 +111,7 @@ export default {
         return options.concat(_.sortBy(_.map(assetKeys, (assetKey) => {
             return {
                 value: assetKey,
-                text: assetKey.substring(0, assetKey.indexOf('.')),
+                text: assetKey.substring(assetKey.indexOf('.') + 1),
             };
         }), ['text']));
     },
@@ -217,22 +217,4 @@ export default {
             return walletItem.id === walletId;
         }) || { name: "" };
     },
-    epochTimeRemaining: (state) => {
-        // console.log("state.slot = " + state.slot);
-        let time = 432000 - state.slot;
-        // console.log("time: " + time);
-        let days = Math.floor(time / 60 / 60 / 24);
-        // console.log("days: " + days);
-        let hours = Math.floor(time / 60 / 60) % 24;
-        // console.log("hours: " + hours);
-        let minutes = Math.floor(time / 60) % 60;
-        // console.log("minutes: " + minutes);
-        let seconds = Math.floor(time % 60);
-        // console.log("seconds: " + seconds);
-
-        return days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
-    },
-    epochTimeRemainingSecs: (state) => {
-        return 432000 - state.slot;
-    }
 }

@@ -11,7 +11,9 @@ data class SubmitTransactionRequest(
         @Json(name = "fromId")
         val fromId: Long,
         @Json(name = "txFee")
-        val txFee: Int,
+        val txFee: Long,
+        @Json(name = "tokenKeepFee")
+        val tokenKeepFee: Long,
         @Json(name = "toAccounts")
         val toAccounts: List<ToAccount>,
         @Json(name = "isClaim")

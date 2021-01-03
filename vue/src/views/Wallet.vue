@@ -64,7 +64,7 @@
               ).sort()"
               :key="index"
             >
-              {{ name.substring(0, name.indexOf(".")) }} -
+              {{ name.substring(name.indexOf(".") + 1) }} -
               {{ walletItems[data.index].nativeAssetMap[name] }}
               <font-awesome-icon
                 :icon="['fas', 'coins']"

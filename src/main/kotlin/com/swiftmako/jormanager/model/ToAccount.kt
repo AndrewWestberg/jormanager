@@ -15,5 +15,7 @@ data class ToAccount(
         @Json(name = "percent")
         val percent: Int?,
         @Json(name = "type")
-        val type: String
+        val type: String,
+        @Json(name = "tokenFee")
+        val tokenFee: Long,
 )

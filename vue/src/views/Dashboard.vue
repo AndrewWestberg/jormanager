@@ -10,20 +10,9 @@
           align="center"
         >
           <b-card-text style="padding: 25% 0">
-            <h1 v-if="epochTimeRemainingSecs > 172800" class="text-success">
-              {{ epochTimeRemaining }}
-            </h1>
-            <h1
-              v-if="
-                epochTimeRemainingSecs <= 172800 &&
-                epochTimeRemainingSecs >= 86400
-              "
-              class="text-warning"
-            >
-              {{ epochTimeRemaining }}
-            </h1>
-            <h1 v-if="epochTimeRemainingSecs < 86400" class="text-danger">
-              {{ epochTimeRemaining }}
+            <h1 :class="epochRemainingClass()">
+              <div>Epoch: {{ epoch }}</div>
+              <div>{{ epochTimeRemaining() }}</div>
             </h1>
           </b-card-text>
         </b-card>
@@ -67,7 +56,7 @@
 </template>
 
 <script>
-import { mapState, mapGetters } from "vuex";
+import { mapState } from "vuex";
 import NodeChart from "@/components/NodeChart";
 import StackedBarChart from "@/components/StackedBarChart";
 
@@ -84,12 +73,39 @@ export default {
       "remainingKESSeriesCategoryLabels",
       "nodeColors",
       "txsProcessedSeries",
+      "epoch",
+      "slot",
     ]),
-    ...mapGetters(["epochTimeRemaining", "epochTimeRemainingSecs"]),
   },
   components: {
     NodeChart,
     StackedBarChart,
+  },
+  methods: {
+    epochRemainingClass() {
+      let epochTimeRemainingSecs = 432000 - this.slot;
+      if (epochTimeRemainingSecs > 172800) {
+        return "text-success";
+      }
+      if (epochTimeRemainingSecs > 86400) {
+        return "text-warning";
+      }
+      return "text-danger";
+    },
+    epochTimeRemaining() {
+      let time = 432000 - this.slot;
+      // console.log("time: " + time);
+      let days = Math.floor(time / 60 / 60 / 24);
+      // console.log("days: " + days);
+      let hours = Math.floor(time / 60 / 60) % 24;
+      // console.log("hours: " + hours);
+      let minutes = Math.floor(time / 60) % 60;
+      // console.log("minutes: " + minutes);
+      let seconds = Math.floor(time % 60);
+      // console.log("seconds: " + seconds);
+
+      return days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
+    },
   },
 };
 </script>

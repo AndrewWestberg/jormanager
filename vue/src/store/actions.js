@@ -285,7 +285,7 @@ export default {
                         })
                         commit('toastWarn', {
                             title: "Retire Pool",
-                            message: "Pool has been left running intentionally. You should be stop it and disable systemd scripts manually after retirement."
+                            message: "Pool has been left running intentionally. You should stop it and disable systemd scripts manually after retirement."
                         })
                     } else {
                         commit('toastError', {

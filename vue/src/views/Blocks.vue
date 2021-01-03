@@ -51,7 +51,7 @@
         :fields="fields"
         filter="true"
         :filter-function="filterBlocks"
-        v-if="blocks.length > 0"
+        v-show="blocks.length > 0"
         @filtered="onFiltered"
       >
         <template v-slot:cell(num)="data">{{
@@ -59,38 +59,14 @@
         }}</template>
         <template v-slot:cell(status)="data">
           <font-awesome-icon
-            v-if="data.value === 'pending'"
-            :icon="['fas', 'clock']"
-            class="text-secondary"
-            v-b-tooltip.hover.v-secondary.right="'Pending'"
-          />
-          <font-awesome-icon
-            v-if="data.value === 'missed'"
-            :icon="['fas', 'dumpster-fire']"
-            class="text-danger"
-            v-b-tooltip.hover.v-danger.right="'Missed'"
-          />
-          <font-awesome-icon
-            v-if="data.value === 'completed'"
-            :icon="['fas', 'cube']"
-            class="text-primary"
-            v-b-tooltip.hover.v-primary.right="'Completed'"
-          />
-          <font-awesome-icon
-            v-if="data.value === 'forged'"
-            :icon="['fas', 'hammer']"
-            class="text-success"
-            v-b-tooltip.hover.v-success.right="'Forged!'"
-          />
-          <font-awesome-icon
-            v-if="data.value === 'orphaned'"
-            :icon="['fas', 'ghost']"
-            class="text-warning"
-            v-b-tooltip.hover.v-warning.right="'Orphaned'"
+            :icon="blockIcon(data.value)"
+            :class="blockClass(data.value)"
+            v-b-tooltip.hover.right="blockTooltip(data.value)"
           />
         </template>
         <template v-slot:cell(hash)="data">
           <a
+            v-show="data.value != ''"
             :href="
               'https://explorer.cardano.org/en/block.html?id=' + data.value
             "
@@ -125,6 +101,7 @@
 
 <script>
 import { mapGetters, mapState, mapActions } from "vuex";
+import _ from "lodash";
 
 export default {
   data() {
@@ -166,8 +143,14 @@ export default {
       }
       return false;
     },
-    onFiltered(filteredItems) {
-      this.totalRows = filteredItems.length;
+    onFiltered(filteredItems, length) {
+      console.log(
+        "onFiltered: filteredItems.length = " +
+          filteredItems.length +
+          ", length = " +
+          length
+      );
+      this.totalRows = length;
     },
     handleLeaderLogs() {
       this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
@@ -177,6 +160,54 @@ export default {
           this.formLeaderLogs.spendingPassword = null;
         }
       );
+    },
+    blockIcon(value) {
+      switch (value) {
+        case "pending":
+          return ["fas", "clock"];
+        case "forged":
+          return ["fas", "hammer"];
+        case "orphaned":
+          return ["fas", "ghost"];
+        case "completed":
+          return ["fas", "cube"];
+        case "missed":
+        default:
+          return ["fas", "dumpster-fire"];
+      }
+    },
+    blockClass(value) {
+      switch (value) {
+        case "pending":
+          return "text-secondary";
+        case "forged":
+          return "text-success";
+        case "orphaned":
+          return "text-warning";
+        case "completed":
+          return "text-primary";
+        case "missed":
+        default:
+          return "text-danger";
+      }
+    },
+    blockTooltip(value) {
+      return { title: _.startCase(value), variant: this.blockVariant(value) };
+    },
+    blockVariant(value) {
+      switch (value) {
+        case "pending":
+          return "secondary";
+        case "forged":
+          return "success";
+        case "orphaned":
+          return "warning";
+        case "completed":
+          return "primary";
+        case "missed":
+        default:
+          return "danger";
+      }
     },
   },
   computed: {
