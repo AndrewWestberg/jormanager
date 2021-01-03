@@ -206,21 +206,22 @@ export default {
       "walletItemById",
     ]),
     modalTitle() {
+      let tokenKeepFee = this.calculateTokenKeepFee();
       return (
-        (this.formSendAda.isClaim ? "Claim Rewards (" : "Send (") +
-        this.fromWalletItem.name +
-        " - " +
-        this.$options.filters.currency(
-          (this.formSendAda.isClaim
+        (this.formSendAda.isClaim ? "Claiming: " : "Sending: ") +
+        this.formatCurrency(
+          this.formSendAda.isClaim
             ? this.fromWalletItem.stakingAddrLovelace
-            : this.fromWalletItem.paymentAddrLovelace) / 1000000,
-          "₳",
-          6
+            : this.fromWalletItem.paymentAddrLovelace,
+          "ada"
         ) +
-        "), TxFee: " +
-        this.$options.filters.currency(this.txFee / 1000000, "₳", 6) +
+        ", TxFee: " +
+        this.formatCurrency(this.txFee, "ada") +
+        (tokenKeepFee > 0
+          ? ", TokenKeep: " + this.formatCurrency(tokenKeepFee, "ada")
+          : "") +
         ", Remaining: " +
-        this.$options.filters.currency(this.remainingLovelace / 1000000, "₳", 6)
+        this.formatCurrency(this.remainingLovelace, "ada")
       );
     },
   },
@@ -253,9 +254,8 @@ export default {
           amount,
           this.amountCurrencyOptions(currency)
         );
-        let remainingTokens = this.calculateSpent(index + 1).remaining[
-          currency
-        ];
+        let spent = this.calculateSpent(index + 1);
+        let remainingTokens = spent.remaining[currency];
         return tokens > 0 && remainingTokens >= 0;
       }
       return false;
@@ -564,7 +564,7 @@ export default {
           if (account.currency !== "ada") {
             return 0;
           }
-          return this.calculateSpent(index + 1).amount[account.currency];
+          return this.calculateSpent(index + 1, true).amount[account.currency];
         }
       );
 
@@ -595,19 +595,44 @@ export default {
       }
       return tokenFee;
     },
-    calculateSpent(index) {
+    calculateTokenKeepFee() {
+      // minimum amount of ada we need to keep on the sending address to retain unspent tokens
+      // 1 ada minutxo + 1 ada for each token that isn't completely spent
+      let unspentTokensCount = _.sum(
+        _.map(
+          this.calculateSpent(this.formSendAda.toAccounts.length, true)
+            .remaining,
+          (amount, currency) => {
+            if (currency === "ada") {
+              return 0;
+            }
+            if (amount > 0) {
+              return 1;
+            }
+            return 0;
+          }
+        )
+      );
+
+      if (unspentTokensCount > 0) {
+        return unspentTokensCount * 1000000 + 1000000;
+      }
+      return 0;
+    },
+    calculateSpent(index, skipTokenFees) {
       let feePayerAccountId = -1;
       if (this.formSendAda.isClaim) {
         feePayerAccountId = this.calculateClaimRewardsFeePayer();
       } else {
         feePayerAccountId = this.fromWalletItem.id;
       }
+      let tokenKeepFee = skipTokenFees ? 0 : this.calculateTokenKeepFee();
       let baseAmount = this.fromWalletItem.nativeAssetMap
         ? _.clone(this.fromWalletItem.nativeAssetMap)
         : {};
       baseAmount["ada"] = this.formSendAda.isClaim
-        ? this.fromWalletItem.stakingAddrLovelace
-        : this.fromWalletItem.paymentAddrLovelace - this.txFee;
+        ? this.fromWalletItem.stakingAddrLovelace - tokenKeepFee
+        : this.fromWalletItem.paymentAddrLovelace - this.txFee - tokenKeepFee;
       let alreadySpentPercentages = {};
       let amount = {};
       for (let i = 0; i < index; i++) {
@@ -660,7 +685,7 @@ export default {
           }
         }
 
-        if (account.currency !== "ada") {
+        if (!skipTokenFees && account.currency !== "ada") {
           // subtract any token fees from our total available ada
           baseAmount["ada"] -= this.calculateTokenFee(i, account.account);
         }
