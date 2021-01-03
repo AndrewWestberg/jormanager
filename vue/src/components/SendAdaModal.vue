@@ -482,14 +482,14 @@ export default {
         fromId: this.formSendAda.fromId,
         isClaim: this.formSendAda.isClaim,
         txFee: this.txFee,
-        toAccounts: _.map(this.formSendAda.toAccounts, (toAccount) => {
+        toAccounts: _.map(this.formSendAda.toAccounts, (toAccount, index) => {
           return {
             currency: toAccount.currency,
             account: toAccount.account,
             type: toAccount.type,
             amount:
               toAccount.amount == null
-                ? null
+                ? this.calculateSpent(index + 1).amount[toAccount.currency]
                 : this.$ci.parse(toAccount.amount),
             percent: toAccount.percent,
           };

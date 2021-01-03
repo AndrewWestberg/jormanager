@@ -570,6 +570,10 @@ class WalletController @Autowired constructor(
     @Synchronized
     fun submitTransaction(request: SubmitTransactionRequest) {
         try {
+            if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                throw IllegalArgumentException("Invalid spending password!")
+            }
+
             val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
             val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                     ?: throw IOException("Genesis file for default node not found!")
@@ -601,6 +605,7 @@ class WalletController @Autowired constructor(
                     fromWalletEntry
                 }
 
+                val baseAmount = mutableMapOf<String, Long>()
                 val utxos = walletUtils.getUtxos(
                         defaultHost,
                         defaultHostConnection,
@@ -612,62 +617,59 @@ class WalletController @Autowired constructor(
                 transaction.append("${defaultHost.cardanoCliPath} transaction build-raw $eraString ")
                 utxos.forEach { utxo ->
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                    utxo.nativeAssets.forEach { nativeAsset ->
+                        val nativeAssetBaseAmount = baseAmount.getOrDefault(nativeAsset.name, 0L)
+                        baseAmount[nativeAsset.name] = nativeAssetBaseAmount + nativeAsset.amount
+                    }
                 }
 
                 val walletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, eraString, magicString, fromWalletEntry)
 
                 val paymentAddressLovelace = utxos.sumByLong { it.lovelace }
-                var baseAmount = if (request.isClaim) {
+                baseAmount["ada"] = if (request.isClaim) {
                     walletItem.stakingAddrLovelace ?: -1L
                 } else {
                     paymentAddressLovelace - request.txFee
                 }
 
-                var alreadySpentPercentages = 0L
-                request.toAccounts.forEach { account ->
+                val toAccounts = request.toAccounts.toMutableList()
+                while (toAccounts.size > 0) {
+                    // the group of all toAccounts destined for the same receiving address
+                    val account = toAccounts[0]
+                    val toAccountsGroup = toAccounts.filter { it.account == account.account }
                     val walletEntry = walletRepository.findByIdOrNull(account.account)
                             ?: throw IOException("Wallet entry id ${account.account} not found!")
-                    when (account.type) {
-                        "amount" -> {
-                            var claimAmount = 0L
-                            val amount = if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                // Reimburse payer for the txFee when claiming rewards
-                                claimAmount = paymentAddressLovelace - request.txFee
-                                log.debug("claimAmount: $claimAmount")
-                                account.amount!! + request.txFee
-                            } else {
-                                account.amount!!
-                            }
 
-                            transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount + claimAmount} ")
-                            baseAmount -= amount
-                            // reset percentages since this is an amount
-                            alreadySpentPercentages = 0L
-                        }
-                        "percent" -> {
-                            var amount = round(baseAmount * (account.percent!! / (100.0 - alreadySpentPercentages))).toLong()
-                            baseAmount -= amount
-                            alreadySpentPercentages += account.percent
-                            if (alreadySpentPercentages == 100L) {
-                                alreadySpentPercentages = 0L
-                            }
-                            var claimAmount = 0L
-                            if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                if (baseAmount >= request.txFee) {
-                                    // We have money available to reimburse the fee to the payer
-                                    amount += request.txFee
-                                    baseAmount -= request.txFee
-                                }
-                                claimAmount = paymentAddressLovelace - request.txFee
-                                log.debug("claimAmount: $claimAmount")
-                            }
-                            transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount + claimAmount} ")
-                        }
-                        else -> {
-                            throw IllegalArgumentException("Unknown account type: ${account.type}")
+                    val totalAdaSentToAccount = toAccountsGroup.sumByLong { toAccount ->
+                        if(toAccount.currency == "ada") {
+                            toAccount.amount!!
+                        } else {
+                           0L
                         }
                     }
+
+                    //TODO: calculate total ada with token fees plus how much of each token needs to go to this receive address
+
+                    toAccounts.removeAll(toAccountsGroup)
                 }
+
+                request.toAccounts.forEachIndexed { index, account ->
+                    val walletEntry = walletRepository.findByIdOrNull(account.account)
+                            ?: throw IOException("Wallet entry id ${account.account} not found!")
+                    var claimAmount = 0L
+                    val amount = if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
+                        // Reimburse payer for the txFee when claiming rewards
+                        claimAmount = paymentAddressLovelace - request.txFee
+                        log.debug("claimAmount: $claimAmount")
+                        account.amount!! + request.txFee
+                    } else {
+                        account.amount!!
+                    }
+
+                    transaction.append("--tx-out ${walletEntry.paymentAddr}+${amount + claimAmount} ")
+                    baseAmount -= amount
+                }
+
                 val remaining = baseAmount
                 if (remaining > 0) {
                     transaction.append("--tx-out ${fromWalletEntry.paymentAddr}+$remaining ")
@@ -688,6 +690,7 @@ class WalletController @Autowired constructor(
                 transaction.append("--out-file /tmp/transaction.txbody")
 
                 // build the transaction
+                log.debug("transaction: $transaction")
                 defaultHostConnection.command(transaction.toString())
 
                 // sign the transaction
@@ -705,11 +708,14 @@ class WalletController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $magicString --out-file /tmp/transaction.txsigned")
                 }
 
+                /*
                 // submit the transaction
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString").trim()
                 val txid = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
 
                 transactionRepository.save(Transaction(txid = txid))
+                */
+                val txid = "dummy"
 
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "submittransaction", data = "transaction succeeded: $txid"))
             } finally {
