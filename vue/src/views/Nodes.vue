@@ -21,7 +21,7 @@
           v-if="displayNodes.length > 0"
         >
           <template v-slot:cell(name)="data">
-            <div>
+            <div class="clearfix">
               <font-awesome-icon
                 :style="{ color: data.item.color }"
                 :icon="['fas', 'circle']"
@@ -37,6 +37,18 @@
                 @click="updateColor(data.item.id, data.item.color)"
               />
               &nbsp;{{ data.value }}
+              <div class="float-right" v-show="data.item.type === 'core'">
+                <font-awesome-icon
+                  :icon="['fas', 'copy']"
+                  class="text-secondary"
+                  v-b-tooltip.hover.v-secondary.right="
+                    'Copy PoolId: ' +
+                    (data.item.poolId || '').substring(0, 8) +
+                    '... to clipboard'
+                  "
+                  @click="copyToClipboard(data.item.poolId)"
+                />
+              </div>
             </div>
           </template>
           <template v-slot:cell(type)="data">
@@ -919,7 +931,7 @@ export default {
       "sendEditRelays",
       "sendRetirePool",
     ]),
-    ...mapMutations(["toastError"]),
+    ...mapMutations(["toastInfo", "toastError"]),
     restartNode(node) {
       this.$bvModal
         .msgBoxConfirm("Restart " + node + ". Are you sure?")
@@ -943,6 +955,22 @@ export default {
       this.editColorForm.id = nodeId;
       this.editColorForm.color = nodeColor;
       this.$bvModal.show("modal-edit-color");
+    },
+    copyToClipboard(value) {
+      this.$copyText(value).then(
+        () => {
+          this.toastInfo({
+            title: "PoolId",
+            message: "Copied to clipboard",
+          });
+        },
+        () => {
+          this.toastError({
+            title: "PoolId",
+            message: "Copy to clipboard failed.",
+          });
+        }
+      );
     },
     handleSaveColor() {
       this.updateNodeColor(this.editColorForm);
@@ -1287,6 +1315,7 @@ export default {
 </script>
 
 <style scoped>
+.fa-copy:hover,
 .fa-info-circle:hover,
 .fa-percent:hover,
 .fa-circle:hover,

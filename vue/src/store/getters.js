@@ -92,6 +92,7 @@ export default {
                 id: node.id,
                 color: node.color,
                 name: node.name,
+                poolId: node.poolId,
                 type: node.type,
                 host: host ? host.hostname : "",
                 isDefault: node.isDefault,
