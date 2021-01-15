@@ -43,6 +43,30 @@
           </b-form-group>
         </b-col>
       </b-row>
+      <b-row>
+        <b-col cols="2"> <strong>Total:</strong> {{ totalRows }}</b-col>
+        <b-col cols="2" class="text-secondary">
+          <font-awesome-icon :icon="['fas', 'clock']" />
+          <strong> Pending:</strong> {{ pendingRows }}</b-col
+        >
+        <b-col cols="2" class="text-primary">
+          <font-awesome-icon :icon="['fas', 'cube']" />
+          <strong> Completed:</strong> {{ completedRows }}</b-col
+        >
+        <b-col cols="2" class="text-success">
+          <font-awesome-icon :icon="['fas', 'hammer']" />
+          <strong> Forged:</strong> {{ forgedRows }}</b-col
+        >
+        <b-col cols="2" class="text-warning">
+          <font-awesome-icon :icon="['fas', 'ghost']" />
+          <strong> Orphaned:</strong> {{ orphanedRows }}</b-col
+        >
+        <b-col cols="2" class="text-danger">
+          <font-awesome-icon :icon="['fas', 'dumpster-fire']" />
+          <strong> Missed:</strong> {{ missedRows }}</b-col
+        >
+      </b-row>
+      <hr />
       <b-table
         bordered
         striped
@@ -123,7 +147,12 @@ export default {
       ],
       selectedEpoch: null,
       selectedPool: null,
-      totalRows: -1,
+      totalRows: 0,
+      pendingRows: 0,
+      forgedRows: 0,
+      orphanedRows: 0,
+      completedRows: 0,
+      missedRows: 0,
       formLeaderLogs: {
         spendingPassword: null,
         requestType: "currentEpoch",
@@ -144,13 +173,38 @@ export default {
       return false;
     },
     onFiltered(filteredItems, length) {
-      console.log(
-        "onFiltered: filteredItems.length = " +
-          filteredItems.length +
-          ", length = " +
-          length
-      );
       this.totalRows = length;
+      let pendingRows = 0;
+      let forgedRows = 0;
+      let orphanedRows = 0;
+      let completedRows = 0;
+      let missedRows = 0;
+      for (let i = 0; i < filteredItems.length; i++) {
+        const element = filteredItems[i];
+        switch (element.status) {
+          case "pending":
+            pendingRows++;
+            break;
+          case "forged":
+            forgedRows++;
+            break;
+          case "orphaned":
+            orphanedRows++;
+            break;
+          case "completed":
+            completedRows++;
+            break;
+          case "missed":
+          default:
+            missedRows++;
+            break;
+        }
+      }
+      this.pendingRows = pendingRows;
+      this.forgedRows = forgedRows;
+      this.orphanedRows = orphanedRows;
+      this.completedRows = completedRows;
+      this.missedRows = missedRows;
     },
     handleLeaderLogs() {
       this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
