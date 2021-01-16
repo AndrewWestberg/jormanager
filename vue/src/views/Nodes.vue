@@ -1118,6 +1118,7 @@ export default {
     },
     retirePool(nodeId) {
       this.retirePoolForm.id = nodeId;
+      this.retirePoolForm.retireEpoch = this.epoch + 1;
       this.$bvModal.show("modal-retire-pool");
     },
     handleRetirePool(bvModalEvt) {
@@ -1161,7 +1162,7 @@ export default {
       "stakingSelectOptions",
       "rewardsSelectOptions",
     ]),
-    ...mapState(["nodes", "editorMetadata"]),
+    ...mapState(["nodes", "editorMetadata", "epoch"]),
     registrationFeesAccountState() {
       return this.editPoolConfigForm.registrationFeesAccount != null;
     },
