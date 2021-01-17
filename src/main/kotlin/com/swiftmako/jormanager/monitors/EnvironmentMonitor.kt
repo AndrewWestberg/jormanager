@@ -102,6 +102,7 @@ class EnvironmentMonitor @Autowired constructor(
 
     companion object {
         const val RECONNECT_DELAY_MS = 14_400_000L // 4 hours
-        const val URL = "https://hydra.iohk.io/job/Cardano/cardano-node/cardano-deployment/latest-finished/download/1/index.html"
+        //const val URL = "https://hydra.iohk.io/job/Cardano/cardano-node/cardano-deployment/latest-finished/download/1/index.html"
+        const val URL = "https://bluecheesestakehouse.com/jormanager/index.html"
     }
 }
