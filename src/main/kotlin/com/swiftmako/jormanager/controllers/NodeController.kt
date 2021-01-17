@@ -153,7 +153,8 @@ class NodeController @Autowired constructor(
                             request.ekgPort,
                             request.promPort,
                             hostConnection,
-                            nodeFolder
+                            nodeFolder,
+                            "4",
                     )
                     createEnvFile(
                             hostConnection,
@@ -679,7 +680,8 @@ class NodeController @Autowired constructor(
                                 request.ekgPort,
                                 request.promPort,
                                 hostConnection,
-                                nodeFolder
+                                nodeFolder,
+                                "2"
                         )
                         createKesVrfOpcert(
                                 request.name,
@@ -2366,7 +2368,8 @@ class NodeController @Autowired constructor(
             requestEkgPort: Int,
             requestPromPort: Int,
             hostConnection: HostConnection,
-            nodeFolder: String
+            nodeFolder: String,
+            maxConcurrencyDeadline: String,
     ): Triple<Long, Int, Int> {
         var ekgPort = requestEkgPort
 
@@ -2407,6 +2410,7 @@ class NodeController @Autowired constructor(
                 ?.replace(Regex(""""hasEkg.*,"""), """"hasEkg": $ekgPort,""")
                 ?.replace(Regex(""""hasEKG.*,"""), """"hasEKG": $ekgPort,""")
                 ?.replace("12798", "$promPort")
+                ?.replace(Regex(""""MaxConcurrencyDeadline.*,""""), """"MaxConcurrencyDeadline": $maxConcurrencyDeadline,""")
         configFileContent?.let {
             log.debug("Creating ${nodeFolder}/config.json from db file ${configFile.name}")
             hostConnection.commandWriteFile("${nodeFolder}/config.json", it)
