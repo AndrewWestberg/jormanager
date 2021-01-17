@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.4.1"
-    id("io.spring.dependency-management") version "1.0.10.RELEASE"
+    id("org.springframework.boot") version "2.4.2"
+    id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.36.0"
     kotlin("jvm") version "1.4.21-2"
     kotlin("kapt") version "1.4.21-2"
@@ -18,13 +18,13 @@ object Versions {
     const val cbor = "0.01.01"
     const val coroutines = "1.4.2"
     const val googleTruth = "1.1"
-    const val jackson = "2.12.0"
+    const val jackson = "2.12.1"
     const val joda = "2.10.9"
     const val json = "20201115"
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.2.2"
-    const val mockk = "1.10.4"
+    const val mockk = "1.10.5"
     const val moshi = "1.11.0"
     const val okhttp = "4.9.0"
     const val retrofit = "2.9.0"
