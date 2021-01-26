@@ -49,6 +49,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import java.io.IOException
+import java.lang.IllegalStateException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
@@ -266,6 +267,9 @@ class BlockMonitor @Autowired constructor(
                 } catch (e: IOException) {
                     log.error("IOException communicating with ${node.name}", e)
                     retry = true
+                } catch (e: IllegalStateException) {
+                    log.error("IllegalStateException communicating with ${node.name}", e)
+                    retry = true
                 } catch (e: CancellationException) {
                     log.warn("Monitoring job canceled: ${node.name}")
                 } catch (e: Throwable) {
@@ -342,6 +346,9 @@ class BlockMonitor @Autowired constructor(
                     }
                 } catch (e: IOException) {
                     log.error("IOException communicating with ${node.name}", e)
+                    retry = true
+                } catch (e: IllegalStateException) {
+                    log.error("IllegalStateException communicating with ${node.name}", e)
                     retry = true
                 } catch (e: CancellationException) {
                     log.warn("Monitoring job canceled: ${node.name}")

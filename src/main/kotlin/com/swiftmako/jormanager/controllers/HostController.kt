@@ -14,6 +14,7 @@ import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
+import java.lang.IllegalStateException
 
 @Controller
 class HostController @Autowired constructor(
@@ -82,6 +83,9 @@ class HostController @Autowired constructor(
         } catch (e: IOException) {
             val error = "IOException communicating with ${host.hostname}"
             log.error(error, e)
+            return SocketResponse.Error(type = "addhost", exception = e)
+        } catch (e: IllegalStateException) {
+            log.error("IllegalStateException communicating with ${host.hostname}", e)
             return SocketResponse.Error(type = "addhost", exception = e)
         } catch (e: Throwable) {
             val error = "Fatal error communicating with ${host.hostname}!"

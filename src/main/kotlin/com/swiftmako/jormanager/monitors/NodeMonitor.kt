@@ -50,6 +50,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import retrofit2.Retrofit
 import java.io.IOException
+import java.lang.IllegalStateException
 import java.net.ConnectException
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
@@ -237,6 +238,9 @@ class NodeMonitor @Autowired constructor(
                 monitorNode(node.id!!, ekgService, ssh, true)
             } catch (e: IOException) {
                 log.error("IOException communicating with ${node.name}", e)
+                retry = true
+            } catch (e: IllegalStateException) {
+                log.error("IllegalStateException communicating with ${node.name}", e)
                 retry = true
             } catch (e: CancellationException) {
                 log.warn("Monitoring job canceled: ${node.name}")

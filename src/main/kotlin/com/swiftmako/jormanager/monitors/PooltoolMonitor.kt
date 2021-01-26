@@ -42,6 +42,7 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.io.IOException
+import java.lang.IllegalStateException
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -202,6 +203,9 @@ class PooltoolMonitor @Autowired constructor(
                     monitorBlocksLocal(host, node, localPort)
                 } catch (e: IOException) {
                     log.error("IOException communicating with ${node.name}")
+                    retry = true
+                } catch (e: IllegalStateException) {
+                    log.error("IllegalStateException communicating with ${node.name}", e)
                     retry = true
                 } catch (e: CancellationException) {
                     log.warn("Monitoring job canceled: ${node.name}")
