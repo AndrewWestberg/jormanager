@@ -260,7 +260,7 @@
             type="range"
             min="0.00"
             max="1.00"
-            step="0.0025"
+            step="0.001"
             trim
           />
           <p class="text-center">
