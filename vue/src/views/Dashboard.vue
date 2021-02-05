@@ -75,6 +75,7 @@ export default {
       "txsProcessedSeries",
       "epoch",
       "slot",
+      "epochLength",
     ]),
   },
   components: {
@@ -83,17 +84,17 @@ export default {
   },
   methods: {
     epochRemainingClass() {
-      let epochTimeRemainingSecs = 432000 - this.slot;
-      if (epochTimeRemainingSecs > 172800) {
+      let epochTimeRemainingSecs = this.epochLength - this.slot;
+      if ((epochTimeRemainingSecs * 1.0) / this.epochLength > 0.4) {
         return "text-success";
       }
-      if (epochTimeRemainingSecs > 86400) {
+      if ((epochTimeRemainingSecs * 1.0) / this.epochLength > 0.2) {
         return "text-warning";
       }
       return "text-danger";
     },
     epochTimeRemaining() {
-      let time = 432000 - this.slot;
+      let time = this.epochLength - this.slot;
       // console.log("time: " + time);
       let days = Math.floor(time / 60 / 60 / 24);
       // console.log("days: " + days);

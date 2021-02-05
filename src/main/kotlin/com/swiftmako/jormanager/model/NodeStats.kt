@@ -1,7 +1,5 @@
 package com.swiftmako.jormanager.model
 
-import com.swiftmako.jormanager.model.ekg.TxsProcessedNum
-
 data class NodeStats(
         val isDefault: Boolean,
         val timestamp: Long,
@@ -15,4 +13,5 @@ data class NodeStats(
         val slot: Long?,
         val slotInEpoch: Long?,
         val txsProcessed: Long?,
+        val epochLength: Long,
 )

@@ -40,6 +40,7 @@ export default {
 
     epoch: 0,
     slot: 0,
+    epochLength: 432000,
 
     editorMetadata: null,
 }

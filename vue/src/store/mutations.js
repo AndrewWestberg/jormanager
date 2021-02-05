@@ -93,12 +93,15 @@ export default {
                 state.remainingKESSeries[2].data[index2] = good;
             }
 
-            if (nodeStats.epoch > state.epoch) {
+            if (nodeStats.epoch !== state.epoch) {
                 state.epoch = nodeStats.epoch;
                 state.slot = 0;
             }
-            if (nodeStats.slotInEpoch > state.slot) {
+            if (nodeStats.slotInEpoch !== state.slot) {
                 state.slot = nodeStats.slotInEpoch;
+            }
+            if (nodeStats.epochLength !== state.epochLength) {
+                state.epochLength = nodeStats.epochLength;
             }
 
             let index3 = _.findIndex(state.incomingPeersSeries, ["name", nodeStats.nodeName]);

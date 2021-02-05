@@ -269,6 +269,11 @@ class NodeMonitor @Autowired constructor(
         delay(5000)
         var node = nodeRepository.findByIdOrNull(nodeId)!!
         log.info("Start NodeMonitor for: ${node.name}")
+
+        val epochLength = fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { genesisShelleyFile ->
+            shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!.epochLength
+        } ?: 432000 //5-day default
+
         var lastBlockHeight = -1L
         while (true) {
             // delay until the next 5-second interval
@@ -316,7 +321,7 @@ class NodeMonitor @Autowired constructor(
 
                 if (ekgMetrics.cardano.node.metrics.blockNum.int.valX > 0L) {
                     // ignore any block height of zero. It just means we restarted the node and don't know where we are yet.
-                    val nodeStats = ekgMetrics.toNodeStats(now, node, incomingPeers)
+                    val nodeStats = ekgMetrics.toNodeStats(now, node, incomingPeers, epochLength)
                     eventsChannel.send(nodeStats)
                     if (node.isDefault) {
                         nodeStats.blockHeight?.let { newBlockHeight ->
@@ -341,7 +346,8 @@ class NodeMonitor @Autowired constructor(
                                     epoch = null,
                                     slot = null,
                                     slotInEpoch = null,
-                                    txsProcessed = null
+                                    txsProcessed = null,
+                                    epochLength = epochLength
                             )
                     )
                 }
@@ -359,7 +365,8 @@ class NodeMonitor @Autowired constructor(
                                 epoch = null,
                                 slot = null,
                                 slotInEpoch = null,
-                                txsProcessed = null
+                                txsProcessed = null,
+                                epochLength = epochLength
                         )
                 )
                 if (rethrowExceptions) {
@@ -381,7 +388,8 @@ class NodeMonitor @Autowired constructor(
                                 epoch = null,
                                 slot = null,
                                 slotInEpoch = null,
-                                txsProcessed = null
+                                txsProcessed = null,
+                                epochLength = epochLength
                         )
                 )
                 if (rethrowExceptions) {
@@ -393,7 +401,7 @@ class NodeMonitor @Autowired constructor(
         }
     }
 
-    private fun EkgMetrics2.toNodeStats(timestamp: Long, node: Node, incomingPeers: Int): NodeStats {
+    private fun EkgMetrics2.toNodeStats(timestamp: Long, node: Node, incomingPeers: Int, epochLength: Long): NodeStats {
         return NodeStats(
                 isDefault = node.isDefault,
                 timestamp = timestamp,
@@ -407,6 +415,7 @@ class NodeMonitor @Autowired constructor(
                 slot = this.cardano.node.metrics.slotNum.int.valX,
                 slotInEpoch = this.cardano.node.metrics.slotInEpoch.int.valX,
                 txsProcessed = this.cardano.node.metrics.txsProcessedNum.int.valX,
+                epochLength = epochLength,
         )
     }
 

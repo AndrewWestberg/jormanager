@@ -208,6 +208,18 @@ class MuxProtocol(
                     leaderVrf = "",
                 )
             )
+            it.add(
+                    // Last byron block of guild
+                    ChainBlock(
+                            slotNumber = 359,
+                            hash = "baa280a8c640c186e44e2b78de82930e7524d8c7548c5c674aa280e671ce8a45",
+                            blockNumber = 0L,
+                            prevHash = "",
+                            etaV = "",
+                            poolId = "",
+                            leaderVrf = "",
+                    )
+            )
         }
     }
 
