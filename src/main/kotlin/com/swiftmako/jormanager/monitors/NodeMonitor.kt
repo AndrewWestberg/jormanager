@@ -143,7 +143,7 @@ class NodeMonitor @Autowired constructor(
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                             val eraString = defaultHostConnection.calculateEraString(magicString)
                             val ledgerStateJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString --cardano-mode $magicString")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString")
                                             .trim()
                             val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
                             val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)

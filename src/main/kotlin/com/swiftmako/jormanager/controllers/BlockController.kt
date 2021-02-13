@@ -144,7 +144,7 @@ class BlockController @Autowired constructor(
                             val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slotNo
                                 ?: throw IOException("Unable to query tip!")
                             val ledgerStateJson =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString --cardano-mode $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString")
                                     .trim()
                             val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
                             val ledgerAdapter = LeaderLogLedgerJsonAdapter(moshi, poolIds)

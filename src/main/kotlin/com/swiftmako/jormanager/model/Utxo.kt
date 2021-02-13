@@ -11,7 +11,7 @@ fun List<Utxo>.toNativeAssetMap(): Map<String, Long> {
     val nativeAssetMap = mutableMapOf<String, Long>()
     this.forEach { utxo ->
         utxo.nativeAssets.forEach { nativeAsset ->
-            val currency = "${nativeAsset.policy}.${nativeAsset.name}"
+            val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')
             val amount = (nativeAssetMap[currency] ?: 0L) + nativeAsset.amount
             nativeAssetMap[currency] = amount
         }

@@ -40,7 +40,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                         while (reader.hasNext()) {
                                             reader.beginArray()
                                             var policy = ""
-                                            var name = ""
+                                            var name: String? = null
                                             var amount = 0L
                                             while (reader.hasNext()) {
                                                 when (reader.peek()) {
@@ -65,9 +65,9 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                                                 }
                                                             }
                                                             reader.endArray()
-                                                            if (name.isNotBlank() && policy.isNotBlank() && amount > 0L) {
+                                                            if (name != null && policy.isNotBlank() && amount > 0L) {
                                                                 nativeAssets.add(NativeAsset(name, policy, amount))
-                                                                name = ""
+                                                                name = null
                                                                 amount = 0L
                                                             }
                                                         }

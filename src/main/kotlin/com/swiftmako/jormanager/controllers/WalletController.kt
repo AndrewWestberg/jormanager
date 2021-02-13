@@ -82,7 +82,7 @@ class WalletController @Autowired constructor(
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
             val eraString = defaultHostConnection.calculateEraString(magicString)
             val protocolParams =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString --cardano-mode $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString $magicString")
                             .trim()
             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParams)
 
@@ -206,7 +206,7 @@ class WalletController @Autowired constructor(
                         try {
                             val eraString = defaultHostConnection.calculateEraString(magicString)
                             val protocolParamsJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString --cardano-mode $magicString")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString $magicString")
                                             .trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -340,7 +340,7 @@ class WalletController @Autowired constructor(
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                             val txid =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                             transactionRepository.save(Transaction(txid = txid))
@@ -600,7 +600,7 @@ class WalletController @Autowired constructor(
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
             try {
                 val eraString = defaultHostConnection.calculateEraString(magicString)
-                val protocolParams = defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString --cardano-mode $magicString").trim()
+                val protocolParams = defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString $magicString").trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParams)
 
                 val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
@@ -630,7 +630,7 @@ class WalletController @Autowired constructor(
                 utxos.forEach { utxo ->
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                     utxo.nativeAssets.forEach { nativeAsset ->
-                        val currency = "${nativeAsset.policy}.${nativeAsset.name}"
+                        val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')
                         val nativeAssetBaseAmount = baseAmount.getOrDefault(currency, 0L)
                         baseAmount[currency] = nativeAssetBaseAmount + nativeAsset.amount
                     }
@@ -680,8 +680,8 @@ class WalletController @Autowired constructor(
                     transaction.append("--tx-out '${walletEntry.paymentAddr}+${amount + claimAmount}")
                     toAccountsGroup.forEach { toAccount ->
                         if (toAccount.currency != "ada") {
-                            transaction.append("+${toAccount.amount} ${toAccount.currency}")
-                            baseAmount[toAccount.currency] = baseAmount[toAccount.currency]!! - toAccount.amount!!
+                            transaction.append("+${toAccount.amount} ${toAccount.currency.trimEnd('.')}")
+                            baseAmount[toAccount.currency.trimEnd('.')] = baseAmount[toAccount.currency.trimEnd('.')]!! - toAccount.amount!!
                         }
                     }
                     if (request.isClaim && walletEntry == feePayerWalletEntry) {
@@ -740,7 +740,7 @@ class WalletController @Autowired constructor(
                 }
 
                 // submit the transaction
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned --cardano-mode $magicString").trim()
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString").trim()
                 val txid = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
 
                 transactionRepository.save(Transaction(txid = txid))

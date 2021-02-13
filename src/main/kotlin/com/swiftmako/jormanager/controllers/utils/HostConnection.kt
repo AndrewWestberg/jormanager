@@ -31,18 +31,18 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
 
     fun calculateEraString(magicString: String): String {
         return try {
-            command("${host.cardanoCliPath} query protocol-parameters --mary-era --cardano-mode $magicString")
+            command("${host.cardanoCliPath} query protocol-parameters --mary-era $magicString")
             "--mary-era"
         } catch (e: Throwable) {
             try {
-                command("${host.cardanoCliPath} query protocol-parameters --allegra-era --cardano-mode $magicString")
+                command("${host.cardanoCliPath} query protocol-parameters --allegra-era $magicString")
                 "--allegra-era"
             } catch (e: Throwable) {
                 try {
-                    command("${host.cardanoCliPath} query protocol-parameters --shelley-era --cardano-mode $magicString")
+                    command("${host.cardanoCliPath} query protocol-parameters --shelley-era $magicString")
                     "--shelley-era"
                 } catch (e: Throwable) {
-                    command("${host.cardanoCliPath} query protocol-parameters --byron-era --cardano-mode $magicString")
+                    command("${host.cardanoCliPath} query protocol-parameters --byron-era $magicString")
                     "--byron-era"
                 }
             }
