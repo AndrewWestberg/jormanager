@@ -3,22 +3,17 @@ package com.swiftmako.jormanager.controllers
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
+import com.swiftmako.jormanager.entities.*
 import com.swiftmako.jormanager.entities.File
-import com.swiftmako.jormanager.entities.Host
-import com.swiftmako.jormanager.entities.SocketResponse
-import com.swiftmako.jormanager.entities.Transaction
-import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByLong
 import com.swiftmako.jormanager.model.*
-import com.swiftmako.jormanager.repositories.FileRepository
-import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.repositories.TransactionRepository
-import com.swiftmako.jormanager.repositories.WalletRepository
-import kotlinx.coroutines.*
+import com.swiftmako.jormanager.repositories.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
@@ -32,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
-import kotlin.math.round
 
 @Controller
 @Scope(SCOPE_SINGLETON)
@@ -193,7 +187,6 @@ class WalletController @Autowired constructor(
                     "/topic/messages",
                     SocketResponse.Error(type = "calculatefee", exception = e)
             )
-            throw e
         }
     }
 

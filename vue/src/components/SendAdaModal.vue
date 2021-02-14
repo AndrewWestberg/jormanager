@@ -402,6 +402,11 @@ export default {
       }
       try {
         let metadata = JSON.parse(this.formSendAda.metadata);
+        if (typeof metadata !== "object" || Array.isArray(metadata)) {
+          this.formSendAda.metadataError =
+            "Top level metadata must be a map and start with {";
+          return false;
+        }
         for (let propertyName in metadata) {
           if (isNaN(parseInt(propertyName))) {
             this.formSendAda.metadataError =
