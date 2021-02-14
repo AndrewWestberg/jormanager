@@ -7,6 +7,9 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import net.schmizz.sshj.common.SSHRuntimeException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
+import org.springframework.context.annotation.Scope
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
@@ -17,6 +20,7 @@ import java.io.IOException
 import java.lang.IllegalStateException
 
 @Controller
+@Scope(SCOPE_SINGLETON)
 class HostController @Autowired constructor(
         private val hostRepository: HostRepository
 ) {

@@ -35,6 +35,9 @@ import okhttp3.internal.closeQuietly
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
+import org.springframework.context.annotation.Scope
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
@@ -47,6 +50,7 @@ import java.io.File
 import java.io.IOException
 
 @Controller
+@Scope(SCOPE_SINGLETON)
 class NodeController @Autowired constructor(
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,

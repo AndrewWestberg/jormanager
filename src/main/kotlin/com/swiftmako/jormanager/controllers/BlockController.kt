@@ -26,7 +26,10 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
 import org.springframework.boot.info.BuildProperties
+import org.springframework.context.annotation.Scope
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
@@ -38,6 +41,7 @@ import java.io.IOException
 import kotlin.math.ceil
 
 @Controller
+@Scope(SCOPE_SINGLETON)
 class BlockController @Autowired constructor(
     private val buildProperties: BuildProperties,
     private val blockRepository: BlockRepository,

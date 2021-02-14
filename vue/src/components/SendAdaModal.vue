@@ -209,10 +209,15 @@
                 <b-form-group label="Metadata" label-cols-md="2">
                   <b-form-textarea
                     v-model="formSendAda.metadata"
+                    debounce="500"
+                    aria-describedby="metadata-input-live-feedback"
                     :state="metadataState()"
                     :placeholder="'{\n  &quot;411&quot;: [\n    &quot;Strings must be less than 64&quot;,\n    &quot;Characters in length&quot;\n  ],\n  &quot;500&quot;: {\n    &quot;The&quot;: &quot;first level must be a number&quot;,\n    &quot;and&quot;: &quot;the max size of metadata is&quot;,\n    &quot;sixteen&quot;: &quot;kilobytes.&quot;\n  }\n}'"
                     rows="11"
                   />
+                  <b-form-invalid-feedback id="metadata-input-live-feedback">{{
+                    formSendAda.metadataError
+                  }}</b-form-invalid-feedback>
                 </b-form-group>
               </b-card-body>
             </b-collapse>
@@ -253,6 +258,7 @@ export default {
           },
         ],
         metadata: null,
+        metadataError: null,
       },
     };
   },
@@ -360,6 +366,32 @@ export default {
       }
       return false;
     },
+    validateMetadataItem(field) {
+      if (Array.isArray(field)) {
+        // Check all items in the array recursively
+        for (let i = 0; i < field.length; i++) {
+          let errorMessage = this.validateMetadataItem(field[i]);
+          if (errorMessage !== null) {
+            return errorMessage;
+          }
+        }
+      } else if (typeof field === "string" || field instanceof String) {
+        if (field.length >= 64) {
+          return "Metadata strings must be less than 64 characters.";
+        }
+      } else if (field === Object(field)) {
+        // Check all items in the object recursively
+        for (let propertyName in field) {
+          let errorMessage = this.validateMetadataItem(field[propertyName]);
+          if (errorMessage !== null) {
+            return errorMessage;
+          }
+        }
+      }
+
+      // no validation errors
+      return null;
+    },
     metadataState() {
       if (
         this.formSendAda.metadata === null ||
@@ -369,11 +401,26 @@ export default {
         return true;
       }
       try {
-        JSON.parse(this.formSendAda.metadata);
+        let metadata = JSON.parse(this.formSendAda.metadata);
+        for (let propertyName in metadata) {
+          if (isNaN(parseInt(propertyName))) {
+            this.formSendAda.metadataError =
+              "Metadata first level fields must be integer: '" +
+              propertyName +
+              "'";
+            return false;
+          }
+          let errorMessage = this.validateMetadataItem(metadata[propertyName]);
+          if (errorMessage !== null) {
+            this.formSendAda.metadataError = errorMessage;
+            return false;
+          }
+        }
+
         this.prepareCalculateSendAdaFees();
         return true;
       } catch (e) {
-        console.log(e);
+        this.formSendAda.metadataError = e.message;
         return false;
       }
     },
@@ -520,6 +567,7 @@ export default {
           },
         ],
         metadata: null,
+        metadataError: null,
       };
     },
     showSendAdaModal(walletItem, isClaim) {

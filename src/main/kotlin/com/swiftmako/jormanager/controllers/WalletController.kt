@@ -15,8 +15,14 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BroadcastChannel
+import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
+import kotlinx.coroutines.channels.consumeEach
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
+import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
@@ -24,9 +30,12 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
+import java.util.concurrent.Executors
+import kotlin.coroutines.CoroutineContext
 import kotlin.math.round
 
 @Controller
+@Scope(SCOPE_SINGLETON)
 class WalletController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val walletRepository: WalletRepository,
@@ -38,9 +47,21 @@ class WalletController @Autowired constructor(
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val webSocketTemplate: SimpMessagingTemplate,
-) {
+) : CoroutineScope {
 
     private val log = LoggerFactory.getLogger(WalletController::class.java)
+
+    private val debounceChannel = BroadcastChannel<CalculateFeeRequest>(CONFLATED)
+
+    override val coroutineContext: CoroutineContext = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    init {
+        launch {
+            debounceChannel.openSubscription().consumeEach { request ->
+                calculateTxFee(request)
+            }
+        }
+    }
 
     @MessageMapping("/wallet")
     @SendTo("/topic/messages")
@@ -65,8 +86,11 @@ class WalletController @Autowired constructor(
     }
 
     @MessageMapping("/calculatefee")
-    @Synchronized
-    fun calculateTxFee(request: CalculateFeeRequest) {
+    fun receiveCalculateTxFeeRequest(request: CalculateFeeRequest) {
+        debounceChannel.offer(request)
+    }
+
+    private fun calculateTxFee(request: CalculateFeeRequest) {
         try {
             val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
             val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
@@ -113,7 +137,7 @@ class WalletController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
 
-            val metadataFileParameter = if(!request.metadata.isNullOrBlank()) {
+            val metadataFileParameter = if (!request.metadata.isNullOrBlank()) {
                 defaultHostConnection.commandWriteFile("/tmp/dummy.metadata.json", request.metadata)
                 "--metadata-json-file /tmp/dummy.metadata.json "
             } else {
@@ -128,7 +152,21 @@ class WalletController @Autowired constructor(
                 dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--out-file /tmp/dummy.txbody")
             }
 
-            defaultHostConnection.command(dummyTransaction.toString())
+            val error = defaultHostConnection.command(dummyTransaction.toString()).trim()
+
+            if (error.isNotBlank()) {
+                throw IOException(error)
+            }
+
+            if (!defaultHostConnection.commandFileExists("/tmp/protocol-parameters.json")) {
+                throw IOException("/tmp/protocol-parameters.json does not exist!")
+            }
+            if (!defaultHostConnection.commandFileExists("/tmp/dummy.txbody")) {
+                throw IOException("/tmp/dummy.txbody does not exist!")
+            }
+            if (metadataFileParameter.isNotBlank() && !defaultHostConnection.commandFileExists("/tmp/dummy.metadata.json")) {
+                throw IOException("/tmp/dummy.metadata.json does not exist!")
+            }
 
             val fee = if (request.isClaim) {
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 2 --byron-witness-count 0")
@@ -724,7 +762,7 @@ class WalletController @Autowired constructor(
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee ${request.txFee} ")
 
-                if(!request.metadata.isNullOrBlank()) {
+                if (!request.metadata.isNullOrBlank()) {
                     defaultHostConnection.commandWriteFile("/tmp/metadata.json", request.metadata)
                     transaction.append("--metadata-json-file /tmp/metadata.json ")
                 }

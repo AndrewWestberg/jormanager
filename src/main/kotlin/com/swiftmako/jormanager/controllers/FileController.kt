@@ -7,6 +7,9 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
+import org.springframework.context.annotation.Scope
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.core.io.Resource
 import org.springframework.http.HttpStatus
@@ -24,6 +27,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 @Controller
+@Scope(SCOPE_SINGLETON)
 class FileController @Autowired constructor(
         private val fileRepository: FileRepository,
         private val walletUtils: WalletUtils,
