@@ -69,24 +69,3 @@ export default {
   },
 };
 </script>
-
-<style>
-/*#app {*/
-/*font-family: Inconsolata,monospace;*/
-/*-webkit-font-smoothing: antialiased;*/
-/*-moz-osx-font-smoothing: grayscale;*/
-/*text-align: center;*/
-/*color: #A69281;*/
-/*background-color: #261B11;*/
-/*
-  Pallette:
-  #591C4F
-  #73296E
-  #382640
-  #261B11
-  #A69281
-  #4C8C6E
-   */
-
-/*}*/
-</style>

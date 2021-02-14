@@ -17,7 +17,7 @@ class WebSocketConfig : WebSocketMessageBrokerConfigurer {
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
         registry.addEndpoint("/jormanager-websocket")
-                .setAllowedOrigins("http://localhost:8081",
+                .setAllowedOrigins("http://localhost:8082",
                         "chrome-extension://ggnhohnkfcpcanfekomdkjffnfcjnjam")
 //                .setAllowedOrigins("*")
                 .withSockJS()

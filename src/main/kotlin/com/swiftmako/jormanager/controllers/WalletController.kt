@@ -113,13 +113,21 @@ class WalletController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
 
+            val metadataFileParameter = if(!request.metadata.isNullOrBlank()) {
+                defaultHostConnection.commandWriteFile("/tmp/dummy.metadata.json", request.metadata)
+                "--metadata-json-file /tmp/dummy.metadata.json "
+            } else {
+                ""
+            }
+
             if (request.isClaim) {
                 val walletItem =
                         walletUtils.getWalletItem(defaultHost, defaultHostConnection, eraString, magicString, fromWalletEntry)
-                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 --withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
+                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
             } else {
-                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 --out-file /tmp/dummy.txbody")
+                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--out-file /tmp/dummy.txbody")
             }
+
             defaultHostConnection.command(dummyTransaction.toString())
 
             val fee = if (request.isClaim) {
@@ -129,7 +137,7 @@ class WalletController @Autowired constructor(
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0")
                         .trim()
             }
-            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/dummy.txbody")
+            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/dummy.txbody /tmp/dummy.metadata.json")
             val lovelace = fee.split(" ")[0].toLong()
 
             if (request.isClaim) {
@@ -715,6 +723,12 @@ class WalletController @Autowired constructor(
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee ${request.txFee} ")
+
+                if(!request.metadata.isNullOrBlank()) {
+                    defaultHostConnection.commandWriteFile("/tmp/metadata.json", request.metadata)
+                    transaction.append("--metadata-json-file /tmp/metadata.json ")
+                }
+
                 if (request.isClaim) {
                     transaction.append("--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} ")
                 }
@@ -746,7 +760,7 @@ class WalletController @Autowired constructor(
                 transactionRepository.save(Transaction(txid = txid))
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "submittransaction", data = "transaction succeeded: $txid"))
             } finally {
-                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/signing.skey /tmp/staking_signing.skey /tmp/transaction.txbody /tmp/transaction.txsigned")
+                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/signing.skey /tmp/staking_signing.skey /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/metadata.json")
             }
         } catch (e: Throwable) {
             val error = "Fatal error submitting transaction!"

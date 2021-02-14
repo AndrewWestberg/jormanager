@@ -180,16 +180,45 @@
               </b-card-body>
             </b-collapse>
           </b-card>
+          <b-card
+            border-variant="dark"
+            header-border-variant="dark"
+            no-body
+            class="mb-1"
+          >
+            <b-card-header header-tag="header" class="p-1" role="tab">
+              <b-button
+                block
+                v-b-toggle="'accordion-metadata'"
+                :variant="headerVariantMetadata()"
+              >
+                <div class="clearfix">
+                  <span class="float-left"> Metadata </span>
+                  <b-icon-caret-up class="float-right when-open" />
+                  <b-icon-caret-down class="float-right when-closed" />
+                </div>
+              </b-button>
+            </b-card-header>
+            <b-collapse
+              id="accordion-metadata"
+              visible
+              accordion="accounts-accordion"
+              role="tabpanel"
+            >
+              <b-card-body>
+                <b-form-group label="Metadata" label-cols-md="2">
+                  <b-form-textarea
+                    v-model="formSendAda.metadata"
+                    :state="metadataState()"
+                    :placeholder="'{\n  &quot;411&quot;: [\n    &quot;Strings must be less than 64&quot;,\n    &quot;Characters in length&quot;\n  ],\n  &quot;500&quot;: {\n    &quot;The&quot;: &quot;first level must be a number&quot;,\n    &quot;and&quot;: &quot;the max size of metadata is&quot;,\n    &quot;sixteen&quot;: &quot;kilobytes.&quot;\n  }\n}'"
+                    rows="11"
+                  />
+                </b-form-group>
+              </b-card-body>
+            </b-collapse>
+          </b-card>
         </div>
       </b-form>
-      <!-- <hr />
-      <b-button
-        variant="primary"
-        @click="addPaymentEntry()"
-        v-b-tooltip.hover.right="'Add a new payment entry.'"
-      >
-        <b-icon-plus />&nbsp;Add Entry
-      </b-button> -->
     </b-modal>
   </div>
 </template>
@@ -223,6 +252,7 @@ export default {
             tokenFee: 0,
           },
         ],
+        metadata: null,
       },
     };
   },
@@ -330,6 +360,23 @@ export default {
       }
       return false;
     },
+    metadataState() {
+      if (
+        this.formSendAda.metadata === null ||
+        this.formSendAda.metadata.trim().length === 0
+      ) {
+        this.prepareCalculateSendAdaFees();
+        return true;
+      }
+      try {
+        JSON.parse(this.formSendAda.metadata);
+        this.prepareCalculateSendAdaFees();
+        return true;
+      } catch (e) {
+        console.log(e);
+        return false;
+      }
+    },
     headerLabel(index, toAccount) {
       let label = "";
       if (toAccount.account) {
@@ -378,6 +425,9 @@ export default {
           this.percentState(index, toAccount.percent, toAccount.currency))
         ? "outline-success"
         : "danger";
+    },
+    headerVariantMetadata() {
+      return this.metadataState() ? "outline-success" : "danger";
     },
     formatCurrency(amount, currency) {
       let tokens = 0;
@@ -469,6 +519,7 @@ export default {
             tokenFee: 0,
           },
         ],
+        metadata: null,
       };
     },
     showSendAdaModal(walletItem, isClaim) {
@@ -508,7 +559,8 @@ export default {
           (toAccount.type === "amount" &&
             !this.amountState(i, toAccount.amount, toAccount.currency)) ||
           (toAccount.type === "percent" &&
-            !this.percentState(i, toAccount.percent, toAccount.currency))
+            !this.percentState(i, toAccount.percent, toAccount.currency)) ||
+          !this.metadataState()
         ) {
           isValidForm = false;
           break;
@@ -561,6 +613,7 @@ export default {
             tokenFee: toAccount.tokenFee,
           };
         }),
+        metadata: this.formSendAda.metadata,
       });
     },
     prepareCalculateSendAdaFees() {
@@ -579,6 +632,7 @@ export default {
         toAccounts: _.map(this.formSendAda.toAccounts, "account"),
         txOut: uniqueToAccounts + returnChangeTxOut,
         isClaim: this.formSendAda.isClaim,
+        metadata: this.formSendAda.metadata,
       };
       if (request.fromId) {
         this.calculateSendAdaFees(request);

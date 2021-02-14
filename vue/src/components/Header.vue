@@ -41,18 +41,3 @@ export default {
   },
 };
 </script>
-
-<style>
-/*#header {*/
-/*    background-color: #382640;*/
-/*}*/
-/*.nav-tabs a.nav-link.disabled {*/
-/*    color: #A69281;*/
-/*}*/
-/*.nav-tabs a.nav-link.active {*/
-/*    color: #261B11;*/
-/*}*/
-/*.nav-tabs a.nav-link {*/
-/*    color: #4C8C6E;*/
-/*}*/
-</style>

@@ -17,9 +17,11 @@ data class SubmitTransactionRequest(
         @Json(name = "toAccounts")
         val toAccounts: List<ToAccount>,
         @Json(name = "isClaim")
-        val isClaim: Boolean
+        val isClaim: Boolean,
+        @Json(name="metadata")
+        val metadata: String?,
 ) {
     override fun toString(): String {
-        return "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim)"
+        return "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata)"
     }
 }

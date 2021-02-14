@@ -13,5 +13,7 @@ data class CalculateFeeRequest(
         @Json(name = "txOut")
         val txOut: Int,
         @Json(name = "isClaim")
-        val isClaim: Boolean
+        val isClaim: Boolean,
+        @Json(name = "metadata")
+        val metadata: String?,
 )
