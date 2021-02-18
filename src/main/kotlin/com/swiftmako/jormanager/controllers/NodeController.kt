@@ -23,6 +23,7 @@ import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
+import com.swiftmako.jormanager.services.SmashService
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.runBlocking
 import okhttp3.CacheControl
@@ -35,7 +36,6 @@ import okhttp3.internal.closeQuietly
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
-import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
 import org.springframework.context.annotation.Scope
 import org.springframework.data.domain.Sort
@@ -485,7 +485,7 @@ class NodeController @Autowired constructor(
 
                         val poolId = defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex").trim()
                         log.debug("poolId: $poolId")
-                        val isPoolOnChain = isPoolOnChain(poolId)
+                        val isPoolOnChain = isPoolOnChain(poolId, magicString == "--mainnet")
 
                         // 5. Create and upload metadata files
                         var itnPrivateKeyId = -1L
@@ -2082,15 +2082,19 @@ class NodeController @Autowired constructor(
         }
     }
 
-    private fun isPoolOnChain(poolId: String): Boolean {
-        val request = Request.Builder()
-                .head()
-                .cacheControl(CacheControl.FORCE_NETWORK)
-                .url("https://js.adapools.org/pools/$poolId/summary.json")
-                .build()
-        val response = okHttpClient.newCall(request).execute()
-        response.body?.closeQuietly()
-        return response.isSuccessful
+    private fun isPoolOnChain(poolId: String, isMainnet: Boolean): Boolean = runBlocking {
+        val baseUrl = if (isMainnet) {
+            "https://smash.cardano-mainnet.iohk.io"
+        } else {
+            "https://smash.cardano-testnet.iohkdev.io"
+        }
+
+        try {
+            val service = retrofit.newBuilder().baseUrl(baseUrl).build().create(SmashService::class.java)
+            service.exists(poolId)?.poolExists() ?: false
+        } catch (e: Throwable) {
+            false
+        }
     }
 
     private fun uploadMetadata(metadataJson: String): String = runBlocking {

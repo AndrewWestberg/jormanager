@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.4.2"
+    id("org.springframework.boot") version "2.4.3"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.36.0"
     kotlin("jvm") version "1.4.30"
@@ -28,12 +28,12 @@ object Versions {
     const val moshi = "1.11.0"
     const val okhttp = "4.9.1"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.4.4"
+    const val springSecurity = "5.4.5"
     const val sshj = "0.31.0"
 }
 
 group = "com.swiftmako"
-version = "2.1.3-SNAPSHOT"
+version = "2.1.4-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

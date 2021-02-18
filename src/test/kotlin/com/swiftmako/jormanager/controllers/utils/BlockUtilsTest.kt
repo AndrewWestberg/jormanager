@@ -46,6 +46,7 @@ class BlockUtilsTest {
             slotInEpoch = 421783L,
             txsProcessed = 15L,
             incomingPeers = 15,
+            epochLength = 432000,
     ))
 
     private val byronTest = GenesisByron(
@@ -82,6 +83,7 @@ class BlockUtilsTest {
             slotInEpoch = 86257L,
             txsProcessed = 15L,
             incomingPeers = 15,
+            epochLength = 432000,
     ))
 
 
