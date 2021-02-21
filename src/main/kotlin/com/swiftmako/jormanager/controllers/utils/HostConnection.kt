@@ -6,6 +6,7 @@ import com.swiftmako.jormanager.ktx.ignoreExceptions
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.xfer.FileSystemFile
+import okio.BufferedSource
 import okio.buffer
 import okio.sink
 import okio.source
@@ -72,6 +73,72 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         } else {
             localCommand(command)
         }
+    }
+
+    fun bashCommand(command: String, timeoutSecs: Long = 5L): String {
+        return if (host.isRemote) {
+            remoteBashCommand(command, timeoutSecs)
+        } else {
+            localBashCommand(command, timeoutSecs)
+        }
+    }
+
+    private fun localBashCommand(command: String, timeoutSecs: Long): String {
+        lateinit var output: String
+        lateinit var errorOutput: String
+        try {
+            val process = ProcessBuilder(
+                    "/bin/bash",
+                    "-c",
+                    command
+            ).also {
+                defaultNode?.let { node ->
+                    it.environment()["CARDANO_NODE_SOCKET_PATH"] = "${host.nodeHomePath}/${node.name}/db/socket"
+                }
+            }.start()
+            output = process.inputStream.source().buffer().use { it.readUtf8() }
+            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
+            process.waitFor(timeoutSecs, TimeUnit.SECONDS)
+            if (process.exitValue() != 0) {
+                throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
+            }
+        } catch (e: Throwable) {
+            throw RuntimeException("Local command failed!", e)
+        }
+        return output
+
+    }
+
+    private fun remoteBashCommand(command: String, timeoutSecs: Long): String {
+        lateinit var output: String
+        lateinit var errorOutput: String
+        lateinit var ssh: SSHClient
+
+        try {
+            ssh = sshClientPool.borrow()
+            ssh.startSession().use { session ->
+                defaultNode?.let { node ->
+                    session.setEnvVar("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
+                }
+                session.exec(command).use { cmd ->
+                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
+                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
+                    cmd.join(timeoutSecs, TimeUnit.SECONDS)
+                    if (cmd.exitStatus != 0) {
+                        throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            if (e is SSHRuntimeException) {
+                throw e
+            }
+            throw SSHRuntimeException("Error communicating with remote server!", e)
+        } finally {
+            ignoreExceptions { sshClientPool.recycle(ssh) }
+        }
+        return output
+
     }
 
     fun sudoCommand(command: String, sudoPassword: String?): String {
@@ -170,7 +237,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         try {
             val process = ProcessBuilder(commandList).also {
                 defaultNode?.let { node ->
-                    it.environment().put("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
+                    it.environment()["CARDANO_NODE_SOCKET_PATH"] = "${host.nodeHomePath}/${node.name}/db/socket"
                 }
                 if (redirectAppendFile.isNotBlank()) {
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
@@ -225,6 +292,36 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return output
     }
 
+    fun commandGetFileBufferedSource(fileName: String): BufferedSource {
+        return if (host.isRemote) {
+            remoteCommandGetFileBufferedSource(fileName)
+        } else {
+            localCommandGetFileBufferedSource(fileName)
+        }
+    }
+
+    private fun remoteCommandGetFileBufferedSource(fileName: String): BufferedSource {
+        lateinit var ssh: SSHClient
+        try {
+            ssh = sshClientPool.borrow()
+            ssh.newSCPFileTransfer().download(fileName, "/tmp/jm_scp_download_file.tmp")
+            return localCommandGetFileBufferedSource("/tmp/jm_scp_download_file.tmp")
+        } catch (e: Throwable) {
+            if (e is SSHRuntimeException) {
+                throw e
+            }
+            throw SSHRuntimeException("Error communicating with remote server!", e)
+        } finally {
+            ignoreExceptions {
+                File("/tmp/jm_scp_download_file.tmp").delete()
+            }
+            ignoreExceptions { sshClientPool.recycle(ssh) }
+        }
+    }
+
+    private fun localCommandGetFileBufferedSource(fileName: String): BufferedSource {
+        return File(fileName).source().buffer()
+    }
 
     fun commandReadFile(fileName: String): String {
         return if (host.isRemote) {

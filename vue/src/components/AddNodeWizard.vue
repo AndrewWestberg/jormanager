@@ -41,15 +41,15 @@
           <b-form-input
             id="name-input"
             v-model="formNode.name"
-            :state="nameState"
+            :state="nameState()"
             maxlength="6"
             aria-describedby="name-input-live-feedback"
             placeholder="e.g. tickr, relay2, etc..."
             trim
           ></b-form-input>
-          <b-form-invalid-feedback id="name-input-live-feedback"
-            >Enter at least 3 letters</b-form-invalid-feedback
-          >
+          <b-form-invalid-feedback id="name-input-live-feedback">{{
+            nameError
+          }}</b-form-invalid-feedback>
         </b-form-group>
         <b-form-group
           label="Node Type"
@@ -966,6 +966,7 @@ export default {
   },
   data() {
     return {
+      nameError: "asdfasdf",
       formNode: {
         spendingPassword: null,
         color: "#4A412A",
@@ -1056,7 +1057,7 @@ export default {
       "rewardsSelectOptions",
       "genesisFiles",
     ]),
-    ...mapState(["toastSuccess", "nodeColors"]),
+    ...mapState(["toastSuccess", "nodeColors", "nodes"]),
     steps() {
       if (this.formNode.type === "core") {
         return [
@@ -1106,9 +1107,6 @@ export default {
     },
     hostState() {
       return this.formNode.host != null;
-    },
-    nameState() {
-      return this.formNode.name.length > 2;
     },
     typeState() {
       return this.formNode.type != null;
@@ -1239,11 +1237,26 @@ export default {
   methods: {
     ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
     ...mapMutations(["toastError"]),
+    nameState() {
+      if (this.formNode.name.length < 2) {
+        this.nameError = "Enter at least 3 letters";
+        return false;
+      }
+
+      for (const node of this.nodes) {
+        if (node.name === this.formNode.name) {
+          this.nameError = "Node name must be unique!";
+          return false;
+        }
+      }
+
+      return true;
+    },
     nextClicked(currentPage) {
       if (currentPage === 0) {
         if (
           this.hostState &&
-          this.nameState &&
+          this.nameState() &&
           this.typeState &&
           this.listenState &&
           this.portState &&
