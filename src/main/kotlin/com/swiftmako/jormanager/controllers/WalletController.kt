@@ -5,7 +5,7 @@ import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.*
 import com.swiftmako.jormanager.entities.File
-import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.repositories.*
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +25,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
+import java.math.BigInteger
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 
@@ -108,7 +109,7 @@ class WalletController @Autowired constructor(
                     ?: throw IOException("Wallet entry id ${request.fromId} not found!")
 
             val feePayerWalletEntry = if (request.isClaim) {
-                calculateClaimRewardsFeePayer(defaultHost, defaultHostConnection, eraString, magicString, request.toAccounts, 0L)
+                calculateClaimRewardsFeePayer(defaultHost, defaultHostConnection, eraString, magicString, request.toAccounts, BigInteger.ZERO)
             } else {
                 fromWalletEntry
             }
@@ -170,7 +171,7 @@ class WalletController @Autowired constructor(
                         .trim()
             }
             defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/dummy.txbody /tmp/dummy.metadata.json")
-            val lovelace = fee.split(" ")[0].toLong()
+            val lovelace = fee.split(" ")[0].toBigInteger()
 
             if (request.isClaim) {
                 calculateClaimRewardsFeePayer(defaultHost, defaultHostConnection, eraString, magicString, request.toAccounts, lovelace)
@@ -252,7 +253,7 @@ class WalletController @Autowired constructor(
                                     ?: throw IOException("Invalid protocol params!")
 
                             // 1. Create a transaction to dump EVERYTHING into
-                            var depositAndFees = 0L
+                            var depositAndFees = BigInteger.ZERO
                             var witnessCount = 0
                             val transaction = StringBuilder()
                             val certificates = StringBuilder()
@@ -270,7 +271,7 @@ class WalletController @Autowired constructor(
                             utxos.forEach { utxo ->
                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                             }
-                            log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                            log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                             witnessCount++ // fee payer is a witness
                             defaultHostConnection.commandWriteFile(
                                     "/tmp/feepayer.payment.skey",
@@ -343,25 +344,25 @@ class WalletController @Autowired constructor(
 
                             log.debug("depositAndFees: $depositAndFees")
                             val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                            val fees = feesString.split(" ")[0].toLong()
+                            val fees = feesString.split(" ")[0].toBigInteger()
                             log.debug("fees: $fees")
                             depositAndFees += fees
                             log.debug("final depositAndFees: $depositAndFees")
 
                             // 9. Create the transaction
-                            val change = utxos.sumByLong { it.lovelace } - depositAndFees + if (!request.isRegistration) {
+                            val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees + if (!request.isRegistration) {
                                 // for a deregistration, we get the 2 ada deposit back as change
                                 protocolParameters.keyDeposit
                             } else {
-                                0L
+                                BigInteger.ZERO
                             }
-                            if (change < 1) {
+                            if (change < BigInteger.ONE) {
                                 throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                             }
 
                             val tokenChange = StringBuilder()
                             utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                                if (amount > 0) {
+                                if (amount > BigInteger.ZERO) {
                                     tokenChange.append("+$amount $currency")
                                 }
                             }
@@ -656,7 +657,7 @@ class WalletController @Autowired constructor(
                     fromWalletEntry
                 }
 
-                val baseAmount = mutableMapOf<String, Long>()
+                val baseAmount = mutableMapOf<String, BigInteger>()
                 val utxos = walletUtils.getUtxos(
                         defaultHost,
                         defaultHostConnection,
@@ -670,14 +671,14 @@ class WalletController @Autowired constructor(
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                     utxo.nativeAssets.forEach { nativeAsset ->
                         val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')
-                        val nativeAssetBaseAmount = baseAmount.getOrDefault(currency, 0L)
+                        val nativeAssetBaseAmount = baseAmount.getOrDefault(currency, BigInteger.ZERO)
                         baseAmount[currency] = nativeAssetBaseAmount + nativeAsset.amount
                     }
                 }
 
                 val walletItem = walletUtils.getWalletItem(defaultHost, defaultHostConnection, eraString, magicString, fromWalletEntry)
 
-                val paymentAddressLovelace = utxos.sumByLong { it.lovelace }
+                val paymentAddressLovelace = utxos.sumByBigInteger { it.lovelace }
                 baseAmount["ada"] = if (request.isClaim) {
                     walletItem.stakingAddrLovelace!!
                 } else {
@@ -692,8 +693,8 @@ class WalletController @Autowired constructor(
                     val walletEntry = walletRepository.findByIdOrNull(account.account)
                             ?: throw IOException("Wallet entry id ${account.account} not found!")
 
-                    var claimAmount = 0L
-                    val amount = toAccountsGroup.sumByLong { toAccount ->
+                    var claimAmount = BigInteger.ZERO
+                    val amount = toAccountsGroup.sumByBigInteger { toAccount ->
                         if (toAccount.currency == "ada") {
                             if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
                                 if (toAccount.percent ?: -1 > 0 && baseAmount["ada"]!! - account.amount!! >= request.txFee) {
@@ -725,7 +726,7 @@ class WalletController @Autowired constructor(
                     }
                     if (request.isClaim && walletEntry == feePayerWalletEntry) {
                         utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                            if (amount > 0) {
+                            if (amount > BigInteger.ZERO) {
                                 transaction.append("+$amount $currency")
                             }
                         }
@@ -734,11 +735,11 @@ class WalletController @Autowired constructor(
                     toAccounts.removeAll(toAccountsGroup)
                 }
 
-                val remaining = baseAmount["ada"]!! + if (!request.isClaim) request.tokenKeepFee else 0L
-                if (remaining != 0L) {
+                val remaining = baseAmount["ada"]!! + if (!request.isClaim) request.tokenKeepFee else BigInteger.ZERO
+                if (remaining != BigInteger.ZERO) {
                     transaction.append("--tx-out '${fromWalletEntry.paymentAddr}+$remaining")
                     baseAmount.forEach { (currency, amount) ->
-                        if (currency != "ada" && amount > 0) {
+                        if (currency != "ada" && amount > BigInteger.ZERO) {
                             transaction.append("+$amount $currency")
                         }
                     }
@@ -814,14 +815,14 @@ class WalletController @Autowired constructor(
             eraString: String,
             magicString: String,
             toAccounts: List<Long?>,
-            txFee: Long,
+            txFee: BigInteger,
     ): WalletEntry {
         toAccounts.filterNotNull().forEach { id ->
             walletRepository.findByIdOrNull(id)?.let { walletEntry ->
                 if (walletEntry.paymentSkey != null) {
                     val lovelace = walletUtils.getUtxos(host, hostConnection, eraString, magicString, walletEntry.paymentAddr)
-                            .sumByLong { it.lovelace }
-                    if (lovelace >= 1_000_000L + txFee) {
+                            .sumByBigInteger { it.lovelace }
+                    if (lovelace >= BigInteger("1000000") + txFee) {
                         return walletEntry
                     }
                 }

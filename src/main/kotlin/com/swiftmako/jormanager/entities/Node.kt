@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.entities
 
 import java.math.BigDecimal
+import java.math.BigInteger
 import javax.persistence.Column
 import javax.persistence.Entity
 import javax.persistence.GeneratedValue
@@ -41,9 +42,9 @@ data class Node(
         @Column(name = "pool_id")
         val poolId: String? = null,
         @Column(name = "pool_pledge")
-        val poolPledge: Long? = null,
+        val poolPledge: BigInteger? = null,
         @Column(name = "pool_cost")
-        val poolCost: Long? = null,
+        val poolCost: BigInteger? = null,
         @Column(name = "pool_margin")
         val poolMargin: String? = null,
         @Column(name = "is_default")

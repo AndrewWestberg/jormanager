@@ -5,9 +5,10 @@ import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.internal.Util
-import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.LeaderLogLedger
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.math.RoundingMode
 
 class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>) : JsonAdapter<LeaderLogLedger>() {
@@ -182,7 +183,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
     }
 
     private fun calculateSigmaValues(reader: JsonReader, poolIdToSigma: MutableMap<String, BigDecimal>) {
-        val stakeKeyToValue = mutableMapOf<String, Long>()
+        val stakeKeyToValue = mutableMapOf<String, BigInteger>()
         val stakeKeyToPoolId = mutableMapOf<String, String>()
         reader.beginObject()
         while (reader.hasNext()) {
@@ -196,8 +197,8 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                         reader.skipName() // skip the name which is "key hash"
                         val stakeKey = reader.nextString()
                         reader.endObject()
-                        val stakeValue = reader.nextLong()
-                        if (stakeValue > 0) {
+                        val stakeValue = BigDecimal(reader.nextString()).toBigInteger()
+                        if (stakeValue > BigInteger.ZERO) {
                             stakeKeyToValue[stakeKey] = stakeValue
                         }
                         reader.endArray()
@@ -227,12 +228,12 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         }
         reader.endObject()
         // calculate sigma for current epoch
-        val totalDelegatedStake = stakeKeyToValue.values.sumByLong { it }
+        val totalDelegatedStake = stakeKeyToValue.values.sumByBigInteger { it }
         poolIds.forEach { poolId ->
             val delegatedStake = stakeKeyToPoolId.filter {
                 it.value == poolId
-            }.keys.sumByLong { stakeKey ->
-                stakeKeyToValue[stakeKey] ?: 0L
+            }.keys.sumByBigInteger { stakeKey ->
+                stakeKeyToValue[stakeKey] ?: BigInteger.ZERO
             }
             poolIdToSigma[poolId] = BigDecimal(delegatedStake).divide(BigDecimal(totalDelegatedStake), 34, RoundingMode.HALF_UP)
         }

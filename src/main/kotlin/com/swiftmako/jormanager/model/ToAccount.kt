@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class ToAccount(
@@ -11,11 +12,11 @@ data class ToAccount(
         @Json(name = "account")
         val account: Long,
         @Json(name = "amount")
-        val amount: Long?,
+        val amount: BigInteger?,
         @Json(name = "percent")
         val percent: Int?,
         @Json(name = "type")
         val type: String,
         @Json(name = "tokenFee")
-        val tokenFee: Long,
+        val tokenFee: BigInteger,
 )

@@ -1,5 +1,7 @@
 package com.swiftmako.jormanager.model
 
+import java.math.BigInteger
+
 data class WalletItem(
         val id: Long,
         val name: String,
@@ -7,9 +9,9 @@ data class WalletItem(
         val paymentAddr: String,
         val hasPaymentKeys: Boolean,
         val paymentAddrUtxoCount: Long,
-        val paymentAddrLovelace: Long,
+        val paymentAddrLovelace: BigInteger,
         val stakingAddr: String?,
         val stakingAddrRegistered: Boolean,
-        val stakingAddrLovelace: Long?,
-        val nativeAssetMap: Map<String, Long>,
+        val stakingAddrLovelace: BigInteger?,
+        val nativeAssetMap: Map<String, BigInteger>,
 )

@@ -6,10 +6,10 @@ plugins {
     id("org.springframework.boot") version "2.4.3"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.36.0"
-    kotlin("jvm") version "1.4.30"
-    kotlin("kapt") version "1.4.30"
-    kotlin("plugin.spring") version "1.4.30"
-    kotlin("plugin.jpa") version "1.4.30"
+    kotlin("jvm") version "1.4.31"
+    kotlin("kapt") version "1.4.31"
+    kotlin("plugin.spring") version "1.4.31"
+    kotlin("plugin.jpa") version "1.4.31"
 }
 
 object Versions {
@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "2.1.4-SNAPSHOT"
+version = "2.1.5-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.model
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import java.math.BigInteger
 
 data class CreateNodeRequest(
         @JsonProperty("spendingPassword") val spendingPassword: String,
@@ -30,8 +31,8 @@ data class CreateNodeRequest(
         @JsonProperty("registrationFeesAccount") val registrationFeesAccount: Long?,
         @JsonProperty("ownerStakingAccount") val ownerStakingAccount: Long?,
         @JsonProperty("rewardsStakingAccount") val rewardsStakingAccount: Long?,
-        @JsonProperty("poolPledge") val poolPledge: Long?,
-        @JsonProperty("poolCost") val poolCost: Long?,
+        @JsonProperty("poolPledge") val poolPledge: BigInteger?,
+        @JsonProperty("poolCost") val poolCost: BigInteger?,
         @JsonProperty("poolMargin") val poolMargin: String,
         @JsonProperty("relays") val relays: List<Relay>?,
         @JsonProperty("metadata") val metadata: Metadata?,

@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.ktx
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import org.springframework.security.crypto.codec.Hex
+import java.math.BigInteger
 
 fun ignoreExceptions(block: () -> Unit) {
     try {
@@ -11,8 +12,8 @@ fun ignoreExceptions(block: () -> Unit) {
     }
 }
 
-inline fun <T> Iterable<T>.sumByLong(selector: (T) -> Long): Long {
-    var sum = 0L
+inline fun <T> Iterable<T>.sumByBigInteger(selector: (T) -> BigInteger): BigInteger {
+    var sum = BigInteger.ZERO
     for (element in this) {
         sum += selector(element)
     }

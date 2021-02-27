@@ -5,6 +5,8 @@ import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.Utxo
+import java.math.BigDecimal
+import java.math.BigInteger
 
 class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 
@@ -26,13 +28,13 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                         // amount
                         val lovelace = if (reader.peek() == JsonReader.Token.BEGIN_ARRAY) {
                             // Mary era
-                            var ll = 0L
+                            var ll = BigInteger.ZERO
                             reader.beginArray()
                             while (reader.hasNext()) {
                                 when (reader.peek()) {
                                     JsonReader.Token.NUMBER -> {
                                         // lovelaces value
-                                        ll = reader.nextLong()
+                                        ll = BigDecimal(reader.nextString()).toBigInteger()
                                     }
                                     JsonReader.Token.BEGIN_ARRAY -> {
                                         // native asset array
@@ -41,7 +43,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                             reader.beginArray()
                                             var policy = ""
                                             var name: String? = null
-                                            var amount = 0L
+                                            var amount = BigInteger.ZERO
                                             while (reader.hasNext()) {
                                                 when (reader.peek()) {
                                                     JsonReader.Token.STRING -> {
@@ -57,7 +59,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                                                         name = reader.nextString()
                                                                     }
                                                                     JsonReader.Token.NUMBER -> {
-                                                                        amount = reader.nextLong()
+                                                                        amount = BigDecimal(reader.nextString()).toBigInteger()
                                                                     }
                                                                     else -> {
                                                                         reader.skipValue()
@@ -65,10 +67,10 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                                                 }
                                                             }
                                                             reader.endArray()
-                                                            if (name != null && policy.isNotBlank() && amount > 0L) {
+                                                            if (name != null && policy.isNotBlank() && amount > BigInteger.ZERO) {
                                                                 nativeAssets.add(NativeAsset(name, policy, amount))
                                                                 name = null
-                                                                amount = 0L
+                                                                amount = BigInteger.ZERO
                                                             }
                                                         }
                                                         reader.endArray()
@@ -91,7 +93,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                             ll
                         } else {
                             // Before Mary era
-                            reader.nextLong()
+                            BigDecimal(reader.nextString()).toBigInteger()
                         }
                         utxos.add(Utxo(hash, ix, lovelace, nativeAssets))
                     }

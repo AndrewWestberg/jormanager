@@ -4,7 +4,7 @@ import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.WalletEntry
-import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
@@ -23,6 +23,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.encrypt.Encryptors
 import org.springframework.stereotype.Component
+import java.math.BigInteger
 
 
 @Component
@@ -96,10 +97,10 @@ class WalletUtils @Autowired constructor(
                 walletEntry.paymentAddr,
                 walletEntry.paymentSkey != null,
                 utxos.size.toLong(),
-                utxos.sumByLong { it.lovelace },
+                utxos.sumByBigInteger { it.lovelace },
                 walletEntry.stakingAddr,
                 stakingAddrRegistered,
-                stakingAddrLovelace ?: 0L,
+                stakingAddrLovelace ?: BigInteger.ZERO,
                 utxos.toNativeAssetMap(),
         )
     }

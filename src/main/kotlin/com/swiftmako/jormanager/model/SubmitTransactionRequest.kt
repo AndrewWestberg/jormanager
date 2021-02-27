@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class SubmitTransactionRequest(
@@ -11,14 +12,14 @@ data class SubmitTransactionRequest(
         @Json(name = "fromId")
         val fromId: Long,
         @Json(name = "txFee")
-        val txFee: Long,
+        val txFee: BigInteger,
         @Json(name = "tokenKeepFee")
-        val tokenKeepFee: Long,
+        val tokenKeepFee: BigInteger,
         @Json(name = "toAccounts")
         val toAccounts: List<ToAccount>,
         @Json(name = "isClaim")
         val isClaim: Boolean,
-        @Json(name="metadata")
+        @Json(name = "metadata")
         val metadata: String?,
 ) {
     override fun toString(): String {

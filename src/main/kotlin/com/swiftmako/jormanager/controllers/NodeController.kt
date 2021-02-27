@@ -8,7 +8,7 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.Relay
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.Transaction
-import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
@@ -48,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional
 import retrofit2.Retrofit
 import java.io.File
 import java.io.IOException
+import java.math.BigInteger
 
 @Controller
 @Scope(SCOPE_SINGLETON)
@@ -237,7 +238,7 @@ class NodeController @Autowired constructor(
                                 ?: throw IOException("Invalid protocol params!")
 
                         // 1. Create a transaction to dump EVERYTHING into
-                        var depositAndFees = 0L
+                        var depositAndFees = BigInteger.ZERO
                         var witnessCount = 0
                         val transaction = StringBuilder()
                         val certificates = StringBuilder()
@@ -255,7 +256,7 @@ class NodeController @Autowired constructor(
                         utxos.forEach { utxo ->
                             transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                         }
-                        log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                        log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                         witnessCount++ // fee payer is a witness
                         defaultHostConnection.commandWriteFile("/tmp/feepayer.payment.skey", walletUtils.getSKeyContent(requireNotNull(feePayerAccount.paymentSkey), request.spendingPassword))
                         signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
@@ -613,7 +614,7 @@ class NodeController @Autowired constructor(
                         depositAndFees += if (!isPoolOnChain) {
                             protocolParameters.poolDeposit
                         } else {
-                            0
+                            BigInteger.ZERO
                         }
 
                         // 7. Create delegation certificates for owner(s)
@@ -627,20 +628,20 @@ class NodeController @Autowired constructor(
 
                         log.debug("depositAndFees: $depositAndFees")
                         val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                        val fees = feesString.split(" ")[0].toLong()
+                        val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
                         depositAndFees += fees
                         log.debug("final depositAndFees: $depositAndFees")
 
                         // 9. Create the transaction
-                        val change = utxos.sumByLong { it.lovelace } - depositAndFees
-                        if (change < 1) {
+                        val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
+                        if (change < BigInteger.ONE) {
                             throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                         }
 
                         val tokenChange = StringBuilder()
                         utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                            if (amount > 0) {
+                            if (amount > BigInteger.ZERO) {
                                 tokenChange.append("+$amount $currency")
                             }
                         }
@@ -809,7 +810,7 @@ class NodeController @Autowired constructor(
                                     ?: throw IOException("Invalid protocol params!")
 
                             // 1. Create a transaction to dump EVERYTHING into
-                            var depositAndFees = 0L
+                            var depositAndFees = BigInteger.ZERO
                             var witnessCount = 0
                             val transaction = StringBuilder()
                             val certificates = StringBuilder()
@@ -827,7 +828,7 @@ class NodeController @Autowired constructor(
                             utxos.forEach { utxo ->
                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                             }
-                            log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                            log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                             witnessCount++ // fee payer is a witness
                             defaultHostConnection.commandWriteFile(
                                     "/tmp/feepayer.payment.skey",
@@ -982,20 +983,20 @@ class NodeController @Autowired constructor(
 
                                 log.debug("depositAndFees: $depositAndFees")
                                 val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                                val fees = feesString.split(" ")[0].toLong()
+                                val fees = feesString.split(" ")[0].toBigInteger()
                                 log.debug("fees: $fees")
                                 depositAndFees += fees
                                 log.debug("final depositAndFees: $depositAndFees")
 
                                 // 9. Create the transaction
-                                val change = utxos.sumByLong { it.lovelace } - depositAndFees
-                                if (change < 1) {
+                                val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
+                                if (change < BigInteger.ONE) {
                                     throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                                 }
 
                                 val tokenChange = StringBuilder()
                                 utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                                    if (amount > 0) {
+                                    if (amount > BigInteger.ZERO) {
                                         tokenChange.append("+$amount $currency")
                                     }
                                 }
@@ -1286,7 +1287,7 @@ class NodeController @Autowired constructor(
                         ?: throw IOException("Invalid protocol params!")
 
                 // 1. Create a transaction to dump EVERYTHING into
-                var depositAndFees = 0L
+                var depositAndFees = BigInteger.ZERO
                 var witnessCount = 0
                 val transaction = StringBuilder()
                 val certificates = StringBuilder()
@@ -1304,7 +1305,7 @@ class NodeController @Autowired constructor(
                 utxos.forEach { utxo ->
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                 }
-                log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                 witnessCount++ // fee payer is a witness
                 defaultHostConnection.commandWriteFile(
                         "/tmp/feepayer.payment.skey",
@@ -1556,20 +1557,20 @@ class NodeController @Autowired constructor(
 
                     log.debug("depositAndFees: $depositAndFees")
                     val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                    val fees = feesString.split(" ")[0].toLong()
+                    val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
                     depositAndFees += fees
                     log.debug("final depositAndFees: $depositAndFees")
 
                     // 9. Create the transaction
-                    val change = utxos.sumByLong { it.lovelace } - depositAndFees
-                    if (change < 1) {
+                    val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
+                    if (change < BigInteger.ONE) {
                         throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                     }
 
                     val tokenChange = StringBuilder()
                     utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                        if (amount > 0) {
+                        if (amount > BigInteger.ZERO) {
                             tokenChange.append("+$amount $currency")
                         }
                     }
@@ -1657,7 +1658,7 @@ class NodeController @Autowired constructor(
                         ?: throw IOException("Invalid protocol params!")
 
                 // 1. Create a transaction to dump EVERYTHING into
-                var depositAndFees = 0L
+                var depositAndFees = BigInteger.ZERO
                 var witnessCount = 0
                 val transaction = StringBuilder()
                 val certificates = StringBuilder()
@@ -1675,7 +1676,7 @@ class NodeController @Autowired constructor(
                 utxos.forEach { utxo ->
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                 }
-                log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                 witnessCount++ // fee payer is a witness
                 defaultHostConnection.commandWriteFile(
                         "/tmp/feepayer.payment.skey",
@@ -1831,20 +1832,20 @@ class NodeController @Autowired constructor(
 
                     log.debug("depositAndFees: $depositAndFees")
                     val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                    val fees = feesString.split(" ")[0].toLong()
+                    val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
                     depositAndFees += fees
                     log.debug("final depositAndFees: $depositAndFees")
 
                     // 9. Create the transaction
-                    val change = utxos.sumByLong { it.lovelace } - depositAndFees
-                    if (change < 1) {
+                    val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
+                    if (change < BigInteger.ONE) {
                         throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                     }
 
                     val tokenChange = StringBuilder()
                     utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                        if (amount > 0) {
+                        if (amount > BigInteger.ZERO) {
                             tokenChange.append("+$amount $currency")
                         }
                     }
@@ -1923,7 +1924,7 @@ class NodeController @Autowired constructor(
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
                 // 1. Create a transaction to dump EVERYTHING into
-                var depositAndFees = 0L
+                var depositAndFees = BigInteger.ZERO
                 var witnessCount = 0
                 val transaction = StringBuilder()
                 val certificates = StringBuilder()
@@ -1941,7 +1942,7 @@ class NodeController @Autowired constructor(
                 utxos.forEach { utxo ->
                     transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                 }
-                log.debug("feePayerAccount balance: ${utxos.sumByLong { it.lovelace }}")
+                log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
                 witnessCount++ // fee payer is a witness
                 defaultHostConnection.commandWriteFile(
                         "/tmp/feepayer.payment.skey",
@@ -1979,20 +1980,20 @@ class NodeController @Autowired constructor(
 
                 log.debug("depositAndFees: $depositAndFees")
                 val feesString = defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
-                val fees = feesString.split(" ")[0].toLong()
+                val fees = feesString.split(" ")[0].toBigInteger()
                 log.debug("fees: $fees")
                 depositAndFees += fees
                 log.debug("final depositAndFees: $depositAndFees")
 
                 // 9. Create the transaction
-                val change = utxos.sumByLong { it.lovelace } - depositAndFees
-                if (change < 1) {
+                val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
+                if (change < BigInteger.ONE) {
                     throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                 }
 
                 val tokenChange = StringBuilder()
                 utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                    if (amount > 0) {
+                    if (amount > BigInteger.ZERO) {
                         tokenChange.append("+$amount $currency")
                     }
                 }

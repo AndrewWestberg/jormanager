@@ -8,6 +8,7 @@ import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
+import com.swiftmako.jormanager.moshi.adapters.BigIntegerAdapter
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
@@ -35,7 +36,7 @@ class Configuration {
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getMoshi(): Moshi {
-        return Moshi.Builder().add(JodaDateTimeAdapter()).build()
+        return Moshi.Builder().add(BigIntegerAdapter).add(JodaDateTimeAdapter()).build()
     }
 
     @Bean

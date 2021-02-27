@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class EditPoolConfigRequest(
@@ -17,9 +18,9 @@ data class EditPoolConfigRequest(
         @Json(name = "rewardsStakingAccount")
         val rewardsStakingAccount: Long,
         @Json(name = "poolPledge")
-        val poolPledge: Long,
+        val poolPledge: BigInteger,
         @Json(name = "poolCost")
-        val poolCost: Long,
+        val poolCost: BigInteger,
         @Json(name = "poolMargin")
         val poolMargin: String
 )
