@@ -12,6 +12,7 @@ import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.model.ekg.EkgMetrics
 import com.swiftmako.jormanager.model.ekg2.EkgMetrics2
+import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
 import com.swiftmako.jormanager.moshi.adapters.PoolLedgerJsonAdapter
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -142,13 +143,16 @@ class NodeMonitor @Autowired constructor(
                         hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                             val eraString = defaultHostConnection.calculateEraString(magicString)
-                            val ledgerStateJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString")
-                                            .trim()
-                            val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
-                            val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
-                            val poolLedger = poolLedgerAdapter.fromJson(ledgerStateJson)
-                                    ?: throw IOException("Error dumping ledger state!")
+
+                            val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}_pools.json"
+                            defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
+                            val poolLedger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile).use { ledgerStateJsonSource ->
+                                val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                                val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
+                                poolLedgerAdapter.fromJson(ledgerStateJsonSource)
+                                        ?: throw IOException("Error dumping ledger state!")
+                            }
+                            defaultHostConnection.command("rm -f $ledgerStateFile")
 
                             coreNodes.forEach { coreNode ->
                                 val updatedCoreNode = nodeRepository.save(

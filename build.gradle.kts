@@ -129,6 +129,7 @@ tasks.withType<KotlinCompile> {
                 "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi"
         )
         jvmTarget = "13"
+        useIR = true
     }
 }
 

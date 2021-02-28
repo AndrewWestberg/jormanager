@@ -12,6 +12,7 @@ class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<Po
     private val poolLedgerParamsAdapter = moshi.adapter(PoolLedgerParams::class.java)
 
     private val options: List<JsonReader.Options> = listOf(
+            JsonReader.Options.of("nesEs"),
             JsonReader.Options.of("esLState"),
             JsonReader.Options.of("_delegationState"),
             JsonReader.Options.of("_pstate"),
@@ -26,54 +27,68 @@ class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<Po
         while (reader.hasNext()) {
             when (reader.selectName(options[0])) {
                 0 -> {
-                    // esLState
+                    // nesEs
                     reader.beginObject()
-                    while (reader.hasNext()) {
+                    while(reader.hasNext()) {
                         when (reader.selectName(options[1])) {
                             0 -> {
-                                // _delegationState
+                                // esLState
                                 reader.beginObject()
                                 while (reader.hasNext()) {
                                     when (reader.selectName(options[2])) {
                                         0 -> {
-                                            // _pstate
+                                            // _delegationState
                                             reader.beginObject()
                                             while (reader.hasNext()) {
                                                 when (reader.selectName(options[3])) {
                                                     0 -> {
-                                                        // _pParams
+                                                        // _pstate
                                                         reader.beginObject()
                                                         while (reader.hasNext()) {
-                                                            when (val poolIdIndex = reader.selectName(options[4])) {
+                                                            when (reader.selectName(options[4])) {
+                                                                0 -> {
+                                                                    // _pParams
+                                                                    reader.beginObject()
+                                                                    while (reader.hasNext()) {
+                                                                        when (val poolIdIndex = reader.selectName(options[5])) {
+                                                                            -1 -> {
+                                                                                reader.skipName()
+                                                                                reader.skipValue()
+                                                                            }
+                                                                            else -> {
+                                                                                val poolId = options[5].strings()[poolIdIndex]
+                                                                                val poolLedgerParams = poolLedgerParamsAdapter.fromJson(reader)!!
+                                                                                poolIdToLedgerParams[poolId] = poolLedgerParams
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    reader.endObject()
+                                                                }
+                                                                1 -> {
+                                                                    // _fPParams
+                                                                    reader.beginObject()
+                                                                    while (reader.hasNext()) {
+                                                                        when (val poolIdIndex = reader.selectName(options[5])) {
+                                                                            -1 -> {
+                                                                                reader.skipName()
+                                                                                reader.skipValue()
+                                                                            }
+                                                                            else -> {
+                                                                                val poolId = options[5].strings()[poolIdIndex]
+                                                                                val poolLedgerParams = poolLedgerParamsAdapter.fromJson(reader)!!
+                                                                                poolIdToFutureLedgerParams[poolId] = poolLedgerParams
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    reader.endObject()
+                                                                }
                                                                 -1 -> {
                                                                     reader.skipName()
                                                                     reader.skipValue()
                                                                 }
-                                                                else -> {
-                                                                    val poolId = options[4].strings()[poolIdIndex]
-                                                                    val poolLedgerParams = poolLedgerParamsAdapter.fromJson(reader)!!
-                                                                    poolIdToLedgerParams[poolId] = poolLedgerParams
-                                                                }
                                                             }
                                                         }
-                                                        reader.endObject()
-                                                    }
-                                                    1 -> {
-                                                        // _fPParams
-                                                        reader.beginObject()
-                                                        while (reader.hasNext()) {
-                                                            when (val poolIdIndex = reader.selectName(options[4])) {
-                                                                -1 -> {
-                                                                    reader.skipName()
-                                                                    reader.skipValue()
-                                                                }
-                                                                else -> {
-                                                                    val poolId = options[4].strings()[poolIdIndex]
-                                                                    val poolLedgerParams = poolLedgerParamsAdapter.fromJson(reader)!!
-                                                                    poolIdToFutureLedgerParams[poolId] = poolLedgerParams
-                                                                }
-                                                            }
-                                                        }
+
                                                         reader.endObject()
                                                     }
                                                     -1 -> {
@@ -82,7 +97,6 @@ class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<Po
                                                     }
                                                 }
                                             }
-
                                             reader.endObject()
                                         }
                                         -1 -> {
