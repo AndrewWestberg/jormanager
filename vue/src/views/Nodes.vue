@@ -675,6 +675,18 @@
             trim
           />
         </b-form-group>
+        <b-form-group
+          label="Adapools Verify"
+          label-for="metadata-adapoolsverify-input"
+          label-cols-md="2"
+        >
+          <b-form-input
+            id="metadata-adapoolsverify-input"
+            v-model="editMetadataForm.extended.adapoolsVerify"
+            placeholder="e.g. 7e0bf5c354c51252c2a3e3dc61a571ac"
+            trim
+          />
+        </b-form-group>
       </b-form-group>
     </b-modal>
     <b-modal
@@ -898,6 +910,7 @@ export default {
             rss: null,
           },
           telegramAdminHandle: null,
+          adapoolsVerify: null,
         },
       },
       editRelaysForm: {
@@ -1304,6 +1317,8 @@ export default {
         this.editMetadataForm.extended.telegramAdminHandle =
           data.extendedMetadata.telegramAdminHandle[0];
       }
+      this.editMetadataForm.extended.adapoolsVerify =
+        data.extendedMetadata.adapoolsVerify;
     },
   },
   mounted() {

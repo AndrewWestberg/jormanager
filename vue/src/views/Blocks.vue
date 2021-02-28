@@ -22,7 +22,7 @@
             >
               <template v-slot:first>
                 <b-form-select-option :value="null"
-                  >-- Latest --</b-form-select-option
+                  >-- Current --</b-form-select-option
                 >
               </template>
             </b-form-select>

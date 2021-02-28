@@ -1503,7 +1503,8 @@ class NodeController @Autowired constructor(
                             telegramAdminHandle = request.extended?.telegramAdminHandle?.let { listOf(it) }
                                     ?: emptyList(),
                             myPoolIds = otherPoolIds,
-                            whenSaturedThenRecommend = otherPoolIds.filterNot { it == node.poolId }
+                            whenSaturedThenRecommend = otherPoolIds.filterNot { it == node.poolId },
+                            adapoolsVerify = request.extended?.adapoolsVerify,
                     )
 
                     val extendedMetadataJson = extendedMetadataAdapter.indent(" ").toJson(extendedMetadata)
@@ -1616,7 +1617,7 @@ class NodeController @Autowired constructor(
 
             webSocketTemplate.convertAndSend(
                     "/topic/messages",
-                    SocketResponse.Success(type = "updatemetadata", data = "Metadata Update Success!")
+                    SocketResponse.Success(type = "updatemetadata", data = "Metadata Update Success!. It may take several hours for wallets, pooltool, and adapools, etc to see metadata changes.")
             )
         } catch (e: Throwable) {
             log.error("Error Updating Metadata!", e)
