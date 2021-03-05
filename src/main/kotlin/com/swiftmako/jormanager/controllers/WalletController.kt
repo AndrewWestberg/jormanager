@@ -103,7 +103,7 @@ class WalletController @Autowired constructor(
             val protocolParams =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $eraString $magicString")
                             .trim()
-            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParams)
+            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters-${genesis.networkMagic}.json", protocolParams)
 
             val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                     ?: throw IOException("Wallet entry id ${request.fromId} not found!")
@@ -133,8 +133,8 @@ class WalletController @Autowired constructor(
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
 
             val metadataFileParameter = if (!request.metadata.isNullOrBlank()) {
-                defaultHostConnection.commandWriteFile("/tmp/dummy.metadata.json", request.metadata)
-                "--metadata-json-file /tmp/dummy.metadata.json "
+                defaultHostConnection.commandWriteFile("/tmp/dummy.metadata-${genesis.networkMagic}.json", request.metadata)
+                "--metadata-json-file /tmp/dummy.metadata-${genesis.networkMagic}.json "
             } else {
                 ""
             }
@@ -142,9 +142,9 @@ class WalletController @Autowired constructor(
             if (request.isClaim) {
                 val walletItem =
                         walletUtils.getWalletItem(defaultHost, defaultHostConnection, eraString, magicString, fromWalletEntry)
-                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy.txbody")
+                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} --out-file /tmp/dummy-${genesis.networkMagic}.txbody")
             } else {
-                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--out-file /tmp/dummy.txbody")
+                dummyTransaction.append("--invalid-hereafter $ttl --fee 300000 ${metadataFileParameter}--out-file /tmp/dummy-${genesis.networkMagic}.txbody")
             }
 
             val error = defaultHostConnection.command(dummyTransaction.toString()).trim()
@@ -153,24 +153,24 @@ class WalletController @Autowired constructor(
                 throw IOException(error)
             }
 
-            if (!defaultHostConnection.commandFileExists("/tmp/protocol-parameters.json")) {
-                throw IOException("/tmp/protocol-parameters.json does not exist!")
+            if (!defaultHostConnection.commandFileExists("/tmp/protocol-parameters-${genesis.networkMagic}.json")) {
+                throw IOException("/tmp/protocol-parameters-${genesis.networkMagic}.json does not exist!")
             }
-            if (!defaultHostConnection.commandFileExists("/tmp/dummy.txbody")) {
-                throw IOException("/tmp/dummy.txbody does not exist!")
+            if (!defaultHostConnection.commandFileExists("/tmp/dummy-${genesis.networkMagic}.txbody")) {
+                throw IOException("/tmp/dummy-${genesis.networkMagic}.txbody does not exist!")
             }
-            if (metadataFileParameter.isNotBlank() && !defaultHostConnection.commandFileExists("/tmp/dummy.metadata.json")) {
-                throw IOException("/tmp/dummy.metadata.json does not exist!")
+            if (metadataFileParameter.isNotBlank() && !defaultHostConnection.commandFileExists("/tmp/dummy.metadata-${genesis.networkMagic}.json")) {
+                throw IOException("/tmp/dummy.metadata-${genesis.networkMagic}.json does not exist!")
             }
 
             val fee = if (request.isClaim) {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 2 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 2 --byron-witness-count 0")
                         .trim()
             } else {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0")
                         .trim()
             }
-            defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/dummy.txbody /tmp/dummy.metadata.json")
+            defaultHostConnection.command("rm -f /tmp/protocol-parameters-${genesis.networkMagic}.json /tmp/dummy-${genesis.networkMagic}.txbody /tmp/dummy.metadata-${genesis.networkMagic}.json")
             val lovelace = fee.split(" ")[0].toBigInteger()
 
             if (request.isClaim) {

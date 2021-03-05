@@ -470,7 +470,7 @@ export default {
       return label;
     },
     headerVariant(index, toAccount) {
-      return this.currencyState(toAccount.account) &&
+      return this.currencyState(toAccount.currency) &&
         this.accountState(toAccount.account) &&
         this.typeState(index, toAccount.type) &&
         (this.amountState(index, toAccount.amount, toAccount.currency) ||
