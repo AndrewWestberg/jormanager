@@ -153,6 +153,7 @@
 </template>
 
 <script>
+import bs58 from "bs58";
 import { GoodWizard } from "vue-good-wizard";
 import { mapActions, mapMutations } from "vuex";
 
@@ -254,6 +255,15 @@ export default {
       // console.log("back clicked", currentPage);
       return true; //return false if you want to prevent moving to previous page
     },
+    isByronAddress(address) {
+      try {
+        // check for a valid byron address
+        bs58.decode(address);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
   },
   computed: {
     nameState() {
@@ -268,7 +278,8 @@ export default {
         this.formWallet.type === "stake" ||
         this.formWallet.paymentAddr.match(
           /^.*1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53}|.{98})$/
-        ) != null
+        ) != null ||
+        this.isByronAddress(this.formWallet.paymentAddr)
       );
     },
     paymentSKeyState() {

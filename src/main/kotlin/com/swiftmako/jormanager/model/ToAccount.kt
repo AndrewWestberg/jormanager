@@ -11,6 +11,8 @@ data class ToAccount(
         val currency: String,
         @Json(name = "account")
         val account: Long,
+        @Json(name = "address")
+        val address: String,
         @Json(name = "amount")
         val amount: BigInteger?,
         @Json(name = "percent")
@@ -19,4 +21,6 @@ data class ToAccount(
         val type: String,
         @Json(name = "tokenFee")
         val tokenFee: BigInteger,
-)
+) {
+    val isAddress by lazy { account < 0 && address.isNotBlank() }
+}

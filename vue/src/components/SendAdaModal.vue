@@ -83,10 +83,30 @@
                   >
                   </b-form-select>
                 </b-form-group>
-                <b-form-group label="To Account" label-cols-md="2">
+                <b-form-group label="Destination" label-cols-md="2">
+                  <b-form-radio-group
+                    v-model="toAccount.destination"
+                    :state="destinationState(toAccount.destination)"
+                    @input="
+                      if (toAccount.destination === 'account') {
+                        toAccount.address = '';
+                      } else {
+                        toAccount.account = -1;
+                      }
+                    "
+                  >
+                    <b-form-radio value="account">Account</b-form-radio>
+                    <b-form-radio value="address">Address</b-form-radio>
+                  </b-form-radio-group>
+                </b-form-group>
+                <b-form-group
+                  label="To Account"
+                  label-cols-md="2"
+                  v-show="toAccount.destination === 'account'"
+                >
                   <b-form-select
                     v-model="toAccount.account"
-                    :state="accountState(toAccount.account)"
+                    :state="accountState(toAccount)"
                     :options="paymentSelectOptions($options.filters.currency)"
                     @input="prepareCalculateSendAdaFees()"
                   >
@@ -96,6 +116,23 @@
                       >
                     </template>
                   </b-form-select>
+                </b-form-group>
+                <b-form-group
+                  label="To Address"
+                  label-cols-md="2"
+                  v-show="toAccount.destination === 'address'"
+                >
+                  <b-form-input
+                    id="to-address-input"
+                    v-model="toAccount.address"
+                    :state="addressState(toAccount)"
+                    aria-describedby="to-address-input-live-feedback"
+                    placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
+                    trim
+                  ></b-form-input>
+                  <b-form-invalid-feedback id="to-address-input-live-feedback"
+                    >Enter a valid wallet address.</b-form-invalid-feedback
+                  >
                 </b-form-group>
                 <b-form-group label="Entry Type" label-cols-md="2">
                   <b-form-radio-group
@@ -229,6 +266,7 @@
 </template>
 
 <script>
+import bs58 from "bs58";
 import _ from "lodash";
 import { mapActions, mapState, mapGetters, mapMutations } from "vuex";
 
@@ -250,7 +288,9 @@ export default {
         toAccounts: [
           {
             currency: "ada",
+            destination: "account",
             account: null,
+            address: "",
             type: null,
             amount: null,
             percent: 0,
@@ -320,12 +360,45 @@ export default {
       this.tokenKeepFee = this.calculateTokenKeepFee();
       return currency != null;
     },
-    accountState(account) {
+    destinationState(destination) {
+      return destination != null;
+    },
+    accountState(toAccount) {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
       this.tokenKeepFee = this.calculateTokenKeepFee();
-      return account != null;
+      if (toAccount.destination === "address") {
+        return true;
+      } else if (toAccount.destination === "account") {
+        return toAccount.account != null;
+      }
+      return false;
+    },
+    addressState(toAccount) {
+      if (toAccount.destination === "account") {
+        return true;
+      } else if (
+        toAccount.destination === "address" &&
+        toAccount.address != null
+      ) {
+        if (
+          toAccount.address.match(
+            /^.*1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53}|.{98})$/
+          ) != null
+        ) {
+          return true;
+        }
+        try {
+          // check for a valid byron address
+          bs58.decode(toAccount.address);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      return false;
     },
     typeState(index, type) {
       this.remainingLovelace = this.calculateSpent(
@@ -455,10 +528,7 @@ export default {
       if (toAccount.currency !== "ada") {
         label +=
           ", TokenFee: " +
-          this.formatCurrency(
-            this.calculateTokenFee(index, toAccount.account),
-            "ada"
-          );
+          this.formatCurrency(this.calculateTokenFee(index, toAccount), "ada");
       }
 
       label += ", Remaining: ";
@@ -471,7 +541,9 @@ export default {
     },
     headerVariant(index, toAccount) {
       return this.currencyState(toAccount.currency) &&
-        this.accountState(toAccount.account) &&
+        this.destinationState(toAccount.destination) &&
+        this.accountState(toAccount) &&
+        this.addressState(toAccount) &&
         this.typeState(index, toAccount.type) &&
         (this.amountState(index, toAccount.amount, toAccount.currency) ||
           this.percentState(index, toAccount.percent, toAccount.currency))
@@ -542,7 +614,9 @@ export default {
     addPaymentEntry() {
       this.formSendAda.toAccounts.push({
         currency: "ada",
+        destination: "account",
         account: null,
+        address: "",
         type: null,
         amount: null,
         percent: 0,
@@ -564,7 +638,9 @@ export default {
         toAccounts: [
           {
             currency: "ada",
+            destination: "account",
             account: null,
+            address: "",
             type: null,
             amount: null,
             percent: 0,
@@ -607,7 +683,9 @@ export default {
         let toAccount = this.formSendAda.toAccounts[i];
         if (
           !this.currencyState(toAccount.currency) ||
-          !this.accountState(toAccount.account) ||
+          !this.destinationState(toAccount.destination) ||
+          !this.accountState(toAccount) ||
+          !this.addressState(toAccount) ||
           !this.typeState(i, toAccount.type) ||
           (toAccount.type === "amount" &&
             !this.amountState(i, toAccount.amount, toAccount.currency)) ||
@@ -654,6 +732,7 @@ export default {
           return {
             currency: toAccount.currency,
             account: toAccount.account,
+            address: toAccount.address,
             type: toAccount.type,
             amount:
               toAccount.amount == null
@@ -676,13 +755,23 @@ export default {
       this.tokenKeepFee = this.calculateTokenKeepFee();
 
       let uniqueToAccounts = Object.keys(
-        _.countBy(this.formSendAda.toAccounts, "account")
+        _.countBy(this.formSendAda.toAccounts, (toAccount) => {
+          if (toAccount.account < 0) {
+            return toAccount.address;
+          }
+          return toAccount.account;
+        })
       ).length;
       let returnChangeTxOut =
         this.remainingLovelace + this.tokenKeepFee > 0 ? 1 : 0;
       let request = {
         fromId: this.fromWalletItem.id,
-        toAccounts: _.map(this.formSendAda.toAccounts, "account"),
+        toAccounts: _.filter(
+          _.map(this.formSendAda.toAccounts, "account"),
+          (account) => {
+            return account > -1;
+          }
+        ),
         txOut: uniqueToAccounts + returnChangeTxOut,
         isClaim: this.formSendAda.isClaim,
         metadata: this.formSendAda.metadata,
@@ -708,14 +797,17 @@ export default {
       }
       return -1;
     },
-    calculateTokenFee(index, accountId) {
+    calculateTokenFee(index, toAccount) {
       let idx = 0;
       let totalAdaSentToAccount = _.sumBy(
         this.formSendAda.toAccounts,
         (account) => {
           let index = idx;
           idx++;
-          if (account.account !== accountId) {
+          if (
+            account.account !== toAccount.account ||
+            account.address !== toAccount.address
+          ) {
             return 0;
           }
           if (account.currency !== "ada") {
@@ -729,7 +821,11 @@ export default {
       let minUtxoMet = false;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
-        if (account.account !== accountId || account.currency === "ada") {
+        if (
+          account.account !== toAccount.account ||
+          account.address !== toAccount.address ||
+          account.currency === "ada"
+        ) {
           continue;
         }
 
@@ -854,7 +950,7 @@ export default {
 
         if (!skipTokenFees && account.currency !== "ada") {
           // subtract any token fees from our total available ada
-          account.tokenFee = this.calculateTokenFee(i, account.account);
+          account.tokenFee = this.calculateTokenFee(i, account);
           baseAmount["ada"] -= account.tokenFee;
         }
       }

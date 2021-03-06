@@ -21,13 +21,41 @@
       </div>
       <hr />
       <b-container>
+        <b-row>
+          <b-col lg="6" class="my-1">
+            <b-form-group
+              label="Filter"
+              label-for="filter-input"
+              label-cols-sm="3"
+              label-align-sm="right"
+              label-size="sm"
+            >
+              <b-input-group size="sm">
+                <b-form-input
+                  id="filter-input"
+                  v-model="filter"
+                  type="search"
+                  placeholder="Type to Search"
+                ></b-form-input>
+
+                <b-input-group-append>
+                  <b-button :disabled="!filter" @click="filter = ''"
+                    >Clear</b-button
+                  >
+                </b-input-group-append>
+              </b-input-group>
+            </b-form-group>
+          </b-col>
+        </b-row>
         <b-table
           bordered
           striped
           head-variant="light"
           :items="walletItems"
           :fields="fields"
-          v-if="walletItems.length > 0"
+          :filter="filter"
+          :filter-included-fields="filterOn"
+          v-show="walletItems.length > 0"
         >
           <template v-slot:cell(paymentAddr)="data">
             {{ data.value.substring(0, 14) }}...
@@ -50,22 +78,25 @@
                   data.value > 0
                 "
                 v-b-tooltip.hover.v-success.bottom="'Send'"
-                @click="$root.$emit('send-ada', walletItems[data.index])"
+                @click="
+                  $root.$emit('send-ada', findWalletItemByName(data.item.name))
+                "
               />
             </div>
             <hr
               v-if="
-                Object.keys(walletItems[data.index].nativeAssetMap).length > 0
+                Object.keys(findWalletItemByName(data.item.name).nativeAssetMap)
+                  .length > 0
               "
             />
             <div
               v-for="(name, index) in Object.keys(
-                walletItems[data.index].nativeAssetMap
+                findWalletItemByName(data.item.name).nativeAssetMap
               ).sort()"
               :key="index"
             >
               {{ name.substring(name.indexOf(".") + 1) }} -
-              {{ walletItems[data.index].nativeAssetMap[name] }}
+              {{ findWalletItemByName(data.item.name).nativeAssetMap[name] }}
               <font-awesome-icon
                 :icon="['fas', 'coins']"
                 class="text-warning"
@@ -83,7 +114,9 @@
                 v-b-tooltip.hover.v-success.bottom="
                   'Registered on chain. Click to de-register.'
                 "
-                @click="deregisterStakingAddress(walletItems[data.index])"
+                @click="
+                  deregisterStakingAddress(findWalletItemByName(data.item.name))
+                "
               />
               <font-awesome-icon
                 :icon="['fas', 'unlink']"
@@ -92,7 +125,9 @@
                 v-b-tooltip.hover.v-warning.bottom="
                   'Not registered on chain. Click to register.'
                 "
-                @click="registerStakingAddress(walletItems[data.index])"
+                @click="
+                  registerStakingAddress(findWalletItemByName(data.item.name))
+                "
               />
             </div>
             <div v-else class="text-center">---</div>
@@ -105,7 +140,9 @@
                 class="text-success"
                 v-if="data.value > 0"
                 v-b-tooltip.hover.v-success.bottom="'Claim Rewards'"
-                @click="$root.$emit('claim-ada', walletItems[data.index])"
+                @click="
+                  $root.$emit('claim-ada', findWalletItemByName(data.item.name))
+                "
               />
             </div>
             <div class="text-center" v-else>---</div>
@@ -115,7 +152,7 @@
               :icon="['fas', 'trash-alt']"
               class="text-danger"
               v-b-tooltip.hover.v-danger.right="'Delete this Entry'"
-              @click="deleteItem(walletItems[data.index])"
+              @click="deleteItem(findWalletItemByName(data.item.name))"
             />
           </template>
         </b-table>
@@ -161,6 +198,7 @@
 </template>
 
 <script>
+import _ from "lodash";
 import { mapState, mapActions, mapMutations, mapGetters } from "vuex";
 import AddWalletEntryWizard from "@/components/AddWalletEntryWizard";
 import SendAdaModal from "@/components/SendAdaModal";
@@ -177,9 +215,14 @@ export default {
         { key: "name", label: "Name", sortable: true },
         { key: "type", label: "Item Type", sortable: true },
         { key: "paymentAddr", label: "Payment Address" },
-        { key: "paymentAddrLovelace", label: "Balance", class: "text-right" },
+        {
+          key: "paymentAddrLovelace",
+          label: "Balance",
+          class: "text-right",
+          sortable: true,
+        },
         { key: "stakingAddr", label: "Reward Address" },
-        { key: "stakingAddrLovelace", label: "Rewards" },
+        { key: "stakingAddrLovelace", label: "Rewards", sortable: true },
         { key: "edit", label: "" },
       ],
       showAddWalletEntryWizard: false,
@@ -191,6 +234,8 @@ export default {
         stakingFeesAccount: null,
         isRegistration: false,
       },
+      filter: null,
+      filterOn: [],
     };
   },
   computed: {
@@ -240,6 +285,9 @@ export default {
           this.downloadBackup(spendingPassword);
         }
       );
+    },
+    findWalletItemByName(name) {
+      return _.find(this.walletItems, ["name", name]);
     },
     registerStakingAddress(walletItem) {
       this.stakingAddressForm.id = walletItem.id;

@@ -651,7 +651,7 @@ class WalletController @Autowired constructor(
                             defaultHostConnection,
                             eraString,
                             magicString,
-                            request.toAccounts.map { it.account },
+                            request.toAccounts.filter { !it.isAddress }.map { it.account },
                             request.txFee)
                 } else {
                     fromWalletEntry
@@ -689,9 +689,18 @@ class WalletController @Autowired constructor(
                 while (toAccounts.size > 0) {
                     // the group of all toAccounts destined for the same receiving address
                     val account = toAccounts[0]
-                    val toAccountsGroup = toAccounts.filter { it.account == account.account }
-                    val walletEntry = walletRepository.findByIdOrNull(account.account)
-                            ?: throw IOException("Wallet entry id ${account.account} not found!")
+                    val toAccountsGroup = toAccounts.filter { it.account == account.account && it.address == account.address }
+                    val walletEntry = if (account.isAddress) {
+                        // This raw receiving address won't be in our db, so just make a dummy WalletEntry
+                        WalletEntry(
+                                name = "unnamed_address",
+                                type = "address",
+                                paymentAddr = account.address
+                        )
+                    } else {
+                        walletRepository.findByIdOrNull(account.account)
+                                ?: throw IOException("Wallet entry id ${account.account} not found!")
+                    }
 
                     var claimAmount = BigInteger.ZERO
                     val amount = toAccountsGroup.sumByBigInteger { toAccount ->
