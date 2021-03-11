@@ -20,7 +20,7 @@ object Versions {
     const val googleTruth = "1.1.2"
     const val jackson = "2.12.2"
     const val joda = "2.10.10"
-    const val json = "20201115"
+    const val json = "20210307"
     const val jsoup = "1.13.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.3.1"
@@ -33,7 +33,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "2.1.5-SNAPSHOT"
+version = "2.1.6-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
