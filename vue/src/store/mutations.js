@@ -7,8 +7,9 @@ export default {
     setStompClient: (state, client) => {
         state.stompClient = client
     },
-    setAppVersion: (state, appVersion) => {
-        state.appVersion = appVersion
+    setAppVersion: (state, data) => {
+        state.appVersion = data.version;
+        state.mp = data.mp;
     },
     setBlocks: (state, blocks) => {
         state.blocks = _.orderBy(_.unionWith(blocks, state.blocks, (first, second) => {

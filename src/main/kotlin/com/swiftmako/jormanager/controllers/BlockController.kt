@@ -12,10 +12,7 @@ import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.GenesisShelley
-import com.swiftmako.jormanager.model.GenesisByron
-import com.swiftmako.jormanager.model.LeaderLogsRequest
-import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
 import com.swiftmako.jormanager.repositories.BlockRepository
@@ -29,6 +26,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
 import org.springframework.boot.info.BuildProperties
 import org.springframework.context.annotation.Scope
@@ -60,6 +58,7 @@ class BlockController @Autowired constructor(
         private val keyAdapter: JsonAdapter<Key>,
         private val chainRepository: ChainRepository,
         private val moshi: Moshi,
+        @Value("\${jormanager.mp:false}") private val mp: Boolean,
 ) : CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
@@ -72,8 +71,8 @@ class BlockController @Autowired constructor(
 
     @MessageMapping("/version")
     @SendTo("/topic/messages")
-    fun getVersion(): SocketResponse<String> {
-        return SocketResponse.Success(type = "version", data = "JorManager ${buildProperties.version.split('-')[0]}")
+    fun getVersion(): SocketResponse<JorManagerVersion> {
+        return SocketResponse.Success(type = "version", data = JorManagerVersion(version = "JorManager ${buildProperties.version.split('-')[0]}", mp = mp))
     }
 
     @MessageMapping("/blocks")

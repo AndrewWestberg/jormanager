@@ -31,7 +31,7 @@ import { mapState, mapActions } from "vuex";
 export default {
   name: "Header",
   computed: {
-    ...mapState(["appVersion"]),
+    ...mapState(["appVersion", "mp"]),
   },
   methods: {
     ...mapActions(["requestAppVersion"]),

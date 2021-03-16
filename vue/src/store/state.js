@@ -5,6 +5,7 @@ export default {
 
     // jormanager version string
     appVersion: "---",
+    mp: false,
 
     toastError: null,
     toastWarn: null,
