@@ -15,6 +15,8 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
 
     var state: State = State.PROPOSE
 
+    lateinit var msgAcceptVersion: MsgAcceptVersion
+
     override fun startAsync(scope: CoroutineScope) = scope.async {
         log.info("Starting HandshakeProtocol...")
         while (true) {
@@ -55,7 +57,7 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
                 val messageId: Long = cborArray.elementToLong(0)
                 when (messageId) {
                     MsgAcceptVersion.MESSAGE_ID -> {
-                        val msgAcceptVersion = MsgAcceptVersion(cborArray)
+                        msgAcceptVersion = MsgAcceptVersion(cborArray)
                         if (msgAcceptVersion.networkMagic != networkMagic) {
                             throw IOException("Handshake succeeded, but networkMagic did not match!")
                         }

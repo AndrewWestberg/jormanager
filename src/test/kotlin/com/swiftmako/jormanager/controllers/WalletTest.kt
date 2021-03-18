@@ -31,39 +31,77 @@ class WalletTest {
     }
 
     @Test
-    fun `test mary wallet parsing`() {
+    fun `test 1_26_0 wallet parsing`() {
+//        val json = """
+//            |{
+//            |    "77a2d704e4b5f0901a52a6d2fa88626b61312e3a1d46fe8ad2baae4c48b72824#1": {
+//            |        "amount": [
+//            |            210001628430,
+//            |            [
+//            |                [
+//            |                    "34250edd1e9836f5378702fbf9416b709bc140e04f668cc355208518",
+//            |                    [
+//            |                        [
+//            |                            "ATADAcoin",
+//            |                            10
+//            |                        ],
+//            |                        [
+//            |                            "adosia",
+//            |                            12345
+//            |                        ]
+//            |                    ]
+//            |                ]
+//            |            ]
+//            |        ],
+//            |        "address": "607e8c76538b4aa50a62e6fe015ddb58a97b2131c6bb15fc0b8eeffd3a"
+//            |    }
+//            |}
+//            """.trimMargin()
+
         val json = """
-            |{
-            |    "77a2d704e4b5f0901a52a6d2fa88626b61312e3a1d46fe8ad2baae4c48b72824#1": {
-            |        "amount": [
-            |            210001628430,
-            |            [
-            |                [
-            |                    "34250edd1e9836f5378702fbf9416b709bc140e04f668cc355208518",
-            |                    [
-            |                        [
-            |                            "ATADAcoin",
-            |                            10
-            |                        ],
-            |                        [
-            |                            "adosia",
-            |                            12345
-            |                        ]
-            |                    ]
-            |                ]
-            |            ]
-            |        ],
-            |        "address": "607e8c76538b4aa50a62e6fe015ddb58a97b2131c6bb15fc0b8eeffd3a"
-            |    }
-            |}
+                |{
+                |    "55b0751876f5a846faa11b7aeaff979c00c42d21f1960d5610bbcf9a4fbd72ac#2": {
+                |        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+                |        "value": {
+                |            "34250edd1e9836f5378702fbf9416b709bc140e04f668cc355208518": {
+                |                "ADA": 1000,
+                |                "": 1
+                |            },
+                |            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+                |                "BlueCheese": 3998
+                |            },
+                |            "ecd07b4ef62f37a68d145de8efd60c53d288dd5ffc641215120cc3db": {
+                |                "": 3
+                |            },
+                |            "lovelace": 16405517685
+                |        }
+                |    },
+                |    "bb82e22a3b1b78e24183d5ef7a83a5cbeb089d0ae9b0ca7f143703c3d9b11b69#0": {
+                |        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+                |        "value": {
+                |            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+                |                "BlueCheese": 1
+                |            },
+                |            "lovelace": 4820683
+                |        }
+                |    },
+                |    "c246847b906d7ea96bc072f4e5b5b660aa514f26a2b84975fe0275da10c56f78#0": {
+                |        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+                |        "value": {
+                |            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+                |                "BlueCheese": 1
+                |            },
+                |            "lovelace": 4820683
+                |        }
+                |    }
+                |}
             """.trimMargin()
 
         val adapter = QueryUtxoJsonAdapter()
         val utxos = adapter.fromJson(json)!!
 
         println("$utxos")
-        assertThat(utxos.size).isEqualTo(1)
-        assertThat(utxos[0].nativeAssets.size).isEqualTo(2)
-
+        assertThat(utxos.size).isEqualTo(3)
+        assertThat(utxos[0].nativeAssets.size).isEqualTo(4)
     }
 }

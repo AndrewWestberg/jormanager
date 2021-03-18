@@ -30,7 +30,6 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
 import org.springframework.boot.info.BuildProperties
 import org.springframework.context.annotation.Scope
-import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
@@ -59,6 +58,7 @@ class BlockController @Autowired constructor(
         private val chainRepository: ChainRepository,
         private val moshi: Moshi,
         @Value("\${jormanager.mp:false}") private val mp: Boolean,
+        @Value("\${jormanager.blocks.pastEpochs:2}") private val pastEpochsToShow: Long,
 ) : CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockController::class.java)
@@ -78,46 +78,43 @@ class BlockController @Autowired constructor(
     @MessageMapping("/blocks")
     @SendTo("/topic/messages")
     fun getBlocks(): SocketResponse<List<Block>> {
-        val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
-        blocks.map { block ->
-            if (block.epoch < 0L) {
-                // block needs to be updated with epoch/slot in epoch
-                nodeRepository.findDefault()?.let { node ->
-                    fileRepository.findByIdOrNull(node.genesisByronFileId)?.let { byronFile ->
-                        byronGenesisAdapter.fromJson(byronFile.content)?.let { byron ->
-                            fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { shelleyFile ->
-                                shelleyShelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
-                                    val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, block.slot)
-                                    if (epoch > 0L && slotInEpoch > 0L) {
-                                        blockRepository.save(block.copy(epoch = epoch, slotInEpoch = slotInEpoch))
-                                    } else {
-                                        log.warn("blockutils returned bad epoch/slotInEpoch")
-                                        block
-                                    }
-                                } ?: run {
-                                    log.warn("could not parse shelley genesis json!")
+        blockRepository.findAllEpochless().map { block ->
+            // block needs to be updated with epoch/slot in epoch
+            nodeRepository.findDefault()?.let { node ->
+                fileRepository.findByIdOrNull(node.genesisByronFileId)?.let { byronFile ->
+                    byronGenesisAdapter.fromJson(byronFile.content)?.let { byron ->
+                        fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { shelleyFile ->
+                            shelleyShelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
+                                val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, block.slot)
+                                if (epoch > 0L && slotInEpoch > 0L) {
+                                    blockRepository.save(block.copy(epoch = epoch, slotInEpoch = slotInEpoch))
+                                } else {
+                                    log.warn("blockutils returned bad epoch/slotInEpoch")
                                     block
                                 }
                             } ?: run {
-                                log.warn("shelley genesis file not found!")
+                                log.warn("could not parse shelley genesis json!")
                                 block
                             }
                         } ?: run {
-                            log.warn("could not parse byron genesis json!")
+                            log.warn("shelley genesis file not found!")
                             block
                         }
                     } ?: run {
-                        log.warn("byron genesis file not found!")
+                        log.warn("could not parse byron genesis json!")
                         block
                     }
                 } ?: run {
-                    log.warn("No default node found!")
+                    log.warn("byron genesis file not found!")
                     block
                 }
-            } else {
+            } ?: run {
+                log.warn("No default node found!")
                 block
             }
         }
+
+        val blocks = blockRepository.findLatestBlocks(pastEpochsToShow)
         return SocketResponse.Success(type = "blocks", data = blocks)
     }
 
@@ -153,7 +150,7 @@ class BlockController @Autowired constructor(
                                 val tipJson =
                                         defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
                                                 .trim()
-                                val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slotNo
+                                val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slot
                                         ?: throw IOException("Unable to query tip!")
                                 val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}.json"
                                 defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
@@ -309,7 +306,7 @@ class BlockController @Autowired constructor(
                                 deferreds.awaitAll()
 
                                 log.info("Total Slots this epoch: $leadershipCount")
-                                val blocks = blockRepository.findAll(Sort.by(Sort.Direction.ASC, "slot"))
+                                val blocks = blockRepository.findLatestBlocks(pastEpochsToShow)
                                 webSocketTemplate.convertAndSend(
                                         "/topic/messages",
                                         SocketResponse.Success("blocks", data = blocks)

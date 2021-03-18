@@ -6,6 +6,8 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgAcceptVersion
+import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgProposeVersions
 import com.swiftmako.jormanager.nodeclient.protocols.transaction.TxSubmissionProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
@@ -42,26 +44,26 @@ import kotlin.experimental.xor
 import kotlin.streams.toList
 
 class MuxProtocol(
-    private val host: Host,
-    private val poolId: String,
-    private val hostName: String,
-    private val port: Int,
-    private val networkMagic: Long,
-    private val shelleyGenesisHash: ByteArray,
-    private val chainRepository: ChainRepository,
-    private val isPooltool: Boolean,
-    private val pooltoolService: PooltoolService,
-    private val pooltoolApiKey: String,
+        private val host: Host,
+        private val poolId: String,
+        private val hostName: String,
+        private val port: Int,
+        private val networkMagic: Long,
+        private val shelleyGenesisHash: ByteArray,
+        private val chainRepository: ChainRepository,
+        private val isPooltool: Boolean,
+        private val pooltoolService: PooltoolService,
+        private val pooltoolApiKey: String,
 ) : CoroutineScope {
     private val log = LoggerFactory.getLogger("MuxProtocol")
 
     val job = SupervisorJob()
     override val coroutineContext: CoroutineContext =
-        Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
-            if (throwable !is CancellationException) {
-                log.error("Uncaught coroutine exception!", throwable)
+            Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
+                if (throwable !is CancellationException) {
+                    log.error("Uncaught coroutine exception!", throwable)
+                }
             }
-        }
 
     /**
      * Ensures we don't try to send two things at the same time.
@@ -85,7 +87,7 @@ class MuxProtocol(
 
                 val chainBlocks = getChainBlocksForSyncStart()
                 val chainSyncProtocol =
-                    ChainSyncProtocol(host, shelleyGenesisHash, chainBlocks, chainRepository, isPooltool, pooltoolService, pooltoolApiKey, poolId)
+                        ChainSyncProtocol(host, shelleyGenesisHash, chainBlocks, chainRepository, isPooltool, pooltoolService, pooltoolApiKey, poolId)
                 launchProtocolSender(chainSyncProtocol, asyncSocketChannel, job)
 
                 // Start the socket receiver loop
@@ -136,14 +138,14 @@ class MuxProtocol(
 
                             else -> {
                                 log.error(
-                                    "Unknown message received: protocolId: 0x${
-                                        protocolId.toInt().toHexString().padStart(4, '0').substring(4)
-                                    }"
+                                        "Unknown message received: protocolId: 0x${
+                                            protocolId.toInt().toHexString().padStart(4, '0').substring(4)
+                                        }"
                                 )
 
                                 val jsonString =
-                                    CborReader.createFromByteArray(receiveBuffer.array(), receiveBuffer.position(), 1)
-                                        .readDataItem().toJsonString()
+                                        CborReader.createFromByteArray(receiveBuffer.array(), receiveBuffer.position(), 1)
+                                                .readDataItem().toJsonString()
                                 log.error("Unknown data: $jsonString")
 
                                 BufferPool.recycle(receiveBuffer)
@@ -154,12 +156,16 @@ class MuxProtocol(
 
                 // These two need to complete before we start chain sync
                 handshakeProtocol.startAsync(this + job).await()
-                txSubmissionProtocol.startAsync(this + job).await()
+                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_MARY) {
+                    // only start this protocol on versions less than Mary. In Mary, we have agency at the start so it's
+                    // not needed
+                    txSubmissionProtocol.startAsync(this + job).await()
+                }
                 log.debug("Connected to Node.")
 
                 awaitAll(
-                    chainSyncProtocol.startAsync(this + job),
-                    receiverLoop
+                        chainSyncProtocol.startAsync(this + job),
+                        receiverLoop
                 )
             } catch (e: Throwable) {
                 log.error("Fatal Protocol Exception!", e)
@@ -185,28 +191,28 @@ class MuxProtocol(
             index == 0 || (index > 1 && (index and (index - 1) == 0))
         }.toMutableList().also {
             it.add(
-                // Last byron block of mainnet
-                ChainBlock(
-                    slotNumber = 4492799,
-                    hash = "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457",
-                    blockNumber = 0L,
-                    prevHash = "",
-                    etaV = "",
-                    poolId = "",
-                    leaderVrf = "",
-                )
+                    // Last byron block of mainnet
+                    ChainBlock(
+                            slotNumber = 4492799,
+                            hash = "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457",
+                            blockNumber = 0L,
+                            prevHash = "",
+                            etaV = "",
+                            poolId = "",
+                            leaderVrf = "",
+                    )
             )
             it.add(
-                // Last byron block of testnet
-                ChainBlock(
-                    slotNumber = 1598399,
-                    hash = "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
-                    blockNumber = 0L,
-                    prevHash = "",
-                    etaV = "",
-                    poolId = "",
-                    leaderVrf = "",
-                )
+                    // Last byron block of testnet
+                    ChainBlock(
+                            slotNumber = 1598399,
+                            hash = "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
+                            blockNumber = 0L,
+                            prevHash = "",
+                            etaV = "",
+                            poolId = "",
+                            leaderVrf = "",
+                    )
             )
             it.add(
                     // Last byron block of guild

@@ -30,5 +30,7 @@
     <include file="changelog/023-create-chain-index-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/024-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/025-update-chain-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/026-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/027-update-blocks-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

@@ -1,0 +1,25 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="027" author="Andrew Westberg">
+        <createIndex tableName="blocks" indexName="idx_blocks_slot">
+            <column name="slot" descending="true"/>
+        </createIndex>
+        <createIndex tableName="blocks" indexName="idx_blocks_epoch">
+            <column name="epoch" descending="true"/>
+        </createIndex>
+        <createIndex tableName="blocks" indexName="idx_blocks_slot_hash">
+            <column name="slot" descending="true"/>
+            <column name="hash" descending="false"/>
+        </createIndex>
+        <createIndex tableName="blocks" indexName="idx_blocks_slot_status">
+            <column name="slot" descending="true"/>
+            <column name="status" descending="false"/>
+        </createIndex>
+        <createIndex tableName="blocks" indexName="idx_blocks_slot_pool">
+            <column name="slot" descending="true"/>
+            <column name="pool" descending="false"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

@@ -411,8 +411,8 @@ class BlockMonitor @Autowired constructor(
                                 val tipJson =
                                         hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
                                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
-                                    if (queryTip.headerHash.startsWith(block.hash)) {
-                                        block.copy(id = existingBlock?.id, pool = pool, hash = queryTip.headerHash)
+                                    if (queryTip.hash.startsWith(block.hash)) {
+                                        block.copy(id = existingBlock?.id, pool = pool, hash = queryTip.hash)
                                     } else {
                                         block.copy(id = existingBlock?.id, pool = pool)
                                     }

@@ -81,7 +81,12 @@ class WalletUtils @Autowired constructor(
         }
         val stakingAddrLovelace = stakingInfoString?.let { json ->
             try {
-                stakingInfoAdapter.fromJson(json)?.firstOrNull()?.rewardAccountBalance
+                val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
+                if(stakeAddressInfos?.isNotEmpty() == true) {
+                    stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
+                } else {
+                    null
+                }
             } catch (t: Throwable) {
                 log.warn("Error parsing staking info json: $json", t)
                 null

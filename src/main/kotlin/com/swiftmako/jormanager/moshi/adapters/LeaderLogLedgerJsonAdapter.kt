@@ -16,14 +16,14 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
     private val doubleAdapter: JsonAdapter<Double> = moshi.adapter(Double::class.java, emptySet(), "decentralisationParam")
 
     private val options: List<JsonReader.Options> = listOf(
-            JsonReader.Options.of("nesEs", "esPp", "esSnapshots", "esLState"),
+            JsonReader.Options.of("stateBefore", "nesEs", "esPp", "esSnapshots", "esLState"),
             JsonReader.Options.of("decentralisationParam"),
-            JsonReader.Options.of("_pstakeSet", "_pstakeMark"), //_pstakeSet is current epoch, _pstakeMark is future epoch
-            JsonReader.Options.of("_stake", "_delegations"),
-            JsonReader.Options.of("_utxoState"),
-            JsonReader.Options.of("_ppups"),
+            JsonReader.Options.of("pstakeSet", "_pstakeSet", "pstakeMark", "_pstakeMark"), //pstakeSet is current epoch, pstakeMark is future epoch
+            JsonReader.Options.of("stake", "_stake", "delegations", "_delegations"),
+            JsonReader.Options.of("utxoState", "_utxoState"),
+            JsonReader.Options.of("ppups", "_ppups"),
             JsonReader.Options.of("proposals"),
-            JsonReader.Options.of("_d"),
+            JsonReader.Options.of("decentralisationParam", "_d"),
     )
 
     override fun fromJson(reader: JsonReader): LeaderLogLedger? {
@@ -33,17 +33,24 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
         var dProposalVotes = 0
         var isLedgerV2 = false
+        var isLedgerV3 = false
 
         reader.beginObject()
         while (reader.hasNext()) {
             when (reader.selectName(options[0])) {
                 0 -> {
-                    //nesEs
+                    //stateBefore
+                    reader.beginObject()
+                    isLedgerV3 = true
+                    continue
+                }
+                1 -> {
+                    // nesEs
                     reader.beginObject()
                     isLedgerV2 = true
                     continue
                 }
-                1 -> {
+                2 -> {
                     // esPp
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -61,17 +68,17 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                     }
                     reader.endObject()
                 }
-                2 -> {
+                3 -> {
                     // esSnapshots
                     reader.beginObject()
                     while (reader.hasNext()) {
                         when (reader.selectName(options[2])) {
-                            0 -> {
-                                // _pstakeSet
+                            0, 1 -> {
+                                //pstakeSet
                                 calculateSigmaValues(reader, poolIdToSigma)
                             }
-                            1 -> {
-                                // _pstakeMark
+                            2, 3 -> {
+                                //pstakeMark
                                 calculateSigmaValues(reader, futurePoolIdToSigma)
                             }
                             -1 -> {
@@ -81,53 +88,89 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                         }
                     }
                     reader.endObject()
-
                 }
-                3 -> {
+                4 -> {
                     // esLState
                     reader.beginObject()
                     while (reader.hasNext()) {
                         when (reader.selectName(options[4])) {
-                            0 -> {
-                                // _utxoState
+                            0, 1 -> {
+                                // utxoState
                                 reader.beginObject()
                                 while (reader.hasNext()) {
                                     when (reader.selectName(options[5])) {
-                                        0 -> {
-                                            // _ppups
+                                        0, 1 -> {
+                                            // ppups
                                             reader.beginObject()
                                             while (reader.hasNext()) {
                                                 when (reader.selectName(options[6])) {
                                                     0 -> {
                                                         // proposals
-                                                        reader.beginObject()
-                                                        while (reader.hasNext()) {
-                                                            reader.nextName() // consume the voter id name
-                                                            reader.beginObject()
+                                                        if (isLedgerV3) {
+                                                            reader.beginArray()
                                                             while (reader.hasNext()) {
-                                                                when (reader.selectName(options[7])) {
-                                                                    0 -> {
-                                                                        // _d
-                                                                        if (reader.peek() == JsonReader.Token.NULL) {
-                                                                            reader.skipValue()
-                                                                        } else {
-                                                                            dProposalVotes++
-                                                                            if (dProposalVotes == 5) {
-                                                                                futureDecentralizationParameter = reader.nextDouble()
-                                                                            } else {
+                                                                reader.beginArray()
+                                                                while (reader.hasNext()) {
+                                                                    reader.nextString() // consume the voter id name
+                                                                    reader.beginObject()
+                                                                    while (reader.hasNext()) {
+                                                                        when (reader.selectName(options[7])) {
+                                                                            0 -> {
+                                                                                // decentralisationParam
+                                                                                if (reader.peek() == JsonReader.Token.NULL) {
+                                                                                    reader.skipValue()
+                                                                                } else {
+                                                                                    dProposalVotes++
+                                                                                    if (dProposalVotes == 1) { //changed from 5 -> 1 because only 1 for guild network
+                                                                                        futureDecentralizationParameter = reader.nextDouble()
+                                                                                    } else {
+                                                                                        reader.skipValue()
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            -1 -> {
+                                                                                reader.skipName()
                                                                                 reader.skipValue()
                                                                             }
                                                                         }
                                                                     }
-                                                                    -1 -> {
-                                                                        reader.skipName()
-                                                                        reader.skipValue()
+                                                                    reader.endObject()
+                                                                }
+                                                                reader.endArray()
+                                                            }
+                                                            reader.endArray()
+                                                        } else {
+                                                            // parse proposals the old way
+                                                            // proposals
+                                                            reader.beginObject()
+                                                            while (reader.hasNext()) {
+                                                                reader.nextName() // consume the voter id name
+                                                                reader.beginObject()
+                                                                while (reader.hasNext()) {
+                                                                    when (reader.selectName(options[7])) {
+                                                                        0 -> {
+                                                                            // _d
+                                                                            if (reader.peek() == JsonReader.Token.NULL) {
+                                                                                reader.skipValue()
+                                                                            } else {
+                                                                                dProposalVotes++
+                                                                                if (dProposalVotes == 5) {
+                                                                                    futureDecentralizationParameter = reader.nextDouble()
+                                                                                } else {
+                                                                                    reader.skipValue()
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        -1 -> {
+                                                                            reader.skipName()
+                                                                            reader.skipValue()
+                                                                        }
                                                                     }
                                                                 }
+                                                                reader.endObject()
                                                             }
                                                             reader.endObject()
                                                         }
-                                                        reader.endObject()
                                                     }
                                                     -1 -> {
                                                         reader.skipName()
@@ -161,7 +204,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
             }
         }
         reader.endObject()
-        if (isLedgerV2) {
+        if (isLedgerV3 || isLedgerV2) {
             while (reader.hasNext()) {
                 reader.skipName()
                 reader.skipValue()
@@ -188,8 +231,8 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         reader.beginObject()
         while (reader.hasNext()) {
             when (reader.selectName(options[3])) {
-                0 -> {
-                    // _stake
+                0, 1 -> {
+                    // stake, _stake
                     reader.beginArray()
                     while (reader.hasNext()) {
                         reader.beginArray()
@@ -205,8 +248,8 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                     }
                     reader.endArray()
                 }
-                1 -> {
-                    // _delegations
+                2, 3 -> {
+                    // delegations, _delegations
                     reader.beginArray()
                     while (reader.hasNext()) {
                         reader.beginArray()

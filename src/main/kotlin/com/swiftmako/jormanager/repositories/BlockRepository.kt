@@ -9,6 +9,12 @@ import org.springframework.stereotype.Repository
 @Repository
 interface BlockRepository : JpaRepository<Block, Long> {
 
+    @Query("SELECT b FROM Block b where b.epoch >= (SELECT MAX(epoch) FROM Block) - :pastEpochsToShow ORDER BY b.slot DESC")
+    fun findLatestBlocks(@Param(value = "pastEpochsToShow") pastEpochsToShow: Long): List<Block>
+
+    @Query("SELECT b FROM Block b where b.epoch < 0")
+    fun findAllEpochless(): List<Block>
+
     @Query("SELECT b FROM Block b WHERE b.slot = :slot ORDER BY b.hash ASC")
     fun findBySlot(@Param("slot") slot: Long): List<Block>
 

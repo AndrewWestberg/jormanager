@@ -4,7 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.ktx.hexToByteArray
-import com.swiftmako.jormanager.ktx.sumByLong
+import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
@@ -56,7 +56,7 @@ class NodeConnectTest {
 
                 val computeTime = measureTimeMillis {
                     val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
+                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
                     }.toMap()
                     val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
 //                    it[1] == "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
@@ -64,9 +64,9 @@ class NodeConnectTest {
                     }.mapNotNull { delegation ->
                         val keyHash = (delegation[0] as Map<String, String>)["key hash"]
                         stakeMap[keyHash]
-                    }.sumByLong { it }
+                    }.sumByBigInteger { it }
 
-                    val totalStake = stakeMap.map { entry -> entry.value }.sumByLong { it }
+                    val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
                     val percentOfTotalStake = BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP).times(BigDecimal(100L))
 
                     println("Active Stake: $activeStake lovelace")
@@ -295,16 +295,16 @@ class NodeConnectTest {
         val ledger = ledgerAdapter.fromJson(source)
 
         val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-            (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
+            (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
         }.toMap()
         val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
             it[1] == poolId
         }.mapNotNull { delegation ->
             val keyHash = (delegation[0] as Map<String, String>)["key hash"]
             stakeMap[keyHash]
-        }.sumByLong { it }
+        }.sumByBigInteger { it }
 
-        val totalStake = stakeMap.map { entry -> entry.value }.sumByLong { it }
+        val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
         return BigDecimal(activeStake).divide(BigDecimal(totalStake), 34, RoundingMode.HALF_UP)
     }
 }

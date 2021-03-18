@@ -10,7 +10,8 @@ import java.math.BigInteger
 
 class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 
-    private val options = JsonReader.Options.of("amount")
+    private val options = JsonReader.Options.of("value")
+    private val policyNameOptions = JsonReader.Options.of("lovelace")
 
     override fun fromJson(reader: JsonReader): List<Utxo>? {
         val utxos = mutableListOf<Utxo>()
@@ -25,76 +26,31 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
             while (reader.hasNext()) {
                 when (reader.selectName(options)) {
                     0 -> {
-                        // amount
-                        val lovelace = if (reader.peek() == JsonReader.Token.BEGIN_ARRAY) {
-                            // Mary era
-                            var ll = BigInteger.ZERO
-                            reader.beginArray()
-                            while (reader.hasNext()) {
-                                when (reader.peek()) {
-                                    JsonReader.Token.NUMBER -> {
-                                        // lovelaces value
-                                        ll = BigDecimal(reader.nextString()).toBigInteger()
-                                    }
-                                    JsonReader.Token.BEGIN_ARRAY -> {
-                                        // native asset array
-                                        reader.beginArray()
-                                        while (reader.hasNext()) {
-                                            reader.beginArray()
-                                            var policy = ""
-                                            var name: String? = null
-                                            var amount = BigInteger.ZERO
-                                            while (reader.hasNext()) {
-                                                when (reader.peek()) {
-                                                    JsonReader.Token.STRING -> {
-                                                        policy = reader.nextString()
-                                                    }
-                                                    JsonReader.Token.BEGIN_ARRAY -> {
-                                                        reader.beginArray()
-                                                        while (reader.hasNext()) {
-                                                            reader.beginArray()
-                                                            while (reader.hasNext()) {
-                                                                when (reader.peek()) {
-                                                                    JsonReader.Token.STRING -> {
-                                                                        name = reader.nextString()
-                                                                    }
-                                                                    JsonReader.Token.NUMBER -> {
-                                                                        amount = BigDecimal(reader.nextString()).toBigInteger()
-                                                                    }
-                                                                    else -> {
-                                                                        reader.skipValue()
-                                                                    }
-                                                                }
-                                                            }
-                                                            reader.endArray()
-                                                            if (name != null && policy.isNotBlank() && amount > BigInteger.ZERO) {
-                                                                nativeAssets.add(NativeAsset(name, policy, amount))
-                                                                name = null
-                                                                amount = BigInteger.ZERO
-                                                            }
-                                                        }
-                                                        reader.endArray()
-                                                    }
-                                                    else -> {
-                                                        reader.skipValue()
-                                                    }
-                                                }
-                                            }
-                                            reader.endArray()
+                        // value
+                        var lovelace = BigInteger.ZERO
+                        reader.beginObject()
+                        while(reader.hasNext()) {
+                            when (reader.selectName(policyNameOptions)) {
+                                0 -> {
+                                    // lovelace
+                                    lovelace = BigDecimal(reader.nextString()).toBigInteger()
+                                }
+                                -1 -> {
+                                    // token asset
+                                    val policy = reader.nextName()
+                                    reader.beginObject()
+                                    while(reader.hasNext()) {
+                                        val name = reader.nextName()
+                                        val amount = BigDecimal(reader.nextString()).toBigInteger()
+                                        if (name != null && policy.isNotBlank() && amount > BigInteger.ZERO) {
+                                            nativeAssets.add(NativeAsset(name, policy, amount))
                                         }
-                                        reader.endArray()
                                     }
-                                    else -> {
-                                        reader.skipValue()
-                                    }
+                                    reader.endObject()
                                 }
                             }
-                            reader.endArray()
-                            ll
-                        } else {
-                            // Before Mary era
-                            BigDecimal(reader.nextString()).toBigInteger()
                         }
+                        reader.endObject()
                         utxos.add(Utxo(hash, ix, lovelace, nativeAssets))
                     }
                     -1 -> {
@@ -104,7 +60,6 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                 }
             }
             reader.endObject()
-
         }
         reader.endObject()
 
@@ -179,5 +134,43 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 //            ]
 //        ],
 //        "address": "607e8c76538b4aa50a62e6fe015ddb58a97b2131c6bb15fc0b8eeffd3a"
+//    }
+//}
+
+// 1.26.0 era
+//{
+//    "55b0751876f5a846faa11b7aeaff979c00c42d21f1960d5610bbcf9a4fbd72ac#2": {
+//        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+//        "value": {
+//            "34250edd1e9836f5378702fbf9416b709bc140e04f668cc355208518": {
+//                "ADA": 1000,
+//                "": 1
+//            },
+//            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+//                "BlueCheese": 3998
+//            },
+//            "ecd07b4ef62f37a68d145de8efd60c53d288dd5ffc641215120cc3db": {
+//                "": 3
+//            },
+//            "lovelace": 16405517685
+//        }
+//    },
+//    "bb82e22a3b1b78e24183d5ef7a83a5cbeb089d0ae9b0ca7f143703c3d9b11b69#0": {
+//        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+//        "value": {
+//            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+//                "BlueCheese": 1
+//            },
+//            "lovelace": 4820683
+//        }
+//    },
+//    "c246847b906d7ea96bc072f4e5b5b660aa514f26a2b84975fe0275da10c56f78#0": {
+//        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
+//        "value": {
+//            "b45fde8ab44e77aaa825e838715c5f2a1b60013c19efa639fa96da96": {
+//                "BlueCheese": 1
+//            },
+//            "lovelace": 4820683
+//        }
 //    }
 //}

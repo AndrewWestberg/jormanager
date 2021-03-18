@@ -32,7 +32,6 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.internal.closeQuietly
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -266,7 +265,7 @@ class NodeController @Autowired constructor(
                         transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                         val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                        val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                        val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                         transaction.append("--invalid-hereafter $ttl ")
                         transaction.append("--fee 100 ")
 
@@ -287,7 +286,7 @@ class NodeController @Autowired constructor(
                             ownerStakingAccount.stakingRegCert?.let { stakingRegCert ->
                                 defaultHostConnection.commandWriteFile("/tmp/owner.staking.cert", stakingRegCert.content)
                             } ?: throw IOException("Staking reg cert not found on owner account!")
-                            depositAndFees += protocolParameters.keyDeposit
+                            depositAndFees += protocolParameters.stakeAddressDeposit
                             certificates.append("--certificate /tmp/owner.staking.cert ")
                         }
                         witnessCount++ // the owner.staking.skey is a witness
@@ -311,7 +310,7 @@ class NodeController @Autowired constructor(
                                 rewardsStakingAccount.stakingRegCert?.let { stakingRegCert ->
                                     defaultHostConnection.commandWriteFile("/tmp/rewards.staking.cert", stakingRegCert.content)
                                 } ?: throw IOException("Staking reg cert not found on rewards account!")
-                                depositAndFees += protocolParameters.keyDeposit
+                                depositAndFees += protocolParameters.stakeAddressDeposit
                                 certificates.append("--certificate /tmp/rewards.staking.cert ")
                             }
                         }
@@ -612,7 +611,7 @@ class NodeController @Autowired constructor(
                         defaultHostConnection.command(poolRegcertCommand.toString())
                         certificates.append("--certificate /tmp/core.pool.cert ")
                         depositAndFees += if (!isPoolOnChain) {
-                            protocolParameters.poolDeposit
+                            protocolParameters.stakePoolDeposit
                         } else {
                             BigInteger.ZERO
                         }
@@ -844,7 +843,7 @@ class NodeController @Autowired constructor(
                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                             val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
 
@@ -877,7 +876,7 @@ class NodeController @Autowired constructor(
                                             stakingRegCert.content
                                     )
                                 } ?: throw IOException("Staking reg cert not found on owner account!")
-                                depositAndFees += protocolParameters.keyDeposit
+                                depositAndFees += protocolParameters.stakeAddressDeposit
                                 certificates.append("--certificate /tmp/owner.staking.cert ")
                             }
                             witnessCount++ // the owner.staking.skey is a witness
@@ -913,7 +912,7 @@ class NodeController @Autowired constructor(
                                                 stakingRegCert.content
                                         )
                                     } ?: throw IOException("Staking reg cert not found on rewards account!")
-                                    depositAndFees += protocolParameters.keyDeposit
+                                    depositAndFees += protocolParameters.stakeAddressDeposit
                                     certificates.append("--certificate /tmp/rewards.staking.cert ")
                                 }
                             }
@@ -1321,7 +1320,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 
@@ -1355,7 +1354,7 @@ class NodeController @Autowired constructor(
                                     stakingRegCert.content
                             )
                         } ?: throw IOException("Staking reg cert not found on owner account!")
-                        depositAndFees += protocolParameters.keyDeposit
+                        depositAndFees += protocolParameters.stakeAddressDeposit
                         certificates.append("--certificate /tmp/owner.staking.cert ")
                     }
                     witnessCount++ // the owner.staking.skey is a witness
@@ -1391,7 +1390,7 @@ class NodeController @Autowired constructor(
                                         stakingRegCert.content
                                 )
                             } ?: throw IOException("Staking reg cert not found on rewards account!")
-                            depositAndFees += protocolParameters.keyDeposit
+                            depositAndFees += protocolParameters.stakeAddressDeposit
                             certificates.append("--certificate /tmp/rewards.staking.cert ")
                         }
                     }
@@ -1693,7 +1692,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 
@@ -1728,7 +1727,7 @@ class NodeController @Autowired constructor(
                                     stakingRegCert.content
                             )
                         } ?: throw IOException("Staking reg cert not found on owner account!")
-                        depositAndFees += protocolParameters.keyDeposit
+                        depositAndFees += protocolParameters.stakeAddressDeposit
                         certificates.append("--certificate /tmp/owner.staking.cert ")
                     }
                     witnessCount++ // the owner.staking.skey is a witness
@@ -1764,7 +1763,7 @@ class NodeController @Autowired constructor(
                                         stakingRegCert.content
                                 )
                             } ?: throw IOException("Staking reg cert not found on rewards account!")
-                            depositAndFees += protocolParameters.keyDeposit
+                            depositAndFees += protocolParameters.stakeAddressDeposit
                             certificates.append("--certificate /tmp/rewards.staking.cert ")
                         }
                     }
@@ -1956,7 +1955,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 

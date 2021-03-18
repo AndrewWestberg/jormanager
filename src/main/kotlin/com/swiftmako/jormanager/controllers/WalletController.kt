@@ -130,7 +130,7 @@ class WalletController @Autowired constructor(
             }
             val queryTipString =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
 
             val metadataFileParameter = if (!request.metadata.isNullOrBlank()) {
                 defaultHostConnection.commandWriteFile("/tmp/dummy.metadata-${genesis.networkMagic}.json", request.metadata)
@@ -289,7 +289,7 @@ class WalletController @Autowired constructor(
                             val queryTipString =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
                                             .trim()
-                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 }
+                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 }
                                     ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
@@ -327,7 +327,7 @@ class WalletController @Autowired constructor(
                                 stakingAccount.stakingRegCert?.let { stakingRegCert ->
                                     defaultHostConnection.commandWriteFile("/tmp/staking.cert", stakingRegCert.content)
                                 } ?: throw IOException("Staking reg cert not found on account!")
-                                depositAndFees += protocolParameters.keyDeposit
+                                depositAndFees += protocolParameters.stakeAddressDeposit
                                 certificates.append("--certificate /tmp/staking.cert ")
                             } else {
                                 // staking address is registered. We should *de* register it on chain as part of the transaction
@@ -352,7 +352,7 @@ class WalletController @Autowired constructor(
                             // 9. Create the transaction
                             val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees + if (!request.isRegistration) {
                                 // for a deregistration, we get the 2 ada deposit back as change
-                                protocolParameters.keyDeposit
+                                protocolParameters.stakeAddressDeposit
                             } else {
                                 BigInteger.ZERO
                             }
@@ -761,7 +761,7 @@ class WalletController @Autowired constructor(
                 }
 
                 val queryTipString = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slotNo + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee ${request.txFee} ")
 

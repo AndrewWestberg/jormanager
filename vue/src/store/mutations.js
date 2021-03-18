@@ -12,13 +12,11 @@ export default {
         state.mp = data.mp;
     },
     setBlocks: (state, blocks) => {
-        state.blocks = _.orderBy(_.unionWith(blocks, state.blocks, (first, second) => {
-            return first.slot === second.slot && first.pool === second.pool
-        }), ["slot"], ["desc"])
+        state.blocks = _.orderBy(blocks, ["slot"], ["desc"]);
     },
     addBlock: (state, block) => {
         state.blocks = _.orderBy(_.unionWith([block], state.blocks, (first, second) => {
-            return first.slot === second.slot && first.pool === second.pool
+            return first.slot === second.slot
         }), ["slot"], ["desc"])
     },
     setHosts: (state, hosts) => {

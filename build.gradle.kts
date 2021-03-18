@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.4.3"
+    id("org.springframework.boot") version "2.4.4"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.38.0"
     kotlin("jvm") version "1.4.31"
@@ -22,9 +22,10 @@ object Versions {
     const val joda = "2.10.10"
     const val json = "20210307"
     const val jsoup = "1.13.1"
+    const val junit = "5.7.1"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.3.1"
-    const val mockk = "1.10.6"
+    const val mockk = "1.11.0"
     const val moshi = "1.11.0"
     const val okhttp = "4.9.1"
     const val retrofit = "2.9.0"
@@ -33,7 +34,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "2.1.6-SNAPSHOT"
+version = "2.2.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
@@ -85,6 +86,7 @@ dependencies {
     }
     testImplementation("io.mockk:mockk:${Versions.mockk}")
     testImplementation("com.google.truth:truth:${Versions.googleTruth}")
+    testImplementation("org.junit.jupiter:junit-jupiter:${Versions.junit}")
 }
 
 fun isNonStable(version: String): Boolean {

@@ -6,10 +6,12 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class QueryTip(
-    @Json(name = "blockNo")
-    val blockNo: Long = 0,
-    @Json(name = "headerHash")
-    val headerHash: String = "",
-    @Json(name = "slotNo")
-    val slotNo: Long = 0
+        @Json(name = "epoch")
+        val epoch: Long = 0,
+        @Json(name = "block")
+        val block: Long = 0,
+        @Json(name = "hash")
+        val hash: String = "",
+        @Json(name = "slot")
+        val slot: Long = 0
 )

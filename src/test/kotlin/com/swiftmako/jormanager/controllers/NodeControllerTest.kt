@@ -81,8 +81,8 @@ class NodeControllerTest {
                 registrationFeesAccount = 1L,
                 ownerStakingAccount = 2L,
                 rewardsStakingAccount = 3L,
-                poolPledge = 250000000000L,
-                poolCost = 340000000L,
+                poolPledge = 250000000000L.toBigInteger(),
+                poolCost = 340000000L.toBigInteger(),
                 poolMargin = "0.05",
                 relays = listOf(Relay("relay0.flippin-stakes.com", 3001), Relay("relay1.flippin-stakes.com", 3001), Relay("52.98.47.198", 3001)),
                 metadata = com.swiftmako.jormanager.model.Metadata(
@@ -123,7 +123,8 @@ class NodeControllerTest {
                                         ),
                                         rss = "https://flippin-stakes.com/atom.xml"
                                 ),
-                                telegramAdminHandle = "Bubba1977"
+                                telegramAdminHandle = "Bubba1977",
+                                adapoolsVerify = null
                         )
                 ),
 
