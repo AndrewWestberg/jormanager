@@ -52,18 +52,25 @@
             </div>
           </template>
           <template v-slot:cell(type)="data">
-            <div v-if="data.value === 'relay'">
+            <div v-show="data.value === 'relay'">
               <font-awesome-icon
                 :icon="['fas', 'dice-d20']"
                 v-b-tooltip.hover.right="'Relay Node'"
                 class="text-danger text-center"
               />
             </div>
-            <div v-if="data.value === 'core'">
+            <div v-show="data.value === 'core'">
               <font-awesome-icon
                 :icon="['fas', 'dice-d20']"
                 v-b-tooltip.hover.right="'Core Node'"
                 class="text-success"
+              />
+            </div>
+            <div v-show="data.value === 'pool'">
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                v-b-tooltip.hover.right="'Pool Node'"
+                class="text-primary"
               />
             </div>
           </template>
@@ -118,10 +125,23 @@
               v-b-tooltip.hover.v-danger.right="'Retire Pool'"
               @click="retirePool(data.item.id)"
             />
+            &nbsp;
+            <font-awesome-icon
+              v-show="data.item.type === 'core' && mp"
+              :icon="['fas', 'plus-circle']"
+              class="text-primary"
+              v-b-tooltip.hover.v-primary.right="'Add Pool'"
+              @click="
+                poolParentId = data.item.id;
+                showAddNodeWizard = true;
+              "
+            />
+            &nbsp;
           </template>
         </b-table>
       </div>
     </div>
+    <!-- Pass parentId if a pool node -->
     <AddNodeWizard
       v-if="showAddNodeWizard"
       @hideAddNodeWizard="showAddNodeWizard = false"
@@ -854,6 +874,7 @@ export default {
         { key: "kesExpireTimeSec", sortable: true, label: "KES Expiry" },
         { key: "edit", label: "" },
       ],
+      poolParentId: null,
       showAddNodeWizard: false,
       editColorForm: {
         id: -1,
@@ -1175,7 +1196,7 @@ export default {
       "stakingSelectOptions",
       "rewardsSelectOptions",
     ]),
-    ...mapState(["nodes", "editorMetadata", "epoch"]),
+    ...mapState(["nodes", "editorMetadata", "epoch", "mp"]),
     registrationFeesAccountState() {
       return this.editPoolConfigForm.registrationFeesAccount != null;
     },
@@ -1336,6 +1357,7 @@ export default {
 .fa-percent:hover,
 .fa-circle:hover,
 .fa-check-circle:hover,
+.fa-plus-circle:hover,
 .fa-power-off:hover,
 .fa-skull:hover,
 .fa-key:hover {

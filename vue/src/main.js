@@ -65,7 +65,8 @@ import {
   faInfoCircle,
   faSkull,
   faProjectDiagram,
-  faCoins
+  faCoins,
+  faPlusCircle
 } from '@fortawesome/free-solid-svg-icons'
 import {
   FontAwesomeIcon
@@ -100,6 +101,7 @@ library.add(faClipboardList)
 library.add(faHatWizard)
 library.add(faInfoCircle)
 library.add(faSkull)
+library.add(faPlusCircle)
 library.add(faProjectDiagram)
 library.add(faCoins)
 
