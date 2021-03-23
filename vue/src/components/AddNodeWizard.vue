@@ -25,6 +25,7 @@
             v-model="formNode.host"
             :state="hostState"
             :options="hostSelectOptions"
+            :disabled="parentId != null"
           >
             <template v-slot:first>
               <b-form-select-option :value="null" disabled
@@ -60,6 +61,7 @@
             id="type-radio"
             v-model="formNode.type"
             :state="typeState"
+            :disabled="parentId != null"
           >
             <b-form-radio value="relay">
               <font-awesome-icon
@@ -72,6 +74,12 @@
                 :icon="['fas', 'dice-d20']"
                 class="text-success"
               />&nbsp;Core
+            </b-form-radio>
+            <b-form-radio value="pool" v-show="parentId != null">
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                class="text-primary"
+              />&nbsp;Pool
             </b-form-radio>
           </b-form-radio-group>
         </b-form-group>
@@ -90,6 +98,7 @@
             id="threads-input"
             v-model="formNode.processorThreads"
             :state="processorThreadsState"
+            :disabled="parentId != null"
             placeholder="e.g. 2"
             type="range"
             min="0"
@@ -107,6 +116,7 @@
           <b-form-input
             id="listen-input"
             v-model="formNode.listen"
+            :disabled="parentId != null"
             :state="listenState"
             aria-describedby="listen-input-live-feedback"
             placeholder="e.g. 0.0.0.0, 127.0.0.1, 192.168.16.12"
@@ -132,6 +142,7 @@
             aria-describedby="port-input-live-feedback"
             v-model="formNode.port"
             trim
+            :disabled="parentId != null"
           />
           <b-form-invalid-feedback id="port-input-live-feedback"
             >The port number the node will listen for connections
@@ -154,6 +165,7 @@
             aria-describedby="ekg-port-input-live-feedback"
             v-model="formNode.ekgPort"
             trim
+            :disabled="parentId != null"
           />
           <b-form-invalid-feedback id="ekg-port-input-live-feedback"
             >The port number the node will run EKG monitoring on. -1 to
@@ -176,6 +188,7 @@
             aria-describedby="prom-port-input-live-feedback"
             v-model="formNode.promPort"
             trim
+            :disabled="parentId != null"
           />
           <b-form-invalid-feedback id="ekg-port-input-live-feedback"
             >The port number the node will run Prometheus monitoring on. -1 to
@@ -192,6 +205,7 @@
             v-model="formNode.genesisByron"
             :state="genesisByronState"
             :options="genesisFiles"
+            :disabled="parentId != null"
           >
             <template v-slot:first>
               <b-form-select-option :value="null" disabled
@@ -210,6 +224,7 @@
             v-model="formNode.genesisShelley"
             :state="genesisShelleyState"
             :options="genesisFiles"
+            :disabled="parentId != null"
           >
             <template v-slot:first>
               <b-form-select-option :value="null" disabled
@@ -958,9 +973,11 @@
 <script>
 import { GoodWizard } from "vue-good-wizard";
 import { mapMutations, mapGetters, mapActions, mapState } from "vuex";
+import _ from "lodash";
 
 export default {
   name: "AddNodeWizard",
+  props: ["parentId"],
   components: {
     "vue-good-wizard": GoodWizard,
   },
@@ -971,6 +988,7 @@ export default {
         spendingPassword: null,
         color: "#4A412A",
         host: null,
+        parentId: null,
         name: "",
         isDefault: false,
         type: null,
@@ -1048,6 +1066,58 @@ export default {
         this.$emit("hideAddNodeWizard");
       }
     },
+    editorMetadata(data) {
+      this.formNode.metadata.ticker = data.metadata.ticker;
+      this.formNode.metadata.name = data.metadata.name;
+      this.formNode.metadata.description = data.metadata.description;
+      this.formNode.metadata.homepage = data.metadata.homepage;
+      this.formNode.metadata.extended.info.icon64 =
+        data.extendedMetadata.info.urlPngIcon64x64;
+      this.formNode.metadata.extended.info.logo =
+        data.extendedMetadata.info.urlPngLogo;
+      this.formNode.metadata.extended.info.location =
+        data.extendedMetadata.info.location;
+      this.formNode.metadata.extended.info.social.twitter =
+        data.extendedMetadata.info.social.twitterHandle;
+      this.formNode.metadata.extended.info.social.telegram =
+        data.extendedMetadata.info.social.telegramHandle;
+      this.formNode.metadata.extended.info.social.facebook =
+        data.extendedMetadata.info.social.facebookHandle;
+      this.formNode.metadata.extended.info.social.youtube =
+        data.extendedMetadata.info.social.youtubeHandle;
+      this.formNode.metadata.extended.info.social.discord =
+        data.extendedMetadata.info.social.discordHandle;
+      this.formNode.metadata.extended.info.social.github =
+        data.extendedMetadata.info.social.githubHandle;
+      this.formNode.metadata.extended.info.company.name =
+        data.extendedMetadata.info.company.name;
+      this.formNode.metadata.extended.info.company.addr =
+        data.extendedMetadata.info.company.addr;
+      this.formNode.metadata.extended.info.company.city =
+        data.extendedMetadata.info.company.city;
+      this.formNode.metadata.extended.info.company.country =
+        data.extendedMetadata.info.company.country;
+      this.formNode.metadata.extended.info.company.company_id =
+        data.extendedMetadata.info.company.companyId;
+      this.formNode.metadata.extended.info.company.vat_id =
+        data.extendedMetadata.info.company.vatId;
+      this.formNode.metadata.extended.info.about.me =
+        data.extendedMetadata.info.about.me;
+      this.formNode.metadata.extended.info.about.server =
+        data.extendedMetadata.info.about.server;
+      this.formNode.metadata.extended.info.about.company =
+        data.extendedMetadata.info.about.company;
+      this.formNode.metadata.extended.info.rss = data.extendedMetadata.info.rss;
+      if (
+        data.extendedMetadata.telegramAdminHandle != null &&
+        data.extendedMetadata.telegramAdminHandle.length > 0
+      ) {
+        this.formNode.metadata.extended.telegramAdminHandle =
+          data.extendedMetadata.telegramAdminHandle[0];
+      }
+      this.formNode.metadata.extended.adapoolsVerify =
+        data.extendedMetadata.adapoolsVerify;
+    },
   },
   computed: {
     ...mapGetters([
@@ -1057,9 +1127,9 @@ export default {
       "rewardsSelectOptions",
       "genesisFiles",
     ]),
-    ...mapState(["toastSuccess", "nodeColors", "nodes"]),
+    ...mapState(["toastSuccess", "nodeColors", "nodes", "editorMetadata"]),
     steps() {
-      if (this.formNode.type === "core") {
+      if (this.formNode.type === "relay") {
         return [
           {
             label: "Node Basics",
@@ -1067,22 +1137,6 @@ export default {
             options: {
               backEnabled: true,
             },
-          },
-          {
-            label: "Core Node Keys",
-            slot: "page2",
-          },
-          {
-            label: "Pool Config",
-            slot: "page3",
-          },
-          {
-            label: "Relays",
-            slot: "page4",
-          },
-          {
-            label: "Metadata",
-            slot: "page5",
           },
           {
             label: "Confirmation",
@@ -1098,6 +1152,22 @@ export default {
           options: {
             backEnabled: true,
           },
+        },
+        {
+          label: "Core Node Keys",
+          slot: "page2",
+        },
+        {
+          label: "Pool Config",
+          slot: "page3",
+        },
+        {
+          label: "Relays",
+          slot: "page4",
+        },
+        {
+          label: "Metadata",
+          slot: "page5",
         },
         {
           label: "Confirmation",
@@ -1235,7 +1305,12 @@ export default {
     },
   },
   methods: {
-    ...mapActions(["requestHosts", "requestFileOptions", "createNode"]),
+    ...mapActions([
+      "requestHosts",
+      "requestFileOptions",
+      "createNode",
+      "requestMetadata",
+    ]),
     ...mapMutations(["toastError"]),
     nameState() {
       if (this.formNode.name.length < 2) {
@@ -1274,7 +1349,7 @@ export default {
           return false;
         }
       } else if (currentPage === 1) {
-        if (this.formNode.type === "core") {
+        if (this.formNode.type !== "relay") {
           if (
             this.coldSKeyState &&
             this.coldVKeyState &&
@@ -1459,6 +1534,24 @@ export default {
   mounted() {
     this.requestHosts();
     this.requestFileOptions();
+    if (this.parentId) {
+      this.requestMetadata(this.parentId);
+      this.formNode.parentId = this.parentId;
+      let parent = _.find(this.nodes, { id: this.parentId });
+      this.formNode.color = parent.color;
+      this.formNode.type = "pool";
+      this.formNode.host = parent.hostId;
+      this.formNode.processorThreads = parent.processorThreads;
+      this.formNode.listen = parent.listen;
+      this.formNode.port = parent.port;
+      this.formNode.ekgPort = parent.ekgPort;
+      this.formNode.promPort = parent.promPort;
+      this.formNode.genesisByron = parent.genesisByronFileId;
+      this.formNode.genesisShelley = parent.genesisShelleyFileId;
+      this.formNode.poolPledge = parent.poolPledge;
+      this.formNode.poolCost = parent.poolCost;
+      this.formNode.poolMargin = parent.poolMargin;
+    }
   },
 };
 </script>

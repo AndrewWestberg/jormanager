@@ -203,6 +203,9 @@ class NodeController @Autowired constructor(
                     val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                     webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
                 }
+                NODE_TYPE_POOL -> {
+                    log.error("createNode: POOL!!!")
+                }
                 NODE_TYPE_CORE -> {
                     val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
                     val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
@@ -2467,6 +2470,7 @@ class NodeController @Autowired constructor(
     companion object {
         const val NODE_TYPE_RELAY = "relay"
         const val NODE_TYPE_CORE = "core"
+        const val NODE_TYPE_POOL = "pool"
         private val IP4_ADDRESS =
                 Regex("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)")
         private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L

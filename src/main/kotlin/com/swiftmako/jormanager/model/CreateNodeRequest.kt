@@ -8,6 +8,7 @@ data class CreateNodeRequest(
         @JsonProperty("spendingPassword") val spendingPassword: String,
         @JsonProperty("color") val color: String,
         @JsonProperty("host") val hostId: Long,
+        @JsonProperty("parentId") val parentId: Long,
         @JsonProperty("name") val name: String,
         @JsonProperty("isDefault") val isDefault: Boolean,
         @JsonProperty("type") val type: String,
@@ -39,6 +40,6 @@ data class CreateNodeRequest(
         @JsonProperty("sudoPassword") val sudoPassword: String
 ) {
     override fun toString(): String {
-        return "CreateNodeRequest(spendingPassword='************', color='$color', hostId=$hostId, name='$name', isDefault=$isDefault, type='$type', processorThreads=$processorThreads, listen='$listen', port=$port, ekgPort=$ekgPort, promPort=$promPort, genesisByronFileId=$genesisByronFileId, genesisShelleyFileId=$genesisShelleyFileId, generateColdKeys=$generateColdKeys, coldSKey=***, coldVKey=***, coldCounter=***, generateVRFKeys=$generateVRFKeys, vrfSKey=***, vrfVKey=***, generateKESKeys=$generateKESKeys, kesSKey=***, kesVKey=***, registrationFeesAccount=$registrationFeesAccount, ownerStakingAccount=$ownerStakingAccount, rewardsStakingAccount=$rewardsStakingAccount, poolPledge=$poolPledge, poolCost=$poolCost, poolMargin='$poolMargin', relays=$relays, metadata=$metadata, sudoPassword='************')"
+        return "CreateNodeRequest(spendingPassword='************', color='$color', hostId=$hostId, parentId=$parentId, name='$name', isDefault=$isDefault, type='$type', processorThreads=$processorThreads, listen='$listen', port=$port, ekgPort=$ekgPort, promPort=$promPort, genesisByronFileId=$genesisByronFileId, genesisShelleyFileId=$genesisShelleyFileId, generateColdKeys=$generateColdKeys, coldSKey=***, coldVKey=***, coldCounter=***, generateVRFKeys=$generateVRFKeys, vrfSKey=***, vrfVKey=***, generateKESKeys=$generateKESKeys, kesSKey=***, kesVKey=***, registrationFeesAccount=$registrationFeesAccount, ownerStakingAccount=$ownerStakingAccount, rewardsStakingAccount=$rewardsStakingAccount, poolPledge=$poolPledge, poolCost=$poolCost, poolMargin='$poolMargin', relays=$relays, metadata=$metadata, sudoPassword='************')"
     }
 }

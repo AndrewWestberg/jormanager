@@ -95,7 +95,7 @@
               @click="restartNode(displayNodes[data.index].name)"
             />&nbsp;
             <font-awesome-icon
-              v-if="data.item.type === 'core'"
+              v-if="data.item.type !== 'relay'"
               :icon="['fas', 'percent']"
               class="text-warning"
               v-b-tooltip.hover.v-warning.right="'Edit Pool Config'"
@@ -103,7 +103,7 @@
             />
             &nbsp;
             <font-awesome-icon
-              v-if="data.item.type === 'core'"
+              v-if="data.item.type !== 'relay'"
               :icon="['fas', 'info-circle']"
               class="text-primary"
               v-b-tooltip.hover.v-primary.right="'Edit Metadata'"
@@ -111,7 +111,7 @@
             />
             &nbsp;
             <font-awesome-icon
-              v-if="data.item.type === 'core'"
+              v-if="data.item.type !== 'relay'"
               :icon="['fas', 'project-diagram']"
               class="text-success"
               v-b-tooltip.hover.v-success.right="'Edit Relays'"
@@ -119,7 +119,7 @@
             />
             &nbsp;
             <font-awesome-icon
-              v-if="data.item.type === 'core'"
+              v-if="data.item.type !== 'relay'"
               :icon="['fas', 'skull']"
               class="text-danger"
               v-b-tooltip.hover.v-danger.right="'Retire Pool'"
@@ -141,9 +141,9 @@
         </b-table>
       </div>
     </div>
-    <!-- Pass parentId if a pool node -->
     <AddNodeWizard
       v-if="showAddNodeWizard"
+      :parentId="poolParentId"
       @hideAddNodeWizard="showAddNodeWizard = false"
     />
     <b-modal
