@@ -249,6 +249,7 @@ class BlockController @Autowired constructor(
                                                 leadershipCount[key] = count + 1
 
                                                 val existingBlock = blockRepository.findByPoolAndSlot(coreNode.name, slot)
+                                                        ?: blockRepository.findBySlot(slot).firstOrNull()
                                                 if (existingBlock == null) {
                                                     val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(
                                                             genesisByron,
