@@ -92,6 +92,13 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getBulkCredentialsAdapter(moshi: Moshi): JsonAdapter<List<List<Key>>> {
+        val type = Types.newParameterizedType(List::class.java, Types.newParameterizedType(List::class.java, Key::class.java))
+        return moshi.adapter(type)
+    }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getQueryUtxoAdapter(): JsonAdapter<List<Utxo>> = QueryUtxoJsonAdapter()
 
     @Bean

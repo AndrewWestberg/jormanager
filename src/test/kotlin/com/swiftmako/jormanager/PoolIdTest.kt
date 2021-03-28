@@ -9,7 +9,6 @@ import io.mockk.mockk
 import org.bouncycastle.crypto.digests.Blake2bDigest
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
-import java.math.BigInteger
 
 class PoolIdTest {
 
@@ -25,6 +24,25 @@ class PoolIdTest {
         blake2b224.doFinal(output, 0)
         val poolId = output.toHexString()
         assertThat(poolId).isEqualTo("00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114")
+    }
+
+    @Test
+    fun `test blake2b`() {
+        val libraryPath = "/usr/local/lib/libsodium.so"
+        SodiumLibrary.setLibraryPath(libraryPath)
+
+        val nc = "cbb060def94ec6067440922e111b3aa218de77e462859f58fbb87f7620585a44"
+        val nh = "4c92900dc9fa2f1909cbf974528818f7f111dc2c04060ae4dc056b072359b549"
+        val extraEntropy = "581fabcf234729e2fc05172b1b9bfd7fe10324c87ed7c408a5b41ffcd6be45e2"
+        var inputString = nc + nh
+        var input = inputString.hexToByteArray()
+        var output = SodiumLibrary.cryptoBlake2bHash(input, null)
+        inputString = output.toHexString() + extraEntropy
+        input = inputString.hexToByteArray()
+        output = SodiumLibrary.cryptoBlake2bHash(input, null)
+        val hashed = output.toHexString()
+        println("blake2b: $hashed")
+        assertThat(hashed).isEqualTo("7782760461e672e51b35ba332d4bd36df2733bf5ed01d83beef28ad9a17e36f5")
     }
 
     @Test

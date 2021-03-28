@@ -109,7 +109,7 @@ class BlockMonitor @Autowired constructor(
                 mutex.withLock {
                     if (node.type != "core") {
                         // Don't monitor blocks unless it is a core node
-                        log.info("Skip block monitoring for relay node: ${node.name}")
+                        log.info("Skip block monitoring for: ${node.name}")
                         return@consumeEach
                     }
                     log.info("Start block monitoring for core node: ${node.name}")

@@ -17,6 +17,8 @@ data class Node(
         val id: Long? = null,
         @Column(name = "host_id")
         val hostId: Long,
+        @Column(name = "parent_id")
+        val parentId: Long? = null,
         @Column(name = "color")
         val color: String, // the color of the node for charts/graphs
         @Column(name = "type")

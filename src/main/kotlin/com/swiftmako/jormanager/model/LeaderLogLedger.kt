@@ -7,4 +7,6 @@ data class LeaderLogLedger(
         val futureDecentralizationParameter: Double,
         val poolIdToSigma: Map<String, BigDecimal>,
         val futurePoolIdToSigma: Map<String, BigDecimal>,
+        val extraPraosEntropy: String?,
+        val futureExtraPraosEntropy: String?,
 )

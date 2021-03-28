@@ -17,18 +17,22 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
 
     private val options: List<JsonReader.Options> = listOf(
             JsonReader.Options.of("stateBefore", "nesEs", "esPp", "esSnapshots", "esLState"),
-            JsonReader.Options.of("decentralisationParam"),
+            JsonReader.Options.of("decentralisationParam", "extraEntropy"),
             JsonReader.Options.of("pstakeSet", "_pstakeSet", "pstakeMark", "_pstakeMark"), //pstakeSet is current epoch, pstakeMark is future epoch
             JsonReader.Options.of("stake", "_stake", "delegations", "_delegations"),
             JsonReader.Options.of("utxoState", "_utxoState"),
             JsonReader.Options.of("ppups", "_ppups"),
             JsonReader.Options.of("proposals"),
-            JsonReader.Options.of("decentralisationParam", "_d"),
+            JsonReader.Options.of("decentralisationParam", "extraEntropy", "_d", "_extraEntropy"),
+            JsonReader.Options.of("contents", "tag")
     )
 
     override fun fromJson(reader: JsonReader): LeaderLogLedger? {
         var decentralizationParameter = -1.0
         var futureDecentralizationParameter = -1.0
+        var isFutureEntropySet = false
+        var extraPraosEntropy: String? = null
+        var futureExtraPraosEntropy: String? = null
         val poolIdToSigma = mutableMapOf<String, BigDecimal>()
         val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
         var dProposalVotes = 0
@@ -59,6 +63,28 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                 // decentralisationParam
                                 decentralizationParameter = doubleAdapter.fromJson(reader)
                                         ?: throw Util.unexpectedNull("decentralisationParam", "decentralisationParam", reader)
+                            }
+                            1 -> {
+                                // extraEntropy
+                                reader.beginObject()
+                                while (reader.hasNext()) {
+                                    when (reader.selectName(options[8])) {
+                                        0 -> {
+                                            // contents
+                                            extraPraosEntropy = reader.nextString()
+                                        }
+                                        1 -> {
+                                            // tag
+                                            reader.nextString()
+                                        }
+                                        -1 -> {
+                                            // tag or anything else
+                                            reader.skipName()
+                                            reader.skipValue()
+                                        }
+                                    }
+                                }
+                                reader.endObject()
                             }
                             -1 -> {
                                 reader.skipName()
@@ -128,6 +154,29 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                                                                     }
                                                                                 }
                                                                             }
+                                                                            1 -> {
+                                                                                // extraEntropy
+                                                                                reader.beginObject()
+                                                                                while (reader.hasNext()) {
+                                                                                    when (reader.selectName(options[8])) {
+                                                                                        0 -> {
+                                                                                            // contents
+                                                                                            futureExtraPraosEntropy = reader.nextString()
+                                                                                            isFutureEntropySet = true
+                                                                                        }
+                                                                                        1 -> {
+                                                                                            // tag
+                                                                                            reader.nextString()
+                                                                                            isFutureEntropySet = true
+                                                                                        }
+                                                                                        -1 -> {
+                                                                                            reader.skipName()
+                                                                                            reader.skipValue()
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                                reader.endObject()
+                                                                            }
                                                                             -1 -> {
                                                                                 reader.skipName()
                                                                                 reader.skipValue()
@@ -148,7 +197,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                                                 reader.beginObject()
                                                                 while (reader.hasNext()) {
                                                                     when (reader.selectName(options[7])) {
-                                                                        0 -> {
+                                                                        2 -> {
                                                                             // _d
                                                                             if (reader.peek() == JsonReader.Token.NULL) {
                                                                                 reader.skipValue()
@@ -160,6 +209,29 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                                                                     reader.skipValue()
                                                                                 }
                                                                             }
+                                                                        }
+                                                                        3 -> {
+                                                                            // _extraEntropy
+                                                                            reader.beginObject()
+                                                                            while (reader.hasNext()) {
+                                                                                when (reader.selectName(options[8])) {
+                                                                                    0 -> {
+                                                                                        // contents
+                                                                                        futureExtraPraosEntropy = reader.nextString()
+                                                                                        isFutureEntropySet = true
+                                                                                    }
+                                                                                    1 -> {
+                                                                                        // tag
+                                                                                        reader.nextString()
+                                                                                        isFutureEntropySet = true
+                                                                                    }
+                                                                                    -1 -> {
+                                                                                        reader.skipName()
+                                                                                        reader.skipValue()
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            reader.endObject()
                                                                         }
                                                                         -1 -> {
                                                                             reader.skipName()
@@ -217,11 +289,17 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
             futureDecentralizationParameter = decentralizationParameter
         }
 
+        if (futureExtraPraosEntropy == null && !isFutureEntropySet) {
+            futureExtraPraosEntropy = extraPraosEntropy
+        }
+
         return LeaderLogLedger(
                 decentralizationParameter = decentralizationParameter,
                 futureDecentralizationParameter = futureDecentralizationParameter,
                 poolIdToSigma = poolIdToSigma,
                 futurePoolIdToSigma = futurePoolIdToSigma,
+                extraPraosEntropy = extraPraosEntropy,
+                futureExtraPraosEntropy = futureExtraPraosEntropy,
         )
     }
 

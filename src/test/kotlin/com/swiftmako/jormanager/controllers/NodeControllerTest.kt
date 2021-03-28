@@ -132,6 +132,7 @@ class NodeControllerTest {
                 spendingPassword = "asdfasdf",
                 ekgPort = 12788,
                 promPort = 12789,
+                parentId = null,
         )
         val response = target.createNode(request)
 

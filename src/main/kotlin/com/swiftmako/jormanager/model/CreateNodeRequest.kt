@@ -8,7 +8,7 @@ data class CreateNodeRequest(
         @JsonProperty("spendingPassword") val spendingPassword: String,
         @JsonProperty("color") val color: String,
         @JsonProperty("host") val hostId: Long,
-        @JsonProperty("parentId") val parentId: Long,
+        @JsonProperty("parentId") val parentId: Long?,
         @JsonProperty("name") val name: String,
         @JsonProperty("isDefault") val isDefault: Boolean,
         @JsonProperty("type") val type: String,

@@ -127,7 +127,7 @@ class NodeMonitor @Autowired constructor(
             try {
                 // core nodes that need updating from the ledger state
                 val coreNodes = nodeRepository.findAll()
-                        .filter { !it.isDeleted && it.type == "core" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                        .filter { !it.isDeleted && it.type != "relay" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
                 if (coreNodes.isEmpty()) {
                     return@launch
                 }
@@ -142,10 +142,9 @@ class NodeMonitor @Autowired constructor(
                         }
                         hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                            val eraString = defaultHostConnection.calculateEraString(magicString)
 
                             val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}_pools.json"
-                            defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
+                            defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
                             val poolLedger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile).use { ledgerStateJsonSource ->
                                 val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
                                 val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
@@ -179,29 +178,31 @@ class NodeMonitor @Autowired constructor(
     private fun monitorNodes() {
         launch {
             nodesChannel.openSubscription().consumeEach { node ->
-                mutex.withLock {
+                if (node.type != "pool") {
+                    mutex.withLock {
 
-                    val existingJob = monitorJobMap[node.id]
-                    if (existingJob?.isActive == true) {
-                        // Respawn the monitoring job in case something changed like the port
-                        existingJob.cancel()
-                        monitorJobMap.remove(node.id)
-                    }
+                        val existingJob = monitorJobMap[node.id]
+                        if (existingJob?.isActive == true) {
+                            // Respawn the monitoring job in case something changed like the port
+                            existingJob.cancel()
+                            monitorJobMap.remove(node.id)
+                        }
 
-                    // Start a new monitoring job for this node
-                    hostRepository.findByIdOrNull(node.hostId)?.let { host ->
-                        val monitoringJob = launch {
-                            when (host.type) {
-                                "local" -> {
-                                    monitorNodeLocal(node)
-                                }
-                                "remote" -> {
-                                    monitorNodeRemote(host, node)
+                        // Start a new monitoring job for this node
+                        hostRepository.findByIdOrNull(node.hostId)?.let { host ->
+                            val monitoringJob = launch {
+                                when (host.type) {
+                                    "local" -> {
+                                        monitorNodeLocal(node)
+                                    }
+                                    "remote" -> {
+                                        monitorNodeRemote(host, node)
+                                    }
                                 }
                             }
-                        }
-                        monitorJobMap[node.id!!] = monitoringJob
-                    } ?: log.error("Host not found for id ${node.hostId}")
+                            monitorJobMap[node.id!!] = monitoringJob
+                        } ?: log.error("Host not found for id ${node.hostId}")
+                    }
                 }
             }
         }

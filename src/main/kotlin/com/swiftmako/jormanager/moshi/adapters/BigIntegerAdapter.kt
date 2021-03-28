@@ -6,7 +6,7 @@ import java.math.BigInteger
 
 object BigIntegerAdapter {
     @FromJson
-    fun fromJson(string: String) = BigInteger(string)
+    fun fromJson(string: String) = BigInteger(string.substringBefore('.'))
 
     @ToJson
     fun toJson(value: BigInteger) = value.toString()

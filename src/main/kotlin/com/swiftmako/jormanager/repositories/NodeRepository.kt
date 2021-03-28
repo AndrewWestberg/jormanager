@@ -20,4 +20,7 @@ interface NodeRepository : JpaRepository<Node, Long> {
 
     @Query("SELECT n.name FROM Node n WHERE n.isDeleted=false AND lower(n.poolId) = lower(:poolId)")
     fun findByPoolId(@Param("poolId") poolId: String): String?
+
+    @Query("SELECT n FROM Node n WHERE n.isDeleted=false AND n.parentId = :parentId")
+    fun findByParentId(@Param("parentId") parentId: Long): List<Node>
 }

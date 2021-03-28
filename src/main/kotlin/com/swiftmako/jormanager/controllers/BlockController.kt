@@ -128,7 +128,7 @@ class BlockController @Autowired constructor(
                 }
 
                 nodeRepository.findDefault()?.let { defaultNode ->
-                    val coreNodes = nodeRepository.findAll().filter { it.type == "core" && !it.isDeleted }
+                    val coreNodes = nodeRepository.findAll().filter { it.type != "relay" && !it.isDeleted }
                     fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
                         val genesisShelley = shelleyShelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
                         val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
@@ -146,14 +146,13 @@ class BlockController @Autowired constructor(
                                 )
 
                                 val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                                val eraString = defaultHostConnection.calculateEraString(magicString)
                                 val tipJson =
                                         defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
                                                 .trim()
                                 val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slot
                                         ?: throw IOException("Unable to query tip!")
                                 val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}.json"
-                                defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $eraString $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
+                                defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
                                 val ledger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile).use { ledgerStateJsonSource ->
                                     val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
                                     val ledgerAdapter = LeaderLogLedgerJsonAdapter(moshi, poolIds)
@@ -184,7 +183,16 @@ class BlockController @Autowired constructor(
                                         chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
                                                 ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
 
-                                val epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
+                                var epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
+                                if (request.requestType == "futureEpoch") {
+                                    ledger.futureExtraPraosEntropy?.let {
+                                        epochNonce = SodiumLibrary.cryptoBlake2bHash((epochNonce.toHexString() + it).hexToByteArray(), null)
+                                    }
+                                } else {
+                                    ledger.extraPraosEntropy?.let {
+                                        epochNonce = SodiumLibrary.cryptoBlake2bHash((epochNonce.toHexString() + it).hexToByteArray(), null)
+                                    }
+                                }
                                 log.info("Leader Logs Epoch Nonce: ${epochNonce.toHexString()}")
                                 log.info("Ledger State: $ledger")
 

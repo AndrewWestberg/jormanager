@@ -8,8 +8,8 @@ plugins {
     id("com.github.ben-manes.versions") version "0.38.0"
     kotlin("jvm") version "1.4.31"
     kotlin("kapt") version "1.4.31"
-    kotlin("plugin.spring") version "1.4.31"
-    kotlin("plugin.jpa") version "1.4.31"
+    kotlin("plugin.spring") version "1.4.32"
+    kotlin("plugin.jpa") version "1.4.32"
 }
 
 object Versions {
@@ -24,7 +24,7 @@ object Versions {
     const val jsoup = "1.13.1"
     const val junit = "5.7.1"
     const val kotlinxIo = "0.1.16"
-    const val liquibase = "4.3.1"
+    const val liquibase = "4.3.2"
     const val mockk = "1.11.0"
     const val moshi = "1.11.0"
     const val okhttp = "4.9.1"
@@ -34,7 +34,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "2.2.0-SNAPSHOT"
+version = "3.0.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

@@ -37,7 +37,7 @@
                 @click="updateColor(data.item.id, data.item.color)"
               />
               &nbsp;{{ data.value }}
-              <div class="float-right" v-show="data.item.type === 'core'">
+              <div class="float-right" v-show="data.item.type !== 'relay'">
                 <font-awesome-icon
                   :icon="['fas', 'copy']"
                   class="text-secondary"
@@ -89,6 +89,7 @@
           </template>
           <template v-slot:cell(edit)="data">
             <font-awesome-icon
+              v-if="data.item.type !== 'pool'"
               :icon="['fas', 'power-off']"
               class="text-danger"
               v-b-tooltip.hover.v-danger.right="'Restart Node'"
