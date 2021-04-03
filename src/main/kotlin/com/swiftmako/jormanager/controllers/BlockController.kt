@@ -118,6 +118,7 @@ class BlockController @Autowired constructor(
         return SocketResponse.Success(type = "blocks", data = blocks)
     }
 
+    @OptIn(FlowPreview::class)
     @MessageMapping("/leaderlogs")
     @Transactional
     fun calculateLeaderLogs(request: LeaderLogsRequest) {

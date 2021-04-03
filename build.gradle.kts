@@ -6,8 +6,8 @@ plugins {
     id("org.springframework.boot") version "2.4.4"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.38.0"
-    kotlin("jvm") version "1.4.31"
-    kotlin("kapt") version "1.4.31"
+    kotlin("jvm") version "1.4.32"
+    kotlin("kapt") version "1.4.32"
     kotlin("plugin.spring") version "1.4.32"
     kotlin("plugin.jpa") version "1.4.32"
 }
@@ -26,7 +26,7 @@ object Versions {
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.3.2"
     const val mockk = "1.11.0"
-    const val moshi = "1.11.0"
+    const val moshi = "1.12.0"
     const val okhttp = "4.9.1"
     const val retrofit = "2.9.0"
     const val springSecurity = "5.4.5"
@@ -127,7 +127,8 @@ tasks.withType<KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf(
                 "-Xjsr305=strict",
-                "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi"
+                "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi",
+                "-Xopt-in=kotlin.RequiresOptIn"
         )
         jvmTarget = "13"
         useIR = true
