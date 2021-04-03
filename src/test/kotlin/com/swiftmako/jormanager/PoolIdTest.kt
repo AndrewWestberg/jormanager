@@ -46,6 +46,26 @@ class PoolIdTest {
     }
 
     @Test
+    fun `test vkey to address`() {
+        val libraryPath = "/usr/local/lib/libsodium.so"
+        SodiumLibrary.setLibraryPath(libraryPath)
+
+        val vkey = "ef47ad69c3eafd8730b72528d067c0aebb5ad435132115db32870a75841d293b".hexToByteArray()
+//        val output = SodiumLibrary.cryptoBlake2bHash(vkey, null)
+//        val hashed = output.toHexString()
+//        println("blake2b: $hashed")
+
+        val blake2b224 = Blake2bDigest(224)
+        blake2b224.update(vkey, 0, vkey.size)
+        val output = ByteArray(28)
+        blake2b224.doFinal(output, 0)
+        val hashed = "61${output.toHexString()}"
+
+        // addr1vy5l62qysq3j6u4jsw0u73e8teus5x36ghd04lv0vsvqvys770xjw
+        assertThat(hashed).isEqualTo("6129fd280480232d72b2839fcf47275e790a1a3a45dafafd8f64180612")
+    }
+
+    @Test
     fun `test verify block`() {
         val libraryPath = "/usr/local/lib/libsodium.so"
         SodiumLibrary.setLibraryPath(libraryPath)

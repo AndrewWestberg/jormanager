@@ -54,7 +54,9 @@ class NodeControllerTest {
                 byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
                 metadataAdapter = config.getMetadataAdapter(moshi),
                 protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
-                queryTipAdapter = config.getQueryTipAdapter(moshi)
+                queryTipAdapter = config.getQueryTipAdapter(moshi),
+                keyFileJsonAdapter = mockk(relaxed=true),
+                bulkCredentialsJsonAdapter = mockk(relaxed=true),
         )
 
         val request = CreateNodeRequest(

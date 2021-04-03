@@ -47,7 +47,7 @@ class HostConnectionTest {
     @Test
     fun testQueryAddress() {
         val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true, configFileId = 0)
+        val defaultNode = Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true, configFileId = 0)
         val hostConnection = HostConnection(host, defaultNode)
         val output = hostConnection.command("${host.cardanoCliPath} query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --shelley-era --testnet-magic 42")
         println(output)
@@ -56,7 +56,7 @@ class HostConnectionTest {
     @Test
     fun testIsPortUsed() {
         val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(0, 0, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true, configFileId = 0)
+        val defaultNode = Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0, isDefault = true, configFileId = 0)
         val hostConnection = HostConnection(host, defaultNode)
         val port = 12955
         val output = hostConnection.command("ss -tulw").trim().contains(":$port")
