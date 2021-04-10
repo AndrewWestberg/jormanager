@@ -52,7 +52,8 @@ class BlockController @Autowired constructor(
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
-        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val keyAdapter: JsonAdapter<Key>,
         private val chainRepository: ChainRepository,
@@ -70,9 +71,39 @@ class BlockController @Autowired constructor(
     }
 
     @MessageMapping("/version")
-    @SendTo("/topic/messages")
-    fun getVersion(): SocketResponse<JorManagerVersion> {
-        return SocketResponse.Success(type = "version", data = JorManagerVersion(version = "JorManager ${buildProperties.version.split('-')[0]}", mp = mp))
+    fun getVersion() {
+        try {
+            val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
+
+            val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                    ?: throw IOException("Genesis file for default node not found!")
+            val genesisShelley = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+            val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
+                "--testnet-magic ${genesisShelley.networkMagic}"
+            } else {
+                "--mainnet"
+            }
+
+            val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
+                    ?: throw IOException("Host not found for default node!")
+            val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            try {
+                val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString").trim()
+                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+                val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
+                        ?: throw IOException("Invalid protocol params!")
+
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "version", data = JorManagerVersion(version = "JorManager ${buildProperties.version.split('-')[0]}", mp = mp, minUTxOValue = protocolParameters.minUTxOValue)))
+            } finally {
+                // Cleanup
+                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json")
+            }
+        } catch (e: Throwable) {
+            log.error("Error Getting Version!", e)
+            webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "version", exception = e))
+            // rethrow so db transaction is rolled back
+            throw RuntimeException(e)
+        }
     }
 
     @MessageMapping("/blocks")
@@ -84,7 +115,7 @@ class BlockController @Autowired constructor(
                 fileRepository.findByIdOrNull(node.genesisByronFileId)?.let { byronFile ->
                     byronGenesisAdapter.fromJson(byronFile.content)?.let { byron ->
                         fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { shelleyFile ->
-                            shelleyShelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
+                            shelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
                                 val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, block.slot)
                                 if (epoch > 0L && slotInEpoch > 0L) {
                                     blockRepository.save(block.copy(epoch = epoch, slotInEpoch = slotInEpoch))
@@ -131,7 +162,7 @@ class BlockController @Autowired constructor(
                 nodeRepository.findDefault()?.let { defaultNode ->
                     val coreNodes = nodeRepository.findAll().filter { it.type != "relay" && !it.isDeleted }
                     fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
-                        val genesisShelley = shelleyShelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
+                        val genesisShelley = shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
                         val magicString = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
                             "--testnet-magic ${genesisShelley.networkMagic}"
                         } else {

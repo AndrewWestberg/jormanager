@@ -10,6 +10,7 @@ export default {
     setAppVersion: (state, data) => {
         state.appVersion = data.version;
         state.mp = data.mp;
+        state.minUTxOValue = data.minUTxOValue;
     },
     setBlocks: (state, blocks) => {
         state.blocks = _.orderBy(blocks, ["slot"], ["desc"]);

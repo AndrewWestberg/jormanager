@@ -324,7 +324,7 @@ export default {
     },
   },
   computed: {
-    ...mapState(["walletItems", "txFee", "toastSuccess"]),
+    ...mapState(["walletItems", "txFee", "toastSuccess", "minUTxOValue"]),
     ...mapGetters([
       "currencySelectOptions",
       "paymentSelectOptions",
@@ -797,6 +797,20 @@ export default {
       }
       return -1;
     },
+    calculateMinTxFeeForToken(currency) {
+      console.log("calculateMinTxFeeForToken: " + currency);
+      let minOutUTXO = this.minUTxOValue; // preload it with the minUTXOValue (1ADA), will be overwritten if costs are higher
+
+      // chain constants
+      let coinSize = 0; // will be changed to 2 in the next fork
+      let pidSize = 28; // currenty, also in the next era
+      let utxoEntrySizeWithoutVal = 27; // 6+txOutLenNoVal(14)+txInLen(7)
+      let adaOnlyUTxOSize = utxoEntrySizeWithoutVal + coinSize;
+
+      // FIXME: Add more code here
+
+      return 2000000;
+    },
     calculateTokenFee(index, toAccount) {
       let idx = 0;
       let totalAdaSentToAccount = _.sumBy(
@@ -816,6 +830,9 @@ export default {
           return this.calculateSpent(index + 1, true).amount[account.currency];
         }
       );
+
+      //FIXME, make this work
+      this.calculateMinTxFeeForToken(toAccount.currency);
 
       let tokenFee = 2000000;
       let minUtxoMet = false;
