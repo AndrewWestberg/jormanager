@@ -2,7 +2,7 @@
   <div>
     <b-modal
       id="modal-send-ada"
-      :title="modalTitle"
+      :title-html="modalTitle"
       size="xl"
       scrollable
       no-close-on-backdrop
@@ -332,7 +332,8 @@ export default {
     ]),
     modalTitle() {
       let tokenKeepFee = this.calculateTokenKeepFee();
-      return (
+      let remaining = this.remainingLovelace + tokenKeepFee;
+      let title =
         (this.formSendAda.isClaim ? "Claiming: " : "Sending: ") +
         this.formatCurrency(
           this.formSendAda.isClaim
@@ -345,9 +346,25 @@ export default {
         (tokenKeepFee > 0
           ? ", TokenKeep: " + this.formatCurrency(tokenKeepFee, "ada")
           : "") +
-        ", Remaining: " +
-        this.formatCurrency(this.remainingLovelace + tokenKeepFee, "ada")
-      );
+        ", Remaining: ";
+
+      if (
+        (tokenKeepFee > 0 && remaining < tokenKeepFee) ||
+        remaining < 0 ||
+        (remaining > 0 && remaining < this.minUTxOValue)
+      ) {
+        title +=
+          '<span class="text-danger">' +
+          this.formatCurrency(this.remainingLovelace + tokenKeepFee, "ada") +
+          "</span>";
+      } else {
+        title += this.formatCurrency(
+          this.remainingLovelace + tokenKeepFee,
+          "ada"
+        );
+      }
+
+      return title;
     },
   },
   methods: {
@@ -797,19 +814,55 @@ export default {
       }
       return -1;
     },
-    calculateMinTxFeeForToken(currency) {
-      console.log("calculateMinTxFeeForToken: " + currency);
+    hexEncode(value) {
+      var hex, i;
+
+      var result = "";
+      for (i = 0; i < value.length; i++) {
+        hex = value.charCodeAt(i).toString(16);
+        if (hex.length > 2) {
+          result += ("000" + hex).slice(-4);
+        } else {
+          result += ("0" + hex).slice(-2);
+        }
+      }
+
+      return result;
+    },
+    calculateMinTxFeeForToken(currency, minUtxoMet) {
       let minOutUTXO = this.minUTxOValue; // preload it with the minUTXOValue (1ADA), will be overwritten if costs are higher
 
-      // chain constants
+      // // chain constants
       let coinSize = 0; // will be changed to 2 in the next fork
       let pidSize = 28; // currenty, also in the next era
       let utxoEntrySizeWithoutVal = 27; // 6+txOutLenNoVal(14)+txInLen(7)
       let adaOnlyUTxOSize = utxoEntrySizeWithoutVal + coinSize;
 
-      // FIXME: Add more code here
+      let assetArray = currency.split(".");
+      // let assetHashPolicy = assetArray[0];
+      let assetHexName = this.hexEncode(assetArray[1] || "");
 
-      return 2000000;
+      let assetNameLength = assetHexName.length / 2;
+      let numAssets = 1;
+      let numPolicyIds = 1; // count of assetHashPolicies
+      let roundupBytesToWords = Math.floor(
+        (numAssets * 12 + assetNameLength + numPolicyIds * pidSize + 7) / 8
+      );
+      let tokenBundleSize = 6 + roundupBytesToWords;
+
+      let minAda =
+        Math.floor(this.minUTxOValue / adaOnlyUTxOSize) *
+        (utxoEntrySizeWithoutVal + tokenBundleSize);
+
+      if (minAda > this.minUTxOValue) {
+        minOutUTXO = minAda;
+      }
+
+      if (minUtxoMet) {
+        minOutUTXO -= this.minUTxOValue;
+      }
+
+      return minOutUTXO;
     },
     calculateTokenFee(index, toAccount) {
       let idx = 0;
@@ -831,10 +884,6 @@ export default {
         }
       );
 
-      //FIXME, make this work
-      this.calculateMinTxFeeForToken(toAccount.currency);
-
-      let tokenFee = 2000000;
       let minUtxoMet = false;
       for (let i = 0; i < index; i++) {
         let account = this.formSendAda.toAccounts[i];
@@ -846,15 +895,23 @@ export default {
           continue;
         }
 
+        let tokenFee = this.calculateMinTxFeeForToken(
+          account.currency,
+          minUtxoMet
+        );
+
         // there is a token above us, it will contain the minutxo 1 ada
         if (!minUtxoMet) {
           minUtxoMet = true;
-          tokenFee -= 1000000;
-          totalAdaSentToAccount -= 2000000; // minutxo and token fee come out of our total ada
-        } else {
-          totalAdaSentToAccount -= 1000000; // just token fee come out of our total ada
         }
+
+        totalAdaSentToAccount -= tokenFee; // token fee comes out of our total ada
       }
+
+      let tokenFee = this.calculateMinTxFeeForToken(
+        toAccount.currency,
+        minUtxoMet
+      );
 
       if (totalAdaSentToAccount - tokenFee >= 0) {
         // enough left in ada tx to pay for our fee
@@ -867,27 +924,30 @@ export default {
     },
     calculateTokenKeepFee() {
       // minimum amount of ada we need to keep on the sending address to retain unspent tokens
-      // 1 ada minutxo + 1 ada for each token that isn't completely spent
+      // 1 ada minutxo + tokenfee ada for each token that isn't completely spent
       let remaining = this.calculateSpent(
         this.formSendAda.toAccounts.length,
         true
       ).remaining;
-      let unspentTokensCount = _.sum(
+      let currenciesSeen = [];
+      let tokenKeepFee = _.sum(
         _.map(remaining, (amount, currency) => {
           if (currency === "ada") {
             return 0;
           }
           if (amount > 0) {
-            return 1;
+            if (currenciesSeen.includes(currency)) {
+              return this.calculateMinTxFeeForToken(currency, true);
+            } else {
+              currenciesSeen.push(currency);
+              return this.calculateMinTxFeeForToken(currency, false);
+            }
           }
           return 0;
         })
       );
 
-      if (unspentTokensCount > 0) {
-        return unspentTokensCount * 1000000 + 1000000;
-      }
-      return 0;
+      return tokenKeepFee;
     },
     calculateSpent(index, skipTokenFees) {
       let feePayerAccountId = -1;
