@@ -51,10 +51,6 @@ class PoolIdTest {
         SodiumLibrary.setLibraryPath(libraryPath)
 
         val vkey = "ef47ad69c3eafd8730b72528d067c0aebb5ad435132115db32870a75841d293b".hexToByteArray()
-//        val output = SodiumLibrary.cryptoBlake2bHash(vkey, null)
-//        val hashed = output.toHexString()
-//        println("blake2b: $hashed")
-
         val blake2b224 = Blake2bDigest(224)
         blake2b224.update(vkey, 0, vkey.size)
         val output = ByteArray(28)

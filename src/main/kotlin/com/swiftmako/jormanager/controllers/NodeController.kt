@@ -314,10 +314,6 @@ class NodeController @Autowired constructor(
                                 certificates.append("--certificate /tmp/rewards.staking.cert ")
                             }
                         }
-                        if (ownerStakingAccount != rewardsStakingAccount) {
-                            witnessCount++ // the rewards account is a witness
-                            signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
-                        }
 
                         // 4. Keys and opcert
                         val coreSKeyId: Long
@@ -964,10 +960,6 @@ class NodeController @Autowired constructor(
                                     certificates.append("--certificate /tmp/rewards.staking.cert ")
                                 }
                             }
-                            if (ownerStakingAccount != rewardsStakingAccount) {
-                                witnessCount++ // the rewards account is a witness
-                                signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
-                            }
 
                             nodeRepository.findByIdOrNull(request.id)?.let { node ->
                                 val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)
@@ -1474,10 +1466,6 @@ class NodeController @Autowired constructor(
                             certificates.append("--certificate /tmp/rewards.staking.cert ")
                         }
                     }
-                    if (ownerStakingAccount != rewardsStakingAccount) {
-                        witnessCount++ // the rewards account is a witness
-                        signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
-                    }
 
                     val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)
                             ?: throw IOException("Cold skey not found!")
@@ -1842,10 +1830,6 @@ class NodeController @Autowired constructor(
                             depositAndFees += protocolParameters.stakeAddressDeposit
                             certificates.append("--certificate /tmp/rewards.staking.cert ")
                         }
-                    }
-                    if (ownerStakingAccount != rewardsStakingAccount) {
-                        witnessCount++ // the rewards account is a witness
-                        signingKeys.append("--signing-key-file /tmp/rewards.staking.skey ")
                     }
 
                     val coldSKeyFile = fileRepository.findByIdOrNull(node.coreSKeyId)

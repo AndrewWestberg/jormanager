@@ -50,7 +50,7 @@ export default {
     coreNodeSelectOptions: (state) => {
         return _.sortBy(
             _.map(_.filter(state.nodes, (node) => {
-                return node.type === 'core'
+                return node.type !== 'relay'
             }), (node) => {
                 return {
                     value: node.name,

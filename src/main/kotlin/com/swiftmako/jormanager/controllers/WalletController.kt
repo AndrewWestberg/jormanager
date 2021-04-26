@@ -369,7 +369,7 @@ class WalletController @Autowired constructor(
                                             "--tx-out ${feePayerAccount.paymentAddr}+1234567890 ",
                                             "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
                                     )
-                            log.debug("Pool Transaction Command: $realTransaction")
+                            log.debug("StakeKey Transaction Command: $realTransaction")
                             defaultHostConnection.command(realTransaction)
 
                             // 10. Sign the transaction
