@@ -120,16 +120,20 @@ export default {
 
             let index4 = _.findIndex(state.txsProcessedSeries, ["name", nodeStats.nodeName]);
             if (index4 > -1) {
-                state.txsProcessedSeries[index4].data.push([nodeStats.timestamp, nodeStats.txsProcessed]);
-                state.txsProcessedSeries[index4].data = state.txsProcessedSeries[index4].data.slice(-60); // keep 5 minutes worth of data
+                if (nodeStats.txsProcessed > 0) {
+                    state.txsProcessedSeries[index4].data.push([nodeStats.timestamp, nodeStats.txsProcessed]);
+                    state.txsProcessedSeries[index4].data = state.txsProcessedSeries[index4].data.slice(-60); // keep 5 minutes worth of data
+                }
             } else {
-                state.txsProcessedSeries.push({
-                    name: nodeStats.nodeName,
-                    data: [
-                        [nodeStats.timestamp, nodeStats.txsProcessed]
-                    ]
-                });
-                state.txsProcessedSeries = _.sortBy(state.txsProcessedSeries, ["name"]);
+                if (nodeStats.txsProcessed > 0) {
+                    state.txsProcessedSeries.push({
+                        name: nodeStats.nodeName,
+                        data: [
+                            [nodeStats.timestamp, nodeStats.txsProcessed]
+                        ]
+                    });
+                    state.txsProcessedSeries = _.sortBy(state.txsProcessedSeries, ["name"]);
+                }
             }
         }
 

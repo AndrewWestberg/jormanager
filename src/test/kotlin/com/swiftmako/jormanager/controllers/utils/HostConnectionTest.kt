@@ -109,7 +109,7 @@ class HostConnectionTest {
 
         val blake2b256 = Blake2bDigest(256)
 
-        for (x in 412..2999) {
+        for (x in 13480..29999) {
 //        for (x in 0..2999) {
 
             while (true) {
@@ -130,8 +130,8 @@ class HostConnectionTest {
                         }
                     }
 
-                    val start = x * 100L
-                    val end = start + 99L
+                    val start = x * 10L
+                    val end = start + 9L
 
                     log.debug("Registering keys $start..$end...")
 
@@ -177,6 +177,9 @@ class HostConnectionTest {
 
                         // generate stake dereg-cert
                         hostConnection.command("${host.cardanoCliPath} stake-address deregistration-certificate --stake-verification-key-file /tmp/staking$i.vkey --out-file /tmp/staking$i.dereg-cert")
+
+                        // generate delegation cert
+                        hostConnection.command("${host.cardanoCliPath} stake-address delegation-certificate --stake-verification-key-file /tmp/staking$i.vkey --cold-verification-key-file /home/westbam/haskell/gpool.node.vkey --out-file /tmp/staking$i.deleg.cert")
                     }
 
                     // 1. Create a transaction to dump EVERYTHING into
@@ -215,8 +218,10 @@ class HostConnectionTest {
                     for (i in start..end) {
                         if (isRegistration) {
                             // 2. Register staking addresses on the chain
-                            depositAndFees += protocolParameters.stakeAddressDeposit
-                            certificates.append("--certificate /tmp/staking$i.cert ")
+//                            depositAndFees += protocolParameters.stakeAddressDeposit
+//                            certificates.append("--certificate /tmp/staking$i.cert ")
+
+                            certificates.append("--certificate /tmp/staking$i.deleg.cert ")
                         } else {
                             // staking address is registered. We should *de* register it on chain as part of the transaction
                             certificates.append("--certificate /tmp/staking$i.dereg-cert ")

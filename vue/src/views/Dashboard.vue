@@ -48,7 +48,6 @@
           title="Transactions Processed"
           :series="txsProcessedSeries"
           :colors="nodeColors"
-          :min="0"
         />
       </b-card-group>
     </b-container>
