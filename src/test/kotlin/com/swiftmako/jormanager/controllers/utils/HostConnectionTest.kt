@@ -87,7 +87,7 @@ class HostConnectionTest {
         val libraryPath = "/usr/local/lib/libsodium.so"
         SodiumLibrary.setLibraryPath(libraryPath)
 
-        val isRegistration = true
+        val isRegistration = false
 
         val walletUtils = WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter())
 
@@ -109,8 +109,8 @@ class HostConnectionTest {
 
         val blake2b256 = Blake2bDigest(256)
 
-        for (x in 13480..29999) {
-//        for (x in 0..2999) {
+//        for (x in 23903..29999) {
+        for (x in 23903 downTo 0) {
 
             while (true) {
                 try {
@@ -133,7 +133,11 @@ class HostConnectionTest {
                     val start = x * 10L
                     val end = start + 9L
 
-                    log.debug("Registering keys $start..$end...")
+                    if(isRegistration) {
+                        log.debug("Registering keys $start..$end...")
+                    } else {
+                        log.debug("Un-registering keys $start..$end...")
+                    }
 
                     for (i in start..end) {
                         val bytes = longToBytes(i)

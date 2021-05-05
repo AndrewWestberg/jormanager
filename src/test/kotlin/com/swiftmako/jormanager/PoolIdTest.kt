@@ -50,7 +50,7 @@ class PoolIdTest {
         val libraryPath = "/usr/local/lib/libsodium.so"
         SodiumLibrary.setLibraryPath(libraryPath)
 
-        val vkey = "ef47ad69c3eafd8730b72528d067c0aebb5ad435132115db32870a75841d293b".hexToByteArray()
+        val vkey = "c9350cb75990424963a47586ffbc0d6f0cc441c9ab00071cf01e3e808799fe7d1c6626b08fea16a902f1247f727c58a74e1315c3fc7c5d0cf2fe0f3c8b43f0e7".hexToByteArray()
         val blake2b224 = Blake2bDigest(224)
         blake2b224.update(vkey, 0, vkey.size)
         val output = ByteArray(28)

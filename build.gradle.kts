@@ -15,7 +15,7 @@ plugins {
 object Versions {
     const val bouncycastle = "1.68"
     const val commonsio = "2.8.0"
-    const val cbor = "0.01.01"
+    const val cbor = "0.01.02"
     const val coroutines = "1.4.3"
     const val googleTruth = "1.1.2"
     const val jackson = "2.12.3"
@@ -34,7 +34,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "3.0.2-SNAPSHOT"
+version = "4.0.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
@@ -72,7 +72,7 @@ dependencies {
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("com.h2database:h2")
 
-    // implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
+    implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")
     compileOnly("com.google.errorprone:error_prone_annotations:2.2.0")
     compileOnly("org.checkerframework:checker-qual:2.5.6")

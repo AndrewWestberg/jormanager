@@ -103,6 +103,10 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getStakeSnapshotAdapter(moshi: Moshi): JsonAdapter<StakeSnapshot> = moshi.adapter(StakeSnapshot::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
                 .addNetworkInterceptor(HttpLoggingInterceptor(object : HttpLoggingInterceptor.Logger {

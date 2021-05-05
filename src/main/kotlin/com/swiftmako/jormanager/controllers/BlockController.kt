@@ -14,12 +14,7 @@ import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.model.key.Key
-import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
-import com.swiftmako.jormanager.repositories.BlockRepository
-import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.repositories.FileRepository
-import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -37,6 +32,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.io.IOException
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.ceil
 
@@ -56,6 +53,7 @@ class BlockController @Autowired constructor(
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val keyAdapter: JsonAdapter<Key>,
+        private val stakeSnapshotAdapter: JsonAdapter<StakeSnapshot>,
         private val chainRepository: ChainRepository,
         private val moshi: Moshi,
         @Value("\${jormanager.mp:false}") private val mp: Boolean,
@@ -183,15 +181,50 @@ class BlockController @Autowired constructor(
                                                 .trim()
                                 val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slot
                                         ?: throw IOException("Unable to query tip!")
-                                val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}.json"
-                                defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
-                                val ledger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile).use { ledgerStateJsonSource ->
-                                    val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
-                                    val ledgerAdapter = LeaderLogLedgerJsonAdapter(moshi, poolIds)
-                                    ledgerAdapter.fromJson(ledgerStateJsonSource)
-                                            ?: throw IOException("Error dumping ledger state!")
+//                                val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}.json"
+//                                defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
+//                                val ledger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile).use { ledgerStateJsonSource ->
+//                                    val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+//                                    val ledgerAdapter = LeaderLogLedgerJsonAdapter(moshi, poolIds)
+//                                    ledgerAdapter.fromJson(ledgerStateJsonSource)
+//                                            ?: throw IOException("Error dumping ledger state!")
+//                                }
+//                                defaultHostConnection.command("rm -f $ledgerStateFile")
+
+                                val poolIdToSigma = mutableMapOf<String, BigDecimal>()
+                                val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
+                                val stakeSnapshotAsyncs = mutableListOf<Deferred<Unit?>>()
+                                val mapMutex = Mutex()
+                                coreNodes.asFlow().flowOn(Dispatchers.IO).collect { node ->
+                                    val d = async {
+                                        node.poolId?.let { poolId ->
+                                            val stakeSnapshotJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot --stake-pool-id $poolId $magicString").trim()
+                                            val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
+                                                    ?: throw IOException("Unable to parse stakeSnapshot json for $poolId!")
+                                            log.debug("pool: ${poolId.substring(0, 6)} - $stakeSnapshot")
+                                            mapMutex.withLock {
+                                                poolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeSet).divide(BigDecimal(stakeSnapshot.activeStakeSet), 34, RoundingMode.HALF_UP)
+                                                futurePoolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeMark).divide(BigDecimal(stakeSnapshot.activeStakeMark), 34, RoundingMode.HALF_UP)
+                                            }
+                                        }
+                                    }
+                                    stakeSnapshotAsyncs.add(d)
                                 }
-                                defaultHostConnection.command("rm -f $ledgerStateFile")
+                                stakeSnapshotAsyncs.awaitAll()
+
+                                // if we're doing the stake-snapshot command, assume future d stays the same and no entropy
+                                val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString").trim()
+                                val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
+                                        ?: throw IOException("Invalid protocol params!")
+
+                                val ledger = LeaderLogLedger(
+                                        decentralizationParameter = protocolParameters.decentralisationParam,
+                                        futureDecentralizationParameter = protocolParameters.decentralisationParam,
+                                        poolIdToSigma = poolIdToSigma,
+                                        futurePoolIdToSigma = futurePoolIdToSigma,
+                                        extraPraosEntropy = null,
+                                        futureExtraPraosEntropy = null,
+                                )
 
                                 // Pretend our tip came from the next epoch if user wants to grab future blocks before current epoch is done.
                                 // This only works as long as the decentralizationParam isn't going to change in the next epoch.
