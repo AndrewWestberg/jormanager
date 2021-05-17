@@ -110,7 +110,7 @@ class HostConnectionTest {
         val blake2b256 = Blake2bDigest(256)
 
 //        for (x in 23903..29999) {
-        for (x in 23903 downTo 0) {
+        for (x in 0..1873) {
 
             while (true) {
                 try {
@@ -130,8 +130,8 @@ class HostConnectionTest {
                         }
                     }
 
-                    val start = x * 10L
-                    val end = start + 9L
+                    val start = x * 100L
+                    val end = start + 99L
 
                     if(isRegistration) {
                         log.debug("Registering keys $start..$end...")

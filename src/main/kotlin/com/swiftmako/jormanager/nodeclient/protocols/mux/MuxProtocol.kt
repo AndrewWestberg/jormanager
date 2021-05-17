@@ -218,7 +218,7 @@ class MuxProtocol(
                     // Last byron block of guild
                     ChainBlock(
                             slotNumber = 359,
-                            hash = "baa280a8c640c186e44e2b78de82930e7524d8c7548c5c674aa280e671ce8a45",
+                            hash = "9c0fe75b6a0499e9576a09589a5777e7021824e8a6d037065829423f861a9bb6",
                             blockNumber = 0L,
                             prevHash = "",
                             etaV = "",
