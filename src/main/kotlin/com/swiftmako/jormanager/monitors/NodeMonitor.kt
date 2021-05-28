@@ -331,7 +331,7 @@ class NodeMonitor @Autowired constructor(
                     if (node.isDefault) {
                         nodeStats.blockHeight?.let { newBlockHeight ->
                             if (newBlockHeight > lastBlockHeight) {
-                                newBlockChannel.offer(newBlockHeight)
+                                newBlockChannel.trySend(newBlockHeight)
                                 lastBlockHeight = newBlockHeight
                             }
                         }

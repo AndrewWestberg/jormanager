@@ -1,0 +1,10 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="029" author="Andrew Westberg">
+
+        <renameColumn tableName="nodes" oldColumnName="alonzo_shelley_file_id" newColumnName="genesis_alonzo_file_id"/>
+
+    </changeSet>
+</databaseChangeLog>

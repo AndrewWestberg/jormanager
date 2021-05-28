@@ -82,7 +82,7 @@ class WalletController @Autowired constructor(
 
     @MessageMapping("/calculatefee")
     fun receiveCalculateTxFeeRequest(request: CalculateFeeRequest) {
-        debounceChannel.offer(request)
+        debounceChannel.trySend(request)
     }
 
     private fun calculateTxFee(request: CalculateFeeRequest) {

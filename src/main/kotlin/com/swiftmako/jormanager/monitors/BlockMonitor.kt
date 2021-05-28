@@ -95,7 +95,7 @@ class BlockMonitor @Autowired constructor(
         log.info("Starting BlockMonitor...")
         launch {
             nodeRepository.findAll().filter { !it.isDeleted }.forEach { node ->
-                nodesChannel.offer(node)
+                nodesChannel.trySend(node)
             }
         }
 
