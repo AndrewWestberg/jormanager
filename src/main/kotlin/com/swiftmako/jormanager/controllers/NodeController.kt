@@ -26,6 +26,7 @@ import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.services.SmashService
 import kotlinx.coroutines.channels.BroadcastChannel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.CacheControl
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -61,7 +62,7 @@ class NodeController @Autowired constructor(
         private val relayRepository: RelayRepository,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+        @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         private val retrofit: Retrofit,
         private val okHttpClient: OkHttpClient,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
@@ -201,7 +202,7 @@ class NodeController @Autowired constructor(
                     val savedNode = nodeRepository.save(node)
 
                     // send it to the channel for monitoring
-                    nodesChannel.offer(savedNode)
+                    nodesChannel.tryEmit(savedNode)
 
                     // send all to the client for ui updates
                     val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
@@ -807,7 +808,7 @@ class NodeController @Autowired constructor(
                         }
 
                         // send it to the channel for monitoring
-                        nodesChannel.offer(savedNode)
+                        nodesChannel.tryEmit(savedNode)
 
                         // send all to the client for ui updates
                         val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }

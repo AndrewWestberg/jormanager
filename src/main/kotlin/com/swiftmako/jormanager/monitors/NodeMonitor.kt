@@ -30,6 +30,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.Channel.Factory.BUFFERED
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -66,16 +69,16 @@ import kotlin.random.Random
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class NodeMonitor @Autowired constructor(
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val retrofit: Retrofit,
-        private val webSocketTemplate: SimpMessagingTemplate,
-        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val moshi: Moshi,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
-        @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val retrofit: Retrofit,
+    private val webSocketTemplate: SimpMessagingTemplate,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val moshi: Moshi,
+    @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
+    @Qualifier("newBlockChannel") private val newBlockChannel: MutableStateFlow<Long?>,
+    @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(NodeMonitor::class.java)
@@ -177,7 +180,7 @@ class NodeMonitor @Autowired constructor(
 
     private fun monitorNodes() {
         launch {
-            nodesChannel.openSubscription().consumeEach { node ->
+            nodesChannel.collect { node ->
                 if (node.type != "pool") {
                     mutex.withLock {
 
@@ -331,7 +334,7 @@ class NodeMonitor @Autowired constructor(
                     if (node.isDefault) {
                         nodeStats.blockHeight?.let { newBlockHeight ->
                             if (newBlockHeight > lastBlockHeight) {
-                                newBlockChannel.offer(newBlockHeight)
+                                newBlockChannel.value = newBlockHeight
                                 lastBlockHeight = newBlockHeight
                             }
                         }

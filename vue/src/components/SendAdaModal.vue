@@ -275,7 +275,6 @@ export default {
   data() {
     return {
       remainingLovelace: 1,
-      tokenKeepFee: 0,
       fromWalletItem: {
         name: null,
         paymentAddrLovelace: null,
@@ -319,20 +318,32 @@ export default {
         this.prepareCalculateSendAdaFees();
       }
     },
-    tokenKeepFee() {
-      this.prepareCalculateSendAdaFees();
+    tokenFees() {
+      for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
+        let toAccount = this.formSendAda.toAccounts[i];
+        toAccount.tokenFee = this.tokenFees[i];
+      }
     },
   },
   computed: {
-    ...mapState(["walletItems", "txFee", "toastSuccess", "minUTxOValue"]),
+    ...mapState([
+      "walletItems",
+      "txFee",
+      "tokenKeepFee",
+      "tokenFees",
+      "tokenLocked",
+      "toastSuccess",
+      "minUTxOValue",
+    ]),
     ...mapGetters([
       "currencySelectOptions",
       "paymentSelectOptions",
       "walletItemById",
     ]),
     modalTitle() {
-      let tokenKeepFee = this.calculateTokenKeepFee();
-      let remaining = this.remainingLovelace + tokenKeepFee;
+      let tokenKeepFee = this.tokenKeepFee;
+      let tokenLocked = this.tokenLocked;
+      let remaining = this.remainingLovelace + tokenKeepFee + tokenLocked;
       let title =
         (this.formSendAda.isClaim ? "Claiming: " : "Sending: ") +
         this.formatCurrency(
@@ -343,23 +354,30 @@ export default {
         ) +
         ", TxFee: " +
         this.formatCurrency(this.txFee, "ada") +
+        (tokenLocked > 0
+          ? ", TokenLocked: " + this.formatCurrency(tokenLocked, "ada")
+          : "") +
         (tokenKeepFee > 0
           ? ", TokenKeep: " + this.formatCurrency(tokenKeepFee, "ada")
           : "") +
         ", Remaining: ";
 
       if (
-        (tokenKeepFee > 0 && remaining < tokenKeepFee) ||
+        (tokenKeepFee + tokenLocked > 0 &&
+          remaining < tokenKeepFee + tokenLocked) ||
         remaining < 0 ||
         (remaining > 0 && remaining < this.minUTxOValue)
       ) {
         title +=
           '<span class="text-danger">' +
-          this.formatCurrency(this.remainingLovelace + tokenKeepFee, "ada") +
+          this.formatCurrency(
+            this.remainingLovelace + tokenKeepFee + tokenLocked,
+            "ada"
+          ) +
           "</span>";
       } else {
         title += this.formatCurrency(
-          this.remainingLovelace + tokenKeepFee,
+          this.remainingLovelace + tokenKeepFee + tokenLocked,
           "ada"
         );
       }
@@ -374,7 +392,6 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
       return currency != null;
     },
     destinationState(destination) {
@@ -384,7 +401,6 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
       if (toAccount.destination === "address") {
         return true;
       } else if (toAccount.destination === "account") {
@@ -421,13 +437,11 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
       return type != null;
     },
     amountState(index, amount, currency) {
       let spent = this.calculateSpent(this.formSendAda.toAccounts.length);
       this.remainingLovelace = spent.remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
       if (amount != null) {
         let tokens = this.$ci.parse(
           amount,
@@ -445,7 +459,6 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
       if (percent != null && percent > 0) {
         let spent = this.calculateSpent(index + 1);
         let tokens = spent.amount[currency];
@@ -544,8 +557,7 @@ export default {
 
       if (toAccount.currency !== "ada") {
         label +=
-          ", TokenFee: " +
-          this.formatCurrency(this.calculateTokenFee(index, toAccount), "ada");
+          ", TokenFee: " + this.formatCurrency(toAccount.tokenFee, "ada");
       }
 
       label += ", Remaining: ";
@@ -691,7 +703,8 @@ export default {
       if (this.txFee <= 0) {
         this.toastError({
           title: "Calculate Fee Error",
-          message: "No Account found capable of covering the claim fee!",
+          message:
+            "No Account found capable of covering the fee or fee calculation error!",
         });
         return;
       }
@@ -732,6 +745,15 @@ export default {
         return;
       }
 
+      if (this.remainingLovelace < 0) {
+        this.toastError({
+          title: "Invalid Form",
+          message:
+            "Negative remaining balance or not enough left to keep tokens!",
+        });
+        return;
+      }
+
       this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
         (spendingPassword) => {
           this.passwordConfirmed(spendingPassword);
@@ -744,7 +766,7 @@ export default {
         fromId: this.formSendAda.fromId,
         isClaim: this.formSendAda.isClaim,
         txFee: this.txFee,
-        tokenKeepFee: this.calculateTokenKeepFee(),
+        tokenKeepFee: this.tokenKeepFee,
         toAccounts: _.map(this.formSendAda.toAccounts, (toAccount, index) => {
           return {
             currency: toAccount.currency,
@@ -769,7 +791,6 @@ export default {
       this.remainingLovelace = this.calculateSpent(
         this.formSendAda.toAccounts.length
       ).remaining["ada"];
-      this.tokenKeepFee = this.calculateTokenKeepFee();
 
       let uniqueToAccounts = Object.keys(
         _.countBy(this.formSendAda.toAccounts, (toAccount) => {
@@ -781,14 +802,29 @@ export default {
       ).length;
       let returnChangeTxOut =
         this.remainingLovelace + this.tokenKeepFee > 0 ? 1 : 0;
+      let toAccounts = _.map(
+        this.formSendAda.toAccounts,
+        (toAccount, index) => {
+          return {
+            currency: toAccount.currency,
+            account: toAccount.account,
+            address: toAccount.address,
+            type: toAccount.type,
+            amount:
+              toAccount.amount == null
+                ? this.calculateSpent(index + 1).amount[toAccount.currency]
+                : this.$ci.parse(
+                    toAccount.amount,
+                    this.amountCurrencyOptions(toAccount.currency)
+                  ),
+            percent: toAccount.percent,
+            tokenFee: toAccount.tokenFee,
+          };
+        }
+      );
       let request = {
         fromId: this.fromWalletItem.id,
-        toAccounts: _.filter(
-          _.map(this.formSendAda.toAccounts, "account"),
-          (account) => {
-            return account > -1;
-          }
-        ),
+        toAccounts: toAccounts,
         txOut: uniqueToAccounts + returnChangeTxOut,
         isClaim: this.formSendAda.isClaim,
         metadata: this.formSendAda.metadata,
@@ -829,126 +865,6 @@ export default {
 
       return result;
     },
-    calculateMinTxFeeForToken(currency, minUtxoMet) {
-      let minOutUTXO = this.minUTxOValue; // preload it with the minUTXOValue (1ADA), will be overwritten if costs are higher
-
-      // // chain constants
-      let coinSize = 0; // will be changed to 2 in the next fork
-      let pidSize = 28; // currenty, also in the next era
-      let utxoEntrySizeWithoutVal = 27; // 6+txOutLenNoVal(14)+txInLen(7)
-      let adaOnlyUTxOSize = utxoEntrySizeWithoutVal + coinSize;
-
-      let assetArray = currency.split(".");
-      // let assetHashPolicy = assetArray[0];
-      let assetHexName = this.hexEncode(assetArray[1] || "");
-
-      let assetNameLength = assetHexName.length / 2;
-      let numAssets = 1;
-      let numPolicyIds = 1; // count of assetHashPolicies
-      let roundupBytesToWords = Math.floor(
-        (numAssets * 12 + assetNameLength + numPolicyIds * pidSize + 7) / 8
-      );
-      let tokenBundleSize = 6 + roundupBytesToWords;
-
-      let minAda =
-        Math.floor(this.minUTxOValue / adaOnlyUTxOSize) *
-        (utxoEntrySizeWithoutVal + tokenBundleSize);
-
-      if (minAda > this.minUTxOValue) {
-        minOutUTXO = minAda;
-      }
-
-      if (minUtxoMet) {
-        minOutUTXO -= this.minUTxOValue;
-      }
-
-      return minOutUTXO;
-    },
-    calculateTokenFee(index, toAccount) {
-      let idx = 0;
-      let totalAdaSentToAccount = _.sumBy(
-        this.formSendAda.toAccounts,
-        (account) => {
-          let index = idx;
-          idx++;
-          if (
-            account.account !== toAccount.account ||
-            account.address !== toAccount.address
-          ) {
-            return 0;
-          }
-          if (account.currency !== "ada") {
-            return 0;
-          }
-          return this.calculateSpent(index + 1, true).amount[account.currency];
-        }
-      );
-
-      let minUtxoMet = false;
-      for (let i = 0; i < index; i++) {
-        let account = this.formSendAda.toAccounts[i];
-        if (
-          account.account !== toAccount.account ||
-          account.address !== toAccount.address ||
-          account.currency === "ada"
-        ) {
-          continue;
-        }
-
-        let tokenFee = this.calculateMinTxFeeForToken(
-          account.currency,
-          minUtxoMet
-        );
-
-        // there is a token above us, it will contain the minutxo 1 ada
-        if (!minUtxoMet) {
-          minUtxoMet = true;
-        }
-
-        totalAdaSentToAccount -= tokenFee; // token fee comes out of our total ada
-      }
-
-      let tokenFee = this.calculateMinTxFeeForToken(
-        toAccount.currency,
-        minUtxoMet
-      );
-
-      if (totalAdaSentToAccount - tokenFee >= 0) {
-        // enough left in ada tx to pay for our fee
-        return 0;
-      }
-      if (totalAdaSentToAccount > 0) {
-        return tokenFee - totalAdaSentToAccount;
-      }
-      return tokenFee;
-    },
-    calculateTokenKeepFee() {
-      // minimum amount of ada we need to keep on the sending address to retain unspent tokens
-      // 1 ada minutxo + tokenfee ada for each token that isn't completely spent
-      let remaining = this.calculateSpent(
-        this.formSendAda.toAccounts.length,
-        true
-      ).remaining;
-      let currenciesSeen = [];
-      let tokenKeepFee = _.sum(
-        _.map(remaining, (amount, currency) => {
-          if (currency === "ada") {
-            return 0;
-          }
-          if (amount > 0) {
-            if (currenciesSeen.includes(currency)) {
-              return this.calculateMinTxFeeForToken(currency, true);
-            } else {
-              currenciesSeen.push(currency);
-              return this.calculateMinTxFeeForToken(currency, false);
-            }
-          }
-          return 0;
-        })
-      );
-
-      return tokenKeepFee;
-    },
     calculateSpent(index, skipTokenFees) {
       let feePayerAccountId = -1;
       if (this.formSendAda.isClaim) {
@@ -956,13 +872,17 @@ export default {
       } else {
         feePayerAccountId = this.fromWalletItem.id;
       }
-      let tokenKeepFee = skipTokenFees ? 0 : this.calculateTokenKeepFee();
+      let tokenKeepFee = skipTokenFees ? 0 : this.tokenKeepFee;
+      let tokenLocked = skipTokenFees ? 0 : this.tokenLocked;
       let baseAmount = this.fromWalletItem.nativeAssetMap
         ? _.clone(this.fromWalletItem.nativeAssetMap)
         : {};
       baseAmount["ada"] = this.formSendAda.isClaim
         ? this.fromWalletItem.stakingAddrLovelace
-        : this.fromWalletItem.paymentAddrLovelace - this.txFee - tokenKeepFee;
+        : this.fromWalletItem.paymentAddrLovelace -
+          this.txFee -
+          tokenKeepFee -
+          tokenLocked;
       let alreadySpentPercentages = {};
       let amount = {};
 
@@ -1027,7 +947,7 @@ export default {
 
         if (!skipTokenFees && account.currency !== "ada") {
           // subtract any token fees from our total available ada
-          account.tokenFee = this.calculateTokenFee(i, account);
+          account.tokenFee = this.tokenFees[i];
           baseAmount["ada"] -= account.tokenFee;
         }
       }

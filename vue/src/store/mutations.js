@@ -160,8 +160,11 @@ export default {
     saveWallet: (state, walletItems) => {
         state.walletItems = walletItems
     },
-    saveTxFee: (state, fee) => {
-        state.txFee = fee
+    saveTxFee: (state, data) => {
+        state.txFee = data.txFee;
+        state.tokenFees = data.tokenFees;
+        state.tokenKeepFee = data.tokenKeepFee;
+        state.tokenLocked = data.tokenLocked;
     },
     saveMetadata: (state, data) => {
         state.editorMetadata = data

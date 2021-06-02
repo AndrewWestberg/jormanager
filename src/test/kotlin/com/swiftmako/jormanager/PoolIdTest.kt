@@ -50,7 +50,8 @@ class PoolIdTest {
         val libraryPath = "/usr/local/lib/libsodium.so"
         SodiumLibrary.setLibraryPath(libraryPath)
 
-        val vkey = "c9350cb75990424963a47586ffbc0d6f0cc441c9ab00071cf01e3e808799fe7d1c6626b08fea16a902f1247f727c58a74e1315c3fc7c5d0cf2fe0f3c8b43f0e7".hexToByteArray()
+        val vkey =
+            "c9350cb75990424963a47586ffbc0d6f0cc441c9ab00071cf01e3e808799fe7d1c6626b08fea16a902f1247f727c58a74e1315c3fc7c5d0cf2fe0f3c8b43f0e7".hexToByteArray()
         val blake2b224 = Blake2bDigest(224)
         blake2b224.update(vkey, 0, vkey.size)
         val output = ByteArray(28)
@@ -62,6 +63,18 @@ class PoolIdTest {
     }
 
     @Test
+    fun `test create random enterprise keys`() {
+        val libraryPath = "/usr/local/lib/libsodium.so"
+        SodiumLibrary.setLibraryPath(libraryPath)
+
+        val keyPair = SodiumLibrary.cryptoSignKeyPair()
+
+        println("private: ${keyPair.privateKey.sliceArray(0..31).toHexString()}")
+        println(" public: ${keyPair.publicKey.toHexString()}")
+
+    }
+
+    @Test
     fun `test verify block`() {
         val libraryPath = "/usr/local/lib/libsodium.so"
         SodiumLibrary.setLibraryPath(libraryPath)
@@ -69,8 +82,10 @@ class PoolIdTest {
         // These values will be included in the payload to pooltool for any given block
         val slot = 14398146L
         val vrfVkey = "9162a3ec9fa00531afea9c26bddbb663fe95904e9076fd86b94f9c075b83fd30".hexToByteArray()
-        val leaderVrf = "000c512b89d1ad540ce15253ddee1a99af07f92932e8c99505f8e671a11a33571315dd40594ab438c53fde4d5165872f6bfe420edc2c4af4f82b0479e4fbe69e"
-        val leaderVrfSig = "679c22bc702da88eb628255f5b264cf23acebd9ff5f427e62120c0a795cb8c5a867c8fcd36e053819ec15183fc56c74ba2851d43a3eb8f18c5696361833d164805fa85deb86d21502585287a1c3a6505".hexToByteArray()
+        val leaderVrf =
+            "000c512b89d1ad540ce15253ddee1a99af07f92932e8c99505f8e671a11a33571315dd40594ab438c53fde4d5165872f6bfe420edc2c4af4f82b0479e4fbe69e"
+        val leaderVrfSig =
+            "679c22bc702da88eb628255f5b264cf23acebd9ff5f427e62120c0a795cb8c5a867c8fcd36e053819ec15183fc56c74ba2851d43a3eb8f18c5696361833d164805fa85deb86d21502585287a1c3a6505".hexToByteArray()
 
         // Values calculated or pre-existing on the pooltool side
         // epoch nonce

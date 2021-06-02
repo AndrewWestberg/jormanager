@@ -9,27 +9,14 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.ignoreExceptions
-import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.GenesisByron
+import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.TraceAdoptedBlock
-import com.swiftmako.jormanager.repositories.BlockRepository
-import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.repositories.FileRepository
-import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.NodeRepository
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.BroadcastChannel
-import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.swiftmako.jormanager.repositories.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -49,7 +36,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import java.io.IOException
-import java.lang.IllegalStateException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
@@ -57,18 +43,18 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class BlockMonitor @Autowired constructor(
-        private val blockRepository: BlockRepository,
-        private val chainRepository: ChainRepository,
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
-        private val blockUtils: BlockUtils,
-        private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
-        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
-        private val queryTipAdapter: JsonAdapter<QueryTip>,
+    private val blockRepository: BlockRepository,
+    private val chainRepository: ChainRepository,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val webSocketTemplate: SimpMessagingTemplate,
+    @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
+    private val blockUtils: BlockUtils,
+    private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
+    private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
+    private val queryTipAdapter: JsonAdapter<QueryTip>,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
@@ -94,8 +80,8 @@ class BlockMonitor @Autowired constructor(
     override fun start() {
         log.info("Starting BlockMonitor...")
         launch {
-            nodeRepository.findAll().filter { !it.isDeleted }.forEach { node ->
-                nodesChannel.offer(node)
+            nodeRepository.findAll().filter { !it.isDeleted }.forEach {  node ->
+                nodesChannel.emit(node)
             }
         }
 
@@ -105,12 +91,12 @@ class BlockMonitor @Autowired constructor(
 
     private fun monitorBlocks() {
         launch {
-            nodesChannel.openSubscription().consumeEach { node ->
+            nodesChannel.collect { node ->
                 mutex.withLock {
                     if (node.type != "core") {
                         // Don't monitor blocks unless it is a core node
                         log.info("Skip block monitoring for: ${node.name}")
-                        return@consumeEach
+                        return@collect
                     }
                     log.info("Start block monitoring for core node: ${node.name}")
 
@@ -149,7 +135,7 @@ class BlockMonitor @Autowired constructor(
                     // find the latest block we know of for sure from the repository
                     val chainTipSlotNumber = chainRepository.findSyncedTip()
                     val unvalidatedBlocks =
-                            blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
+                        blockRepository.findUnvalidatedBlocksOlderThan(chainTipSlotNumber - 180) // 3 minutes old
                     // log.debug("unvalidatedBlocks size: ${unvalidatedBlocks.size}")
                     // var firstTime = true
                     unvalidatedBlocks.forEach { unvalidatedBlock ->
@@ -172,27 +158,33 @@ class BlockMonitor @Autowired constructor(
                             blockRepository.save(unvalidatedBlock.copy(pool = pool, status = "missed")).also {
                                 log.error("Missed Block: $it")
                                 webSocketTemplate.convertAndSend(
-                                        "/topic/messages",
-                                        SocketResponse.Success(type = "block", data = it)
+                                    "/topic/messages",
+                                    SocketResponse.Success(type = "block", data = it)
                                 )
                             }
                         } else {
                             // we have a block hash to validate
                             if (chainBlock?.hash?.startsWith(hash) == true) {
-                                blockRepository.save(unvalidatedBlock.copy(hash = chainBlock.hash, pool = pool, status = "forged"))
-                                        .also {
-                                            log.info("Forged Block: $it")
-                                            webSocketTemplate.convertAndSend(
-                                                    "/topic/messages",
-                                                    SocketResponse.Success(type = "block", data = it)
-                                            )
-                                        }
+                                blockRepository.save(
+                                    unvalidatedBlock.copy(
+                                        hash = chainBlock.hash,
+                                        pool = pool,
+                                        status = "forged"
+                                    )
+                                )
+                                    .also {
+                                        log.info("Forged Block: $it")
+                                        webSocketTemplate.convertAndSend(
+                                            "/topic/messages",
+                                            SocketResponse.Success(type = "block", data = it)
+                                        )
+                                    }
                             } else {
                                 blockRepository.save(unvalidatedBlock.copy(pool = pool, status = "orphaned")).also {
                                     log.error("Orphaned Block: $it")
                                     webSocketTemplate.convertAndSend(
-                                            "/topic/messages",
-                                            SocketResponse.Success(type = "block", data = it)
+                                        "/topic/messages",
+                                        SocketResponse.Success(type = "block", data = it)
                                     )
                                 }
                             }
@@ -214,10 +206,10 @@ class BlockMonitor @Autowired constructor(
     private suspend fun monitorBlocksLocal(host: Host, node: Node) {
         coroutineScope {
             val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
-                    ?: throw IOException("Unable to read byron genesis file!")
+                ?: throw IOException("Unable to read byron genesis file!")
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
-                    ?: throw IOException("Unable to read shelley genesis file!")
+                ?: throw IOException("Unable to read shelley genesis file!")
             val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
@@ -235,7 +227,7 @@ class BlockMonitor @Autowired constructor(
 
                 try {
                     val monitoredNode =
-                            nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                        nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
                     if (monitoredNode.isDeleted) {
                         throw CancellationException("Node has been deleted!")
                     }
@@ -243,9 +235,9 @@ class BlockMonitor @Autowired constructor(
                     log.debug("Monitoring blocks from:  $logPath")
 
                     var process = ProcessBuilder(
-                            "/bin/bash",
-                            "-c",
-                            "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock"
+                        "/bin/bash",
+                        "-c",
+                        "cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock"
                     ).start()
                     process.inputStream.source().buffer().use { source ->
                         while (true) {
@@ -258,9 +250,9 @@ class BlockMonitor @Autowired constructor(
                     process.waitFor(60, TimeUnit.SECONDS)
 
                     process = ProcessBuilder(
-                            "/bin/bash",
-                            "-c",
-                            "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock'"
+                        "/bin/bash",
+                        "-c",
+                        "tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock'"
                     ).start()
                     process.inputStream.source().buffer().use { source ->
                         while (true) {
@@ -293,10 +285,10 @@ class BlockMonitor @Autowired constructor(
     private suspend fun monitorBlocksRemote(host: Host, node: Node) {
         coroutineScope {
             val byronGenesisFile = fileRepository.findByIdOrNull(node.genesisByronFileId)
-                    ?: throw IOException("Unable to read byron genesis file!")
+                ?: throw IOException("Unable to read byron genesis file!")
             val byron = byronGenesisAdapter.fromJson(byronGenesisFile.content)!!
             val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
-                    ?: throw IOException("Unable to read shelley genesis file!")
+                ?: throw IOException("Unable to read shelley genesis file!")
             val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
             val magicString = if (shelley.networkId.equals("testnet", ignoreCase = true)) {
                 "--testnet-magic ${shelley.networkMagic}"
@@ -317,7 +309,7 @@ class BlockMonitor @Autowired constructor(
                 ssh.addHostKeyVerifier(PromiscuousVerifier())
                 try {
                     val monitoredNode =
-                            nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
+                        nodeRepository.findByIdOrNull(node.id) ?: throw CancellationException("Node not found!")
                     if (monitoredNode.isDeleted) {
                         throw CancellationException("Node has been deleted!")
                     }
@@ -329,7 +321,7 @@ class BlockMonitor @Autowired constructor(
                     ssh.authPublickey(host.sshUser, host.sshPemPath)
                     ssh.startSession().use { session ->
                         val cmd =
-                                session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock")
+                            session.exec("cat ${host.nodeHomePath}/${monitoredNode.name}/logs/node-*.json | grep -F TraceAdoptedBlock")
                         cmd.inputStream.source().buffer().use { source ->
                             while (true) {
                                 val line = source.readUtf8Line() ?: break
@@ -342,7 +334,7 @@ class BlockMonitor @Autowired constructor(
                     }
                     ssh.startSession().use { session ->
                         val cmd =
-                                session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock'")
+                            session.exec("tail -Fn0 ${host.nodeHomePath}/${monitoredNode.name}/logs/node.json | grep --line-buffered 'TraceAdoptedBlock'")
                         cmd.inputStream.source().buffer().use { source ->
                             while (true) {
                                 val line = source.readUtf8Line() ?: break
@@ -374,42 +366,42 @@ class BlockMonitor @Autowired constructor(
     }
 
     private suspend fun saveBlocksFromRemoteNode(
-            host: Host?,
-            node: Node,
-            magicString: String,
-            byron: GenesisByron,
-            shelley: GenesisShelley,
-            line: String
+        host: Host?,
+        node: Node,
+        magicString: String,
+        byron: GenesisByron,
+        shelley: GenesisShelley,
+        line: String
     ) {
         coroutineScope {
             blockFoundMutex.withLock {
                 adoptedBlockAdapter.fromJson(line)?.let { traceAdoptedBlock ->
                     try {
                         val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(
-                                byron,
-                                shelley,
-                                traceAdoptedBlock.data.block.slot
+                            byron,
+                            shelley,
+                            traceAdoptedBlock.data.block.slot
                         )
                         val block = Block(
-                                at = traceAdoptedBlock.localTimeString(),
-                                pool = "---",
-                                host = traceAdoptedBlock.host,
-                                slot = traceAdoptedBlock.data.block.slot,
-                                epoch = epoch,
-                                slotInEpoch = slotInEpoch,
-                                hash = traceAdoptedBlock.data.block.rawHash(),
-                                status = "completed"
+                            at = traceAdoptedBlock.localTimeString(),
+                            pool = "---",
+                            host = traceAdoptedBlock.host,
+                            slot = traceAdoptedBlock.data.block.slot,
+                            epoch = epoch,
+                            slotInEpoch = slotInEpoch,
+                            hash = traceAdoptedBlock.data.block.rawHash(),
+                            status = "completed"
                         )
 
                         val existingBlock =
-                                blockRepository.findBySlot(traceAdoptedBlock.data.block.slot).firstOrNull()
+                            blockRepository.findBySlot(traceAdoptedBlock.data.block.slot).firstOrNull()
 
                         if (existingBlock == null || existingBlock.hash.isEmpty()) {
                             val pool = existingBlock?.pool ?: "---"
                             val hashUpdatedBlock: Block = host?.let {
                                 val hostConnection = HostConnection(host, node)
                                 val tipJson =
-                                        hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
+                                    hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
                                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                                     if (queryTip.hash.startsWith(block.hash)) {
                                         block.copy(id = existingBlock?.id, pool = pool, hash = queryTip.hash)
@@ -423,8 +415,8 @@ class BlockMonitor @Autowired constructor(
 
                             log.info(savedBlock.toString())
                             webSocketTemplate.convertAndSend(
-                                    "/topic/messages",
-                                    SocketResponse.Success(type = "block", data = savedBlock)
+                                "/topic/messages",
+                                SocketResponse.Success(type = "block", data = savedBlock)
                             )
                         }
                     } catch (e: DataIntegrityViolationException) {

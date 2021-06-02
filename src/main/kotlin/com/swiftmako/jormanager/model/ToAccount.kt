@@ -17,8 +17,6 @@ data class ToAccount(
         val amount: BigInteger?,
         @Json(name = "percent")
         val percent: Int?,
-        @Json(name = "type")
-        val type: String,
         @Json(name = "tokenFee")
         val tokenFee: BigInteger,
 ) {

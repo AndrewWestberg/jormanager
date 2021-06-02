@@ -424,7 +424,7 @@ export default {
             })
         }
     },
-    requestMetadata: ({state,commit}, nodeId) => {
+    requestMetadata: ({ state, commit }, nodeId) => {
         if (state.stompClient && state.stompClient.connected) {
             // console.log("fetch metadata: " + JSON.stringify(nodeId));
             state.stompClient.send("/jormanager/getmetadata", nodeId);
@@ -610,7 +610,7 @@ export default {
             })
         }
     },
-    sendRetirePool:  ({
+    sendRetirePool: ({
         state, commit
     }, retirePoolForm) => {
         if (state.stompClient && state.stompClient.connected) {

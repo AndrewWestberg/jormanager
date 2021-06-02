@@ -12,8 +12,8 @@ import com.swiftmako.jormanager.moshi.adapters.BigIntegerAdapter
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
-import kotlinx.coroutines.channels.BroadcastChannel
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.slf4j.LoggerFactory
@@ -41,11 +41,13 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getAdoptedBlockAdapter(moshi: Moshi): JsonAdapter<TraceAdoptedBlock> = moshi.adapter(TraceAdoptedBlock::class.java)
+    fun getAdoptedBlockAdapter(moshi: Moshi): JsonAdapter<TraceAdoptedBlock> =
+        moshi.adapter(TraceAdoptedBlock::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getAddedToCurrentChainAdapter(moshi: Moshi): JsonAdapter<AddedToCurrentChain> = moshi.adapter(AddedToCurrentChain::class.java)
+    fun getAddedToCurrentChainAdapter(moshi: Moshi): JsonAdapter<AddedToCurrentChain> =
+        moshi.adapter(AddedToCurrentChain::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -72,7 +74,8 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getProtocolParametersAdapter(moshi: Moshi): JsonAdapter<ProtocolParameters> = moshi.adapter(ProtocolParameters::class.java)
+    fun getProtocolParametersAdapter(moshi: Moshi): JsonAdapter<ProtocolParameters> =
+        moshi.adapter(ProtocolParameters::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -84,16 +87,19 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getExtendedMetadataAdapter(moshi: Moshi): JsonAdapter<ExtendedMetadata> = moshi.adapter(ExtendedMetadata::class.java)
+    fun getExtendedMetadataAdapter(moshi: Moshi): JsonAdapter<ExtendedMetadata> =
+        moshi.adapter(ExtendedMetadata::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getMetadataAdapter(moshi: Moshi): JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata> = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java)
+    fun getMetadataAdapter(moshi: Moshi): JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata> =
+        moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getBulkCredentialsAdapter(moshi: Moshi): JsonAdapter<List<List<Key>>> {
-        val type = Types.newParameterizedType(List::class.java, Types.newParameterizedType(List::class.java, Key::class.java))
+        val type =
+            Types.newParameterizedType(List::class.java, Types.newParameterizedType(List::class.java, Key::class.java))
         return moshi.adapter(type)
     }
 
@@ -109,26 +115,28 @@ class Configuration {
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
-                .addNetworkInterceptor(HttpLoggingInterceptor(object : HttpLoggingInterceptor.Logger {
+            .addNetworkInterceptor(
+                HttpLoggingInterceptor(object : HttpLoggingInterceptor.Logger {
                     private val log = LoggerFactory.getLogger("NET")
                     override fun log(message: String) {
                         log.info(message)
                     }
                 }).setLevel(
-                        HttpLoggingInterceptor.Level.NONE
+                    HttpLoggingInterceptor.Level.NONE
 //                         HttpLoggingInterceptor.Level.BODY
-                ))
-                .build()
+                )
+            )
+            .build()
     }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getRetrofit(client: OkHttpClient, moshi: Moshi): Retrofit {
         return Retrofit.Builder()
-                .baseUrl("http://127.0.0.1")
-                .client(client)
-                .addConverterFactory(MoshiConverterFactory.create(moshi))
-                .build()
+            .baseUrl("http://127.0.0.1")
+            .client(client)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
     }
 
     @Bean
@@ -139,15 +147,15 @@ class Configuration {
 
     @Bean("nodesChannel")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getNodesBroadcastChannel(): BroadcastChannel<Node> {
+    fun getNodesBroadcastChannel(): MutableSharedFlow<Node> {
         // Channel which broadcasts nodeIds to start monitoring for blocks
-        return BroadcastChannel(Channel.BUFFERED)
+        return MutableSharedFlow()
     }
 
     @Bean("newBlockChannel")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getNewBlockChannel(): BroadcastChannel<Long> {
-        return BroadcastChannel(Channel.CONFLATED)
+    fun getNewBlockChannel(): MutableStateFlow<Long?> {
+        return MutableStateFlow(null)
     }
 
     @Bean

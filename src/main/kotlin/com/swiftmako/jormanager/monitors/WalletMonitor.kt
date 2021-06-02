@@ -14,6 +14,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -31,12 +34,12 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class WalletMonitor @Autowired constructor(
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val walletUtils: WalletUtils,
-        private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("newBlockChannel") private val newBlockChannel: BroadcastChannel<Long>,
-        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val walletUtils: WalletUtils,
+    private val webSocketTemplate: SimpMessagingTemplate,
+    @Qualifier("newBlockChannel") private val newBlockChannel: MutableStateFlow<Long?>,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
 ) : SmartLifecycle, CoroutineScope {
 
     private val log = LoggerFactory.getLogger(WalletMonitor::class.java)
@@ -65,7 +68,7 @@ class WalletMonitor @Autowired constructor(
     private fun monitorWallet() {
         launch {
             var magicString = ""
-            newBlockChannel.openSubscription().consumeEach {
+            newBlockChannel.filterNotNull().collect {
 
                 try {
                     if (magicString.isBlank()) {

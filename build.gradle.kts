@@ -3,13 +3,13 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.4.5"
+    id("org.springframework.boot") version "2.5.0"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
-    id("com.github.ben-manes.versions") version "0.38.0"
-    kotlin("jvm") version "1.5.0"
-    kotlin("kapt") version "1.5.0"
-    kotlin("plugin.spring") version "1.5.0"
-    kotlin("plugin.jpa") version "1.5.0"
+    id("com.github.ben-manes.versions") version "0.39.0"
+    kotlin("jvm") version "1.5.10"
+    kotlin("kapt") version "1.5.10"
+    kotlin("plugin.spring") version "1.5.10"
+    kotlin("plugin.jpa") version "1.5.10"
 }
 
 object Versions {
@@ -17,7 +17,7 @@ object Versions {
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02"
     const val coroutines = "1.5.0"
-    const val googleTruth = "1.1.2"
+    const val googleTruth = "1.1.3"
     const val jackson = "2.12.3"
     const val joda = "2.10.10"
     const val json = "20210307"
@@ -29,12 +29,12 @@ object Versions {
     const val moshi = "1.12.0"
     const val okhttp = "4.9.1"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.4.6"
+    const val springSecurity = "5.5.0"
     const val sshj = "0.31.0"
 }
 
 group = "com.swiftmako"
-version = "4.0.2-SNAPSHOT"
+version = "4.1.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
@@ -74,8 +74,8 @@ dependencies {
 
     implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")
-    compileOnly("com.google.errorprone:error_prone_annotations:2.2.0")
-    compileOnly("org.checkerframework:checker-qual:2.5.6")
+    compileOnly("com.google.errorprone:error_prone_annotations:2.7.1")
+    compileOnly("org.checkerframework:checker-qual:3.14.0")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
     implementation("com.muquit.libsodiumjna:libsodium-jna:1.1.0-IOG-SNAPSHOT")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
@@ -131,7 +131,6 @@ tasks.withType<KotlinCompile> {
                 "-Xopt-in=kotlin.RequiresOptIn"
         )
         jvmTarget = "13"
-        useIR = true
     }
 }
 

@@ -20,6 +20,9 @@ export default {
     walletItems: [],
 
     txFee: 0,
+    tokenFees: [],
+    tokenKeepFee: 0,
+    tokenLocked: 0,
 
     // chart data
     nodeColors: [],

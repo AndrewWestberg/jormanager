@@ -13,19 +13,9 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.services.PooltoolService
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.BroadcastChannel
-import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -42,7 +32,6 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.io.IOException
-import java.lang.IllegalStateException
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -58,7 +47,7 @@ class PooltoolMonitor @Autowired constructor(
     private val fileRepository: FileRepository,
     private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val configAdapter: JsonAdapter<Config>,
-    @Qualifier("nodesChannel") private val nodesChannel: BroadcastChannel<Node>,
+    @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
     private val pooltoolService: PooltoolService,
     @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
 ) : SmartLifecycle, CoroutineScope {
@@ -90,12 +79,12 @@ class PooltoolMonitor @Autowired constructor(
 
     private fun monitorCoreNodes() {
         launch {
-            nodesChannel.openSubscription().consumeEach { node ->
+            nodesChannel.collect { node ->
                 mutex.withLock {
                     if (node.type != "core") {
                         // Don't monitor blocks unless it is a core node
                         log.info("Skip pooltool monitoring for relay node: ${node.name}")
-                        return@consumeEach
+                        return@collect
                     }
                     log.info("Start pooltool monitoring for core node: ${node.name}")
 

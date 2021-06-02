@@ -10,7 +10,7 @@ data class Utxo(
 )
 
 fun List<Utxo>.toNativeAssetMap(): Map<String, BigInteger> {
-    val nativeAssetMap = mutableMapOf<String, BigInteger>()
+    val nativeAssetMap = sortedMapOf<String, BigInteger>()
     this.forEach { utxo ->
         utxo.nativeAssets.forEach { nativeAsset ->
             val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')

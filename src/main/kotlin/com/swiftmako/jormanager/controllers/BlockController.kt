@@ -193,24 +193,16 @@ class BlockController @Autowired constructor(
 
                                 val poolIdToSigma = mutableMapOf<String, BigDecimal>()
                                 val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
-                                val stakeSnapshotAsyncs = mutableListOf<Deferred<Unit?>>()
-                                val mapMutex = Mutex()
-                                coreNodes.asFlow().flowOn(Dispatchers.IO).collect { node ->
-                                    val d = async {
-                                        node.poolId?.let { poolId ->
-                                            val stakeSnapshotJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot --stake-pool-id $poolId $magicString").trim()
-                                            val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
-                                                    ?: throw IOException("Unable to parse stakeSnapshot json for $poolId!")
-                                            log.debug("pool: ${poolId.substring(0, 6)} - $stakeSnapshot")
-                                            mapMutex.withLock {
-                                                poolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeSet).divide(BigDecimal(stakeSnapshot.activeStakeSet), 34, RoundingMode.HALF_UP)
-                                                futurePoolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeMark).divide(BigDecimal(stakeSnapshot.activeStakeMark), 34, RoundingMode.HALF_UP)
-                                            }
-                                        }
+                                coreNodes.forEach { node ->
+                                    node.poolId?.let { poolId ->
+                                        val stakeSnapshotJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot --stake-pool-id $poolId $magicString").trim()
+                                        val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
+                                            ?: throw IOException("Unable to parse stakeSnapshot json for $poolId!")
+                                        log.debug("pool: ${poolId.substring(0, 6)} - $stakeSnapshot")
+                                        poolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeSet).divide(BigDecimal(stakeSnapshot.activeStakeSet), 34, RoundingMode.HALF_UP)
+                                        futurePoolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeMark).divide(BigDecimal(stakeSnapshot.activeStakeMark), 34, RoundingMode.HALF_UP)
                                     }
-                                    stakeSnapshotAsyncs.add(d)
                                 }
-                                stakeSnapshotAsyncs.awaitAll()
 
                                 // if we're doing the stake-snapshot command, assume future d stays the same and no entropy
                                 val protocolParamsJson = defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString").trim()
@@ -273,14 +265,14 @@ class BlockController @Autowired constructor(
                                     repeat(slotsPerEpoch) { index ->
                                         emit(firstSlotOfEpoch + index)
                                     }
-                                }.filterNot { slot ->
+                                }.flowOn(Dispatchers.IO).filterNot { slot ->
                                     blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, decentralizationParam)
                                 }.buffer().map { slot ->
                                     flow {
                                         coreNodes.forEach { coreNode ->
                                             emit(Pair(slot, coreNode))
                                         }
-                                    }
+                                    }.flowOn(Dispatchers.IO)
                                 }.flattenMerge().collect { (slot, coreNode) ->
                                     val d = async {
                                         requireNotNull(coreNode.poolId)
