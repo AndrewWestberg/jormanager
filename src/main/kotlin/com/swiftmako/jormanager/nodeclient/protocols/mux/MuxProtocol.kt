@@ -6,7 +6,6 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
-import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgAcceptVersion
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgProposeVersions
 import com.swiftmako.jormanager.nodeclient.protocols.transaction.TxSubmissionProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
@@ -33,7 +32,6 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.internal.ignoreIoExceptions
 import okhttp3.internal.toHexString
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import java.io.IOException
@@ -156,7 +154,7 @@ class MuxProtocol(
 
                 // These two need to complete before we start chain sync
                 handshakeProtocol.startAsync(this + job).await()
-                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_MARY) {
+                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_6) {
                     // only start this protocol on versions less than Mary. In Mary, we have agency at the start so it's
                     // not needed
                     txSubmissionProtocol.startAsync(this + job).await()
