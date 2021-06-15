@@ -238,15 +238,18 @@ class BlockController @Autowired constructor(
                                 val firstSlotOfPreviousEpoch = firstSlotOfEpoch - slotsPerEpoch
                                 val stabilityWindow =
                                         ceil(3 * genesisByron.protocolConsts.k / genesisShelley.activeSlotsCoeff).toLong()
+                                log.debug("stabilityWindow: $stabilityWindow")
                                 val decentralizationParam =
                                         if (request.requestType == "futureEpoch") ledger.futureDecentralizationParameter.toBigDecimal() else ledger.decentralizationParameter.toBigDecimal()
 
                                 val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
                                 val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
                                         ?: throw IOException("Not enough blocks sync'd to calculate! Try again later after slot $stabilityWindowStart is sync'd.")
+                                log.debug("nc: $nc")
                                 val nh =
                                         chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch).firstOrNull()?.prevHash
                                                 ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                                log.debug("nh: $nh")
 
                                 var epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
                                 if (request.requestType == "futureEpoch") {
