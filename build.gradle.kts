@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.5.0"
+    id("org.springframework.boot") version "2.5.1"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.39.0"
     kotlin("jvm") version "1.5.10"
@@ -13,7 +13,7 @@ plugins {
 }
 
 object Versions {
-    const val bouncycastle = "1.68"
+    const val bouncycastle = "1.69"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02"
     const val coroutines = "1.5.0"
@@ -24,7 +24,7 @@ object Versions {
     const val jsoup = "1.13.1"
     const val junit = "5.7.2"
     const val kotlinxIo = "0.1.16"
-    const val liquibase = "4.3.5"
+    const val liquibase = "4.4.0"
     const val mockk = "1.11.0"
     const val moshi = "1.12.0"
     const val okhttp = "4.9.1"

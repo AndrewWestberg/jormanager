@@ -11,14 +11,14 @@ export default {
     websocketUrl: (_, getters) => {
         return getters.isDebug ?
             // debug mode
-            "http://localhost:9797/jormanager-websocket" :
+            "http://localhost:8787/jormanager-websocket" :
             // release mode
             "/jormanager-websocket"
     },
     backupDownloadUrl: (_, getters) => {
         return getters.isDebug ?
             // debug mode
-            "http://localhost:9797/jormanager_backup.zip" :
+            "http://localhost:8787/jormanager_backup.zip" :
             // release mode
             "/jormanager_backup.zip"
     },
