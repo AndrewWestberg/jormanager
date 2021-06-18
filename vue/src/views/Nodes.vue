@@ -278,7 +278,7 @@
             v-model="editPoolConfigForm.poolMargin"
             :state="poolMarginState"
             placeholder="e.g. 0.06"
-            type="range"
+            type="number"
             min="0.00"
             max="1.00"
             step="0.001"
@@ -1077,10 +1077,12 @@ export default {
             this.editMetadataForm.spendingPassword = spendingPassword;
 
             if (this.editMetadataForm.extended.itn.privateKey != null) {
-              this.editMetadataForm.extended.itn.privateKey = await this.editMetadataForm.extended.itn.privateKey.text();
+              this.editMetadataForm.extended.itn.privateKey =
+                await this.editMetadataForm.extended.itn.privateKey.text();
             }
             if (this.editMetadataForm.extended.itn.publicKey != null) {
-              this.editMetadataForm.extended.itn.publicKey = await this.editMetadataForm.extended.itn.publicKey.text();
+              this.editMetadataForm.extended.itn.publicKey =
+                await this.editMetadataForm.extended.itn.publicKey.text();
             }
             this.updateMetadata(this.editMetadataForm);
             this.editMetadataForm.spendingPassword = null;

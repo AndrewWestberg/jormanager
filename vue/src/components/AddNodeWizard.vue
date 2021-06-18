@@ -513,7 +513,7 @@
               v-model="formNode.poolMargin"
               :state="poolMarginState"
               placeholder="e.g. 0.06"
-              type="range"
+              type="number"
               min="0.00"
               max="1.00"
               step="0.001"
@@ -1458,7 +1458,8 @@ export default {
               this.formNode.coldVKey = await this.formNode.coldVKey.text();
             }
             if (this.formNode.coldCounter != null) {
-              this.formNode.coldCounter = await this.formNode.coldCounter.text();
+              this.formNode.coldCounter =
+                await this.formNode.coldCounter.text();
             }
             if (this.formNode.vrfSKey != null) {
               this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
@@ -1473,10 +1474,12 @@ export default {
               this.formNode.kesVKey = await this.formNode.kesVKey.text();
             }
             if (this.formNode.metadata.extended.itn.privateKey != null) {
-              this.formNode.metadata.extended.itn.privateKey = await this.formNode.metadata.extended.itn.privateKey.text();
+              this.formNode.metadata.extended.itn.privateKey =
+                await this.formNode.metadata.extended.itn.privateKey.text();
             }
             if (this.formNode.metadata.extended.itn.publicKey != null) {
-              this.formNode.metadata.extended.itn.publicKey = await this.formNode.metadata.extended.itn.publicKey.text();
+              this.formNode.metadata.extended.itn.publicKey =
+                await this.formNode.metadata.extended.itn.publicKey.text();
             }
 
             this.createNode(this.formNode);
