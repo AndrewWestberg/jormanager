@@ -6,36 +6,24 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
-import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgAcceptVersion
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgProposeVersions
 import com.swiftmako.jormanager.nodeclient.protocols.transaction.TxSubmissionProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.nio.aConnect
 import kotlinx.coroutines.nio.aRead
 import kotlinx.coroutines.nio.aWrite
-import kotlinx.coroutines.plus
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.internal.ignoreIoExceptions
 import okhttp3.internal.toHexString
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousSocketChannel
@@ -44,26 +32,26 @@ import kotlin.experimental.xor
 import kotlin.streams.toList
 
 class MuxProtocol(
-        private val host: Host,
-        private val poolId: String,
-        private val hostName: String,
-        private val port: Int,
-        private val networkMagic: Long,
-        private val shelleyGenesisHash: ByteArray,
-        private val chainRepository: ChainRepository,
-        private val isPooltool: Boolean,
-        private val pooltoolService: PooltoolService,
-        private val pooltoolApiKey: String,
+    private val host: Host,
+    private val poolId: String,
+    private val hostName: String,
+    private val port: Int,
+    private val networkMagic: Long,
+    private val shelleyGenesisHash: ByteArray,
+    private val chainRepository: ChainRepository,
+    private val isPooltool: Boolean,
+    private val pooltoolService: PooltoolService,
+    private val pooltoolApiKey: String,
 ) : CoroutineScope {
     private val log = LoggerFactory.getLogger("MuxProtocol")
 
     val job = SupervisorJob()
     override val coroutineContext: CoroutineContext =
-            Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
-                if (throwable !is CancellationException) {
-                    log.error("Uncaught coroutine exception!", throwable)
-                }
+        Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
+            if (throwable !is CancellationException) {
+                log.error("Uncaught coroutine exception!", throwable)
             }
+        }
 
     /**
      * Ensures we don't try to send two things at the same time.
@@ -87,7 +75,16 @@ class MuxProtocol(
 
                 val chainBlocks = getChainBlocksForSyncStart()
                 val chainSyncProtocol =
-                        ChainSyncProtocol(host, shelleyGenesisHash, chainBlocks, chainRepository, isPooltool, pooltoolService, pooltoolApiKey, poolId)
+                    ChainSyncProtocol(
+                        host,
+                        shelleyGenesisHash,
+                        chainBlocks,
+                        chainRepository,
+                        isPooltool,
+                        pooltoolService,
+                        pooltoolApiKey,
+                        poolId
+                    )
                 launchProtocolSender(chainSyncProtocol, asyncSocketChannel, job)
 
                 // Start the socket receiver loop
@@ -112,19 +109,20 @@ class MuxProtocol(
                         //log.debug("rawProtocolId: $protocolId")
                         val payloadLength = receiveBuffer.short.toInt()
                         //log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
-                        receiveBuffer.flip()
                         receiveBuffer.limit(receiveBuffer.position() + payloadLength)
+                        val payloadStartPosition = receiveBuffer.position()
                         bytesReceived = 0
                         while (bytesReceived < payloadLength) {
                             val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
                             //log.debug("read socket bytes: $byteCnt")
-                            if (byteCnt < 0) {
+                            if (byteCnt <= 0) {
                                 BufferPool.recycle(receiveBuffer)
                                 throw IOException("Unexpected end of stream!")
                             }
                             bytesReceived += byteCnt
                         }
                         receiveBuffer.flip()
+                        receiveBuffer.position(payloadStartPosition)
                         when (protocolId xor 0x8000.toShort()) {
                             handshakeProtocol.protocolId -> {
                                 handshakeProtocol.rxChannel.send(receiveBuffer)
@@ -137,18 +135,28 @@ class MuxProtocol(
                             }
 
                             else -> {
-                                log.error(
+                                try {
+                                    log.error(
                                         "Unknown message received: protocolId: 0x${
                                             protocolId.toInt().toHexString().padStart(4, '0').substring(4)
                                         }"
-                                )
+                                    )
 
-                                val jsonString =
-                                        CborReader.createFromByteArray(receiveBuffer.array(), receiveBuffer.position(), 1)
-                                                .readDataItem().toJsonString()
-                                log.error("Unknown data: $jsonString")
-
-                                BufferPool.recycle(receiveBuffer)
+                                    ByteArrayInputStream(
+                                        receiveBuffer.array(),
+                                        receiveBuffer.position(),
+                                        receiveBuffer.remaining()
+                                    ).use { byteStream ->
+                                        CborReader.createFromInputStream(byteStream).apply {
+                                            while (byteStream.available() > 0) {
+                                                val jsonString = readDataItem().toJsonString()
+                                                log.error("Unknown data: $jsonString")
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    BufferPool.recycle(receiveBuffer)
+                                }
                             }
                         }
                     }
@@ -164,8 +172,8 @@ class MuxProtocol(
                 log.debug("Connected to Node.")
 
                 awaitAll(
-                        chainSyncProtocol.startAsync(this + job),
-                        receiverLoop
+                    chainSyncProtocol.startAsync(this + job),
+                    receiverLoop
                 )
             } catch (e: Throwable) {
                 log.error("Fatal Protocol Exception!", e)
@@ -191,40 +199,40 @@ class MuxProtocol(
             index == 0 || (index > 1 && (index and (index - 1) == 0))
         }.toMutableList().also {
             it.add(
-                    // Last byron block of mainnet
-                    ChainBlock(
-                            slotNumber = 4492799,
-                            hash = "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457",
-                            blockNumber = 0L,
-                            prevHash = "",
-                            etaV = "",
-                            poolId = "",
-                            leaderVrf = "",
-                    )
+                // Last byron block of mainnet
+                ChainBlock(
+                    slotNumber = 4492799,
+                    hash = "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457",
+                    blockNumber = 0L,
+                    prevHash = "",
+                    etaV = "",
+                    poolId = "",
+                    leaderVrf = "",
+                )
             )
             it.add(
-                    // Last byron block of testnet
-                    ChainBlock(
-                            slotNumber = 1598399,
-                            hash = "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
-                            blockNumber = 0L,
-                            prevHash = "",
-                            etaV = "",
-                            poolId = "",
-                            leaderVrf = "",
-                    )
+                // Last byron block of testnet
+                ChainBlock(
+                    slotNumber = 1598399,
+                    hash = "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
+                    blockNumber = 0L,
+                    prevHash = "",
+                    etaV = "",
+                    poolId = "",
+                    leaderVrf = "",
+                )
             )
             it.add(
-                    // Last byron block of guild
-                    ChainBlock(
-                            slotNumber = 359,
-                            hash = "9c0fe75b6a0499e9576a09589a5777e7021824e8a6d037065829423f861a9bb6",
-                            blockNumber = 0L,
-                            prevHash = "",
-                            etaV = "",
-                            poolId = "",
-                            leaderVrf = "",
-                    )
+                // Last byron block of guild
+                ChainBlock(
+                    slotNumber = 359,
+                    hash = "9c0fe75b6a0499e9576a09589a5777e7021824e8a6d037065829423f861a9bb6",
+                    blockNumber = 0L,
+                    prevHash = "",
+                    etaV = "",
+                    poolId = "",
+                    leaderVrf = "",
+                )
             )
         }
     }

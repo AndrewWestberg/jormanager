@@ -15,7 +15,7 @@ plugins {
 object Versions {
     const val bouncycastle = "1.69"
     const val commonsio = "2.8.0"
-    const val cbor = "0.01.02"
+    const val cbor = "0.01.02-FIREHOSE"
     const val coroutines = "1.5.0"
     const val googleTruth = "1.1.3"
     const val jackson = "2.12.3"

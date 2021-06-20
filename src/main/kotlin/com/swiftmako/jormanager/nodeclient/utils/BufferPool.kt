@@ -4,7 +4,7 @@ import kotlinx.io.pool.DefaultPool
 import java.nio.ByteBuffer
 
 object BufferPool : DefaultPool<ByteBuffer>(16) {
-    private const val BUFFER_SIZE = 8192
+    private const val BUFFER_SIZE = 0x3000
 
     override fun produceInstance(): ByteBuffer {
         return ByteBuffer.allocate(BUFFER_SIZE)

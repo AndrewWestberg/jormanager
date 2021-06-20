@@ -6,12 +6,15 @@ import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
-import kotlinx.coroutines.async
 
-class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000, LoggerFactory.getLogger("HandshakeProtocol")) {
+class HandshakeProtocol(
+    private val networkMagic: Long
+) : MiniProtocol(protocolId = 0x0000, LoggerFactory.getLogger("HandshakeProtocol")) {
 
     var state: State = State.PROPOSE
 
@@ -52,23 +55,29 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
 
     private fun handleConfirm(rxBuffer: ByteBuffer) {
         try {
-            CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position(), 1).apply {
-                val cborArray = readDataItem() as CborArray
-                val messageId: Long = cborArray.elementToLong(0)
-                when (messageId) {
-                    MsgAcceptVersion.MESSAGE_ID -> {
-                        msgAcceptVersion = MsgAcceptVersion(cborArray)
-                        if (msgAcceptVersion.networkMagic != networkMagic) {
-                            throw IOException("Handshake succeeded, but networkMagic did not match!")
+            log.info("rxBuffer.position(): ${rxBuffer.position()}, rxBuffer.remaining(): ${rxBuffer.remaining()}")
+            ByteArrayInputStream(rxBuffer.array(), rxBuffer.position(), rxBuffer.remaining()).use { byteStream ->
+                CborReader.createFromInputStream(byteStream).apply {
+                    while (byteStream.available() > 0) {
+                        log.info("byteStream.available(): ${byteStream.available()}")
+                        val cborArray = readDataItem() as CborArray
+                        val messageId: Long = cborArray.elementToLong(0)
+                        when (messageId) {
+                            MsgAcceptVersion.MESSAGE_ID -> {
+                                msgAcceptVersion = MsgAcceptVersion(cborArray)
+                                if (msgAcceptVersion.networkMagic != networkMagic) {
+                                    throw IOException("Handshake succeeded, but networkMagic did not match!")
+                                }
+                                log.info("Handshake Successful: $msgAcceptVersion")
+                            }
+                            MsgRefuse.MESSAGE_ID -> {
+                                val msgRefuse = MsgRefuse(cborArray)
+                                throw IOException("Handshake Failed: $msgRefuse")
+                            }
+                            else -> {
+                                throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
+                            }
                         }
-                        log.info("Handshake Successful: $msgAcceptVersion")
-                    }
-                    MsgRefuse.MESSAGE_ID -> {
-                        val msgRefuse = MsgRefuse(cborArray)
-                        throw IOException("Handshake Failed: $msgRefuse")
-                    }
-                    else -> {
-                        throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
                     }
                 }
             }

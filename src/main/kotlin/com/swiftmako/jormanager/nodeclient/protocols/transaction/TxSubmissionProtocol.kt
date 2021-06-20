@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayInputStream
 
 /**
  * In JorManager we don't want to participate in Transaction passing, but we still need to tell the server that we
@@ -27,26 +28,34 @@ class TxSubmissionProtocol : MiniProtocol(protocolId = 0x0004, LoggerFactory.get
                     log.debug("State.Idle")
                     val rxBuffer = rxChannel.receive()
                     try {
-                        CborReader.createFromByteArray(rxBuffer.array(), rxBuffer.position(), 1).apply {
-                            val cborArray = readDataItem() as CborArray
-                            log.debug("received: ${cborArray.toJsonString()}")
-                            when (val messageId = cborArray.elementToLong(0)) {
-                                //msgRequestTxIds = [0, tsBlocking, txCount, txCount]
-                                //msgReplyTxIds   = [1, [ *txIdAndSize] ]
-                                //msgRequestTxs   = [2, tsIdList ]
-                                //msgReplyTxs     = [3, tsIdList ]
-                                //tsMsgDone       = [4]
-                                //msgReplyKTnxBye = [5]
-                                0L -> {
-                                    val isBlocking = cborArray.elementAt(1) == CborSimple.TRUE
-                                    state = if (isBlocking) {
-                                        State.TxIdsBlocking
-                                    } else {
-                                        State.TxIdsNonBlocking
+                        ByteArrayInputStream(
+                            rxBuffer.array(),
+                            rxBuffer.position(),
+                            rxBuffer.remaining()
+                        ).use { byteStream ->
+                            CborReader.createFromInputStream(byteStream).apply {
+                                while (byteStream.available() > 0) {
+                                    val cborArray = readDataItem() as CborArray
+                                    log.debug("received: ${cborArray.toJsonString()}")
+                                    when (val messageId = cborArray.elementToLong(0)) {
+                                        //msgRequestTxIds = [0, tsBlocking, txCount, txCount]
+                                        //msgReplyTxIds   = [1, [ *txIdAndSize] ]
+                                        //msgRequestTxs   = [2, tsIdList ]
+                                        //msgReplyTxs     = [3, tsIdList ]
+                                        //tsMsgDone       = [4]
+                                        //msgReplyKTnxBye = [5]
+                                        0L -> {
+                                            val isBlocking = cborArray.elementAt(1) == CborSimple.TRUE
+                                            state = if (isBlocking) {
+                                                State.TxIdsBlocking
+                                            } else {
+                                                State.TxIdsNonBlocking
+                                            }
+                                        }
+                                        else -> {
+                                            log.error("Got unexpected messageId: $messageId")
+                                        }
                                     }
-                                }
-                                else -> {
-                                    log.error("Got unexpected messageId: $messageId")
                                 }
                             }
                         }
