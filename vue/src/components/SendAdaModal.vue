@@ -20,7 +20,12 @@
         </b-button>
 
         <b-button variant="secondary" @click="cancel()">Cancel</b-button>
-        <b-button variant="primary" @click="ok()">Send</b-button>
+        <b-button
+          variant="primary"
+          @click="ok()"
+          :disabled="requestFeesUUID != responseFeesUUID"
+          >Send</b-button
+        >
       </template>
       <b-form ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
         <div class="accordion" role="tablist">
@@ -334,6 +339,8 @@ export default {
       "tokenLocked",
       "toastSuccess",
       "minUTxOValue",
+      "requestFeesUUID",
+      "responseFeesUUID",
     ]),
     ...mapGetters([
       "currencySelectOptions",
@@ -828,6 +835,7 @@ export default {
         txOut: uniqueToAccounts + returnChangeTxOut,
         isClaim: this.formSendAda.isClaim,
         metadata: this.formSendAda.metadata,
+        uuid: this.$uuid.v4(),
       };
       if (request.fromId) {
         this.calculateSendAdaFees(request);

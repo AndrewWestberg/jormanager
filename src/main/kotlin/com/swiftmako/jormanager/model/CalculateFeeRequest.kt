@@ -16,4 +16,6 @@ data class CalculateFeeRequest(
     val isClaim: Boolean,
     @Json(name = "metadata")
     val metadata: String?,
+    @Json(name = "uuid")
+    val uuid: String,
 )

@@ -194,7 +194,8 @@ class MuxProtocol(
         chainRepository.deleteEmptyEta()
 
         val page = chainRepository.findAll(PageRequest.of(0, 64, Sort.Direction.DESC, "slotNumber"))
-        return page.get().toList().filterIndexed { index, _ ->
+
+        return page.content.filterIndexed { index, _ ->
             // all powers of 2 including 0th element 0, 2, 4, 8, 16, 32, 64
             index == 0 || (index > 1 && (index and (index - 1) == 0))
         }.toMutableList().also {

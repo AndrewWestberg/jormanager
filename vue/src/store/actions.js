@@ -469,6 +469,7 @@ export default {
         commit
     }, request) => {
         if (state.stompClient && state.stompClient.connected) {
+            commit('setRequestFeesUUID', request.uuid);
             // console.log("Calculate txfee: " + JSON.stringify(request));
             state.stompClient.send("/jormanager/calculatefee", JSON.stringify(request));
         } else {

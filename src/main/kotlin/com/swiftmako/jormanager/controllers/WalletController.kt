@@ -398,6 +398,7 @@ class WalletController @Autowired constructor(
                         tokenFees = tokenFees,
                         tokenKeepFee = tokenKeepFee,
                         tokenLocked = tokenLocked,
+                        uuid = request.uuid,
                     )
                 )
             )

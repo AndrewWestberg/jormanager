@@ -165,9 +165,13 @@ export default {
         state.tokenFees = data.tokenFees;
         state.tokenKeepFee = data.tokenKeepFee;
         state.tokenLocked = data.tokenLocked;
+        state.responseFeesUUID = data.uuid;
     },
     saveMetadata: (state, data) => {
         state.editorMetadata = data
+    },
+    setRequestFeesUUID: (state, uuid) => {
+        state.requestFeesUUID = uuid;
     },
 
     toastError: (state, toast) => {

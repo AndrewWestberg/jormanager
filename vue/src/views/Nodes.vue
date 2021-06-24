@@ -326,8 +326,42 @@
             fees.</b-form-invalid-feedback
           >
         </b-form-group>
-        <h5>Primary (Required)</h5>
         <b-form-group
+          label="Advanced"
+          label-for="metadata-custom-checkbox"
+          label-cols-md="2"
+        >
+          <b-form-checkbox
+            id="metadata-custom-checkbox"
+            v-model="editMetadataForm.custom"
+            >I know what I am doing</b-form-checkbox
+          >
+        </b-form-group>
+        <b-form-group
+          label="Metadata URL"
+          label-for="metadata-url-input"
+          label-cols-md="2"
+          v-show="editMetadataForm.custom"
+        >
+          <b-form-input
+            id="metadata-url-input"
+            v-model="editMetadataForm.metadataUrl"
+          />
+        </b-form-group>
+        <b-form-group
+          label="Extended URL"
+          label-for="metadata-extended-url-input"
+          label-cols-md="2"
+          v-show="editMetadataForm.custom"
+        >
+          <b-form-input
+            id="metadata-extended-url-input"
+            v-model="editMetadataForm.extendedMetadataUrl"
+          />
+        </b-form-group>
+        <h5 v-show="!editMetadataForm.custom">Primary (Required)</h5>
+        <b-form-group
+          v-show="!editMetadataForm.custom"
           label="Ticker"
           label-for="metadata-ticker-input"
           label-cols-md="2"
@@ -347,6 +381,7 @@
           >
         </b-form-group>
         <b-form-group
+          v-show="!editMetadataForm.custom"
           label="Name"
           label-for="metadata-name-input"
           label-cols-md="2"
@@ -366,6 +401,7 @@
           >
         </b-form-group>
         <b-form-group
+          v-show="!editMetadataForm.custom"
           label="Description"
           label-for="metadata-description-input"
           label-cols-md="2"
@@ -385,6 +421,7 @@
           >
         </b-form-group>
         <b-form-group
+          v-show="!editMetadataForm.custom"
           label="Homepage"
           label-for="metadata-homepage-input"
           label-cols-md="2"
@@ -403,7 +440,7 @@
           >
         </b-form-group>
       </b-form-group>
-      <b-form-group>
+      <b-form-group v-show="!editMetadataForm.custom">
         <h5>ITN Ticker Validation (Optional)</h5>
         <b-form-group
           label="ITN Pool prv"
@@ -432,7 +469,7 @@
           />
         </b-form-group>
       </b-form-group>
-      <b-form-group>
+      <b-form-group v-show="!editMetadataForm.custom">
         <h5>Extended (Optional)</h5>
         <b-form-group
           label="Icon 64x64 URL"
@@ -895,6 +932,9 @@ export default {
         id: -1,
         spendingPassword: null,
         registrationFeesAccount: null,
+        custom: false,
+        metadataUrl: null,
+        extendedMetadataUrl: null,
         ticker: null,
         name: null,
         description: null,
@@ -1064,13 +1104,14 @@ export default {
     async handleSaveMetadata(bvModalEvt) {
       bvModalEvt.preventDefault();
       if (
-        this.registrationFeesAccountStateMetadata &&
-        this.tickerState &&
-        this.metadataNameState &&
-        this.metadataDescriptionState &&
-        this.metadataHomepageState &&
-        this.metadataIcon64State &&
-        this.metadataLogoState
+        this.editMetadataForm.custom ||
+        (this.registrationFeesAccountStateMetadata &&
+          this.tickerState &&
+          this.metadataNameState &&
+          this.metadataDescriptionState &&
+          this.metadataHomepageState &&
+          this.metadataIcon64State &&
+          this.metadataLogoState)
       ) {
         this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
           async (spendingPassword) => {

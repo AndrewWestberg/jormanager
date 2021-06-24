@@ -15,4 +15,6 @@ data class CalculateFeeResponse(
     val tokenKeepFee: BigInteger,
     @Json(name = "tokenLocked")
     val tokenLocked: BigInteger,
+    @Json(name = "uuid")
+    val uuid: String,
 )

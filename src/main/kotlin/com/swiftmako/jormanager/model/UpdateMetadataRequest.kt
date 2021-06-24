@@ -12,14 +12,20 @@ data class UpdateMetadataRequest(
     val spendingPassword: String,
     @Json(name = "registrationFeesAccount")
     val registrationFeesAccount: Long,
+    @Json(name="custom")
+    val custom: Boolean,
+    @Json(name="metadataUrl")
+    val metadataUrl:String="",
+    @Json(name="extendedMetadataUrl")
+    val extendedMetadataUrl:String="",
     @Json(name = "ticker")
-    val ticker: String,
+    val ticker: String="",
     @Json(name = "name")
-    val name: String,
+    val name: String="",
     @Json(name = "description")
-    val description: String,
+    val description: String="",
     @Json(name = "homepage")
-    val homepage: String,
+    val homepage: String="",
     @Json(name = "extended")
     val extended: Extended?
 )

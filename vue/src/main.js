@@ -13,6 +13,7 @@ import {
   BIconCaretDown,
   BIconX
 } from 'bootstrap-vue'
+import UUID from 'vue-uuid'
 
 Vue.use(BootstrapVue)
 Vue.component('BIcon', BIcon)
@@ -28,6 +29,7 @@ Vue.component('BIconX', BIconX)
 Vue.use(require('vue-moment'))
 Vue.use(Vue2Filters)
 Vue.use(VueClipboard)
+Vue.use(UUID)
 
 import App from './App.vue'
 

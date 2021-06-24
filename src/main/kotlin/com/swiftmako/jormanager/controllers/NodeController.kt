@@ -1723,7 +1723,11 @@ class NodeController @Autowired constructor(
                     )
 
                     val extendedMetadataJson = extendedMetadataAdapter.indent(" ").toJson(extendedMetadata)
-                    val extendedMetadataUrl = uploadMetadata(extendedMetadataJson)
+                    val extendedMetadataUrl = if (request.custom) {
+                        request.extendedMetadataUrl
+                    } else {
+                        uploadMetadata(extendedMetadataJson)
+                    }
                     log.debug("extendedMetadataUrl: $extendedMetadataUrl")
 
                     val metadata = com.swiftmako.jormanager.model.metadata.pool.Metadata(
@@ -1734,7 +1738,11 @@ class NodeController @Autowired constructor(
                         extended = extendedMetadataUrl
                     )
                     val metadataJson = metadataAdapter.indent(" ").toJson(metadata)
-                    val metadataUrl = uploadMetadata(metadataJson)
+                    val metadataUrl = if (request.custom) {
+                        request.metadataUrl
+                    } else {
+                        uploadMetadata(metadataJson)
+                    }
 
                     // download and get the hash!
                     defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")

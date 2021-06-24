@@ -55,11 +55,9 @@ class HandshakeProtocol(
 
     private fun handleConfirm(rxBuffer: ByteBuffer) {
         try {
-            log.info("rxBuffer.position(): ${rxBuffer.position()}, rxBuffer.remaining(): ${rxBuffer.remaining()}")
             ByteArrayInputStream(rxBuffer.array(), rxBuffer.position(), rxBuffer.remaining()).use { byteStream ->
                 CborReader.createFromInputStream(byteStream).apply {
                     while (byteStream.available() > 0) {
-                        log.info("byteStream.available(): ${byteStream.available()}")
                         val cborArray = readDataItem() as CborArray
                         val messageId: Long = cborArray.elementToLong(0)
                         when (messageId) {

@@ -11,14 +11,14 @@ export default {
     websocketUrl: (_, getters) => {
         return getters.isDebug ?
             // debug mode
-            "http://localhost:8787/jormanager-websocket" :
+            "http://localhost:9797/jormanager-websocket" :
             // release mode
             "/jormanager-websocket"
     },
     backupDownloadUrl: (_, getters) => {
         return getters.isDebug ?
             // debug mode
-            "http://localhost:8787/jormanager_backup.zip" :
+            "http://localhost:9797/jormanager_backup.zip" :
             // release mode
             "/jormanager_backup.zip"
     },
@@ -133,8 +133,8 @@ export default {
     registrationFeesSelectOptions: (state) => (currency) => {
         return _.sortBy(
             _.map(_.filter(state.walletItems, (walletItem) => {
-                // must have over 503 ada to pay fees for registering a pool.
-                return walletItem.type !== "address" && walletItem.hasPaymentKeys && walletItem.paymentAddrLovelace > 503000000
+                // must have over 3 ada to pay fees for registering a pool. 503 for a new pool, but somebody migrating might not have that much.
+                return walletItem.type !== "address" && walletItem.hasPaymentKeys && walletItem.paymentAddrLovelace > 3000000
             }), (walletItem) => {
                 return {
                     value: walletItem.id,

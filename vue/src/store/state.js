@@ -24,6 +24,9 @@ export default {
     tokenKeepFee: 0,
     tokenLocked: 0,
 
+    requestFeesUUID: 'ec8301e5-98bb-4be2-82d4-0f97fa82bb32',
+    responseFeesUUID: '200bbde5-d0ba-4810-ae31-aa5c66ff0bd1',
+
     // chart data
     nodeColors: [],
     peersSeries: [],

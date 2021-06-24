@@ -27,6 +27,7 @@
     "vue-lodash": "^2.1.2",
     "vue-moment": "^4.1.0",
     "vue-router": "^3.5.1",
+    "vue-uuid": "^2.0.2",
     "vue2-filters": "^0.11.1",
     "vuex": "^3.6.2",
     "webstomp-client": "^1.2.6"
