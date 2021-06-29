@@ -113,7 +113,6 @@
                     v-model="toAccount.account"
                     :state="accountState(toAccount)"
                     :options="paymentSelectOptions($options.filters.currency)"
-                    @input="prepareCalculateSendAdaFees()"
                   >
                     <template v-slot:first>
                       <b-form-select-option :value="null" disabled
@@ -323,6 +322,11 @@ export default {
         this.prepareCalculateSendAdaFees();
       }
     },
+    metadata() {
+      if (this.metadataState()) {
+        this.prepareCalculateSendAdaFees();
+      }
+    },
     tokenFees() {
       for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
         let toAccount = this.formSendAda.toAccounts[i];
@@ -347,6 +351,9 @@ export default {
       "paymentSelectOptions",
       "walletItemById",
     ]),
+    metadata() {
+      return this.formSendAda.metadata;
+    },
     modalTitle() {
       let tokenKeepFee = this.tokenKeepFee;
       let tokenLocked = this.tokenLocked;
@@ -507,7 +514,6 @@ export default {
         this.formSendAda.metadata === null ||
         this.formSendAda.metadata.trim().length === 0
       ) {
-        this.prepareCalculateSendAdaFees();
         return true;
       }
       try {
@@ -532,7 +538,6 @@ export default {
           }
         }
 
-        this.prepareCalculateSendAdaFees();
         return true;
       } catch (e) {
         this.formSendAda.metadataError = e.message;

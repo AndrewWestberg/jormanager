@@ -3,13 +3,13 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.5.1"
+    id("org.springframework.boot") version "2.5.2"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.39.0"
-    kotlin("jvm") version "1.5.10"
-    kotlin("kapt") version "1.5.10"
-    kotlin("plugin.spring") version "1.5.10"
-    kotlin("plugin.jpa") version "1.5.10"
+    kotlin("jvm") version "1.5.20"
+    kotlin("kapt") version "1.5.20"
+    kotlin("plugin.spring") version "1.5.20"
+    kotlin("plugin.jpa") version "1.5.20"
 }
 
 object Versions {
@@ -34,7 +34,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "4.1.0-SNAPSHOT"
+version = "4.1.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
@@ -75,7 +75,7 @@ dependencies {
     implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")
     compileOnly("com.google.errorprone:error_prone_annotations:2.7.1")
-    compileOnly("org.checkerframework:checker-qual:3.14.0")
+    compileOnly("org.checkerframework:checker-qual:3.15.0")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
     implementation("com.muquit.libsodiumjna:libsodium-jna:1.1.0-IOG-SNAPSHOT")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
