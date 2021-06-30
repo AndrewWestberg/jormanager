@@ -178,6 +178,7 @@
                     :placeholder="amountPlaceholder(toAccount.currency)"
                     trim
                     v-currency="amountCurrencyOptions(toAccount.currency)"
+                    @input="prepareCalculateSendAdaFees()"
                   />
                   <b-form-invalid-feedback
                     :id="'amount-input-live-feedback-' + index"
@@ -211,6 +212,7 @@
                     max="100"
                     step="1"
                     trim
+                    @input="prepareCalculateSendAdaFees()"
                   />
                   <p class="text-center">
                     {{
