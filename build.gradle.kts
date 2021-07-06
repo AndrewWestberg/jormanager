@@ -34,7 +34,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "4.1.2-SNAPSHOT"
+version = "4.1.3-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {

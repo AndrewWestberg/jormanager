@@ -207,9 +207,9 @@ class WalletController @Autowired constructor(
                         if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
                             claimAmount = paymentAddressLovelace
                             baseAmount["ada"] = baseAmount["ada"]!! - dummyTxFee
-                            toAccount.amount!!.takeIf { it > BigInteger.ZERO } ?: "1000000".toBigInteger()
+                            toAccount.amount?.takeIf { it > BigInteger.ZERO } ?: "1000000".toBigInteger()
                         } else {
-                            toAccount.amount!!.takeIf { it > BigInteger.ZERO } ?: "1000000".toBigInteger()
+                            toAccount.amount?.takeIf { it > BigInteger.ZERO } ?: "1000000".toBigInteger()
                         }
                     } else {
                         "15000000".toBigInteger() // dummy token fee
@@ -299,10 +299,10 @@ class WalletController @Autowired constructor(
             }
 
             val fee = if (request.isClaim) {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 2 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 0 $magicString --witness-count 2 --byron-witness-count 0")
                     .trim()
             } else {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count ${request.txOut} $magicString --witness-count 1 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 0 $magicString --witness-count 1 --byron-witness-count 0")
                     .trim()
             }
             val lovelace = fee.split(" ")[0].toBigInteger()
