@@ -6,35 +6,35 @@ plugins {
     id("org.springframework.boot") version "2.5.2"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.39.0"
-    kotlin("jvm") version "1.5.20"
-    kotlin("kapt") version "1.5.20"
-    kotlin("plugin.spring") version "1.5.20"
-    kotlin("plugin.jpa") version "1.5.20"
+    kotlin("jvm") version "1.5.21"
+    kotlin("kapt") version "1.5.21"
+    kotlin("plugin.spring") version "1.5.21"
+    kotlin("plugin.jpa") version "1.5.21"
 }
 
 object Versions {
     const val bouncycastle = "1.69"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE"
-    const val coroutines = "1.5.0"
+    const val coroutines = "1.5.1"
     const val googleTruth = "1.1.3"
-    const val jackson = "2.12.3"
+    const val jackson = "2.12.4"
     const val joda = "2.10.10"
     const val json = "20210307"
-    const val jsoup = "1.13.1"
+    const val jsoup = "1.14.1"
     const val junit = "5.7.2"
     const val kotlinxIo = "0.1.16"
-    const val liquibase = "4.4.0"
-    const val mockk = "1.11.0"
+    const val liquibase = "4.4.1"
+    const val mockk = "1.12.0"
     const val moshi = "1.12.0"
     const val okhttp = "4.9.1"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.5.0"
+    const val springSecurity = "5.5.1"
     const val sshj = "0.31.0"
 }
 
 group = "com.swiftmako"
-version = "4.1.3-SNAPSHOT"
+version = "4.1.4-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_11
 
 repositories {
@@ -75,7 +75,7 @@ dependencies {
     implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")
     compileOnly("com.google.errorprone:error_prone_annotations:2.7.1")
-    compileOnly("org.checkerframework:checker-qual:3.15.0")
+    compileOnly("org.checkerframework:checker-qual:3.16.0")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
     implementation("com.muquit.libsodiumjna:libsodium-jna:1.1.0-IOG-SNAPSHOT")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
