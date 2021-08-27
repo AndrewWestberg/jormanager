@@ -19,6 +19,7 @@ data class CreateNodeRequest(
         @JsonProperty("promPort") val promPort: Int,
         @JsonProperty("genesisByron") val genesisByronFileId: Long,
         @JsonProperty("genesisShelley") val genesisShelleyFileId: Long,
+        @JsonProperty("genesisAlonzo") val genesisAlonzoFileId: Long,
         @JsonProperty("generateColdKeys") val generateColdKeys: Boolean,
         @JsonProperty("coldSKey") val coldSKey: String?,
         @JsonProperty("coldVKey") val coldVKey: String?,

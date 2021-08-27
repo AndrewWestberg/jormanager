@@ -1,0 +1,14 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="028" author="Andrew Westberg">
+
+        <addColumn tableName="nodes">
+            <column name="alonzo_shelley_file_id" type="int" afterColumn="genesis_shelley_file_id" defaultValue="-1">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+    </changeSet>
+</databaseChangeLog>

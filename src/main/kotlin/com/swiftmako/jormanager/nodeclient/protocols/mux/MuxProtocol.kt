@@ -164,7 +164,7 @@ class MuxProtocol(
 
                 // These two need to complete before we start chain sync
                 handshakeProtocol.startAsync(this + job).await()
-                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_MARY) {
+                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_6) {
                     // only start this protocol on versions less than Mary. In Mary, we have agency at the start so it's
                     // not needed
                     txSubmissionProtocol.startAsync(this + job).await()

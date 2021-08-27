@@ -152,6 +152,7 @@ class NodeController @Autowired constructor(
                     val genesisByronFile =
                         createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
                     createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
+                    createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
                     createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                     val (configFileId, ekgPort, promPort) = createConfigFile(
                         request.hostId,
@@ -193,6 +194,7 @@ class NodeController @Autowired constructor(
                         promPort = promPort,
                         genesisByronFileId = request.genesisByronFileId,
                         genesisShelleyFileId = request.genesisShelleyFileId,
+                        genesisAlonzoFileId = request.genesisAlonzoFileId,
                         configFileId = configFileId,
                         isDefault = request.isDefault
                     )
@@ -726,18 +728,9 @@ class NodeController @Autowired constructor(
                         val (configFileId, ekgPort, promPort) = if (request.type == "core") {
                             val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
                             createNodeFolders(hostConnection, nodeFolder)
-                            createGenesisFile(
-                                "byron",
-                                request.genesisByronFileId,
-                                hostConnection,
-                                nodeFolder
-                            )
-                            createGenesisFile(
-                                "shelley",
-                                request.genesisShelleyFileId,
-                                hostConnection,
-                                nodeFolder
-                            )
+                            createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
+                            createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
+                            createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
                             createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                             val (configFileId, ekgPort, promPort) = createConfigFile(
                                 request.hostId,
@@ -859,6 +852,7 @@ class NodeController @Autowired constructor(
                             promPort = promPort,
                             genesisByronFileId = request.genesisByronFileId,
                             genesisShelleyFileId = request.genesisShelleyFileId,
+                            genesisAlonzoFileId = request.genesisAlonzoFileId,
                             configFileId = configFileId,
                             isDefault = false,
                             poolId = poolId,
@@ -2703,6 +2697,7 @@ class NodeController @Autowired constructor(
         }
         val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
         val configFileContent = configFile?.content
+            ?.replace(Regex(""""AlonzoGenesisFile": .*,"""), """"AlonzoGenesisFile": "alonzo-genesis.json",""")
             ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
             ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
             ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "shelley-genesis.json",""")

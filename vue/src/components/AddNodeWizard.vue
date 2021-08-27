@@ -233,6 +233,25 @@
             </template>
           </b-form-select>
         </b-form-group>
+        <b-form-group
+          label="Genesis Alonzo"
+          label-for="genesis-alonzo-select"
+          label-cols-md="2"
+        >
+          <b-form-select
+            id="genesis-alonzo-select"
+            v-model="formNode.genesisAlonzo"
+            :state="genesisAlonzoState"
+            :options="genesisFiles"
+            :disabled="parentId != null"
+          >
+            <template v-slot:first>
+              <b-form-select-option :value="null" disabled
+                >-- Please select an option --</b-form-select-option
+              >
+            </template>
+          </b-form-select>
+        </b-form-group>
       </div>
       <div slot="page2">
         <h4>Core Node Keys</h4>
@@ -999,6 +1018,7 @@ export default {
         promPort: "",
         genesisByron: null,
         genesisShelley: null,
+        genesisAlonzo: null,
         generateColdKeys: false,
         coldSKey: null,
         coldVKey: null,
@@ -1207,6 +1227,9 @@ export default {
     genesisShelleyState() {
       return this.formNode.genesisShelley != null;
     },
+    genesisAlonzoState() {
+      return this.formNode.genesisAlonzo != null;
+    },
     coldSKeyState() {
       return this.formNode.generateColdKeys || this.formNode.coldSKey != null;
     },
@@ -1338,7 +1361,8 @@ export default {
           this.ekgPortState &&
           this.promPortState &&
           this.genesisByronState &&
-          this.genesisShelleyState
+          this.genesisShelleyState &&
+          this.genesisAlonzoState
         ) {
           return true;
         } else {
@@ -1551,6 +1575,7 @@ export default {
       this.formNode.promPort = parent.promPort;
       this.formNode.genesisByron = parent.genesisByronFileId;
       this.formNode.genesisShelley = parent.genesisShelleyFileId;
+      this.formNode.genesisAlonzo = parent.genesisAlonzoFileId;
       this.formNode.poolPledge = parent.poolPledge;
       this.formNode.poolCost = parent.poolCost;
       this.formNode.poolMargin = parent.poolMargin;

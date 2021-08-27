@@ -34,8 +34,9 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "4.1.4-SNAPSHOT"
-java.sourceCompatibility = JavaVersion.VERSION_11
+version = "5.0.0-SNAPSHOT"
+java.sourceCompatibility = JavaVersion.VERSION_16
+java.targetCompatibility = JavaVersion.VERSION_16
 
 repositories {
     mavenLocal()
@@ -126,11 +127,11 @@ tasks.withType<Test> {
 tasks.withType<KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf(
-                "-Xjsr305=strict",
-                "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi",
-                "-Xopt-in=kotlin.RequiresOptIn"
+            "-Xjsr305=strict",
+            "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-Xopt-in=kotlin.RequiresOptIn",
         )
-        jvmTarget = "13"
+        jvmTarget = "16"
     }
 }
 
