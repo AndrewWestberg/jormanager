@@ -93,6 +93,16 @@ class BlockController @Autowired constructor(
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                     ?: throw IOException("Invalid protocol params!")
 
+                val minUTxOValue = if (protocolParameters.utxoCostPerWord != null) {
+                    val utxoEntrySizeWithoutVal = 27L
+                    val adaOnlyUtxoSize = utxoEntrySizeWithoutVal + 2
+                    protocolParameters.utxoCostPerWord * adaOnlyUtxoSize
+                } else {
+                    protocolParameters.minUTxOValue!!
+                }
+
+                log.debug("minUTxOValue: $minUTxOValue")
+
                 webSocketTemplate.convertAndSend(
                     "/topic/messages",
                     SocketResponse.Success(
@@ -100,7 +110,7 @@ class BlockController @Autowired constructor(
                         data = JorManagerVersion(
                             version = "JorManager ${buildProperties.version.split('-')[0]}",
                             mp = mp,
-                            minUTxOValue = protocolParameters.minUTxOValue
+                            minUTxOValue = minUTxOValue
                         )
                     )
                 )

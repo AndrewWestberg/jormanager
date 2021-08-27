@@ -185,7 +185,7 @@
                     >Enter an amount between
                     {{
                       toAccount.currency === "ada"
-                        ? formatCurrency(1000000, toAccount.currency)
+                        ? formatCurrency(minUTxOValue, toAccount.currency)
                         : formatCurrency(1, toAccount.currency)
                     }}
                     and
@@ -466,7 +466,8 @@ export default {
         let spent = this.calculateSpent(index + 1);
         let remainingTokens = spent.remaining[currency];
         return (
-          tokens >= (currency === "ada" ? 1000000 : 1) && remainingTokens >= 0
+          tokens >= (currency === "ada" ? this.minUTxOValue : 1) &&
+          remainingTokens >= 0
         );
       }
       return false;
@@ -480,7 +481,8 @@ export default {
         let tokens = spent.amount[currency];
         let remainingTokens = spent.remaining[currency];
         return (
-          tokens >= (currency === "ada" ? 1000000 : 1) && remainingTokens >= 0
+          tokens >= (currency === "ada" ? this.minUTxOValue : 1) &&
+          remainingTokens >= 0
         );
       }
       return false;

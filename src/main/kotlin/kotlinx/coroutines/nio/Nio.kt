@@ -5,6 +5,7 @@
 package kotlinx.coroutines.nio
 
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.net.SocketAddress
 import java.nio.ByteBuffer
@@ -144,6 +145,7 @@ private fun <T> asyncIOHandler(): CompletionHandler<T, CancellableContinuation<T
         AsyncIOHandlerAny as CompletionHandler<T, CancellableContinuation<T>>
 
 private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuation<Any>> {
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun completed(result: Any, cont: CancellableContinuation<Any>) {
         cont.resume(result) {}
     }
@@ -156,6 +158,7 @@ private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuatio
 }
 
 private object AsyncVoidIOHandler : CompletionHandler<Void?, CancellableContinuation<Unit>> {
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun completed(result: Void?, cont: CancellableContinuation<Unit>) {
         cont.resume(Unit) {}
     }

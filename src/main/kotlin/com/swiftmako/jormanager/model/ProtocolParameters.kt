@@ -11,9 +11,10 @@ data class ProtocolParameters(
         val stakePoolDeposit: BigInteger,
         @Json(name = "protocolVersion")
         val protocolVersion: ProtocolVersion,
-//        @Json(name = "minUTxOValue")
-        @Transient
-        val minUTxOValue: Long = 1000000,
+        @Json(name = "minUTxOValue")
+        val minUTxOValue: Long? = null,
+        @Json(name = "utxoCostPerWord")
+        val utxoCostPerWord: Long? = null,
         @Json(name = "decentralization")
         val decentralisationParam: Double,
         @Json(name = "maxTxSize")
