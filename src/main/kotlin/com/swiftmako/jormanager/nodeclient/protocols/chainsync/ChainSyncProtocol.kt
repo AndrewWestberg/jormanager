@@ -174,14 +174,14 @@ class ChainSyncProtocol(
                     }
                     val rxBuffer = rxChannel.receive()
                     try {
-                        val pos = rxBuffer.position()
-                        val limit = rxBuffer.limit()
-                        val remaining = rxBuffer.remaining()
-                        val bytes = ByteArray(remaining)
-                        rxBuffer.get(bytes)
-                        rxBuffer.position(pos)
-                        rxBuffer.limit(limit)
                         if (canLogDebug(false)) {
+                            val pos = rxBuffer.position()
+                            val limit = rxBuffer.limit()
+                            val remaining = rxBuffer.remaining()
+                            val bytes = ByteArray(remaining)
+                            rxBuffer.get(bytes)
+                            rxBuffer.position(pos)
+                            rxBuffer.limit(limit)
                             log.debug("received ${bytes.toHexString()}")
                         }
                         ByteArrayInputStream(

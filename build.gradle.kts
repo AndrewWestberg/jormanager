@@ -16,15 +16,15 @@ object Versions {
     const val bouncycastle = "1.69"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE"
-    const val checkerFramework = "3.17.0"
-    const val coroutines = "1.5.1"
+    const val checkerFramework = "3.18.0"
+    const val coroutines = "1.5.2"
     const val errorprone = "2.9.0"
     const val googleTruth = "1.1.3"
     const val jackson = "2.12.5"
     const val joda = "2.10.10"
     const val json = "20210307"
     const val jsoup = "1.14.2"
-    const val junit = "5.7.2"
+    const val junit = "5.8.0"
     const val kotlinxIo = "0.1.16"
     const val liquibase = "4.4.3"
     const val mockk = "1.12.0"
@@ -36,7 +36,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "5.0.0-SNAPSHOT"
+version = "5.0.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_16
 java.targetCompatibility = JavaVersion.VERSION_16
 

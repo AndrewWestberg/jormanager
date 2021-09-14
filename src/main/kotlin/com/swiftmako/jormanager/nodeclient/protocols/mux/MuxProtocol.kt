@@ -6,8 +6,6 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
-import com.swiftmako.jormanager.nodeclient.protocols.handshake.MsgProposeVersions
-import com.swiftmako.jormanager.nodeclient.protocols.transaction.TxSubmissionProtocol
 import com.swiftmako.jormanager.nodeclient.utils.BufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
@@ -27,9 +25,9 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousSocketChannel
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlin.experimental.xor
-import kotlin.streams.toList
 
 class MuxProtocol(
     private val host: Host,
@@ -70,9 +68,6 @@ class MuxProtocol(
                 val handshakeProtocol = HandshakeProtocol(networkMagic)
                 launchProtocolSender(handshakeProtocol, asyncSocketChannel, job)
 
-                val txSubmissionProtocol = TxSubmissionProtocol()
-                launchProtocolSender(txSubmissionProtocol, asyncSocketChannel, job)
-
                 val chainBlocks = getChainBlocksForSyncStart()
                 val chainSyncProtocol =
                     ChainSyncProtocol(
@@ -95,7 +90,7 @@ class MuxProtocol(
                         //log.debug("ready to read: position(): ${receiveBuffer.position()}, limit(): ${receiveBuffer.limit()}, remaining(): ${receiveBuffer.remaining()}, capacity(): ${receiveBuffer.capacity()}")
                         var bytesReceived = 0
                         while (bytesReceived < 8) {
-                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
+                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer, 20L, TimeUnit.MINUTES)
                             //log.debug("read socket bytes: $byteCnt")
                             if (byteCnt <= 0) {
                                 BufferPool.recycle(receiveBuffer)
@@ -113,7 +108,7 @@ class MuxProtocol(
                         val payloadStartPosition = receiveBuffer.position()
                         bytesReceived = 0
                         while (bytesReceived < payloadLength) {
-                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer)
+                            val byteCnt = asyncSocketChannel.aRead(receiveBuffer, 2L, TimeUnit.SECONDS)
                             //log.debug("read socket bytes: $byteCnt")
                             if (byteCnt <= 0) {
                                 BufferPool.recycle(receiveBuffer)
@@ -126,9 +121,6 @@ class MuxProtocol(
                         when (protocolId xor 0x8000.toShort()) {
                             handshakeProtocol.protocolId -> {
                                 handshakeProtocol.rxChannel.send(receiveBuffer)
-                            }
-                            txSubmissionProtocol.protocolId -> {
-                                txSubmissionProtocol.rxChannel.send(receiveBuffer)
                             }
                             chainSyncProtocol.protocolId -> {
                                 chainSyncProtocol.rxChannel.send(receiveBuffer)
@@ -164,11 +156,6 @@ class MuxProtocol(
 
                 // These two need to complete before we start chain sync
                 handshakeProtocol.startAsync(this + job).await()
-                if (handshakeProtocol.msgAcceptVersion.versionNumber < MsgProposeVersions.PROTOCOL_VERSION_6) {
-                    // only start this protocol on versions less than Mary. In Mary, we have agency at the start so it's
-                    // not needed
-                    txSubmissionProtocol.startAsync(this + job).await()
-                }
                 log.debug("Connected to Node.")
 
                 awaitAll(
@@ -252,7 +239,7 @@ class MuxProtocol(
                         BufferPool.recycle(byteBuffer)
                         sendBuffer.flip()
                         sendMutex.withLock {
-                            asyncSocketChannel.aWrite(sendBuffer)
+                            asyncSocketChannel.aWrite(sendBuffer, 2L, TimeUnit.SECONDS)
                         }
                     } finally {
                         BufferPool.recycle(sendBuffer)

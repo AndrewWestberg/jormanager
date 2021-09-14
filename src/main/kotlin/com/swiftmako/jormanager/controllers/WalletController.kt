@@ -863,7 +863,10 @@ class WalletController @Autowired constructor(
                 val protocolParams =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
                         .trim()
-                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParams)
+                defaultHostConnection.commandWriteFile(
+                    "/tmp/protocol-parameters-${genesis.networkMagic}.json",
+                    protocolParams
+                )
 
                 val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                     ?: throw IOException("Wallet entry id ${request.fromId} not found!")
@@ -1006,7 +1009,7 @@ class WalletController @Autowired constructor(
                         val multiAssetString =
                             chunk.joinToString(separator = "+") { (currency, amount) -> "$amount $currency" }
                         val minValueResult =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-value --protocol-params-file /tmp/protocol-parameters.json --multi-asset '$multiAssetString'")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-value --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --multi-asset '$multiAssetString'")
                                 .trim()
                         val tokenKeepFee = minValueResult.split(" ")[1].toBigInteger()
 
@@ -1067,7 +1070,7 @@ class WalletController @Autowired constructor(
                     SocketResponse.Success(type = "submittransaction", data = "transaction succeeded: $txid")
                 )
             } finally {
-                defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/signing.skey /tmp/staking_signing.skey /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/metadata.json")
+                defaultHostConnection.command("rm -f /tmp/protocol-parameters-${genesis.networkMagic}.json /tmp/signing.skey /tmp/staking_signing.skey /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/metadata.json")
             }
         } catch (e: Throwable) {
             val error = "Fatal error submitting transaction!"
