@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.nodeclient.protocols.handshake
 
-import com.google.iot.cbor.*
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocolMessage
+import com.google.iot.cbor.*
 import java.nio.ByteBuffer
 
 

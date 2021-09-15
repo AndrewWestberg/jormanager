@@ -25,7 +25,7 @@ class HostController @Autowired constructor(
         private val hostRepository: HostRepository
 ) {
 
-    private val log = LoggerFactory.getLogger(HostController::class.java)
+    private val log by lazy {  LoggerFactory.getLogger(HostController::class.java) }
 
     @MessageMapping("/hosts")
     @SendTo("/topic/messages")

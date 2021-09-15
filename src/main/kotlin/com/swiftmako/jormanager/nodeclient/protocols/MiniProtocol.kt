@@ -1,15 +1,28 @@
 package com.swiftmako.jormanager.nodeclient.protocols
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.channels.Channel
-import org.slf4j.Logger
+import com.firehose.controllers.nodeclient.protocol.Agency
+import kotlinx.coroutines.flow.Flow
 import java.nio.ByteBuffer
 
-abstract class MiniProtocol(val protocolId: Short, protected val log: Logger) {
+abstract class MiniProtocol(val protocolId: Short) {
+    // Tells us what agency state the protocol is in
+    abstract val agency: Agency
 
-    val txChannel: Channel<ByteBuffer> = Channel(Channel.RENDEZVOUS)
-    val rxChannel: Channel<ByteBuffer> = Channel(Channel.RENDEZVOUS)
+    // Tells us what agency state the protocol is in
+    abstract val agencyFlow: Flow<Agency>
 
-    abstract fun startAsync(scope: CoroutineScope): Deferred<Unit>
+    // Tells us how big of a receive buffer this MiniProtocol needs
+    abstract val RX_BUFFER_SIZE: Int
+
+    /**
+     * Get the data to send. suspend until there is something to send
+     * @return ByteBuffer to send
+     */
+    abstract suspend fun sendData(): ByteBuffer
+
+    /**
+     * Receive data and mutate the protocol state.
+     */
+    abstract fun receiveData(payload: ByteBuffer)
+
 }

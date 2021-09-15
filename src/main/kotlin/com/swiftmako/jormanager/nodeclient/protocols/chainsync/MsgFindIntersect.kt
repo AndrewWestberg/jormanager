@@ -7,27 +7,27 @@ import com.google.iot.cbor.CborWriter
 import com.swiftmako.jormanager.entities.ChainBlock
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocolMessage
-import org.springframework.security.crypto.codec.Hex
 import java.nio.ByteBuffer
 
-class MsgFindIntersect(val chainBlocks:List<ChainBlock>) : MiniProtocolMessage {
-    override fun writeToBuffer(buffer: ByteBuffer) {
-        val payload = CborArray.create()
-        payload.add(CborInteger.create(MESSAGE_ID))
-        val points = CborArray.create()
-        chainBlocks.forEach { chainBlock ->
-            val point = CborArray.create()
-            point.add(CborInteger.create(chainBlock.slotNumber))
-            point.add(CborByteString.create(chainBlock.hash.hexToByteArray()))
-            points.add(point)
-        }
+class MsgFindIntersect(private val intersectBlocks: List<Pair<Long, ByteArray>>) : MiniProtocolMessage {
+    companion object {
+        private const val MESSAGE_ID = 4L
+    }
 
-        payload.add(points)
+    override fun writeToBuffer(buffer: ByteBuffer) {
+        val payload = CborArray.create().apply {
+            add(CborInteger.create(MESSAGE_ID))
+            add(CborArray.create().apply { // points
+                intersectBlocks.forEach { block ->
+                    add(CborArray.create().apply { // point
+                        add(CborInteger.create(block.first)) // slot
+                        add(CborByteString.create(block.second)) // hash
+                    })
+                }
+            })
+        }
 
         CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
     }
 
-    companion object {
-        private const val MESSAGE_ID = 4L
-    }
 }

@@ -23,7 +23,7 @@ import kotlin.experimental.and
 
 class HostConnectionTest {
 
-    private val log = LoggerFactory.getLogger("HostConnectionTest")
+    private val log by lazy {  LoggerFactory.getLogger("HostConnectionTest") }
 
     @Test
     fun testMultilineStringToFile() {

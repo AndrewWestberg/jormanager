@@ -66,7 +66,7 @@ class NodeController @Autowired constructor(
     private val bulkCredentialsJsonAdapter: JsonAdapter<List<List<Key>>>,
     //@Value("\${jormanager.era}") private val eraString: String,
 ) {
-    private val log = LoggerFactory.getLogger(NodeController::class.java)
+    private val log by lazy {  LoggerFactory.getLogger(NodeController::class.java) }
 
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")

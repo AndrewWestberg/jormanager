@@ -57,7 +57,7 @@ class BlockMonitor @Autowired constructor(
     private val queryTipAdapter: JsonAdapter<QueryTip>,
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log = LoggerFactory.getLogger(BlockMonitor::class.java)
+    private val log by lazy { LoggerFactory.getLogger(BlockMonitor::class.java) }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->

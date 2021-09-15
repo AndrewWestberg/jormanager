@@ -26,6 +26,7 @@ object Versions {
     const val jsoup = "1.14.2"
     const val junit = "5.8.0"
     const val kotlinxIo = "0.1.16"
+    const val ktor = "1.6.3"
     const val liquibase = "4.4.3"
     const val mockk = "1.12.0"
     const val moshi = "1.12.0"
@@ -83,6 +84,8 @@ dependencies {
     implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
     implementation("com.squareup.retrofit2:converter-moshi:${Versions.retrofit}")
     implementation("joda-time:joda-time:${Versions.joda}")
+
+    implementation("io.ktor:ktor-network:${Versions.ktor}")
 
     implementation("org.springframework.security:spring-security-core:${Versions.springSecurity}")
     implementation("org.bouncycastle:bcprov-jdk15on:${Versions.bouncycastle}")

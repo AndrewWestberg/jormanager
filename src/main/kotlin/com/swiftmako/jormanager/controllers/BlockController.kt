@@ -60,7 +60,7 @@ class BlockController @Autowired constructor(
     @Value("\${jormanager.blocks.pastEpochs:2}") private val pastEpochsToShow: Long,
 ) : CoroutineScope {
 
-    private val log = LoggerFactory.getLogger(BlockController::class.java)
+    private val log by lazy {  LoggerFactory.getLogger(BlockController::class.java) }
 
     override val coroutineContext: CoroutineContext = Dispatchers.Default + CoroutineExceptionHandler { _, throwable ->
         if (throwable !is CancellationException) {

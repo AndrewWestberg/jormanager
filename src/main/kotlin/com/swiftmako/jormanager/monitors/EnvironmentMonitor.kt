@@ -34,7 +34,7 @@ class EnvironmentMonitor @Autowired constructor(
         private val okHttpClient: OkHttpClient,
         private val fileRepository: FileRepository
 ) : SmartLifecycle, CoroutineScope {
-    private val log = LoggerFactory.getLogger(EnvironmentMonitor::class.java)
+    private val log by lazy { LoggerFactory.getLogger(EnvironmentMonitor::class.java) }
 
     private val isRunning = AtomicBoolean(false)
 

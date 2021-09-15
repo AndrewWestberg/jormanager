@@ -8,11 +8,16 @@ import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.ignoreExceptions
 import com.swiftmako.jormanager.model.Config
 import com.swiftmako.jormanager.model.GenesisShelley
-import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
+import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlocksForSyncStart
+import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.services.PooltoolService
+import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
@@ -51,7 +56,7 @@ class PooltoolMonitor @Autowired constructor(
     private val pooltoolService: PooltoolService,
     @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
 ) : SmartLifecycle, CoroutineScope {
-    private val log = LoggerFactory.getLogger(PooltoolMonitor::class.java)
+    private val log by lazy { LoggerFactory.getLogger(PooltoolMonitor::class.java) }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
@@ -118,7 +123,6 @@ class PooltoolMonitor @Autowired constructor(
     private suspend fun monitorBlocksLocal(host: Host, node: Node, port: Int? = null) {
         coroutineScope {
             while (true) {
-                var muxProtocol: MuxProtocol? = null
                 try {
                     val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
                         ?: throw IOException("Unable to read shelley genesis file!")
@@ -134,24 +138,34 @@ class PooltoolMonitor @Autowired constructor(
                     } else {
                         node.listen
                     }
-                    muxProtocol = MuxProtocol(
-                        host,
-                        node.poolId!!,
-                        listen,
-                        port ?: node.port,
-                        networkMagic,
-                        shelleyGenesisHash,
-                        chainRepository,
-                        isPooltool = true,
-                        pooltoolService = pooltoolService,
-                        pooltoolApiKey = pooltoolApiKey,
-                    )
-                    muxProtocol.start().join()
+
+                    aSocket(ActorSelectorManager(coroutineContext)).tcp()
+                        .connect(InetSocketAddress(listen, port ?: node.port))
+                        .use { socket ->
+                            log.debug("ChainMonitor Socket connected")
+                            val socketConnection = socket.connection()
+                            val mux = Mux(socketConnection)
+                            mux.execute(HandshakeProtocol(networkMagic))
+                            mux.execute(
+                                ChainSyncProtocol(
+                                    host,
+                                    shelleyGenesisHash,
+                                    getChainBlocksForSyncStart(chainRepository),
+                                    chainRepository,
+                                    isPooltool = true,
+                                    pooltoolService = pooltoolService,
+                                    pooltoolApiKey = pooltoolApiKey,
+                                    poolId = node.poolId!!,
+                                ).also {
+                                    // launch coroutine to save blocks
+                                    it.initBlockReceiveHandler(this)
+                                }
+                            )
+                        }
                 } catch (e: Throwable) {
                     log.error("Error monitoring chain for pooltool!", e)
                 } finally {
-                    muxProtocol?.cancel()
-                    muxProtocol?.job?.cancelChildren()
+                    this@coroutineScope.coroutineContext.cancelChildren()
                 }
 
                 delay(ChainMonitor.RECONNECT_DELAY_MS)

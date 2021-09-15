@@ -4,21 +4,18 @@ import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.Config
 import com.swiftmako.jormanager.model.GenesisShelley
-import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
+import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlocksForSyncStart
+import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.PooltoolService
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
+import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
@@ -28,31 +25,33 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.io.IOException
+import java.net.InetSocketAddress
 import kotlin.coroutines.CoroutineContext
 
 @Component("chainMonitor")
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class ChainMonitor @Autowired constructor(
-        private val chainRepository: ChainRepository,
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val configAdapter: JsonAdapter<Config>,
-        private val pooltoolService: PooltoolService,
+    private val chainRepository: ChainRepository,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val configAdapter: JsonAdapter<Config>,
+    private val pooltoolService: PooltoolService,
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log = LoggerFactory.getLogger(ChainMonitor::class.java)
+    private val log by lazy { LoggerFactory.getLogger(ChainMonitor::class.java) }
+
+    private var isShuttingDown = false
 
     private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
-        if (throwable !is CancellationException) {
-            log.error("Uncaught coroutine exception!", throwable)
+    override val coroutineContext: CoroutineContext =
+        job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            if (throwable !is CancellationException) {
+                log.error("Uncaught coroutine exception!", throwable)
+            }
         }
-    }
-
-    private lateinit var muxProtocol: MuxProtocol
 
     override fun isAutoStartup() = true
 
@@ -64,57 +63,71 @@ class ChainMonitor @Autowired constructor(
 
     override fun start() {
         log.info("Starting ChainMonitor...")
-
         monitorChain()
     }
 
     private fun monitorChain() {
         launch {
-            while (true) {
+            while (!isShuttingDown) {
                 try {
                     nodeRepository.findDefault()?.let { defaultNode ->
                         val shelleyGenesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
-                                ?: throw IOException("Unable to read shelley genesis file!")
+                            ?: throw IOException("Unable to read shelley genesis file!")
                         val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
                         val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
-                                ?: throw IOException("host for default node not found!")
+                            ?: throw IOException("host for default node not found!")
                         val configFile = fileRepository.findByIdOrNull(defaultNode.configFileId)
-                                ?: throw IOException("Unable to read config file")
-                        val shelleyGenesisHash = configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
+                            ?: throw IOException("Unable to read config file")
+                        val shelleyGenesisHash =
+                            configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
 
-                        muxProtocol = MuxProtocol(
-                            defaultHost,
-                            "",
-                            defaultHost.hostname,
-                            defaultNode.port,
-                            networkMagic,
-                            shelleyGenesisHash,
-                            chainRepository,
-                            isPooltool = false,
-                            pooltoolService = pooltoolService,
-                            pooltoolApiKey = "",
-                        )
-                        muxProtocol.start().join()
+                        aSocket(ActorSelectorManager(coroutineContext)).tcp()
+                            .connect(InetSocketAddress(defaultHost.hostname, defaultNode.port))
+                            .use { socket ->
+                                log.debug("ChainMonitor Socket connected")
+                                val socketConnection = socket.connection()
+                                val mux = Mux(socketConnection)
+                                mux.execute(HandshakeProtocol(networkMagic))
+                                mux.execute(
+                                    ChainSyncProtocol(
+                                        defaultHost,
+                                        shelleyGenesisHash,
+                                        getChainBlocksForSyncStart(chainRepository),
+                                        chainRepository,
+                                        isPooltool = false,
+                                        pooltoolService = pooltoolService,
+                                        pooltoolApiKey = "",
+                                        poolId = "",
+                                    ).also {
+                                        // launch coroutine to save blocks
+                                        it.initBlockReceiveHandler(this@launch)
+                                    }
+                                )
+                            }
                     }
                 } catch (e: Throwable) {
-                    log.error("Error monitoring chain!", e)
+                    if (e !is CancellationException) {
+                        log.error("ChainMonitor error", e)
+                    } else {
+                        isShuttingDown = true
+                    }
                 }
-
-                delay(RECONNECT_DELAY_MS)
+                if (!isShuttingDown) {
+                    log.info("ChainMonitor Socket not connected. Wait 10 seconds to reconnect...")
+                    delay(RECONNECT_DELAY_MS)
+                }
             }
         }
+        log.info("... ChainMonitor start complete.")
     }
 
-
     override fun stop() {
-        muxProtocol.cancel()
-        muxProtocol.job.cancelChildren()
         job.cancelChildren()
         log.info("ChainMonitor stopped.")
     }
 
     companion object {
-        const val RECONNECT_DELAY_MS = 5000L
+        const val RECONNECT_DELAY_MS = 10000L
     }
 }

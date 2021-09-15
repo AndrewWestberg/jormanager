@@ -38,7 +38,7 @@ class WalletUtils @Autowired constructor(
         private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
         private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
 ) {
-    private val log = LoggerFactory.getLogger(WalletUtils::class.java)
+    private val log by lazy {  LoggerFactory.getLogger(WalletUtils::class.java) }
 
     fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()

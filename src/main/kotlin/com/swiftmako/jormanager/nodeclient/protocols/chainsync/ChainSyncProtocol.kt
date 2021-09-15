@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.nodeclient.protocols.chainsync
 
+import com.firehose.controllers.nodeclient.protocol.Agency
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
 import com.muquit.libsodiumjna.SodiumLibrary
@@ -12,20 +13,25 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.pooltool.Data
 import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
-import com.swiftmako.jormanager.nodeclient.utils.BufferPool
+import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
+import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.digests.Blake2bDigest
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.ISODateTimeFormat
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
+import java.nio.ByteBuffer
+import kotlin.io.use
 
 class ChainSyncProtocol(
     private val host: Host,
@@ -36,261 +42,175 @@ class ChainSyncProtocol(
     private val pooltoolService: PooltoolService,
     private val pooltoolApiKey: String,
     private val poolId: String,
-) : MiniProtocol(protocolId = 0x0002.toShort(), LoggerFactory.getLogger("ChainSyncProtocol")) {
+) : MiniProtocol(protocolId = 0x0002.toShort()) {
 
-    var state: State = State.Idle
+    private val log by lazy { LoggerFactory.getLogger(ChainSyncProtocol::class.java) }
+
+    override val RX_BUFFER_SIZE: Int = 64 * 1024
+
+    private var state = State.Idle
+        set(value) {
+            field = value
+            _agencyFlow.tryEmit(agency)
+        }
+
+    private val _agencyFlow = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
+    override val agencyFlow: Flow<Agency> = _agencyFlow
+
+    override val agency: Agency
+        get() = when (state) {
+            State.Idle -> Agency.Client
+            State.Done -> Agency.None
+            else -> Agency.Server
+        }
+
     var isIntersectFound = false
 
+    // hardcode for now
+    private val lastByronBlocks: List<Pair<Long, ByteArray>> = listOf(
+        // testing bad block with huge token value
+        // Pair(18342080L, "9d9a97918b9b77bed4e72eabb43b64b34affc929846d528babcd1d2f90976c2f".hexToByteArray()),
+
+        // testing bad block with null value
+        // Pair(23428799L, "fae8158c9fb6f53389d55ecb80b0538fde879a0b56dffc04904eb6d3359de4e3".hexToByteArray()),
+
+        // testing hanging
+        //Pair(25530527L, "cd02dd5f4e7a3198e94261d0a49335a0e0442a7dde794a161be175053781eabb".hexToByteArray()),
+        // Pair(25530581L, "d9a9004c29643ff43cfe217f0e59017be359c6b864e66e795c884c5d3a7bf470".hexToByteArray()),
+
+        Pair(4492799L, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457".hexToByteArray()), //mainnet
+        Pair(1598399L, "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4".hexToByteArray()), //testnet
+        Pair(359L, "9c0fe75b6a0499e9576a09589a5777e7021824e8a6d037065829423f861a9bb6".hexToByteArray()), //guild
+    )
     private val blockSaveChannel = Channel<MsgRollForward>(Channel.UNLIMITED)
 
-    private var _tipToIntersect: List<ChainBlock>? = null
-    private val tipToIntersect: List<ChainBlock>
-        get() = _tipToIntersect ?: chainBlocks
-
-    override fun startAsync(scope: CoroutineScope) = scope.async {
-        log.info("Starting ChainSyncProtocol...")
-        handleBlockReceived(scope)
-        while (true) {
-            when (state) {
-                State.Idle -> {
-                    if (canLogDebug(false)) {
-                        log.debug("State.Idle")
-                    }
-                    state = if (!isIntersectFound) {
-                        val txBuffer = BufferPool.borrow()
-                        MsgFindIntersect(tipToIntersect).writeToBuffer(txBuffer)
-                        txBuffer.flip()
-                        txChannel.send(txBuffer)
-                        _tipToIntersect = null
-                        State.Intersect
-                    } else {
-                        val txBuffer = BufferPool.borrow()
-                        MsgRequestNext().writeToBuffer(txBuffer)
-                        txBuffer.flip()
-                        txChannel.send(txBuffer)
-                        State.CanAwait
-                    }
-                }
-                State.CanAwait -> {
-                    if (canLogDebug(false)) {
-                        log.debug("State.CanAwait")
-                    }
-                    val rxBuffer = rxChannel.receive()
-                    try {
-                        val pos = rxBuffer.position()
-                        val limit = rxBuffer.limit()
-                        val remaining = rxBuffer.remaining()
-                        val bytes = ByteArray(remaining)
-                        rxBuffer.get(bytes)
-                        rxBuffer.position(pos)
-                        rxBuffer.limit(limit)
-                        if (canLogDebug(false)) {
-                            log.debug("received ${bytes.toHexString()}")
-                        }
-
-                        ByteArrayInputStream(
-                            rxBuffer.array(),
-                            rxBuffer.position(),
-                            rxBuffer.remaining()
-                        ).use { byteStream ->
-                            CborReader.createFromInputStream(byteStream).apply {
-                                while (byteStream.available() > 0) {
-                                    val cborArray = readDataItem() as CborArray
-                                    //log.debug("received: ${cborArray.toJsonString()}")
-                                    when (val messageId = cborArray.elementToLong(0)) {
-                                        //msgRequestNext         = [0]
-                                        //msgAwaitReply          = [1]
-                                        //msgRollForward         = [2, wrappedHeader, tip]
-                                        //msgRollBackward        = [3, point, tip]
-                                        //msgFindIntersect       = [4, points]
-                                        //msgIntersectFound      = [5, point, tip]
-                                        //msgIntersectNotFound   = [6, tip]
-                                        //chainSyncMsgDone       = [7]
-                                        1L -> {
-                                            // Server wants us to wait a bit until it gets a new block
-                                            state = State.MustReply
-                                        }
-                                        2L -> {
-                                            // Roll forward
-                                            val optionalMsgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                            if (optionalMsgRollForward.isPresent) {
-                                                val msgRollForward = optionalMsgRollForward.get()
-                                                if (isPooltool) {
-                                                    // SendTip mode
-                                                    if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
-                                                        // We're on tip! Send to pooltool
-                                                        blockSaveChannel.send(msgRollForward)
-                                                        state = State.Idle
-                                                    } else {
-                                                        _tipToIntersect = mutableListOf(
-                                                            ChainBlock(
-                                                                slotNumber = msgRollForward.chainTip.slot,
-                                                                hash = msgRollForward.chainTip.hash,
-                                                                blockNumber = 0L,
-                                                                prevHash = "",
-                                                                etaV = "",
-                                                                poolId = "",
-                                                                leaderVrf = ""
-                                                            )
-                                                        ).apply {
-                                                            addAll(chainBlocks)
-                                                        }
-                                                        isIntersectFound = false
-                                                    }
-                                                } else {
-                                                    // Sync mode
-                                                    blockSaveChannel.send(msgRollForward)
-                                                    if (canLogDebug()) {
-                                                        log.debug("CanAwait->RollForward: $msgRollForward")
-                                                    }
-                                                }
-                                            }
-                                            state = State.Idle
-                                            //state = State.Done
-                                        }
-                                        3L -> {
-                                            // Roll backward
-                                            val point = cborArray.elementAt(1)
-                                            val tip = cborArray.elementAt(2)
-                                            if (canLogDebug()) {
-                                                log.debug("CanAwait->RollBackward: point: ${point.toJsonString()}, tip: ${tip.toJsonString()}")
-                                            }
-                                            state = State.Idle
-                                        }
-                                        else -> {
-                                            log.error("Got unexpected messageId: $messageId")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } finally {
-                        BufferPool.recycle(rxBuffer)
-                    }
-                }
-                State.MustReply -> {
-                    if (canLogDebug(false)) {
-                        log.debug("State.MustReply")
-                    }
-                    val rxBuffer = rxChannel.receive()
-                    try {
-                        if (canLogDebug(false)) {
-                            val pos = rxBuffer.position()
-                            val limit = rxBuffer.limit()
-                            val remaining = rxBuffer.remaining()
-                            val bytes = ByteArray(remaining)
-                            rxBuffer.get(bytes)
-                            rxBuffer.position(pos)
-                            rxBuffer.limit(limit)
-                            log.debug("received ${bytes.toHexString()}")
-                        }
-                        ByteArrayInputStream(
-                            rxBuffer.array(),
-                            rxBuffer.position(),
-                            rxBuffer.remaining()
-                        ).use { byteStream ->
-                            CborReader.createFromInputStream(byteStream).apply {
-                                while (byteStream.available() > 0) {
-                                    val cborArray = readDataItem() as CborArray
-                                    //log.debug("received: ${cborArray.toJsonString()}")
-                                    when (val messageId = cborArray.elementToLong(0)) {
-                                        //msgRequestNext         = [0]
-                                        //msgAwaitReply          = [1]
-                                        //msgRollForward         = [2, wrappedHeader, tip]
-                                        //msgRollBackward        = [3, point, tip]
-                                        //msgFindIntersect       = [4, points]
-                                        //msgIntersectFound      = [5, point, tip]
-                                        //msgIntersectNotFound   = [6, tip]
-                                        //chainSyncMsgDone       = [7]
-                                        2L -> {
-                                            // Roll forward
-                                            val optionalMsgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray)
-                                            if (optionalMsgRollForward.isPresent) {
-                                                val msgRollForward = optionalMsgRollForward.get()
-                                                if (isPooltool) {
-                                                    // SendTip mode
-                                                    if (msgRollForward.slotNumber == msgRollForward.chainTip.slot && msgRollForward.hash == msgRollForward.chainTip.hash) {
-                                                        // We're on tip! Send to pooltool
-                                                        blockSaveChannel.send(msgRollForward)
-                                                        state = State.Idle
-                                                    } else {
-                                                        _tipToIntersect = mutableListOf(
-                                                            ChainBlock(
-                                                                slotNumber = msgRollForward.chainTip.slot,
-                                                                hash = msgRollForward.chainTip.hash,
-                                                                blockNumber = 0L,
-                                                                prevHash = "",
-                                                                etaV = "",
-                                                                poolId = "",
-                                                                leaderVrf = ""
-                                                            )
-                                                        ).apply {
-                                                            addAll(chainBlocks)
-                                                        }
-                                                        isIntersectFound = false
-                                                    }
-                                                } else {
-                                                    // Sync mode
-                                                    blockSaveChannel.send(msgRollForward)
-                                                    if (canLogDebug()) {
-                                                        log.debug("MustReply->RollForward: $msgRollForward")
-                                                    }
-                                                }
-                                            }
-                                            state = State.Idle
-                                            //state = State.Done
-                                        }
-                                        3L -> {
-                                            // Roll backward
-                                            val point = cborArray.elementAt(1)
-                                            val tip = cborArray.elementAt(2)
-                                            if (canLogDebug()) {
-                                                log.debug("MustReply->RollBackward: point: ${point.toJsonString()}, tip: ${tip.toJsonString()}")
-                                            }
-                                            state = State.Idle
-                                        }
-                                        else -> {
-                                            log.error("Got unexpected messageId: $messageId")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } finally {
-                        BufferPool.recycle(rxBuffer)
-                    }
-                }
-                State.Intersect -> {
-                    log.debug("State.Intersect")
-                    val rxBuffer = rxChannel.receive()
-                    try {
-                        val pos = rxBuffer.position()
-                        val limit = rxBuffer.limit()
-                        val remaining = rxBuffer.remaining()
-                        val bytes = ByteArray(remaining)
-                        rxBuffer.get(bytes)
-                        rxBuffer.position(pos)
-                        rxBuffer.limit(limit)
-                        log.debug("intersect msg: ${bytes.toHexString()}")
-                    } finally {
-                        BufferPool.recycle(rxBuffer)
-                    }
-                    isIntersectFound = true
-                    state = State.Idle
-                }
-                State.Done -> {
-                    log.debug("State.Done")
-                    txChannel.cancel()
-                    rxChannel.cancel()
-                    break
-                }
-
-            }
+    private val chainBlocksPairs by lazy {
+        chainBlocks.map { chainBlock ->
+            Pair(
+                chainBlock.slotNumber,
+                chainBlock.hash.hexToByteArray()
+            )
         }
-        log.info("ChainSyncProtocol exited.")
     }
 
-    private fun handleBlockReceived(scope: CoroutineScope) {
+    private var _tipToIntersect: List<Pair<Long, ByteArray>>? = null
+    private val tipToIntersect: List<Pair<Long, ByteArray>>
+        get() = _tipToIntersect ?: chainBlocksPairs
+
+    @OptIn(ExperimentalIoApi::class)
+    override suspend fun sendData(): ByteBuffer {
+        return when (state) {
+            State.Idle -> {
+                val payload = muxByteBufferPool.borrow()
+                state = if (isIntersectFound) {
+                    log.trace("MsgRequestNext")
+                    MsgRequestNext().writeToBuffer(payload)
+                    State.CanAwait
+                } else {
+                    log.trace("MsgFindIntersect")
+                    MsgFindIntersect(tipToIntersect + lastByronBlocks).writeToBuffer(payload)
+                    _tipToIntersect = null
+                    State.Intersect
+                }
+                payload.flip()
+            }
+            else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
+        }
+    }
+
+    override fun receiveData(payload: ByteBuffer) {
+        when (state) {
+            State.CanAwait, State.MustReply -> {
+                ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
+                    CborReader.createFromInputStream(byteStream).apply {
+                        while (byteStream.available() > 0) {
+                            val cborArray = try {
+                                readDataItem() as CborArray
+                            } catch (e: Throwable) {
+                                log.error("Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}")
+                                throw e
+                            }
+                            val messageId: Long = cborArray.elementToLong(0)
+                            when (messageId) {
+                                MsgRollForward.MESSAGE_ID -> {
+                                    if (log.isTraceEnabled) {
+                                        log.trace("MsgRollForward: ${cborArray.toCborByteArray().toHexString()}")
+                                    }
+                                    MsgRollForwardAdapter.fromCborArray(cborArray).ifPresent { msgRollForward ->
+                                        val isTip = msgRollForward.chainTip.hash == msgRollForward.hash
+
+                                        if (isPooltool) {
+                                            if (isTip) {
+                                                // We're on tip! Send to pooltool
+                                                runBlocking {
+                                                    blockSaveChannel.send(msgRollForward)
+                                                }
+                                            } else {
+                                                // try to jump to tip since we're doing pooltool sending
+                                                _tipToIntersect = listOf(
+                                                    Pair(
+                                                        msgRollForward.chainTip.slot,
+                                                        msgRollForward.chainTip.hash.hexToByteArray()
+                                                    )
+                                                ) + chainBlocksPairs
+                                                isIntersectFound = false
+                                            }
+                                        } else {
+                                            // sync mode
+                                            runBlocking {
+                                                blockSaveChannel.send(msgRollForward)
+                                            }
+                                        }
+                                    }
+                                    state = State.Idle
+                                }
+                                MsgRollBackward.MESSAGE_ID -> {
+                                    log.info("MsgRollBackward: ${cborArray.toCborByteArray().toHexString()}")
+                                    state = State.Idle
+                                }
+                                MsgAwaitReply.MESSAGE_ID -> {
+                                    log.trace("MsgAwaitReply: ${cborArray.toCborByteArray().toHexString()}")
+                                    state = State.MustReply
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            State.Intersect -> {
+                ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
+                    CborReader.createFromInputStream(byteStream).apply {
+                        while (byteStream.available() > 0) {
+                            val cborArray = readDataItem() as CborArray
+                            val messageId: Long = cborArray.elementToLong(0)
+                            when (messageId) {
+                                MsgIntersectFound.MESSAGE_ID -> {
+                                    log.info("MsgIntersectFound: ${cborArray.toCborByteArray().toHexString()}")
+                                    isIntersectFound = true
+                                    state = State.Idle
+                                }
+                                MsgIntersectNotFound.MESSAGE_ID -> {
+                                    log.info("MsgIntersectNotFound: ${cborArray.toCborByteArray().toHexString()}")
+//                            // Jump to the tip
+//                            val (slot, hash) = ((cborArray.elementAt(1) as CborArray).elementAt(0) as CborArray).let {
+//                                Pair(it.elementToLong(0), (it.elementAt(1) as CborByteString).byteArrayValue())
+//                            }
+//                            intersectSlot = slot
+//                            intersectHash = hash
+                                    isIntersectFound = true
+                                    state = State.Idle
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else -> throw IllegalStateException("We should not call receiveData() when we're not in a $state state!")
+        }
+        Unit
+    }
+
+    suspend fun initBlockReceiveHandler(scope: CoroutineScope) {
         scope.launch {
             val previousBlockMap = mutableMapOf<Long, ChainBlock>()
             blockSaveChannel.consumeEach { msgRollForward ->
@@ -324,13 +244,14 @@ class ChainSyncProtocol(
                     )
                     previousBlockMap[savedChainBlock.blockNumber] = savedChainBlock
 
-                    if (canLog()) {
+                    val isTip = msgRollForward.chainTip.hash == msgRollForward.hash
+                    if (canLog() || isTip) {
                         log.info(
-                            "ChainSync: Saved block: ${msgRollForward.blockNumber}, slot: ${msgRollForward.slotNumber}, poolId: ${
-                                savedChainBlock.poolId.substring(
-                                    0..8
-                                )
-                            }..."
+                            "ChainSync: Saved block: ${msgRollForward.blockNumber} of ${msgRollForward.chainTip.block}, %.2f%% synced, poolId: ${
+                                savedChainBlock.poolId.substring(0..8)
+                            }...".format(
+                                msgRollForward.blockNumber.toDouble() / msgRollForward.chainTip.block * 100.0
+                            )
                         )
                     }
                 }
@@ -379,7 +300,6 @@ class ChainSyncProtocol(
             log.error("Error sending stats to pooltool!", e)
         }
     }
-
 
     private val blake2b224 = Blake2bDigest(224)
     private fun nodeVKeyToPoolId(nodeVKey: String): String {
