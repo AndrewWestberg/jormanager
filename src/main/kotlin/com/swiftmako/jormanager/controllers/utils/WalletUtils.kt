@@ -9,7 +9,6 @@ import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
-import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
@@ -29,16 +28,16 @@ import java.math.BigInteger
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class WalletUtils @Autowired constructor(
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val walletRepository: WalletRepository,
-        private val fileRepository: FileRepository,
-        private val argon2PasswordEncoder: Argon2PasswordEncoder,
-        @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
-        private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
-        private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val walletRepository: WalletRepository,
+    private val fileRepository: FileRepository,
+    private val argon2PasswordEncoder: Argon2PasswordEncoder,
+    @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+    private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
+    private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
 ) {
-    private val log by lazy {  LoggerFactory.getLogger(WalletUtils::class.java) }
+    private val log by lazy { LoggerFactory.getLogger(WalletUtils::class.java) }
 
     fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
@@ -47,7 +46,7 @@ class WalletUtils @Autowired constructor(
                 val hostConnection = HostConnection(host, defaultNode)
                 walletRepository.findAllNotDeleted().forEach { walletEntry ->
                     walletItems.add(
-                            getWalletItem(host, hostConnection, magicString, walletEntry)
+                        getWalletItem(host, hostConnection, magicString, walletEntry)
                     )
                 }
             } ?: log.error("Host for default node not found!")
@@ -57,10 +56,10 @@ class WalletUtils @Autowired constructor(
     }
 
     fun getWalletItem(
-            host: Host,
-            hostConnection: HostConnection,
-            magicString: String,
-            walletEntry: WalletEntry
+        host: Host,
+        hostConnection: HostConnection,
+        magicString: String,
+        walletEntry: WalletEntry
     ): WalletItem {
         val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
@@ -80,7 +79,7 @@ class WalletUtils @Autowired constructor(
         val stakingAddrLovelace = stakingInfoString?.let { json ->
             try {
                 val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
-                if(stakeAddressInfos?.isNotEmpty() == true) {
+                if (stakeAddressInfos?.isNotEmpty() == true) {
                     stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
                 } else {
                     null
@@ -94,37 +93,42 @@ class WalletUtils @Autowired constructor(
         val stakingAddrRegistered = stakingAddrLovelace != null
 
         return WalletItem(
-                walletEntry.id!!,
-                walletEntry.name,
-                walletEntry.type,
-                walletEntry.paymentAddr,
-                walletEntry.paymentSkey != null,
-                utxos.size.toLong(),
-                utxos.sumByBigInteger { it.lovelace },
-                walletEntry.stakingAddr,
-                stakingAddrRegistered,
-                stakingAddrLovelace ?: BigInteger.ZERO,
-                utxos.toNativeAssetMap(),
+            walletEntry.id!!,
+            walletEntry.name,
+            walletEntry.type,
+            walletEntry.paymentAddr,
+            walletEntry.paymentSkey != null,
+            utxos.size.toLong(),
+            utxos.sumByBigInteger { it.lovelace },
+            walletEntry.stakingAddr,
+            stakingAddrRegistered,
+            stakingAddrLovelace ?: BigInteger.ZERO,
+            utxos.toNativeAssetMap(),
         )
     }
 
     fun getUtxos(
-            host: Host,
-            hostConnection: HostConnection,
-            magicString: String,
-            paymentAddr: String
+        host: Host,
+        hostConnection: HostConnection,
+        magicString: String,
+        paymentAddr: String
     ): List<Utxo> {
         // find payment_addr balance
         val addressInfoJson = try {
             hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString --out-file=/dev/stdout")
-                    .trim()
+                .trim()
         } catch (t: Throwable) {
             if (t.message?.contains("EraMismatch") == false) {
                 log.error("Error getting payment addr info!", t)
             }
             ""
         }
-        val utxos = queryUtxoJsonAdapter.fromJson(addressInfoJson)
+        val utxos = try {
+            queryUtxoJsonAdapter.fromJson(addressInfoJson)
+        } catch (e: Throwable) {
+            log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
+            throw e
+        }
 
         return utxos ?: emptyList()
     }
