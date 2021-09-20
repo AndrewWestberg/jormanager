@@ -44,7 +44,7 @@ class WalletController @Autowired constructor(
     private val webSocketTemplate: SimpMessagingTemplate,
 ) : CoroutineScope {
 
-    private val log by lazy {  LoggerFactory.getLogger(WalletController::class.java) }
+    private val log by lazy { LoggerFactory.getLogger(WalletController::class.java) }
 
     private val debounceFlow = MutableStateFlow<CalculateFeeRequest?>(null)
 
@@ -353,10 +353,11 @@ class WalletController @Autowired constructor(
                             } else {
                                 toAccount.account.toString()
                             }
-                            var multiAssetString = multiAssetStringMap[destination] ?: ""
+                            var multiAssetString = multiAssetStringMap[destination]
+                                ?: "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+" // start with dummy amount of ada to send
                             multiAssetString += "${toAccount.amount} ${toAccount.currency}"
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-value --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --multi-asset '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             val tokenFee = (minValueResult.split(" ")[1].toBigInteger() - (adaAmountsMap[destination]
                                 ?: BigInteger.ZERO)).takeIf { tokenFee -> tokenFee > BigInteger.ZERO }
@@ -375,9 +376,12 @@ class WalletController @Autowired constructor(
                     val remainingCurrencies = tokenAmounts.filterValues { amount -> amount > BigInteger.ZERO }.keys
                     if (remainingCurrencies.isNotEmpty()) {
                         remainingCurrencies.chunked(NATIVE_ASSET_MAX_GROUP_SIZE).forEach { chunk ->
-                            val multiAssetString = chunk.joinToString(separator = "+1 ", prefix = "1 ")
+                            val multiAssetString = chunk.joinToString(
+                                separator = "+1 ",
+                                prefix = "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+1 "
+                            )
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-value --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --multi-asset '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             tokenKeepFee += minValueResult.split(" ")[1].toBigInteger()
                         }
@@ -1009,7 +1013,7 @@ class WalletController @Autowired constructor(
                         val multiAssetString =
                             chunk.joinToString(separator = "+") { (currency, amount) -> "$amount $currency" }
                         val minValueResult =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-value --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --multi-asset '$multiAssetString'")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'")
                                 .trim()
                         val tokenKeepFee = minValueResult.split(" ")[1].toBigInteger()
 
