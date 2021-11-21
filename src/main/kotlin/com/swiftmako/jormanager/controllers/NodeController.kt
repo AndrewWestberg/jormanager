@@ -279,7 +279,7 @@ class NodeController @Autowired constructor(
 
                         val queryTipString =
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                        val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
+                        val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                         transaction.append("--invalid-hereafter $ttl ")
                         transaction.append("--fee 100 ")
 
@@ -989,7 +989,7 @@ class NodeController @Autowired constructor(
                             val queryTipString =
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
                                     .trim()
-                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
+                            val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
                             transaction.append("--fee 100 ")
 
@@ -1531,7 +1531,7 @@ class NodeController @Autowired constructor(
 
                 val queryTipString =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 
@@ -1919,7 +1919,7 @@ class NodeController @Autowired constructor(
 
                 val queryTipString =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 
@@ -2185,7 +2185,7 @@ class NodeController @Autowired constructor(
 
                 val queryTipString =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
-                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 } ?: -1
+                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
 

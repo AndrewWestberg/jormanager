@@ -3,41 +3,41 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.5.4"
+    id("org.springframework.boot") version "2.6.0"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.39.0"
-    kotlin("jvm") version "1.5.30"
-    kotlin("kapt") version "1.5.30"
-    kotlin("plugin.spring") version "1.5.30"
-    kotlin("plugin.jpa") version "1.5.30"
+    kotlin("jvm") version "1.5.31"
+    kotlin("kapt") version "1.5.31"
+    kotlin("plugin.spring") version "1.5.31"
+    kotlin("plugin.jpa") version "1.5.31"
 }
 
 object Versions {
     const val bouncycastle = "1.69"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE"
-    const val checkerFramework = "3.18.0"
+    const val checkerFramework = "3.19.0"
     const val coroutines = "1.5.2"
-    const val errorprone = "2.9.0"
+    const val errorprone = "2.10.0"
     const val googleTruth = "1.1.3"
-    const val jackson = "2.12.5"
-    const val joda = "2.10.10"
+    const val jackson = "2.13.0"
+    const val joda = "2.10.13"
     const val json = "20210307"
-    const val jsoup = "1.14.2"
-    const val junit = "5.8.0"
+    const val jsoup = "1.14.3"
+    const val junit = "5.8.1"
     const val kotlinxIo = "0.1.16"
-    const val ktor = "1.6.3"
-    const val liquibase = "4.4.3"
-    const val mockk = "1.12.0"
+    const val ktor = "1.6.5"
+    const val liquibase = "4.6.1"
+    const val mockk = "1.12.1"
     const val moshi = "1.12.0"
-    const val okhttp = "4.9.1"
+    const val okhttp = "4.9.2"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.5.2"
-    const val sshj = "0.31.0"
+    const val springSecurity = "5.6.0"
+    const val sshj = "0.32.0"
 }
 
 group = "com.swiftmako"
-version = "5.1.0-SNAPSHOT"
+version = "5.1.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_16
 java.targetCompatibility = JavaVersion.VERSION_16
 

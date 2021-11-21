@@ -214,7 +214,7 @@ class HostConnectionTest {
                     val queryTipString =
                             hostConnection.command("${host.cardanoCliPath} query tip $magicString")
                                     .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 1000 }
+                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
                             ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
                     transaction.append("--fee 100 ")
