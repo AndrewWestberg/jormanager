@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.6.0"
+    id("org.springframework.boot") version "2.6.1"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.39.0"
     kotlin("jvm") version "1.5.31"
@@ -13,31 +13,31 @@ plugins {
 }
 
 object Versions {
-    const val bouncycastle = "1.69"
+    const val bouncycastle = "1.70"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE"
-    const val checkerFramework = "3.19.0"
+    const val checkerFramework = "3.20.0"
     const val coroutines = "1.5.2"
     const val errorprone = "2.10.0"
     const val googleTruth = "1.1.3"
     const val jackson = "2.13.0"
     const val joda = "2.10.13"
-    const val json = "20210307"
+    const val json = "20211205"
     const val jsoup = "1.14.3"
-    const val junit = "5.8.1"
+    const val junit = "5.8.2"
     const val kotlinxIo = "0.1.16"
-    const val ktor = "1.6.5"
-    const val liquibase = "4.6.1"
+    const val ktor = "1.6.7"
+    const val liquibase = "4.6.2"
     const val mockk = "1.12.1"
     const val moshi = "1.12.0"
-    const val okhttp = "4.9.2"
+    const val okhttp = "4.9.3"
     const val retrofit = "2.9.0"
     const val springSecurity = "5.6.0"
     const val sshj = "0.32.0"
 }
 
 group = "com.swiftmako"
-version = "5.1.1-SNAPSHOT"
+version = "5.2.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_16
 java.targetCompatibility = JavaVersion.VERSION_16
 

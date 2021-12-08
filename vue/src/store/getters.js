@@ -100,7 +100,7 @@ export default {
             }
         })
     },
-    currencySelectOptions: () => (walletItem) => {
+    currencySelectOptions: (state, getters) => (walletItem) => {
         let options = [{ value: "ada", text: "₳ - Ada" }]
         if (walletItem.nativeAssetMap === undefined) {
             return options;
@@ -112,7 +112,7 @@ export default {
         return options.concat(_.sortBy(_.map(assetKeys, (assetKey) => {
             return {
                 value: assetKey,
-                text: assetKey.substring(assetKey.indexOf('.') + 1),
+                text: getters.hex2ascii(assetKey.substring(assetKey.indexOf('.') + 1)),
             };
         }), ['text']));
     },
@@ -217,5 +217,18 @@ export default {
         return _.find(state.walletItems, (walletItem) => {
             return walletItem.id === walletId;
         }) || { name: "" };
+    },
+    hex2ascii: () => (hexx) => {
+        var hex = hexx.toString(); //force conversion
+        var str = "";
+        for (var i = 0; i < hex.length; i += 2) {
+            let intVal = parseInt(hex.substr(i, 2), 16);
+            if (intVal < 32 || intVal > 126) {
+                // non-displayable character. Just use the hex value
+                return hexx;
+            }
+            str += String.fromCharCode(intVal);
+        }
+        return str;
     },
 }

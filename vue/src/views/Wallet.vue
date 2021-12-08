@@ -95,7 +95,7 @@
               ).sort()"
               :key="index"
             >
-              {{ name.substring(name.indexOf(".") + 1) }} -
+              {{ hex2ascii(name.substring(name.indexOf(".") + 1)) }} -
               {{ findWalletItemByName(data.item.name).nativeAssetMap[name] }}
               <font-awesome-icon
                 :icon="['fas', 'coins']"
@@ -240,7 +240,7 @@ export default {
   },
   computed: {
     ...mapState(["walletItems"]),
-    ...mapGetters(["stakingFeesSelectOptions"]),
+    ...mapGetters(["stakingFeesSelectOptions", "hex2ascii"]),
     stakingFeesAccountState() {
       return this.stakingAddressForm.stakingFeesAccount != null;
     },

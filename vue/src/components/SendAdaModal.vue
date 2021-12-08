@@ -352,6 +352,7 @@ export default {
       "currencySelectOptions",
       "paymentSelectOptions",
       "walletItemById",
+      "hex2ascii",
     ]),
     metadata() {
       return this.formSendAda.metadata;
@@ -612,7 +613,7 @@ export default {
 
       return this.$options.filters.currency(
         tokens,
-        "(" + currency.split(".")[1] + ") ",
+        "(" + this.hex2ascii(currency.split(".")[1]) + ") ",
         0
       );
     },
@@ -634,7 +635,7 @@ export default {
       }
       return {
         currency: {
-          prefix: "(" + currency.split(".")[1] + ") ",
+          prefix: "(" + this.hex2ascii(currency.split(".")[1]) + ") ",
           suffix: null,
         },
         allowNegative: false,
@@ -648,7 +649,7 @@ export default {
     },
     amountPlaceholder(currency) {
       if (currency === "ada") return "e.g. ₳1,230.987000";
-      return "e.g. (" + currency.split(".")[1] + ") 1,230";
+      return "e.g. (" + this.hex2ascii(currency.split(".")[1]) + ") 1,230";
     },
     amountRemainingLabel(index, currency) {
       return this.formatCurrency(
