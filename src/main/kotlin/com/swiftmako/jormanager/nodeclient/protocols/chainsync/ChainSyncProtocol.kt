@@ -80,7 +80,7 @@ class ChainSyncProtocol(
 
         Pair(4492799L, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457".hexToByteArray()), //mainnet
         Pair(1598399L, "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4".hexToByteArray()), //testnet
-        Pair(359L, "9c0fe75b6a0499e9576a09589a5777e7021824e8a6d037065829423f861a9bb6".hexToByteArray()), //guild
+        Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), //guild
     )
     private val blockSaveChannel = Channel<MsgRollForward>(Channel.UNLIMITED)
 

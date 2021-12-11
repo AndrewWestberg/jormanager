@@ -16,6 +16,7 @@
     "bootstrap-vue": "^2.21.2",
     "bs58check": "^2.1.2",
     "core-js": "^3.10.0",
+    "json-bigint": "^1.0.0",
     "lodash": "^4.17.20",
     "moment-timezone": "^0.5.33",
     "sockjs-client": "^1.5.1",

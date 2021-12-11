@@ -1,6 +1,7 @@
 import SockJS from "sockjs-client";
 import Stomp from "webstomp-client";
 import _ from 'lodash';
+import JSONBIG from 'json-bigint';
 
 export default {
     connectToServer: ({
@@ -32,7 +33,7 @@ export default {
         getters
     }) => {
         state.stompClient.subscribe("/topic/messages", tick => {
-            let message = JSON.parse(tick.body)
+            let message = JSONBIG.parse(tick.body)
             switch (message.type) {
                 case "version":
                     commit('setAppVersion', message.data)
