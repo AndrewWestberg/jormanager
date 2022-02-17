@@ -64,6 +64,7 @@ class WalletUtils @Autowired constructor(
         val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
+        val start = System.currentTimeMillis()
         val stakingInfoString = if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
             try {
                 hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString")
@@ -90,6 +91,10 @@ class WalletUtils @Autowired constructor(
             }
         }
 
+        (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
+            log.warn("stakeAddressInfo: ${walletEntry.stakingAddr}, ${it}ms")
+        }
+
         val stakingAddrRegistered = stakingAddrLovelace != null
 
         return WalletItem(
@@ -114,6 +119,7 @@ class WalletUtils @Autowired constructor(
         paymentAddr: String
     ): List<Utxo> {
         // find payment_addr balance
+        val start = System.currentTimeMillis()
         val addressInfoJson = try {
             hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString --out-file=/dev/stdout")
                 .trim()
@@ -128,6 +134,10 @@ class WalletUtils @Autowired constructor(
         } catch (e: Throwable) {
             log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
             throw e
+        }
+
+        (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
+            log.warn("queryUtxo: $paymentAddr, ${it}ms")
         }
 
         return utxos ?: emptyList()

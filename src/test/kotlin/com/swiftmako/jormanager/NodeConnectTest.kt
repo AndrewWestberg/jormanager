@@ -8,21 +8,14 @@ import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.moshi.adapters.LeaderLogLedgerJsonAdapter
-import com.swiftmako.jormanager.nodeclient.protocols.mux.MuxProtocol
-import com.swiftmako.jormanager.repositories.ChainRepository
-import io.mockk.every
-import io.mockk.mockk
-import kotlinx.coroutines.runBlocking
 import okio.buffer
 import okio.source
 import org.junit.jupiter.api.Test
-import org.springframework.data.domain.Pageable
 import java.io.File
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
 import java.nio.ByteBuffer
-import java.util.stream.Stream
 import kotlin.experimental.xor
 import kotlin.math.abs
 import kotlin.math.exp
@@ -56,7 +49,8 @@ class NodeConnectTest {
 
                 val computeTime = measureTimeMillis {
                     val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
+                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
+                            .toBigInteger()
                     }.toMap()
                     val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
 //                    it[1] == "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
@@ -67,7 +61,9 @@ class NodeConnectTest {
                     }.sumByBigInteger { it }
 
                     val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
-                    val percentOfTotalStake = BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP).times(BigDecimal(100L))
+                    val percentOfTotalStake =
+                        BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP)
+                            .times(BigDecimal(100L))
 
                     println("Active Stake: $activeStake lovelace")
                     println("Total Stake: $totalStake lovelace")
@@ -83,7 +79,8 @@ class NodeConnectTest {
     fun testNewLedgerState() {
         val duration = measureTimeMillis {
             val moshi = Moshi.Builder().build()
-            val leaderLogLedgerAdapter = LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
+            val leaderLogLedgerAdapter =
+                LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
             File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
                 val leaderLogLedger = leaderLogLedgerAdapter.fromJson(source)
                 println(leaderLogLedger)
@@ -130,7 +127,10 @@ class NodeConnectTest {
 //        val newEtaV = SodiumLibrary.cryptoBlake2bHash(eta_v + eta, null)
 //        assertThat(newEtaV.toHexString()).isEqualTo("1182cb17f29c6ea3e94bcfaac8d39b2c7745410d766ab3dcbb47ea4f83f1357a")
 
-        println(SodiumLibrary.cryptoBlake2bHash(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00), null).toHexString())
+        println(
+            SodiumLibrary.cryptoBlake2bHash(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00), null)
+                .toHexString()
+        )
 
     }
 
@@ -180,7 +180,8 @@ class NodeConnectTest {
         // output of mkseed for slot 7397153L
         val mkSeed = "7e2a4eff14e47fa5d8df184a1d6c3e8906837224a7f9392d1994293a4bc6d709".hexToByteArray()
         // prfit.vrf.skey
-        val tpraosCanBeLeaderSignKeyVRF = "30780cc944d4c32d5774d1b1c102f69ca9xxxxxxxxxxxxxxxxxxxxxxdec9532f09162a3ec9fa00531afea9c26bddbb663fe95904e9076fd86b94f9c075b83fd30".hexToByteArray()
+        val tpraosCanBeLeaderSignKeyVRF =
+            "30780cc944d4c32d5774d1b1c102f69ca9xxxxxxxxxxxxxxxxxxxxxxdec9532f09162a3ec9fa00531afea9c26bddbb663fe95904e9076fd86b94f9c075b83fd30".hexToByteArray()
 
         val certifiedProof = SodiumLibrary.cryptoVrfProve(tpraosCanBeLeaderSignKeyVRF, mkSeed)
         println("certifiedProof ${certifiedProof.size} bytes")
@@ -200,7 +201,8 @@ class NodeConnectTest {
         println("loading libsodium...")
         SodiumLibrary.setLibraryPath(libraryPath)
 
-        val certNatByteArray = ("00" + "ba4d3bd56de3a92a0c8d14189b54267c1c935a7103057c9e50de6ba0276199d2910186635730ac5a6ebbd750d45a389357431a8e611c0ad6bd9357d607eaa609").hexToByteArray()
+        val certNatByteArray =
+            ("00" + "ba4d3bd56de3a92a0c8d14189b54267c1c935a7103057c9e50de6ba0276199d2910186635730ac5a6ebbd750d45a389357431a8e611c0ad6bd9357d607eaa609").hexToByteArray()
 
         val certNat = BigInteger(certNatByteArray)
         println("certNat = $certNat")
@@ -240,7 +242,9 @@ class NodeConnectTest {
 
     private fun isOverlaySlot(firstSlotOfEpoch: Long, currentSlot: Long, d: BigDecimal): Boolean {
         val diffSlot = abs(currentSlot - firstSlotOfEpoch)
-        return d.times(diffSlot.toBigDecimal()).setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal()).setScale(0, RoundingMode.CEILING)
+        return d.times(diffSlot.toBigDecimal())
+            .setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal())
+            .setScale(0, RoundingMode.CEILING)
     }
 
     @Test

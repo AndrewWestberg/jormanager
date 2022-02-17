@@ -70,6 +70,7 @@ class NodeControllerTest {
                 port = 6001,
                 genesisByronFileId = 1L,
                 genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
                 generateColdKeys = true,
                 coldSKey = null,
                 coldVKey = null,

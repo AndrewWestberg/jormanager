@@ -1,13 +1,18 @@
 package com.swiftmako.jormanager
 
+import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
-import org.springframework.boot.test.context.SpringBootTest
 
-@SpringBootTest
 class JormanagerApplicationTests {
 
-	@Test
-	fun contextLoads() {
-	}
+    @Test
+    fun contextLoads() {
+    }
 
+    @Test
+    fun testStringToBigDecimal() {
+        val input = ".01"
+
+        assertThat(input.toBigDecimal().toString()).isEqualTo("0.01")
+    }
 }

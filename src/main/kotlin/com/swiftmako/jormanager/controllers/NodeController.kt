@@ -651,7 +651,7 @@ class NodeController @Autowired constructor(
                             append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
                             append("--pool-pledge ${request.poolPledge} ")
                             append("--pool-cost ${request.poolCost} ")
-                            append("--pool-margin ${request.poolMargin} ")
+                            append("--pool-margin ${request.poolMargin.toBigDecimal()} ")
                             append("--pool-reward-account-verification-key-file /tmp/rewards.staking.vkey ")
                             append("--pool-owner-stake-verification-key-file /tmp/owner.staking.vkey ")
                             request.relays?.forEach { relay ->
