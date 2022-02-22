@@ -5,13 +5,11 @@ import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.Config
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlocksForSyncStart
+import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
-import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.repositories.FileRepository
-import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.*
 import com.swiftmako.jormanager.services.PooltoolService
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
@@ -39,6 +37,8 @@ class ChainMonitor @Autowired constructor(
     private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val configAdapter: JsonAdapter<Config>,
     private val pooltoolService: PooltoolService,
+    private val blockFetchRepository: BlockFetchRepository,
+    private val ledgerRepository: LedgerRepository,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log by lazy { LoggerFactory.getLogger(ChainMonitor::class.java) }
@@ -102,7 +102,8 @@ class ChainMonitor @Autowired constructor(
                                     ).also {
                                         // launch coroutine to save blocks
                                         it.initBlockReceiveHandler(this@launch)
-                                    }
+                                    },
+                                    BlockFetchProtocol(chainRepository, blockFetchRepository, ledgerRepository)
                                 )
                             }
                     }

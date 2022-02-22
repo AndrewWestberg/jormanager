@@ -34,5 +34,6 @@
     <include file="changelog/027-update-blocks-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/028-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/029-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/030-create-ledger-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

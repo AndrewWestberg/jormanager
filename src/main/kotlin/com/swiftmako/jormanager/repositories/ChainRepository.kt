@@ -27,6 +27,9 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Query("SELECT MAX(c.slotNumber) FROM ChainBlock c")
     fun findSyncedTip(): Long
 
+    @Query("SELECT MAX(c.blockNumber) FROM ChainBlock c")
+    fun findTipBlockNumber(): Long
+
     @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber > :firstSlot AND c.slotNumber <= :lastSlot")
     fun findBetweenSlots(@Param("firstSlot") firstSlot: Long, @Param("lastSlot") lastSlot: Long): List<ChainBlock>
 

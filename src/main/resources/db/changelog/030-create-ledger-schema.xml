@@ -1,0 +1,88 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="030" author="Andrew Westberg">
+
+        <!-- Stores blocks that have been fully fetched and merged into the ledger -->
+        <createTable tableName="blockfetch">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="block_number" type="bigint"/>
+            <column name="slot_number" type="bigint"/>
+            <column name="hash" type="varchar(255)"/>
+            <column name="prev_hash" type="varchar(255)"/>
+        </createTable>
+
+        <createTable tableName="ledger">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="address" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stake_address" type="varchar(255)"/>
+        </createTable>
+
+        <createTable tableName="ledger_utxos">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="ledger_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_ledger_utxos_ledger_id_id" references="ledger(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="tx_id" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tx_ix" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lovelace" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="block_created" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="slot_created" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="block_spent" type="bigint"/>
+            <column name="slot_spent" type="bigint"/>
+        </createTable>
+
+        <createTable tableName="ledger_assets">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="policy" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="image" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="varchar(255)"/>
+        </createTable>
+
+        <createTable tableName="ledger_utxo_assets">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="ledger_utxo_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_ledger_utxo_id_id" references="ledger_utxos(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="ledger_asset_id" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="amount" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+    </changeSet>
+</databaseChangeLog>
