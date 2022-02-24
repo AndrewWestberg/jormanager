@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
 import com.swiftmako.jormanager.repositories.*
 import com.swiftmako.jormanager.services.PooltoolService
+import com.swiftmako.jormanager.utils.CardanoUtils
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
@@ -30,6 +31,7 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class ChainMonitor @Autowired constructor(
+    private val cardanoUtils: CardanoUtils,
     private val chainRepository: ChainRepository,
     private val hostRepository: HostRepository,
     private val nodeRepository: NodeRepository,
@@ -39,6 +41,7 @@ class ChainMonitor @Autowired constructor(
     private val pooltoolService: PooltoolService,
     private val blockFetchRepository: BlockFetchRepository,
     private val ledgerRepository: LedgerRepository,
+    private val ledgerDao: LedgerDao,
 ) : SmartLifecycle, CoroutineScope {
 
     private val log by lazy { LoggerFactory.getLogger(ChainMonitor::class.java) }
@@ -103,7 +106,13 @@ class ChainMonitor @Autowired constructor(
                                         // launch coroutine to save blocks
                                         it.initBlockReceiveHandler(this@launch)
                                     },
-                                    BlockFetchProtocol(chainRepository, blockFetchRepository, ledgerRepository)
+                                    BlockFetchProtocol(
+                                        cardanoUtils,
+                                        chainRepository,
+                                        blockFetchRepository,
+                                        ledgerRepository,
+                                        ledgerDao,
+                                    )
                                 )
                             }
                     }

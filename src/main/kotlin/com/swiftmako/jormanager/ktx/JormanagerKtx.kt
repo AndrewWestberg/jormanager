@@ -21,8 +21,12 @@ inline fun <T> Iterable<T>.sumByBigInteger(selector: (T) -> BigInteger): BigInte
 }
 
 fun CborArray.elementToLong(index: Int): Long {
+    return this.elementToBigInteger(index).toLong()
+}
+
+fun CborArray.elementToBigInteger(index: Int): BigInteger {
     val obj = elementAt(index).toJavaObject()
-    return (obj as? Long) ?: (obj as Int).toLong()
+    return (obj as? BigInteger) ?: (obj as? Long)?.toBigInteger() ?: (obj as Int).toBigInteger()
 }
 
 fun CborArray.elementToByteArray(index: Int): ByteArray {

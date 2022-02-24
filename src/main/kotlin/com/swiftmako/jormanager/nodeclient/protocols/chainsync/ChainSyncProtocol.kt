@@ -18,10 +18,12 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.digests.Blake2bDigest
@@ -253,6 +255,10 @@ class ChainSyncProtocol(
                                 msgRollForward.blockNumber.toDouble() / msgRollForward.chainTip.block * 100.0
                             )
                         )
+
+                        // Notify that a new block has arrived. If we're not on tip, we don't emit every block so
+                        // we can hopefully BlockFetch a group at a time.
+                        newBlockMutableSharedFlow.emit(msgRollForward.hash)
                     }
                 }
             }
@@ -343,5 +349,10 @@ class ChainSyncProtocol(
         CanAwait,
         MustReply,
         Done
+    }
+
+    companion object {
+        private val newBlockMutableSharedFlow = MutableSharedFlow<String>(onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        val newBlockFlow = newBlockMutableSharedFlow.distinctUntilChanged()
     }
 }

@@ -30,6 +30,12 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Query("SELECT MAX(c.blockNumber) FROM ChainBlock c")
     fun findTipBlockNumber(): Long
 
+    @Query(value = "SELECT c.* FROM chain c ORDER BY c.block_number DESC LIMIT 1", nativeQuery = true)
+    fun findTipBlock(): ChainBlock?
+
+    @Query("SELECT c.* FROM chain c ORDER BY c.block_number ASC LIMIT 1", nativeQuery = true)
+    fun findStartBlock(): ChainBlock?
+
     @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber > :firstSlot AND c.slotNumber <= :lastSlot")
     fun findBetweenSlots(@Param("firstSlot") firstSlot: Long, @Param("lastSlot") lastSlot: Long): List<ChainBlock>
 
