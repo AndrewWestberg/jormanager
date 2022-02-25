@@ -151,6 +151,7 @@ tasks.withType<KotlinCompile> {
         freeCompilerArgs = listOf(
             "-Xjsr305=strict",
             "-Xopt-in=kotlin.RequiresOptIn",
+            "-Xopt-in=io.ktor.utils.io.core.ExperimentalIoApi",
         )
         jvmTarget = "16"
     }

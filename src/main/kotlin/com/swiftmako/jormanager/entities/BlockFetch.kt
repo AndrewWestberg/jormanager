@@ -15,5 +15,5 @@ data class BlockFetch(
     @Column(name = "hash")
     val hash: String,
     @Column(name = "prev_hash")
-    val prev_hash: String,
+    val prevHash: String,
 )

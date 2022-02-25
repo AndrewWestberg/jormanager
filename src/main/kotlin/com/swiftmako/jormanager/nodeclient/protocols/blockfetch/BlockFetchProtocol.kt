@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.nodeclient.protocols.blockfetch
 
 import com.firehose.controllers.nodeclient.protocol.Agency
 import com.google.iot.cbor.*
+import com.swiftmako.jormanager.entities.BlockFetch
 import com.swiftmako.jormanager.ktx.*
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAsset
@@ -30,20 +31,19 @@ import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.data.jpa.repository.Modifying
 import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
-import java.util.concurrent.Executors
 import javax.transaction.Transactional
 import kotlin.math.min
+import kotlin.system.exitProcess
 import kotlin.system.measureTimeMillis
 
 class BlockFetchProtocol(
@@ -54,23 +54,28 @@ class BlockFetchProtocol(
     private val ledgerDao: LedgerDao,
 ) : MiniProtocol(protocolId = 0x0003.toShort()) {
 
+    companion object {
+        private const val BLOCK_BUFFER_SIZE = 100
+
+        private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
+        private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
+
+        //private val TX_CERTS_INDEX = CborInteger.create(4)
+        private val TX_MINTS_INDEX = CborInteger.create(9)
+
+        //private val POOL_REGISTRATION = BigInteger.valueOf(3L)
+
+        private val NFT_METADATA_KEY = CborInteger.create(721)
+        private val NFT_METADATA_KEY_NAME = CborTextString.create("name")
+        private val NFT_METADATA_KEY_IMAGE = CborTextString.create("image")
+        private val NFT_METADATA_KEY_DESC = CborTextString.create("description")
+        //private val FT_METADATA_KEY_DECIMALS = CborTextString.create("name")
+        //private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
+    }
+
     private val log by lazy { LoggerFactory.getLogger(BlockFetchProtocol::class.java) }
 
-    private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
-    private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
-    private val TX_CERTS_INDEX = CborInteger.create(4)
-    private val TX_MINTS_INDEX = CborInteger.create(9)
-
-    private val POOL_REGISTRATION = BigInteger.valueOf(3L)
-
-    private val NFT_METADATA_KEY = CborInteger.create(721)
-    private val NFT_METADATA_KEY_NAME = CborTextString.create("name")
-    private val NFT_METADATA_KEY_IMAGE = CborTextString.create("image")
-    private val NFT_METADATA_KEY_DESC = CborTextString.create("description")
-    private val FT_METADATA_KEY_DECIMALS = CborTextString.create("name")
-    private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
-
-    override val RX_BUFFER_SIZE: Int = 128 * 1024
+    override val RX_BUFFER_SIZE: Int = 1_048_576 // 1mb
 
     private var state = State.Idle
         set(value) {
@@ -115,6 +120,7 @@ class BlockFetchProtocol(
                         )
                     )!!
                     val payload = muxByteBufferPool.borrow()
+                    //log.warn("MsgRequestRange at beginning. from ${startChainBlock.blockNumber} to ${endChainBlock.blockNumber}")
                     MsgRequestRange(
                         start = Pair(startChainBlock.slotNumber, startChainBlock.hash.hexToByteArray()),
                         end = Pair(endChainBlock.slotNumber, endChainBlock.hash.hexToByteArray()),
@@ -128,19 +134,22 @@ class BlockFetchProtocol(
                     if (difference == 0L) {
                         // re-fetch the tip block. We must have rolled back
                         val point = Pair(chainBlock.slotNumber, chainBlock.hash.hexToByteArray())
+                        //log.warn("MsgRequestRange at tip. from ${chainBlock.blockNumber} to ${chainBlock.blockNumber}")
                         MsgRequestRange(start = point, end = point).writeToBuffer(payload)
                     } else if (difference > 100L) {
                         // only fetch 100 blocks
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
-                        val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 101)!!
+                        val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 100)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())
                         val endPoint = Pair(endBlock.slotNumber, endBlock.hash.hexToByteArray())
+                        //log.warn("MsgRequestRange in middle. from ${startBlock.blockNumber} to ${endBlock.blockNumber}")
                         MsgRequestRange(start = startPoint, end = endPoint).writeToBuffer(payload)
                     } else {
                         // fetch remaining blocks up to tip
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())
                         val endPoint = Pair(chainBlock.slotNumber, chainBlock.hash.hexToByteArray())
+                        //log.warn("MsgRequestRange catchup. from ${startBlock.blockNumber} to ${chainBlock.blockNumber}")
                         MsgRequestRange(start = startPoint, end = endPoint).writeToBuffer(payload)
                     }
                     state = State.Busy
@@ -175,6 +184,7 @@ class BlockFetchProtocol(
                                     state = State.Idle
                                 }
                                 MsgStartBatch.MESSAGE_ID -> {
+                                    //log.warn("MsgStartBatch")
                                     state = State.Streaming
                                 }
                             }
@@ -182,9 +192,11 @@ class BlockFetchProtocol(
                         State.Streaming -> {
                             when (messageId) {
                                 MsgBatchDone.MESSAGE_ID -> {
+                                    //log.warn("MsgBatchDone")
                                     state = State.Idle
                                 }
                                 MsgBlock.MESSAGE_ID -> {
+                                    //log.warn("MsgBlock: ${blockBuffer.size + 1}")
                                     processBlock(cborArray)
                                     state = State.Streaming
                                 }
@@ -226,31 +238,24 @@ class BlockFetchProtocol(
             val slotNumber = blockHeaderCborArrayInner.elementToBigInteger(1).toLong()
 
             val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
-            val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
-            val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
-            val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
-            val etaVrf0 = nonceCborArray.elementToHexString(0)
-            val etaVrf1 = nonceCborArray.elementToHexString(1)
-            val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
-            val leaderVrf0 = leaderCborArray.elementToHexString(0)
-            val leaderVrf1 = leaderCborArray.elementToHexString(1)
-            val blockSize = blockHeaderCborArrayInner.elementToBigInteger(7).toInt()
-            val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
-            val poolOpcert = blockHeaderCborArrayInner.elementToHexString(9)
-            val sequenceNumber = blockHeaderCborArrayInner.elementToBigInteger(10).toInt()
-            val kesPeriod = blockHeaderCborArrayInner.elementToBigInteger(11).toInt()
-            val sigmaSignature = blockHeaderCborArrayInner.elementToHexString(12)
-            val protocolMajorVersion = blockHeaderCborArrayInner.elementToBigInteger(13).toInt()
-            val protocolMinorVersion = blockHeaderCborArrayInner.elementToBigInteger(14).toInt()
+//            val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
+//            val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
+//            val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
+//            val etaVrf0 = nonceCborArray.elementToHexString(0)
+//            val etaVrf1 = nonceCborArray.elementToHexString(1)
+//            val leaderCborArray = blockHeaderCborArrayInner.elementAt(6) as CborArray
+//            val leaderVrf0 = leaderCborArray.elementToHexString(0)
+//            val leaderVrf1 = leaderCborArray.elementToHexString(1)
+//            val blockSize = blockHeaderCborArrayInner.elementToBigInteger(7).toInt()
+//            val blockBodyHash = blockHeaderCborArrayInner.elementToHexString(8)
+//            val poolOpcert = blockHeaderCborArrayInner.elementToHexString(9)
+//            val sequenceNumber = blockHeaderCborArrayInner.elementToBigInteger(10).toInt()
+//            val kesPeriod = blockHeaderCborArrayInner.elementToBigInteger(11).toInt()
+//            val sigmaSignature = blockHeaderCborArrayInner.elementToHexString(12)
+//            val protocolMajorVersion = blockHeaderCborArrayInner.elementToBigInteger(13).toInt()
+//            val protocolMinorVersion = blockHeaderCborArrayInner.elementToBigInteger(14).toInt()
 
-            // parse tip
-            val tipCborArray = cborArray.elementAt(2) as CborArray
-            val tipInfoCborArray = tipCborArray.elementAt(0) as CborArray
-            val tipSlot = tipInfoCborArray.elementToBigInteger(0).toLong()
-            val tipHash = tipInfoCborArray.elementToHexString(1)
-            val tipBlockHeight = tipCborArray.elementToBigInteger(1).toLong()
-
-            val transactionIdsInBlock = mutableListOf<String>()
+//            val transactionIdsInBlock = mutableListOf<String>()
             val spentUtxos = mutableSetOf<SpentUtxo>()
             val createdUtxos = mutableSetOf<CreatedUtxo>()
             val nativeAssetsToMint =
@@ -451,10 +456,12 @@ class BlockFetchProtocol(
                 }
             }
 
-            val isTip = hash == tipHash
+            val isTip = hash == ChainSyncProtocol.tipHash
             queueSaveBlockToLedger(
                 slotNumber,
                 blockNumber,
+                hash,
+                prevHash,
                 spentUtxos,
                 createdUtxos,
                 nativeAssetsMetadata,
@@ -462,13 +469,10 @@ class BlockFetchProtocol(
             )
         } catch (e: Throwable) {
             log.error("Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}")
+            log.error("Exception!", e)
+            runBlocking { delay(1000) }
+            exitProcess(1)
         }
-    }
-
-    private val commitBlocksScope = CoroutineScope(Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher())
-
-    companion object {
-        private const val BLOCK_BUFFER_SIZE = 100
     }
 
     private val blockBuffer: MutableList<LedgerBlock> = mutableListOf()
@@ -476,6 +480,8 @@ class BlockFetchProtocol(
     private fun queueSaveBlockToLedger(
         slotNumber: Long,
         blockNumber: Long,
+        hash: String,
+        prevHash: String,
         spentUtxos: Set<SpentUtxo>,
         createdUtxos: Set<CreatedUtxo>,
         nativeAssetsMetadata: Set<NativeAssetMetadata>,
@@ -485,6 +491,8 @@ class BlockFetchProtocol(
             LedgerBlock(
                 slotNumber,
                 blockNumber,
+                hash,
+                prevHash,
                 spentUtxos,
                 createdUtxos,
                 nativeAssetsMetadata,
@@ -494,17 +502,15 @@ class BlockFetchProtocol(
         if (blockBuffer.size == BLOCK_BUFFER_SIZE || isTip) {
             val blocksToCommit: List<LedgerBlock> = mutableListOf<LedgerBlock>().apply { addAll(blockBuffer) }
             blockBuffer.clear()
-            commitBlocksScope.launch {
-                commitBlocks(blocksToCommit, isTip)
-            }
+            commitBlocks(blocksToCommit, isTip)
         }
     }
 
     @Transactional
     @Modifying
-    private fun commitBlocks(blockBuffer: List<LedgerBlock>, isTip: Boolean) {
+    private fun commitBlocks(blocksToCommit: List<LedgerBlock>, isTip: Boolean) {
 //        if (!isTip) {
-//            log.warn("starting commitBlocks()...")
+//            log.warn("starting commitBlocks() with ${blocksToCommit.size} blocks...")
 //        }
         var rollbackTime = 0L
         var nativeAssetTime = 0L
@@ -513,10 +519,11 @@ class BlockFetchProtocol(
         var pruneTime = 0L
         measureTimeMillis {
 //            warnLongQueriesDuration = 200L
-            blockBuffer.forEach { ledgerBlock ->
+            blocksToCommit.forEach { ledgerBlock ->
                 ledgerBlock.apply {
                     // Mark same block number as rolled back
                     rollbackTime += measureTimeMillis {
+                        blockFetchRepository.doRollbackDelete(blockNumber)
                         ledgerRepository.doRollbackDelete(blockNumber)
                         ledgerRepository.doRollbackUpdate(blockNumber)
                     }
@@ -535,23 +542,40 @@ class BlockFetchProtocol(
                     spendTime += measureTimeMillis {
                         ledgerDao.spendUtxos(slotNumber, blockNumber, spentUtxos)
                     }
+
+                    // Mark this block as fetched
+                    blockFetchRepository.save(
+                        BlockFetch(
+                            blockNumber = blockNumber,
+                            slotNumber = slotNumber,
+                            hash = hash,
+                            prevHash = prevHash
+                        )
+                    )
                 }
             }
 
             // Prune any old spent utxos we don't need any longer older than 30 minutes
             pruneTime = measureTimeMillis {
-                ledgerRepository.pruneSpent(cardanoUtils.getCurrentSlot())
+                ledgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
             }
         }.also { totalTime ->
             if (isTip && totalTime > 500L) {
                 log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
             }
+            log.info(
+                "BlockFetch: Saved block: ${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
+                    blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+                )
+            )
         }
     }
 
     private class LedgerBlock(
         val slotNumber: Long,
         val blockNumber: Long,
+        val hash: String,
+        val prevHash: String,
         val spentUtxos: Set<SpentUtxo>,
         val createdUtxos: Set<CreatedUtxo>,
         val nativeAssetsMetadata: Set<NativeAssetMetadata>

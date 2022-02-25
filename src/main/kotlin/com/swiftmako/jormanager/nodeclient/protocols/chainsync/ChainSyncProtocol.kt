@@ -161,6 +161,8 @@ class ChainSyncProtocol(
                                             // sync mode
                                             runBlocking {
                                                 blockSaveChannel.send(msgRollForward)
+                                                tipBlockNumber = msgRollForward.chainTip.block
+                                                tipHash = msgRollForward.chainTip.hash
                                             }
                                         }
                                     }
@@ -352,7 +354,13 @@ class ChainSyncProtocol(
     }
 
     companion object {
-        private val newBlockMutableSharedFlow = MutableSharedFlow<String>(onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        private val newBlockMutableSharedFlow = MutableSharedFlow<String>(
+            replay = 0,
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST
+        )
         val newBlockFlow = newBlockMutableSharedFlow.distinctUntilChanged()
+        var tipBlockNumber: Long = 0L
+        var tipHash: String = ""
     }
 }

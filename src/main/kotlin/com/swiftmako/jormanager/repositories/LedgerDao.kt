@@ -1,6 +1,9 @@
 package com.swiftmako.jormanager.repositories
 
 import com.swiftmako.jormanager.entities.LedgerAddress
+import com.swiftmako.jormanager.entities.LedgerAsset
+import com.swiftmako.jormanager.entities.LedgerUtxo
+import com.swiftmako.jormanager.entities.LedgerUtxoAsset
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAssetMetadata
 import com.swiftmako.jormanager.model.SpentUtxo
@@ -13,7 +16,12 @@ import javax.transaction.Transactional
 
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-class LedgerDao @Autowired constructor(private val ledgerRepository: LedgerRepository) {
+class LedgerDao @Autowired constructor(
+    private val ledgerRepository: LedgerRepository,
+    private val ledgerUtxoRepository: LedgerUtxoRepository,
+    private val ledgerAssetRepository: LedgerAssetRepository,
+    private val ledgerUtxoAssetRepository: LedgerUtxoAssetRepository,
+) {
 
     @Transactional
     @Modifying
@@ -24,20 +32,21 @@ class LedgerDao @Autowired constructor(private val ledgerRepository: LedgerRepos
                 name = nativeAssetMetadata.assetName
             )?.let { ledgerAsset ->
                 // Do update
-                ledgerRepository.updateLedgerAsset(
-                    ledgerAsset.id!!,
-                    nativeAssetMetadata.assetPolicy,
-                    nativeAssetMetadata.assetName,
-                    nativeAssetMetadata.metadataImage,
-                    nativeAssetMetadata.metadataDescription,
+                ledgerAssetRepository.save(
+                    ledgerAsset.copy(
+                        image = nativeAssetMetadata.metadataImage,
+                        description = nativeAssetMetadata.metadataDescription
+                    )
                 )
             } ?: run {
                 // Do insert
-                ledgerRepository.insertLedgerAsset(
-                    nativeAssetMetadata.assetPolicy,
-                    nativeAssetMetadata.assetName,
-                    nativeAssetMetadata.metadataImage,
-                    nativeAssetMetadata.metadataDescription,
+                ledgerAssetRepository.save(
+                    LedgerAsset(
+                        policy = nativeAssetMetadata.assetPolicy,
+                        name = nativeAssetMetadata.assetName,
+                        image = nativeAssetMetadata.metadataImage,
+                        description = nativeAssetMetadata.metadataDescription,
+                    )
                 )
             }
         }
@@ -55,32 +64,38 @@ class LedgerDao @Autowired constructor(private val ledgerRepository: LedgerRepos
                     )
                 ).id!!
 
-            val ledgerUtxoTableId = ledgerRepository.insertLedgerUtxo(
-                ledgerTableId,
-                createdUtxo.hash,
-                createdUtxo.ix.toInt(),
-                createdUtxo.lovelace.toString(),
-                blockNumber,
-                slotNumber,
-                null,
-                null,
-            )
+            val ledgerUtxoTableId = ledgerUtxoRepository.save(
+                LedgerUtxo(
+                    ledgerId = ledgerTableId,
+                    txId = createdUtxo.hash,
+                    txIx = createdUtxo.ix.toInt(),
+                    lovelace = createdUtxo.lovelace.toString(),
+                    blockCreated = blockNumber,
+                    slotCreated = slotNumber,
+                    blockSpent = null,
+                    slotSpent = null,
+                )
+            ).id!!
 
             createdUtxo.nativeAssets.forEach { nativeAsset ->
                 val ledgerAssetTableId =
                     ledgerRepository.getLedgerAssetByPolicyAndName(nativeAsset.policy, nativeAsset.name)?.id ?: run {
-                        ledgerRepository.insertLedgerAsset(
-                            nativeAsset.policy,
-                            nativeAsset.name,
-                            "",
-                            null,
-                        )
+                        ledgerAssetRepository.save(
+                            LedgerAsset(
+                                policy = nativeAsset.policy,
+                                name = nativeAsset.name,
+                                image = "",
+                                description = null,
+                            )
+                        ).id!!
                     }
 
-                ledgerRepository.insertLedgerUtxoAsset(
-                    ledgerUtxoTableId,
-                    ledgerAssetTableId,
-                    nativeAsset.amount.toString()
+                ledgerUtxoAssetRepository.save(
+                    LedgerUtxoAsset(
+                        ledgerUtxoId = ledgerUtxoTableId,
+                        ledgerAssetId = ledgerAssetTableId,
+                        amount = nativeAsset.amount.toString(),
+                    )
                 )
             }
         }
