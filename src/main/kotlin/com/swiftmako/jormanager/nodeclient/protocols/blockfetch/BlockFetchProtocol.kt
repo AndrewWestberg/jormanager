@@ -55,7 +55,7 @@ class BlockFetchProtocol(
 ) : MiniProtocol(protocolId = 0x0003.toShort()) {
 
     companion object {
-        private const val BLOCK_BUFFER_SIZE = 100
+        private const val BLOCK_BUFFER_SIZE = 50L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -116,7 +116,7 @@ class BlockFetchProtocol(
                     val endChainBlock = chainRepository.findByBlockNumber(
                         startChainBlock.blockNumber + min(
                             chainBlock.blockNumber - startChainBlock.blockNumber,
-                            100L
+                            BLOCK_BUFFER_SIZE
                         )
                     )!!
                     val payload = muxByteBufferPool.borrow()
@@ -139,7 +139,7 @@ class BlockFetchProtocol(
                     } else if (difference > 100L) {
                         // only fetch 100 blocks
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
-                        val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 100)!!
+                        val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + BLOCK_BUFFER_SIZE)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())
                         val endPoint = Pair(endBlock.slotNumber, endBlock.hash.hexToByteArray())
                         //log.warn("MsgRequestRange in middle. from ${startBlock.blockNumber} to ${endBlock.blockNumber}")
@@ -499,7 +499,7 @@ class BlockFetchProtocol(
             )
         )
 
-        if (blockBuffer.size == BLOCK_BUFFER_SIZE || isTip) {
+        if (blockBuffer.size.toLong() == BLOCK_BUFFER_SIZE || isTip) {
             val blocksToCommit: List<LedgerBlock> = mutableListOf<LedgerBlock>().apply { addAll(blockBuffer) }
             blockBuffer.clear()
             commitBlocks(blocksToCommit, isTip)
@@ -523,7 +523,6 @@ class BlockFetchProtocol(
                 ledgerBlock.apply {
                     // Mark same block number as rolled back
                     rollbackTime += measureTimeMillis {
-                        blockFetchRepository.doRollbackDelete(blockNumber)
                         ledgerRepository.doRollbackDelete(blockNumber)
                         ledgerRepository.doRollbackUpdate(blockNumber)
                     }
@@ -544,6 +543,7 @@ class BlockFetchProtocol(
                     }
 
                     // Mark this block as fetched
+                    blockFetchRepository.doRollbackDelete(blockNumber)
                     blockFetchRepository.save(
                         BlockFetch(
                             blockNumber = blockNumber,
