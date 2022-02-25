@@ -63,32 +63,29 @@ class Mux(
                             val sendBuffer = muxByteBufferPool.borrow()
                             val payload = protocol.sendData()
                             try {
-                                if(payload.remaining() > 0) {
-                                    sendBuffer.putInt(timestampNow)
-                                    sendBuffer.putShort(protocol.protocolId)
-                                    sendBuffer.putShort(payload.remaining().toShort())
-                                    sendBuffer.put(payload)
-                                    sendBuffer.flip()
+                                sendBuffer.putInt(timestampNow)
+                                sendBuffer.putShort(protocol.protocolId)
+                                sendBuffer.putShort(payload.remaining().toShort())
+                                sendBuffer.put(payload)
+                                sendBuffer.flip()
 
-                                    if (log.isTraceEnabled) {
-                                        val hex = sendBuffer.array().copyOfRange(
-                                            sendBuffer.position(),
-                                            sendBuffer.position() + sendBuffer.remaining()
-                                        ).toHexString()
-                                        log.error("> : $hex")
-                                    }
+                                if (log.isTraceEnabled) {
+                                    val hex = sendBuffer.array().copyOfRange(
+                                        sendBuffer.position(),
+                                        sendBuffer.position() + sendBuffer.remaining()
+                                    ).toHexString()
+                                    log.error("> : $hex")
+                                }
 
-                                    txMutex.withLock {
-                                        txChannel.writeFully(sendBuffer)
-                                        txChannel.flush()
-                                    }
+                                txMutex.withLock {
+                                    txChannel.writeFully(sendBuffer)
+                                    txChannel.flush()
                                 }
                             } finally {
                                 muxByteBufferPool.recycle(payload)
                                 muxByteBufferPool.recycle(sendBuffer)
                             }
                         }
-
                     log.info("executeTx: protocol %02X done.".format(protocol.protocolId))
                 }
             )

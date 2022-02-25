@@ -1,0 +1,42 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="031" author="Andrew Westberg">
+
+        <createIndex tableName="blockfetch" indexName="idx_blockfetch_block_number">
+            <column name="block_number" descending="true"/>
+        </createIndex>
+
+        <createIndex tableName="ledger_assets" indexName="idx_ledger_assets_policy_name">
+            <column name="policy"/>
+            <column name="name"/>
+        </createIndex>
+
+        <createIndex tableName="ledger_utxo_assets" indexName="idx_ledger_utxo_assets_ledger_utxo_id">
+            <column name="ledger_utxo_id"/>
+        </createIndex>
+        <createIndex tableName="ledger_utxo_assets" indexName="idx_ledger_utxo_assets_ledger_asset_id">
+            <column name="ledger_asset_id"/>
+        </createIndex>
+        
+        <createIndex tableName="ledger_utxos" indexName="idx_block_created">
+            <column name="block_created"/>
+        </createIndex>
+        <createIndex tableName="ledger_utxos" indexName="idx_ledger_id">
+            <column name="ledger_id"/>
+        </createIndex>
+        <createIndex tableName="ledger_utxos" indexName="idx_slot_spent">
+            <column name="slot_spent"/>
+        </createIndex>
+        <createIndex tableName="ledger_utxos" indexName="idx_spent">
+            <column name="block_spent"/>
+            <column name="slot_spent"/>
+        </createIndex>
+        <createIndex tableName="ledger_utxos" indexName="idx_tx_id_tx_ix">
+            <column name="tx_id"/>
+            <column name="tx_ix"/>
+        </createIndex>
+
+    </changeSet>
+</databaseChangeLog>

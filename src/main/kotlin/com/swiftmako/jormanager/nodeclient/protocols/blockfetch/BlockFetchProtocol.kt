@@ -80,10 +80,15 @@ class BlockFetchProtocol(
     private var state = State.Idle
         set(value) {
             field = value
-            _agencyFlow.tryEmit(agency)
+            if (!_agencyFlow.tryEmit(agency)) {
+                log.error("Failed to emit Agency!")
+            }
         }
 
-    private val _agencyFlow = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
+    private val _agencyFlow = MutableSharedFlow<Agency>(
+        replay = 1,
+        extraBufferCapacity = BLOCK_BUFFER_SIZE.toInt()
+    ).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
     override val agency: Agency
@@ -101,16 +106,21 @@ class BlockFetchProtocol(
     }
 
     override suspend fun sendData(): ByteBuffer {
+        //log.info("sendData(): state = $state")
         return when (state) {
             State.Idle -> {
-                val chainBlock = chainRepository.findTipBlock()
+                var chainBlock = chainRepository.findTipBlock()
                 val blockFetch = blockFetchRepository.findTipBlock()
-                if (chainBlock == null) {
+                if (chainBlock == null || chainBlock.hash == blockFetch?.hash) {
                     // wait until a new block has arrived
+                    //log.info("Await next ChainSync block...")
                     ChainSyncProtocol.newBlockFlow.first()
-                    // return an unpopulated buffer
-                    muxByteBufferPool.borrow()
-                } else if (blockFetch == null) {
+                    chainBlock = chainRepository.findTipBlock()
+                }
+
+                requireNotNull(chainBlock)
+
+                if (blockFetch == null) {
                     // no blocks fetched yet. Start at the start block.
                     val startChainBlock = chainRepository.findStartBlock()!!
                     val endChainBlock = chainRepository.findByBlockNumber(
@@ -127,7 +137,7 @@ class BlockFetchProtocol(
                     ).writeToBuffer(payload)
                     state = State.Busy
                     payload.flip()
-                } else if (chainBlock.hash != blockFetch.hash) {
+                } else {
                     val payload = muxByteBufferPool.borrow()
                     // we have blocks to fetch
                     val difference = chainBlock.blockNumber - blockFetch.blockNumber
@@ -154,12 +164,6 @@ class BlockFetchProtocol(
                     }
                     state = State.Busy
                     payload.flip()
-                } else {
-                    // We're already sync'd for BlockFetch so far.
-                    // Wait until a new block has arrived
-                    ChainSyncProtocol.newBlockFlow.first()
-                    // return an unpopulated buffer
-                    muxByteBufferPool.borrow()
                 }
             }
             else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
@@ -181,6 +185,7 @@ class BlockFetchProtocol(
                         State.Busy -> {
                             when (messageId) {
                                 MsgNoBlocks.MESSAGE_ID -> {
+                                    log.warn("MsgNoBlocks")
                                     state = State.Idle
                                 }
                                 MsgStartBatch.MESSAGE_ID -> {
@@ -519,12 +524,14 @@ class BlockFetchProtocol(
         var pruneTime = 0L
         measureTimeMillis {
 //            warnLongQueriesDuration = 200L
-            blocksToCommit.forEach { ledgerBlock ->
+            blocksToCommit.forEachIndexed { index, ledgerBlock ->
                 ledgerBlock.apply {
-                    // Mark same block number as rolled back
-                    rollbackTime += measureTimeMillis {
-                        ledgerRepository.doRollbackDelete(blockNumber)
-                        ledgerRepository.doRollbackUpdate(blockNumber)
+                    if (index == 0) {
+                        // Mark same block number as rolled back
+                        rollbackTime += measureTimeMillis {
+                            ledgerRepository.doRollbackDelete(blockNumber)
+                            ledgerRepository.doRollbackUpdate(blockNumber)
+                        }
                     }
 
                     // Load any Native asset metadata
@@ -543,7 +550,9 @@ class BlockFetchProtocol(
                     }
 
                     // Mark this block as fetched
-                    blockFetchRepository.doRollbackDelete(blockNumber)
+                    if (index == 0) {
+                        blockFetchRepository.doRollbackDelete(blockNumber)
+                    }
                     blockFetchRepository.save(
                         BlockFetch(
                             blockNumber = blockNumber,
@@ -564,7 +573,7 @@ class BlockFetchProtocol(
                 log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
             }
             log.info(
-                "BlockFetch: Saved block: ${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
+                "BlockFetch: Saved block: ${blocksToCommit.first().blockNumber}..${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
                     blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
                 )
             )
