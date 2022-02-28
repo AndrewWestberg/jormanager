@@ -69,7 +69,7 @@ class BlockFetchProtocol(
 
     private val log by lazy { LoggerFactory.getLogger("BlockFetchProtocol") }
 
-    override val RX_BUFFER_SIZE: Int = 1_048_576 // 1mb
+    override val RX_BUFFER_SIZE: Int = 4_194_304 // 4mb
 
     private var state = State.Idle
         set(value) {
