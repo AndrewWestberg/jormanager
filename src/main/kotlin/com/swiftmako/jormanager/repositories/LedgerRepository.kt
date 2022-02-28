@@ -32,15 +32,16 @@ interface LedgerRepository : JpaRepository<LedgerAddress, Long> {
         @Param("slotNumber") slotNumber: Long,
     )
 
-    @Query("SELECT l FROM LedgerAddress l WHERE l.address = :address")
-    fun getByAddress(@Param("address") address: String): LedgerAddress?
+    @Query("SELECT l.id FROM LedgerAddress l WHERE l.address = :address")
+//    @QueryHints(QueryHint(name = org.hibernate.annotations.QueryHints.CACHEABLE, value = "true"))
+    fun getIdByAddress(@Param("address") address: String): Long?
 
     @Modifying
     @Query("DELETE FROM LedgerUtxo lu WHERE lu.slotSpent < :beforeSlot")
     fun pruneSpent(@Param("beforeSlot") beforeSlot: Long)
 
-    @Query("VALUES NEXT VALUE FOR HIBERNATE_SEQUENCE", nativeQuery = true)
-    fun nextHibernateSeqVal(): Long
+//    @Query("VALUES NEXT VALUE FOR HIBERNATE_SEQUENCE", nativeQuery = true)
+//    fun nextHibernateSeqVal(): Long
 
     @Query("INSERT INTO ledger (id,address,stake_address) VALUES (:id,:address,:stakeAddress)", nativeQuery = true)
     @Modifying

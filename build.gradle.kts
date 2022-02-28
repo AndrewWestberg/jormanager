@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.6.3"
+    id("org.springframework.boot") version "2.6.4"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.42.0"
     kotlin("jvm") version "1.6.10"
@@ -14,10 +14,12 @@ plugins {
 
 object Versions {
     const val bouncycastle = "1.70"
+    const val caffeine = "3.0.5"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE3"
     const val checkerFramework = "3.21.2"
     const val coroutines = "1.6.0"
+    const val ehcache = "3.9.9"
     const val errorprone = "2.11.0"
     const val googleTruth = "1.1.3"
     const val h2 = "2.1.210"
@@ -29,11 +31,11 @@ object Versions {
     const val kotlinxIo = "0.1.16"
     const val ktor = "1.6.7"
     const val liquibase = "4.7.1"
-    const val mockk = "1.12.2"
+    const val mockk = "1.12.3"
     const val moshi = "1.13.0"
     const val okhttp = "4.9.3"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.6.1"
+    const val springSecurity = "5.6.2"
     const val sshj = "0.32.0"
 }
 
@@ -44,6 +46,10 @@ java.targetCompatibility = JavaVersion.VERSION_16
 
 repositories {
     mavenLocal()
+    maven {
+        name = "jitpack.io"
+        url = uri("https://jitpack.io")
+    }
     mavenCentral()
 }
 
@@ -94,6 +100,9 @@ dependencies {
     implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("com.h2database:h2:${Versions.h2}")
+//    implementation("org.hibernate:hibernate-jcache")
+//    implementation("org.ehcache:ehcache:${Versions.ehcache}")
+    implementation("com.github.ben-manes.caffeine:caffeine:${Versions.caffeine}")
 
     implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")

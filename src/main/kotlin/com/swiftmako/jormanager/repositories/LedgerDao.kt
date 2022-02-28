@@ -1,5 +1,7 @@
 package com.swiftmako.jormanager.repositories
 
+import com.github.benmanes.caffeine.cache.Caffeine
+import com.swiftmako.jormanager.entities.*
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAssetMetadata
 import com.swiftmako.jormanager.model.SpentUtxo
@@ -11,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Scope
 import org.springframework.stereotype.Component
+import java.time.Duration
 import javax.transaction.Transactional
 import kotlin.system.measureTimeMillis
 
@@ -70,12 +73,13 @@ class LedgerDao @Autowired constructor(
                         }
                     }
                     blockFetchCreateTime += measureTimeMillis {
-                        blockFetchRepository.insertBlockFetch(
-                            id = ledgerRepository.nextHibernateSeqVal(),
-                            blockNumber = blockNumber,
-                            slotNumber = slotNumber,
-                            hash = hash,
-                            prevHash = prevHash
+                        blockFetchRepository.save(
+                            BlockFetch(
+                                blockNumber = blockNumber,
+                                slotNumber = slotNumber,
+                                hash = hash,
+                                prevHash = prevHash
+                            )
                         )
                     }
                 }
@@ -86,9 +90,9 @@ class LedgerDao @Autowired constructor(
                 ledgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
             }
         }.also { totalTime ->
-            if (isTip && totalTime > 500L) {
-                log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
-            }
+            //if (isTip && totalTime > 500L) {
+            log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
+            //}
             log.info(
                 "BlockFetch: Saved block: ${blocksToCommit.first().blockNumber}..${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
                     blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
@@ -107,68 +111,106 @@ class LedgerDao @Autowired constructor(
                 ledgerAssetRepository.updateImageAndDescription(
                     id = ledgerAsset.id!!,
                     image = nativeAssetMetadata.metadataImage,
-                    description = nativeAssetMetadata.metadataDescription
+                    description = nativeAssetMetadata.metadataDescription?.take(254)
                 )
             } ?: run {
                 // Do insert
-                ledgerAssetRepository.insertLedgerAsset(
-                    id = ledgerRepository.nextHibernateSeqVal(),
-                    policy = nativeAssetMetadata.assetPolicy,
-                    name = nativeAssetMetadata.assetName,
-                    image = nativeAssetMetadata.metadataImage,
-                    description = nativeAssetMetadata.metadataDescription,
+                ledgerAssetRepository.save(
+                    LedgerAsset(
+                        policy = nativeAssetMetadata.assetPolicy,
+                        name = nativeAssetMetadata.assetName,
+                        image = nativeAssetMetadata.metadataImage,
+                        description = nativeAssetMetadata.metadataDescription?.take(254),
+                    )
                 )
             }
         }
     }
 
+    private val ledgerIdCache = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofMinutes(10))
+        .maximumSize(30_000L)
+        .build<String, Long?> { address ->
+            ledgerRepository.getIdByAddress(address)
+        }
+
+    private val ledgerAssetIdCache = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofMinutes(10))
+        .maximumSize(30_000L)
+        .build<Pair<String, String>, Long?> { pair ->
+            ledgerRepository.getLedgerAssetByPolicyAndName(pair.first, pair.second)?.id
+        }
+
     fun createUtxos(slotNumber: Long, blockNumber: Long, createdUtxos: Set<CreatedUtxo>) {
+        var ledgerTime = 0L
+        var ledgerQueryTime = 0L
+        var ledgerInsertTime = 0L
+        var ledgerUtxoTime = 0L
+        var ledgerAssetTime = 0L
+        var hit = 0L
+        var miss = 0L
         createdUtxos.forEach { createdUtxo ->
-            val ledgerTableId = ledgerRepository.getByAddress(createdUtxo.address)?.id
-                ?: run {
-                    val id = ledgerRepository.nextHibernateSeqVal()
-                    ledgerRepository.insertLedgerAddress(
-                        id = id,
+            val start = System.currentTimeMillis()
+            var ledgerTableId = ledgerIdCache[createdUtxo.address]
+            ledgerQueryTime += (System.currentTimeMillis() - start)
+            if (ledgerTableId == null) {
+                miss++
+                val start3 = System.currentTimeMillis()
+                ledgerTableId = ledgerRepository.save(
+                    LedgerAddress(
                         address = createdUtxo.address,
                         stakeAddress = createdUtxo.stakeAddress
                     )
-                    id
-                }
+                ).id!!
+                ledgerIdCache.put(createdUtxo.address, ledgerTableId)
+                ledgerInsertTime += (System.currentTimeMillis() - start3)
+            } else {
+                hit++
+            }
+            ledgerTime += (System.currentTimeMillis() - start)
 
-            val ledgerUtxoTableId = ledgerRepository.nextHibernateSeqVal()
-            ledgerUtxoRepository.insertLedgerUtxo(
-                id = ledgerUtxoTableId,
-                ledgerId = ledgerTableId,
-                txId = createdUtxo.hash,
-                txIx = createdUtxo.ix.toInt(),
-                lovelace = createdUtxo.lovelace.toString(),
-                blockCreated = blockNumber,
-                slotCreated = slotNumber,
-                blockSpent = null,
-                slotSpent = null,
-            )
+            val start1 = System.currentTimeMillis()
+            val ledgerUtxoTableId = ledgerUtxoRepository.save(
+                LedgerUtxo(
+                    ledgerId = ledgerTableId,
+                    txId = createdUtxo.hash,
+                    txIx = createdUtxo.ix.toInt(),
+                    lovelace = createdUtxo.lovelace.toString(),
+                    blockCreated = blockNumber,
+                    slotCreated = slotNumber,
+                    blockSpent = null,
+                    slotSpent = null,
+                )
+            ).id!!
+            ledgerUtxoTime += (System.currentTimeMillis() - start1)
 
+            val start2 = System.currentTimeMillis()
             createdUtxo.nativeAssets.forEach { nativeAsset ->
-                val ledgerAssetTableId =
-                    ledgerRepository.getLedgerAssetByPolicyAndName(nativeAsset.policy, nativeAsset.name)?.id ?: run {
-                        val id = ledgerRepository.nextHibernateSeqVal()
-                        ledgerAssetRepository.insertLedgerAsset(
-                            id = id,
-                            policy = nativeAsset.policy,
-                            name = nativeAsset.name,
-                            image = "",
-                            description = null,
-                        )
+                val ledgerAssetTableId = ledgerAssetIdCache[Pair(nativeAsset.policy, nativeAsset.name)]
+                    ?: run {
+                        val id = ledgerAssetRepository.save(
+                            LedgerAsset(
+                                policy = nativeAsset.policy,
+                                name = nativeAsset.name,
+                                image = "",
+                                description = null,
+                            )
+                        ).id!!
+                        ledgerAssetIdCache.put(Pair(nativeAsset.policy, nativeAsset.name), id)
                         id
                     }
-
-                ledgerUtxoAssetRepository.insertLedgerUtxoAsset(
-                    id = ledgerRepository.nextHibernateSeqVal(),
-                    ledgerUtxoId = ledgerUtxoTableId,
-                    ledgerAssetId = ledgerAssetTableId,
-                    amount = nativeAsset.amount.toString(),
+                ledgerUtxoAssetRepository.save(
+                    LedgerUtxoAsset(
+                        ledgerUtxoId = ledgerUtxoTableId,
+                        ledgerAssetId = ledgerAssetTableId,
+                        amount = nativeAsset.amount.toString(),
+                    )
                 )
             }
+            ledgerAssetTime += (System.currentTimeMillis() - start2)
+        }
+        if (ledgerTime > 1000L || ledgerUtxoTime > 1000L || ledgerAssetTime > 1000L) {
+            log.warn("block: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms")
         }
     }
 

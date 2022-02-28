@@ -117,7 +117,7 @@ class Configuration {
         return OkHttpClient.Builder()
             .addNetworkInterceptor(
                 HttpLoggingInterceptor(object : HttpLoggingInterceptor.Logger {
-                    private val log by lazy {  LoggerFactory.getLogger("NETWORK") }
+                    private val log by lazy { LoggerFactory.getLogger("NETWORK") }
                     override fun log(message: String) {
                         log.info(message)
                     }

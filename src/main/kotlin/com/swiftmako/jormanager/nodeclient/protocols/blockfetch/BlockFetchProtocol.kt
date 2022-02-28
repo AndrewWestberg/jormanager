@@ -29,27 +29,27 @@ import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+import kotlin.coroutines.CoroutineContext
 import kotlin.math.min
-import kotlin.system.exitProcess
 
 class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
     private val chainRepository: ChainRepository,
     private val blockFetchRepository: BlockFetchRepository,
     private val ledgerDao: LedgerDao,
-) : MiniProtocol(protocolId = 0x0003.toShort()) {
+) : MiniProtocol(protocolId = 0x0003.toShort()), CoroutineScope {
 
     companion object {
-        private const val BLOCK_BUFFER_SIZE = 1000L
+        private const val BLOCK_BUFFER_SIZE = 50L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -69,7 +69,19 @@ class BlockFetchProtocol(
 
     private val log by lazy { LoggerFactory.getLogger("BlockFetchProtocol") }
 
-    override val RX_BUFFER_SIZE: Int = 4_194_304 // 4mb
+    override val RX_BUFFER_SIZE: Int = 8_388_608 // 8mb
+
+    private val blockBuffer = mutableListOf<LedgerBlock>()
+
+    private val job = SupervisorJob()
+    override val coroutineContext: CoroutineContext = job +
+            Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher() +
+            CoroutineExceptionHandler { _, throwable ->
+                if (throwable !is CancellationException) {
+                    log.error("Uncaught coroutine exception!", throwable)
+                }
+            }
+    var commitBlocksJob: Job? = null
 
     private var state = State.Idle
         set(value) {
@@ -81,7 +93,7 @@ class BlockFetchProtocol(
 
     private val _agencyFlow = MutableSharedFlow<Agency>(
         replay = 1,
-        extraBufferCapacity = BLOCK_BUFFER_SIZE.toInt()
+        extraBufferCapacity = BLOCK_BUFFER_SIZE.toInt() * 2
     ).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
@@ -113,6 +125,10 @@ class BlockFetchProtocol(
                 }
 
                 requireNotNull(chainBlock)
+
+                // Wait to finish committing any blocks before we request new ones
+                commitBlocksJob?.join()
+                commitBlocksJob = null
 
                 if (blockFetch == null) {
                     // no blocks fetched yet. Start at the start block.
@@ -192,6 +208,13 @@ class BlockFetchProtocol(
                             when (messageId) {
                                 MsgBatchDone.MESSAGE_ID -> {
                                     //log.warn("MsgBatchDone")
+
+                                    commitBlocksJob = launch {
+                                        val isTip = blockBuffer.last().hash == ChainSyncProtocol.tipHash
+                                        ledgerDao.commitBlocks(blockBuffer, isTip)
+                                        blockBuffer.clear()
+                                    }
+
                                     state = State.Idle
                                 }
                                 MsgBlock.MESSAGE_ID -> {
@@ -455,53 +478,21 @@ class BlockFetchProtocol(
                 }
             }
 
-            val isTip = hash == ChainSyncProtocol.tipHash
-            queueSaveBlockToLedger(
-                slotNumber,
-                blockNumber,
-                hash,
-                prevHash,
-                spentUtxos,
-                createdUtxos,
-                nativeAssetsMetadata,
-                isTip
+            blockBuffer.add(
+                LedgerBlock(
+                    slotNumber,
+                    blockNumber,
+                    hash,
+                    prevHash,
+                    spentUtxos,
+                    createdUtxos,
+                    nativeAssetsMetadata,
+                )
             )
+
         } catch (e: Throwable) {
             log.error("Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}")
             log.error("Exception!", e)
-            runBlocking { delay(1000) }
-            exitProcess(1)
-        }
-    }
-
-    private val blockBuffer: MutableList<LedgerBlock> = mutableListOf()
-
-    private fun queueSaveBlockToLedger(
-        slotNumber: Long,
-        blockNumber: Long,
-        hash: String,
-        prevHash: String,
-        spentUtxos: Set<SpentUtxo>,
-        createdUtxos: Set<CreatedUtxo>,
-        nativeAssetsMetadata: Set<NativeAssetMetadata>,
-        isTip: Boolean,
-    ) {
-        blockBuffer.add(
-            LedgerBlock(
-                slotNumber,
-                blockNumber,
-                hash,
-                prevHash,
-                spentUtxos,
-                createdUtxos,
-                nativeAssetsMetadata,
-            )
-        )
-
-        if (blockBuffer.size.toLong() == BLOCK_BUFFER_SIZE || isTip) {
-            val blocksToCommit: List<LedgerBlock> = mutableListOf<LedgerBlock>().apply { addAll(blockBuffer) }
-            blockBuffer.clear()
-            ledgerDao.commitBlocks(blocksToCommit, isTip)
         }
     }
 
@@ -514,5 +505,4 @@ class BlockFetchProtocol(
         val createdUtxos: Set<CreatedUtxo>,
         val nativeAssetsMetadata: Set<NativeAssetMetadata>
     )
-
 }

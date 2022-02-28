@@ -61,35 +61,37 @@ class WalletUtils @Autowired constructor(
         magicString: String,
         walletEntry: WalletEntry
     ): WalletItem {
-        val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
+        val utxos = listOf<Utxo>() //FIXME getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
         val start = System.currentTimeMillis()
-        val stakingInfoString = if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
-            try {
-                hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString")
-            } catch (t: Throwable) {
-                if (t.message?.contains("EraMismatch") == false) {
-                    log.error("Error getting stake addr info!", t)
-                }
-                ""
-            }
-        } else {
+        val stakingInfoString =
+//            if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
+//            try {
+//                hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString")
+//            } catch (t: Throwable) {
+//                if (t.message?.contains("EraMismatch") == false) {
+//                    log.error("Error getting stake addr info!", t)
+//                }
+//                ""
+//            }
+//        } else {
             null
-        }
-        val stakingAddrLovelace = stakingInfoString?.let { json ->
-            try {
-                val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
-                if (stakeAddressInfos?.isNotEmpty() == true) {
-                    stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
-                } else {
-                    null
-                }
-            } catch (t: Throwable) {
-                log.warn("Error parsing staking info json: $json", t)
-                null
-            }
-        }
+//        }
+        val stakingAddrLovelace = null
+//            stakingInfoString?.let { json ->
+//            try {
+//                val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
+//                if (stakeAddressInfos?.isNotEmpty() == true) {
+//                    stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
+//                } else {
+//                    null
+//                }
+//            } catch (t: Throwable) {
+//                log.warn("Error parsing staking info json: $json", t)
+//                null
+//            }
+//        }
 
         (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
             log.warn("stakeAddressInfo: ${walletEntry.stakingAddr}, ${it}ms")

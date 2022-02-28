@@ -4,6 +4,8 @@ import javax.persistence.*
 
 @Entity
 @Table(name = "ledger")
+//@Cacheable
+//@org.hibernate.annotations.Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
 data class LedgerAddress(
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE)
