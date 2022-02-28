@@ -16,7 +16,7 @@ import java.nio.ByteBuffer
 import kotlin.io.use
 
 class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000) {
-    private val log by lazy { LoggerFactory.getLogger(HandshakeProtocol::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("HandshakeProtocol") }
 
     private var state = State.Propose
         set(value) {

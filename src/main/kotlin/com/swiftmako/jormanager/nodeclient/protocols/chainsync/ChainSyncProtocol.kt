@@ -46,7 +46,7 @@ class ChainSyncProtocol(
     private val poolId: String,
 ) : MiniProtocol(protocolId = 0x0002.toShort()) {
 
-    private val log by lazy { LoggerFactory.getLogger(ChainSyncProtocol::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
 
     override val RX_BUFFER_SIZE: Int = 64 * 1024
 

@@ -2,7 +2,6 @@ package com.swiftmako.jormanager.nodeclient.protocols.blockfetch
 
 import com.firehose.controllers.nodeclient.protocol.Agency
 import com.google.iot.cbor.*
-import com.swiftmako.jormanager.entities.BlockFetch
 import com.swiftmako.jormanager.ktx.*
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAsset
@@ -14,7 +13,6 @@ import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.BlockFetchRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
-import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.Blake2b
 import com.swiftmako.jormanager.utils.CardanoUtils
@@ -37,25 +35,21 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
-import org.springframework.data.jpa.repository.Modifying
 import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
-import javax.transaction.Transactional
 import kotlin.math.min
 import kotlin.system.exitProcess
-import kotlin.system.measureTimeMillis
 
 class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
     private val chainRepository: ChainRepository,
     private val blockFetchRepository: BlockFetchRepository,
-    private val ledgerRepository: LedgerRepository,
     private val ledgerDao: LedgerDao,
 ) : MiniProtocol(protocolId = 0x0003.toShort()) {
 
     companion object {
-        private const val BLOCK_BUFFER_SIZE = 50L
+        private const val BLOCK_BUFFER_SIZE = 1000L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -73,7 +67,7 @@ class BlockFetchProtocol(
         //private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
     }
 
-    private val log by lazy { LoggerFactory.getLogger(BlockFetchProtocol::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("BlockFetchProtocol") }
 
     override val RX_BUFFER_SIZE: Int = 1_048_576 // 1mb
 
@@ -507,80 +501,11 @@ class BlockFetchProtocol(
         if (blockBuffer.size.toLong() == BLOCK_BUFFER_SIZE || isTip) {
             val blocksToCommit: List<LedgerBlock> = mutableListOf<LedgerBlock>().apply { addAll(blockBuffer) }
             blockBuffer.clear()
-            commitBlocks(blocksToCommit, isTip)
+            ledgerDao.commitBlocks(blocksToCommit, isTip)
         }
     }
 
-    @Transactional
-    @Modifying
-    private fun commitBlocks(blocksToCommit: List<LedgerBlock>, isTip: Boolean) {
-//        if (!isTip) {
-//            log.warn("starting commitBlocks() with ${blocksToCommit.size} blocks...")
-//        }
-        var rollbackTime = 0L
-        var nativeAssetTime = 0L
-        var spendTime = 0L
-        var createTime = 0L
-        var pruneTime = 0L
-        measureTimeMillis {
-//            warnLongQueriesDuration = 200L
-            blocksToCommit.forEachIndexed { index, ledgerBlock ->
-                ledgerBlock.apply {
-                    if (index == 0) {
-                        // Mark same block number as rolled back
-                        rollbackTime += measureTimeMillis {
-                            ledgerRepository.doRollbackDelete(blockNumber)
-                            ledgerRepository.doRollbackUpdate(blockNumber)
-                        }
-                    }
-
-                    // Load any Native asset metadata
-                    nativeAssetTime += measureTimeMillis {
-                        ledgerDao.upcertNativeAssets(nativeAssetsMetadata)
-                    }
-
-                    // Insert unspent utxos
-                    createTime += measureTimeMillis {
-                        ledgerDao.createUtxos(slotNumber, blockNumber, createdUtxos)
-                    }
-
-                    // Mark spent utxos as spent
-                    spendTime += measureTimeMillis {
-                        ledgerDao.spendUtxos(slotNumber, blockNumber, spentUtxos)
-                    }
-
-                    // Mark this block as fetched
-                    if (index == 0) {
-                        blockFetchRepository.doRollbackDelete(blockNumber)
-                    }
-                    blockFetchRepository.save(
-                        BlockFetch(
-                            blockNumber = blockNumber,
-                            slotNumber = slotNumber,
-                            hash = hash,
-                            prevHash = prevHash
-                        )
-                    )
-                }
-            }
-
-            // Prune any old spent utxos we don't need any longer older than 30 minutes
-            pruneTime = measureTimeMillis {
-                ledgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
-            }
-        }.also { totalTime ->
-            if (isTip && totalTime > 500L) {
-                log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
-            }
-            log.info(
-                "BlockFetch: Saved block: ${blocksToCommit.first().blockNumber}..${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
-                    blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
-                )
-            )
-        }
-    }
-
-    private class LedgerBlock(
+    class LedgerBlock(
         val slotNumber: Long,
         val blockNumber: Long,
         val hash: String,

@@ -17,6 +17,7 @@ import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Lookup
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
@@ -40,11 +41,10 @@ class ChainMonitor @Autowired constructor(
     private val configAdapter: JsonAdapter<Config>,
     private val pooltoolService: PooltoolService,
     private val blockFetchRepository: BlockFetchRepository,
-    private val ledgerRepository: LedgerRepository,
     private val ledgerDao: LedgerDao,
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log by lazy { LoggerFactory.getLogger(ChainMonitor::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("ChainMonitor") }
 
     private var isShuttingDown = false
 
@@ -110,7 +110,6 @@ class ChainMonitor @Autowired constructor(
                                         cardanoUtils,
                                         chainRepository,
                                         blockFetchRepository,
-                                        ledgerRepository,
                                         ledgerDao,
                                     )
                                 )
@@ -135,6 +134,12 @@ class ChainMonitor @Autowired constructor(
     override fun stop() {
         job.cancelChildren()
         log.info("ChainMonitor stopped.")
+    }
+
+    @Lookup("blockFetchProtocol")
+    fun getBlockFetchProtocol(): BlockFetchProtocol? {
+        // lookup method will inject a new instance of the prototype bean blockFetchProtocol.
+        return null
     }
 
     companion object {

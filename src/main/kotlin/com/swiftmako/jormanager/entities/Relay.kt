@@ -11,7 +11,7 @@ import javax.persistence.Table
 @Table(name = "relays")
 data class Relay(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "node_id")
         val nodeId: Long,

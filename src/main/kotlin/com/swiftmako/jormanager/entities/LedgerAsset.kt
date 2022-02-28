@@ -6,7 +6,7 @@ import javax.persistence.*
 @Table(name = "ledger_assets")
 data class LedgerAsset(
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
     val id: Long? = null,
     @Column(name = "policy")
     val policy: String,

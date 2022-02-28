@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory
 import java.util.*
 
 object MsgRollForwardAdapter {
-    private val log by lazy {  LoggerFactory.getLogger(MsgRollForwardAdapter::class.java) }
+    private val log by lazy {  LoggerFactory.getLogger("MsgRollForwardAdapter") }
 
 //    private var tipDone = false
 

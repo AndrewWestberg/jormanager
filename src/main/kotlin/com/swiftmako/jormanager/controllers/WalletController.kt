@@ -44,7 +44,7 @@ class WalletController @Autowired constructor(
     private val webSocketTemplate: SimpMessagingTemplate,
 ) : CoroutineScope {
 
-    private val log by lazy { LoggerFactory.getLogger(WalletController::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("WalletController") }
 
     private val debounceFlow = MutableStateFlow<CalculateFeeRequest?>(null)
 

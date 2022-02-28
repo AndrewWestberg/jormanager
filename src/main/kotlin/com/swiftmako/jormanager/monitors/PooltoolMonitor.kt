@@ -56,7 +56,7 @@ class PooltoolMonitor @Autowired constructor(
     private val pooltoolService: PooltoolService,
     @Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
 ) : SmartLifecycle, CoroutineScope {
-    private val log by lazy { LoggerFactory.getLogger(PooltoolMonitor::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("PooltoolMonitor") }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->

@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 class SSHClientPool(private val host: Host) : DefaultPool<SSHClient>(4) {
 
-    private val log by lazy {  LoggerFactory.getLogger(SSHClientPool::class.java) }
+    private val log by lazy {  LoggerFactory.getLogger("SSHClientPool") }
 
     override fun produceInstance(): SSHClient {
         return SSHClient().apply {

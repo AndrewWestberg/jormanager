@@ -11,7 +11,7 @@ import javax.persistence.Table
 @Table(name = "blocks")
 data class Block(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "at")
         val at: String,

@@ -14,7 +14,7 @@ import javax.persistence.Table
 @Table(name = "wallet")
 data class WalletEntry(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "name")
         val name: String,

@@ -27,7 +27,7 @@ val muxByteBufferPool: ByteBufferPool = ByteBufferPool(20, 64 * 1024)
 class Mux(
     private val socketConnection: Connection,
 ) {
-    private val log by lazy { LoggerFactory.getLogger(Mux::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("Mux") }
     private val rxMuxBufferMap: MutableMap<Short, MuxRxBuffer> = mutableMapOf()
 
     suspend fun execute(vararg protocols: MiniProtocol) = coroutineScope {

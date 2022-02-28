@@ -6,7 +6,7 @@ import javax.persistence.*
 @Table(name = "blockfetch")
 data class BlockFetch(
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
     val id: Long? = null,
     @Column(name = "block_number")
     val blockNumber: Long,

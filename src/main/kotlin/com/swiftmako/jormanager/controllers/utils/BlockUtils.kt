@@ -32,7 +32,7 @@ class BlockUtils @Autowired constructor(
         @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
         @Value("\${libsodium.path}") libsodiumPath: String
 ) {
-    final val log: Logger = LoggerFactory.getLogger(BlockUtils::class.java)
+    final val log: Logger = LoggerFactory.getLogger("BlockUtils")
 
     private val dateTimeFormat = DateTimeFormat.forPattern("yyyy-MM-dd'T'hh:mm:ss.SSS a z")
 

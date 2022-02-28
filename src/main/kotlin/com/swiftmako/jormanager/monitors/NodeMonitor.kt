@@ -81,7 +81,7 @@ class NodeMonitor @Autowired constructor(
     @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log by lazy { LoggerFactory.getLogger(NodeMonitor::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("NodeMonitor") }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->

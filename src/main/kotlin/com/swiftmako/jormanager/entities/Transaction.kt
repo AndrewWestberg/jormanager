@@ -14,7 +14,7 @@ import javax.persistence.Table
 @Table(name = "transactions")
 data class Transaction(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "at")
         val at: String = DateTime.now().toLocalTimeString(),

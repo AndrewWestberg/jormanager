@@ -42,7 +42,7 @@ class WalletMonitor @Autowired constructor(
     private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log by lazy { LoggerFactory.getLogger(WalletMonitor::class.java) }
+    private val log by lazy { LoggerFactory.getLogger("WalletMonitor") }
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->

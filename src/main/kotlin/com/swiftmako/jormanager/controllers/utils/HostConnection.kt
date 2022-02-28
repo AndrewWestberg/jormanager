@@ -20,7 +20,7 @@ import java.util.regex.Pattern
 
 class HostConnection(private val host: Host, private val defaultNode: Node? = null) {
 
-    private val log by lazy {  LoggerFactory.getLogger(HostConnection::class.java) }
+    private val log by lazy {  LoggerFactory.getLogger("HostConnection") }
 
     private val sshClientPool by lazy {
         SSHClientPool.getInstance(host)

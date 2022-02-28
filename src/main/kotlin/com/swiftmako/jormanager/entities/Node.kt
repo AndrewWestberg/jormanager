@@ -13,7 +13,7 @@ import javax.persistence.Table
 @Table(name = "nodes")
 data class Node(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "host_id")
         val hostId: Long,

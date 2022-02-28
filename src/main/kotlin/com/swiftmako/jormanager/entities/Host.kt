@@ -13,7 +13,7 @@ import javax.persistence.Transient
 @Table(name = "hosts")
 data class Host(
         @Id
-        @GeneratedValue(strategy = GenerationType.AUTO)
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
         val id: Long? = null,
         @Column(name = "type")
         val type: String, // local, remote
