@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.entities
 
+import org.hibernate.annotations.Where
 import javax.persistence.*
 
 @Entity
@@ -14,4 +15,9 @@ data class LedgerAddress(
     val address: String,
     @Column(name = "stake_address")
     val stakeAddress: String?,
+
+    @OneToMany(fetch = FetchType.EAGER)
+    @JoinColumn(name = "ledger_id", insertable = false, updatable = false)
+    @Where(clause = "block_spent IS NULL")
+    val ledgerUtxos: List<LedgerUtxo> = emptyList()
 )

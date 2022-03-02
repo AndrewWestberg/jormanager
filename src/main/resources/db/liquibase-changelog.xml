@@ -38,5 +38,6 @@
     <include file="changelog/031-create-ledger-index-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/032-create-ledger-index-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/033-create-ledger-index-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/034-update-ledger-schema.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

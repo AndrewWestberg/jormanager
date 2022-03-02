@@ -14,4 +14,8 @@ data class LedgerUtxoAsset(
     val ledgerAssetId: Long,
     @Column(name = "amount")
     val amount: String,
+
+    @OneToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id", referencedColumnName = "ledger_asset_id", insertable = false, updatable = false)
+    val ledgerAsset: LedgerAsset = LedgerAsset.DUMMY
 )

@@ -32,6 +32,8 @@ interface LedgerRepository : JpaRepository<LedgerAddress, Long> {
         @Param("slotNumber") slotNumber: Long,
     )
 
+    fun getByAddress(address: String): LedgerAddress?
+
     @Query("SELECT l.id FROM LedgerAddress l WHERE l.address = :address")
 //    @QueryHints(QueryHint(name = org.hibernate.annotations.QueryHints.CACHEABLE, value = "true"))
     fun getIdByAddress(@Param("address") address: String): Long?

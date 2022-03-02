@@ -49,7 +49,9 @@ class BlockFetchProtocol(
 ) : MiniProtocol(protocolId = 0x0003.toShort()), CoroutineScope {
 
     companion object {
-        private const val BLOCK_BUFFER_SIZE = 50L
+        var isTip = false
+
+        private const val BLOCK_BUFFER_SIZE = 10L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -115,6 +117,10 @@ class BlockFetchProtocol(
         //log.info("sendData(): state = $state")
         return when (state) {
             State.Idle -> {
+                // Wait to finish committing any blocks before we request new ones
+                commitBlocksJob?.join()
+                commitBlocksJob = null
+
                 var chainBlock = chainRepository.findTipBlock()
                 val blockFetch = blockFetchRepository.findTipBlock()
                 if (chainBlock == null || chainBlock.hash == blockFetch?.hash) {
@@ -125,10 +131,6 @@ class BlockFetchProtocol(
                 }
 
                 requireNotNull(chainBlock)
-
-                // Wait to finish committing any blocks before we request new ones
-                commitBlocksJob?.join()
-                commitBlocksJob = null
 
                 if (blockFetch == null) {
                     // no blocks fetched yet. Start at the start block.
@@ -213,6 +215,7 @@ class BlockFetchProtocol(
                                         val isTip = blockBuffer.last().hash == ChainSyncProtocol.tipHash
                                         ledgerDao.commitBlocks(blockBuffer, isTip)
                                         blockBuffer.clear()
+                                        BlockFetchProtocol.isTip = isTip
                                     }
 
                                     state = State.Idle

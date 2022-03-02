@@ -24,4 +24,8 @@ data class LedgerUtxo(
     val blockSpent: Long?,
     @Column(name = "slot_spent")
     val slotSpent: Long?,
+
+    @OneToMany(fetch = FetchType.EAGER)
+    @JoinColumn(name = "ledger_utxo_id", referencedColumnName = "id", insertable = false, updatable = false)
+    val ledgerUtxoAssets: List<LedgerUtxoAsset> = emptyList()
 )

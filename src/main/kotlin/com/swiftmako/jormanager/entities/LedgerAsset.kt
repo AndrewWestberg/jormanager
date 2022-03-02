@@ -13,7 +13,13 @@ data class LedgerAsset(
     @Column(name = "name")
     val name: String,
     @Column(name = "image")
+    @Lob
     val image: String,
     @Column(name = "description")
+    @Lob
     val description: String?,
-)
+) {
+    companion object {
+        val DUMMY = LedgerAsset(-1L, "", "", "", null)
+    }
+}
