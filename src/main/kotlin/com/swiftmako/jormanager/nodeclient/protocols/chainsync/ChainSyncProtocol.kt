@@ -99,6 +99,10 @@ class ChainSyncProtocol(
     private val tipToIntersect: List<Pair<Long, ByteArray>>
         get() = _tipToIntersect ?: chainBlocksPairs
 
+    override fun shutdown() {
+        state = State.Done
+    }
+
     @OptIn(ExperimentalIoApi::class)
     override suspend fun sendData(): ByteBuffer {
         return when (state) {

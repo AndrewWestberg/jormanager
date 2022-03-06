@@ -11,6 +11,5 @@ data class File(
     @Column(name = "name")
     val name: String,
     @Column(name = "content")
-    @Lob
     val content: String
 )

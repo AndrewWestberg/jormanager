@@ -66,7 +66,7 @@ class NodeController @Autowired constructor(
     private val bulkCredentialsJsonAdapter: JsonAdapter<List<List<Key>>>,
     //@Value("\${jormanager.era}") private val eraString: String,
 ) {
-    private val log by lazy {  LoggerFactory.getLogger("NodeController") }
+    private val log by lazy { LoggerFactory.getLogger("NodeController") }
 
     @MessageMapping("/nodes")
     @SendTo("/topic/messages")
@@ -721,6 +721,7 @@ class NodeController @Autowired constructor(
                         defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                         val txid =
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                .trim()
                         transactionRepository.save(Transaction(txid = txid))
 
                         // 13. Create and Save node information
@@ -1160,6 +1161,7 @@ class NodeController @Autowired constructor(
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                                 val txid =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                        .trim()
                                 transactionRepository.save(Transaction(txid = txid))
 
                                 // 13. Save node information
@@ -1813,6 +1815,7 @@ class NodeController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                     val txid =
                         defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                            .trim()
                     transactionRepository.save(Transaction(txid = txid))
 
                     // 13. Save node information
@@ -2094,6 +2097,7 @@ class NodeController @Autowired constructor(
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                     val txid =
                         defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                            .trim()
                     transactionRepository.save(Transaction(txid = txid))
                 } ?: throw IOException("Node not found!")
             } finally {
@@ -2288,6 +2292,7 @@ class NodeController @Autowired constructor(
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                 val txid =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                        .trim()
                 transactionRepository.save(Transaction(txid = txid))
 
                 // send all to the client for ui updates

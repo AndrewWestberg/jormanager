@@ -25,4 +25,9 @@ abstract class MiniProtocol(val protocolId: Short) {
      */
     abstract fun receiveData(payload: ByteBuffer)
 
+    /**
+     * Gracefully shutdown the protocol
+     */
+    abstract fun shutdown()
+
 }

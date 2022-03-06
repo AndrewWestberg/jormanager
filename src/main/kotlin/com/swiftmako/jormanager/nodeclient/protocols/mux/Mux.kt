@@ -30,7 +30,10 @@ class Mux(
     private val log by lazy { LoggerFactory.getLogger("Mux") }
     private val rxMuxBufferMap: MutableMap<Short, MuxRxBuffer> = mutableMapOf()
 
+    private lateinit var runningProtocols:Array<out MiniProtocol>
+
     suspend fun execute(vararg protocols: MiniProtocol) = coroutineScope {
+        runningProtocols = protocols
         val protocolNames = protocols.map { it::class.java.simpleName }
         log.info("execute($protocolNames)")
 
@@ -196,6 +199,10 @@ class Mux(
         } finally {
             KtorDefaultPool.recycle(rxHeaderBuffer)
         }
+    }
+
+    fun shutdownGracefully() {
+        runningProtocols.forEach { it.shutdown() }
     }
 
     private class MiniProtocolHeader(

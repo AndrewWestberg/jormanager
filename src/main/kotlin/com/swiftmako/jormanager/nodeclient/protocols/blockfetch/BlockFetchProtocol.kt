@@ -51,7 +51,7 @@ class BlockFetchProtocol(
     companion object {
         var isTip = false
 
-        private const val BLOCK_BUFFER_SIZE = 10L
+        private const val BLOCK_BUFFER_SIZE = 20L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -111,6 +111,10 @@ class BlockFetchProtocol(
         Busy,
         Streaming,
         Done
+    }
+
+    override fun shutdown() {
+        state = State.Done
     }
 
     override suspend fun sendData(): ByteBuffer {
@@ -315,7 +319,7 @@ class BlockFetchProtocol(
 
                 (transaction[TX_DESTS_INDEX] as CborArray).forEachIndexed { ix, destination ->
                     val addressBytes = ((destination as CborArray).elementAt(0) as CborByteString).byteArrayValue()
-                    val encodedAddress: String
+                    var encodedAddress: String? = null
                     var stakeAddress: String? = null
                     if (addressBytes[0] == ENTERPRISE_ADDRESS_PREFIX_MAINNET) {
                         // this is a mainnet enterprise address we might care about
@@ -340,10 +344,12 @@ class BlockFetchProtocol(
                     } else if (addressBytes[0] == SCRIPT_ADDRESS_PREFIX_TESTNET || addressBytes[0] == SCRIPT2_ADDRESS_PREFIX_TESTNET) {
                         encodedAddress = Bech32.encode("addr_test", addressBytes)
                     } else if (addressBytes[0] == BYRON_ADDRESS_PREFIX) {
-                        encodedAddress = addressBytes.toHexString()
+                        //do not save byron address utxos
+                        //encodedAddress = addressBytes.toHexString()
                     } else {
-                        encodedAddress = addressBytes.toHexString()
-                        log.trace("Unknown Address: $encodedAddress")
+                        //do not save unknown address utxos
+                        //encodedAddress = addressBytes.toHexString()
+                        log.trace("Unknown Address: ${addressBytes.toHexString()}")
                     }
 
                     // Lovelace and native assets sent along with this UTxO output
@@ -371,16 +377,18 @@ class BlockFetchProtocol(
                         }
                     }
 
-                    createdUtxos.add(
-                        CreatedUtxo(
-                            address = encodedAddress,
-                            stakeAddress = stakeAddress,
-                            hash = transactionId,
-                            ix = ix.toLong(),
-                            lovelace = utxoLovelace,
-                            nativeAssets = nativeAssets
+                    encodedAddress?.let {
+                        createdUtxos.add(
+                            CreatedUtxo(
+                                address = encodedAddress,
+                                stakeAddress = stakeAddress,
+                                hash = transactionId,
+                                ix = ix.toLong(),
+                                lovelace = utxoLovelace,
+                                nativeAssets = nativeAssets
+                            )
                         )
-                    )
+                    }
                 }
 
 //                (transaction[TX_CERTS_INDEX] as? CborArray)?.forEach { cert ->

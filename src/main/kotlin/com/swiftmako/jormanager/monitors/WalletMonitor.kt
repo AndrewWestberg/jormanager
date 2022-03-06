@@ -6,18 +6,10 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.BroadcastChannel
-import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -50,6 +42,8 @@ class WalletMonitor @Autowired constructor(
             log.error("Uncaught coroutine exception!", throwable)
         }
     }
+
+    private var isShuttingDown = false
 
     override fun isAutoStartup() = true
 
@@ -86,19 +80,31 @@ class WalletMonitor @Autowired constructor(
                     if (magicString.isNotBlank()) {
                         // A new block has arrived.
                         val walletItems = walletUtils.getWalletItems(magicString)
-                        webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "wallet", data = walletItems))
+                        webSocketTemplate.convertAndSend(
+                            "/topic/messages",
+                            SocketResponse.Success(type = "wallet", data = walletItems)
+                        )
                     }
                 } catch (e: Throwable) {
-                    log.error("Error monitoring wallet!", e)
+                    if (!isShuttingDown) {
+                        log.error("Error monitoring wallet!", e)
+                    }
                 }
             }
 
         }
     }
 
-    override fun stop() {
-        job.cancelChildren()
-        log.info("BlockMonitor stopped.")
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun stop(callback: Runnable) {
+        isShuttingDown = true
+        GlobalScope.launch {
+            job.cancelAndJoin()
+            log.info("WalletMonitor stopped.")
+            callback.run()
+        }
     }
 
+    override fun stop() {
+    }
 }

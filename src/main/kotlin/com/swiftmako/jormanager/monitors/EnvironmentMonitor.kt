@@ -2,14 +2,7 @@ package com.swiftmako.jormanager.monitors
 
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.repositories.FileRepository
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -31,8 +24,8 @@ import kotlin.coroutines.CoroutineContext
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
 class EnvironmentMonitor @Autowired constructor(
-        private val okHttpClient: OkHttpClient,
-        private val fileRepository: FileRepository
+    private val okHttpClient: OkHttpClient,
+    private val fileRepository: FileRepository
 ) : SmartLifecycle, CoroutineScope {
     private val log by lazy { LoggerFactory.getLogger("EnvironmentMonitor") }
 
@@ -75,10 +68,10 @@ class EnvironmentMonitor @Autowired constructor(
                                     }
                                 } ?: run {
                                     fileRepository.save(
-                                            File(
-                                                    name = remoteFileName,
-                                                    content = remoteContent
-                                            )
+                                        File(
+                                            name = remoteFileName,
+                                            content = remoteContent
+                                        )
                                     )
                                     log.info("Saved: $remoteFileName")
                                 }
@@ -94,14 +87,23 @@ class EnvironmentMonitor @Autowired constructor(
         }
     }
 
-    override fun stop() {
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun stop(callback: java.lang.Runnable) {
         isRunning.set(false)
-        job.cancelChildren()
-        log.info("EnvironmentMonitor stopped.")
+        GlobalScope.launch {
+            job.cancelChildren()
+            job.cancelAndJoin()
+            log.info("EnvironmentMonitor stopped.")
+            callback.run()
+        }
+    }
+
+    override fun stop() {
     }
 
     companion object {
         const val RECONNECT_DELAY_MS = 14_400_000L // 4 hours
+
         //const val URL = "https://hydra.iohk.io/job/Cardano/cardano-node/cardano-deployment/latest-finished/download/1/index.html"
         const val URL = "https://bluecheesestakehouse.com/jormanager/index.html"
     }

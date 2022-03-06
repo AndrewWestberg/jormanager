@@ -5,8 +5,10 @@ import com.swiftmako.jormanager.entities.LedgerAsset
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.jpa.repository.QueryHints
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
+import javax.persistence.QueryHint
 
 
 @Repository
@@ -35,7 +37,10 @@ interface LedgerRepository : JpaRepository<LedgerAddress, Long> {
     fun getByAddress(address: String): LedgerAddress?
 
     @Query("SELECT l.id FROM LedgerAddress l WHERE l.address = :address")
-//    @QueryHints(QueryHint(name = org.hibernate.annotations.QueryHints.CACHEABLE, value = "true"))
+    @QueryHints(
+        QueryHint(name = org.hibernate.annotations.QueryHints.CACHEABLE, value = "true"),
+        QueryHint(name = org.hibernate.annotations.QueryHints.READ_ONLY, value = "true")
+    )
     fun getIdByAddress(@Param("address") address: String): Long?
 
     @Modifying

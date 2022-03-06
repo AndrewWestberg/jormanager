@@ -68,6 +68,7 @@ class BlockMonitor @Autowired constructor(
     private val mutex = Mutex()
     private val blockFoundMutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
+    private var isShuttingDown = false
 
     override fun isAutoStartup() = true
 
@@ -80,7 +81,7 @@ class BlockMonitor @Autowired constructor(
     override fun start() {
         log.info("Starting BlockMonitor...")
         launch {
-            nodeRepository.findAll().filter { !it.isDeleted }.forEach {  node ->
+            nodeRepository.findAll().filter { !it.isDeleted }.forEach { node ->
                 nodesChannel.emit(node)
             }
         }
@@ -128,7 +129,7 @@ class BlockMonitor @Autowired constructor(
 
     private fun validateBlocks() {
         launch {
-            while (true) {
+            while (!isShuttingDown) {
                 try {
                     val poolIds = nodeRepository.findPoolIds()
                     // log.debug("validateBlocks: poolIds: $poolIds")
@@ -267,11 +268,15 @@ class BlockMonitor @Autowired constructor(
                     log.info("Done tailing logs at: $logPath")
                     retry = true
                 } catch (e: IOException) {
-                    log.error("IOException communicating with ${node.name}", e)
-                    retry = true
+                    if (!isShuttingDown) {
+                        log.error("IOException communicating with ${node.name}", e)
+                        retry = true
+                    }
                 } catch (e: IllegalStateException) {
-                    log.error("IllegalStateException communicating with ${node.name}", e)
-                    retry = true
+                    if (!isShuttingDown) {
+                        log.error("IllegalStateException communicating with ${node.name}", e)
+                        retry = true
+                    }
                 } catch (e: CancellationException) {
                     log.warn("Monitoring job canceled: ${node.name}")
                 } catch (e: Throwable) {
@@ -347,11 +352,15 @@ class BlockMonitor @Autowired constructor(
                         log.info("Done tailing logs!")
                     }
                 } catch (e: IOException) {
-                    log.error("IOException communicating with ${node.name}", e)
-                    retry = true
+                    if (!isShuttingDown) {
+                        log.error("IOException communicating with ${node.name}", e)
+                        retry = true
+                    }
                 } catch (e: IllegalStateException) {
-                    log.error("IllegalStateException communicating with ${node.name}", e)
-                    retry = true
+                    if (!isShuttingDown) {
+                        log.error("IllegalStateException communicating with ${node.name}", e)
+                        retry = true
+                    }
                 } catch (e: CancellationException) {
                     log.warn("Monitoring job canceled: ${node.name}")
                 } catch (e: Throwable) {
@@ -429,12 +438,24 @@ class BlockMonitor @Autowired constructor(
         }
     }
 
-    override fun stop() {
-        // shutdown all ssh connections
-        SSHClientPool.shutdown()
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun stop(callback: java.lang.Runnable) {
+        isShuttingDown = true
 
-        job.cancelChildren()
-        log.info("BlockMonitor stopped.")
+        ignoreExceptions {
+            // shutdown all ssh connections
+            SSHClientPool.shutdown()
+        }
+
+        GlobalScope.launch {
+            delay(3000)
+            job.cancelChildren()
+            log.info("BlockMonitor stopped.")
+            callback.run()
+        }
+    }
+
+    override fun stop() {
     }
 
     companion object {

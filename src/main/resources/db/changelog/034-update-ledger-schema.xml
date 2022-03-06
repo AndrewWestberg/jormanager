@@ -4,8 +4,8 @@
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
     <changeSet id="034" author="Andrew Westberg">
 
-        <modifyDataType tableName="ledger_assets" columnName="image" newDataType="clob"/>
-        <modifyDataType tableName="ledger_assets" columnName="description" newDataType="clob"/>
+        <modifyDataType tableName="ledger_assets" columnName="image" newDataType="text"/>
+        <modifyDataType tableName="ledger_assets" columnName="description" newDataType="text"/>
 
     </changeSet>
 </databaseChangeLog>

@@ -67,6 +67,7 @@ class PooltoolMonitor @Autowired constructor(
 
     private val mutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
+    private var isShuttingDown = false
 
     override fun isAutoStartup() = pooltoolApiKey.isNotBlank()
 
@@ -228,9 +229,18 @@ class PooltoolMonitor @Autowired constructor(
         }
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun stop(callback: java.lang.Runnable) {
+        isShuttingDown = true
+        GlobalScope.launch {
+            job.cancelChildren()
+            job.cancelAndJoin()
+            log.info("PooltoolMonitor stopped.")
+            callback.run()
+        }
+    }
+
     override fun stop() {
-        job.cancelChildren()
-        log.info("PooltoolMonitor stopped.")
     }
 
     /**

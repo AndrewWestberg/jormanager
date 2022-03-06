@@ -69,6 +69,8 @@ class ChainMonitor @Autowired constructor(
         monitorChain()
     }
 
+    private lateinit var mux: Mux
+
     private fun monitorChain() {
         launch {
             while (!isShuttingDown) {
@@ -90,7 +92,7 @@ class ChainMonitor @Autowired constructor(
                             .use { socket ->
                                 log.debug("ChainMonitor Socket connected")
                                 val socketConnection = socket.connection()
-                                val mux = Mux(socketConnection)
+                                mux = Mux(socketConnection)
                                 mux.execute(HandshakeProtocol(networkMagic))
                                 mux.execute(
                                     ChainSyncProtocol(
@@ -116,24 +118,34 @@ class ChainMonitor @Autowired constructor(
                             }
                     }
                 } catch (e: Throwable) {
-                    if (e !is CancellationException) {
+                    if (e !is CancellationException && !isShuttingDown) {
                         log.error("ChainMonitor error", e)
-                    } else {
-                        isShuttingDown = true
                     }
                 }
                 if (!isShuttingDown) {
                     log.info("ChainMonitor Socket not connected. Wait 10 seconds to reconnect...")
                     delay(RECONNECT_DELAY_MS)
+                } else {
+                    log.info("ChainMonitor Socket not connected. Shutting down...")
                 }
             }
         }
         log.info("... ChainMonitor start complete.")
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun stop(callback: java.lang.Runnable) {
+        isShuttingDown = true
+        GlobalScope.launch {
+            mux.shutdownGracefully()
+            delay(3000)
+            job.cancelChildren()
+            log.info("ChainMonitor stopped.")
+            callback.run()
+        }
+    }
+
     override fun stop() {
-        job.cancelChildren()
-        log.info("ChainMonitor stopped.")
     }
 
     @Lookup("blockFetchProtocol")

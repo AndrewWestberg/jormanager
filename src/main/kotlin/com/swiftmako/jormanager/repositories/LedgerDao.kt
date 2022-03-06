@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Scope
 import org.springframework.stereotype.Component
 import java.math.BigInteger
 import java.time.Duration
+import java.time.Instant
 import javax.transaction.Transactional
 import kotlin.system.measureTimeMillis
 
@@ -47,6 +48,8 @@ class LedgerDao @Autowired constructor(
             }
         } ?: emptyList()
     }
+
+    private var lastPruneTime = Instant.now()
 
     @Transactional
     fun commitBlocks(blocksToCommit: List<BlockFetchProtocol.LedgerBlock>, isTip: Boolean) {
@@ -106,12 +109,16 @@ class LedgerDao @Autowired constructor(
 
             // Prune any old spent utxos we don't need any longer older than 30 minutes
             pruneTime = measureTimeMillis {
-                ledgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
+                val now = Instant.now()
+                if (lastPruneTime.isBefore(now.minus(Duration.ofMinutes(1)))) {
+                    ledgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
+                    lastPruneTime = now
+                }
             }
         }.also { totalTime ->
-            //if (isTip && totalTime > 500L) {
-            log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
-            //}
+            if (/*isTip &&*/ totalTime > 1000L) {
+                log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
+            }
             log.info(
                 "BlockFetch: Saved block: ${blocksToCommit.first().blockNumber}..${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
                     blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
@@ -229,7 +236,7 @@ class LedgerDao @Autowired constructor(
             ledgerAssetTime += (System.currentTimeMillis() - start2)
         }
         if (ledgerTime > 1000L || ledgerUtxoTime > 1000L || ledgerAssetTime > 1000L) {
-            log.warn("slowBlock: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms")
+            log.warn("complexBlock: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms")
         }
     }
 

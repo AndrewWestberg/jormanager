@@ -38,6 +38,10 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
 
     lateinit var msgAcceptVersion: MsgAcceptVersion
 
+    override fun shutdown() {
+        state = State.Done
+    }
+
     @OptIn(ExperimentalIoApi::class)
     override suspend fun sendData(): ByteBuffer {
         log.debug("send: $state")
