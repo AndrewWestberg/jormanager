@@ -32,18 +32,20 @@ class LedgerDao @Autowired constructor(
     @Transactional
     fun queryUtxos(address: String): List<Utxo> {
         return ledgerRepository.getByAddress(address)?.let { ledgerAddress ->
-            ledgerAddress.ledgerUtxos.map { ledgerUtxo ->
+            ledgerAddress.ledgerUtxos?.map { ledgerUtxo ->
                 Utxo(
                     hash = ledgerUtxo.txId,
                     ix = ledgerUtxo.txIx.toLong(),
                     lovelace = BigInteger(ledgerUtxo.lovelace),
-                    nativeAssets = ledgerUtxo.ledgerUtxoAssets.map { ledgerUtxoAsset ->
-                        NativeAsset(
-                            name = ledgerUtxoAsset.ledgerAsset.name,
-                            policy = ledgerUtxoAsset.ledgerAsset.policy,
-                            amount = BigInteger(ledgerUtxoAsset.amount)
-                        )
-                    }
+                    nativeAssets = ledgerUtxo.ledgerUtxoAssets?.mapNotNull { ledgerUtxoAsset ->
+                        ledgerUtxoAsset.ledgerAsset?.let { ledgerAsset ->
+                            NativeAsset(
+                                name = ledgerAsset.name,
+                                policy = ledgerAsset.policy,
+                                amount = BigInteger(ledgerUtxoAsset.amount)
+                            )
+                        }
+                    } ?: emptyList()
                 )
             }
         } ?: emptyList()
