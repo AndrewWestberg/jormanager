@@ -1,6 +1,5 @@
 package com.swiftmako.jormanager.entities
 
-import org.hibernate.annotations.CacheConcurrencyStrategy
 import org.hibernate.annotations.Where
 import javax.persistence.*
 

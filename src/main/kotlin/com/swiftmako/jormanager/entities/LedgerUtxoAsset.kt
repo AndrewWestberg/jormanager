@@ -16,6 +16,6 @@ data class LedgerUtxoAsset(
     val amount: String,
 
     @OneToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "id", referencedColumnName = "ledger_asset_id", insertable = false, updatable = false)
+    @JoinColumn(name = "ledger_asset_id", insertable = false, updatable = false)
     val ledgerAsset: LedgerAsset? = null
 )

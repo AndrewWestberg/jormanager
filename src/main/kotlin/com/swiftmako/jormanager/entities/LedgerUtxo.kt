@@ -26,6 +26,6 @@ data class LedgerUtxo(
     val slotSpent: Long?,
 
     @OneToMany(fetch = FetchType.EAGER)
-    @JoinColumn(name = "ledger_utxo_id", referencedColumnName = "id", insertable = false, updatable = false)
+    @JoinColumn(name = "ledger_utxo_id", insertable = false, updatable = false)
     val ledgerUtxoAssets: List<LedgerUtxoAsset>? = null
 )

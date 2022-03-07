@@ -118,12 +118,13 @@ class LedgerDao @Autowired constructor(
                 }
             }
         }.also { totalTime ->
-            if (/*isTip &&*/ totalTime > 1000L) {
+            if (totalTime > 1000L) {
                 log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
             }
+            val blockNumber = blocksToCommit.last().blockNumber
             log.info(
-                "BlockFetch: Saved block: ${blocksToCommit.first().blockNumber}..${blocksToCommit.last().blockNumber} of ${ChainSyncProtocol.tipBlockNumber} - %.2f%% synced".format(
-                    blocksToCommit.last().blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+                "BlckFetch: Saved block: $blockNumber of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
+                    blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
                 )
             )
         }
