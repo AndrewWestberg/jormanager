@@ -65,7 +65,6 @@ class NodeMonitor @Autowired constructor(
     private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val moshi: Moshi,
     @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
-    @Qualifier("newBlockChannel") private val newBlockChannel: MutableStateFlow<Long?>,
     @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
 ) : SmartLifecycle, CoroutineScope {
 
@@ -288,7 +287,6 @@ class NodeMonitor @Autowired constructor(
             shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!.epochLength
         } ?: 432000 //5-day default
 
-        var lastBlockHeight = -1L
         while (true) {
             // delay until the next 5-second interval
             val before = System.currentTimeMillis()
@@ -338,12 +336,6 @@ class NodeMonitor @Autowired constructor(
                     val nodeStats = ekgMetrics.toNodeStats(now, node, incomingPeers, epochLength)
                     eventsChannel.send(nodeStats)
                     if (node.isDefault) {
-                        nodeStats.blockHeight?.let { newBlockHeight ->
-                            if (newBlockHeight > lastBlockHeight) {
-                                newBlockChannel.value = newBlockHeight
-                                lastBlockHeight = newBlockHeight
-                            }
-                        }
                         latestNodeStats.set(nodeStats)
                     }
                 } else {

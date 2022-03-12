@@ -5,8 +5,10 @@ import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.*
 import com.swiftmako.jormanager.entities.File
+import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.tx.TxSigned
 import com.swiftmako.jormanager.repositories.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory.SCOPE_SINGLETON
@@ -42,13 +45,16 @@ class WalletController @Autowired constructor(
     private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
     private val webSocketTemplate: SimpMessagingTemplate,
+    private val txSignedAdapter: JsonAdapter<TxSigned>,
+    private val ledgerDao: LedgerDao,
 ) : CoroutineScope {
 
     private val log by lazy { LoggerFactory.getLogger("WalletController") }
 
     private val debounceFlow = MutableStateFlow<CalculateFeeRequest?>(null)
 
-    override val coroutineContext: CoroutineContext = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    override val coroutineContext: CoroutineContext =
+        Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher()
 
     init {
         launch {
@@ -158,6 +164,14 @@ class WalletController @Autowired constructor(
                             baseAmount[currency] = nativeAssetBaseAmount + nativeAsset.amount
                         }
                     }
+                }
+            }
+
+            if (utxosToSpend.isEmpty()) {
+                //<shrug> spend them all
+                utxos.forEach { utxo ->
+                    transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                    utxosToSpend.add(utxo)
                 }
             }
 
@@ -608,6 +622,14 @@ class WalletController @Autowired constructor(
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
                             val txid =
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                    .trim()
+
+                            val cborBytes =
+                                txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
+                            runBlocking {
+                                ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                            }
+
                             transactionRepository.save(Transaction(txid = txid))
 
                             webSocketTemplate.convertAndSend(
@@ -925,6 +947,14 @@ class WalletController @Autowired constructor(
                     }
                 }
 
+                if (utxosToSpend.isEmpty()) {
+                    //<shrug> spend them all
+                    utxos.forEach { utxo ->
+                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                        utxosToSpend.add(utxo)
+                    }
+                }
+
                 val walletItem =
                     walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, fromWalletEntry)
 
@@ -1067,6 +1097,13 @@ class WalletController @Autowired constructor(
                     .trim()
                 val txid =
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                        .trim()
+
+                val cborBytes =
+                    txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
+                runBlocking {
+                    ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                }
 
                 transactionRepository.save(Transaction(txid = txid))
                 webSocketTemplate.convertAndSend(

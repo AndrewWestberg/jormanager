@@ -8,6 +8,7 @@ import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
+import com.swiftmako.jormanager.model.tx.TxSigned
 import com.swiftmako.jormanager.moshi.adapters.BigIntegerAdapter
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
@@ -64,6 +65,10 @@ class Configuration {
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getConfigAdapter(moshi: Moshi): JsonAdapter<Config> = moshi.adapter(Config::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getTxSignedAdapter(moshi: Moshi): JsonAdapter<TxSigned> = moshi.adapter(TxSigned::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -152,9 +157,9 @@ class Configuration {
         return MutableSharedFlow()
     }
 
-    @Bean("newBlockChannel")
+    @Bean("refreshWalletChannel")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getNewBlockChannel(): MutableStateFlow<Long?> {
+    fun getRefreshWalletChannel(): MutableStateFlow<Long?> {
         return MutableStateFlow(null)
     }
 

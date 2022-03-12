@@ -30,7 +30,7 @@ class WalletMonitor @Autowired constructor(
     private val fileRepository: FileRepository,
     private val walletUtils: WalletUtils,
     private val webSocketTemplate: SimpMessagingTemplate,
-    @Qualifier("newBlockChannel") private val newBlockChannel: MutableStateFlow<Long?>,
+    @Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long?>,
     private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
 ) : SmartLifecycle, CoroutineScope {
 
@@ -62,7 +62,7 @@ class WalletMonitor @Autowired constructor(
     private fun monitorWallet() {
         launch {
             var magicString = ""
-            newBlockChannel.filterNotNull().collect {
+            refreshWalletChannel.filterNotNull().collect {
 
                 try {
                     if (magicString.isBlank()) {

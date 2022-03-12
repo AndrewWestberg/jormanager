@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
 import com.swiftmako.jormanager.repositories.*
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -62,11 +63,7 @@ class WalletUtils @Autowired constructor(
         magicString: String,
         walletEntry: WalletEntry
     ): WalletItem {
-        val utxos = if (BlockFetchProtocol.isTip) {
-            ledgerDao.queryUtxos(walletEntry.paymentAddr)
-        } else {
-            getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
-        }
+        val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
 
         // find staking_addr balance
         val start = System.currentTimeMillis()
@@ -124,29 +121,36 @@ class WalletUtils @Autowired constructor(
         magicString: String,
         paymentAddr: String
     ): List<Utxo> {
-        // find payment_addr balance
-        val start = System.currentTimeMillis()
-        val addressInfoJson = try {
-            hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString --out-file=/dev/stdout")
-                .trim()
-        } catch (t: Throwable) {
-            if (t.message?.contains("EraMismatch") == false) {
-                log.error("Error getting payment addr info!", t)
+        return if (BlockFetchProtocol.isTip) {
+            runBlocking {
+                ledgerDao.queryLiveUtxos(paymentAddr)
             }
-            ""
-        }
-        val utxos = try {
-            queryUtxoJsonAdapter.fromJson(addressInfoJson)
-        } catch (e: Throwable) {
-            log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
-            throw e
-        }
+        } else {
+            //log.warn("Not on tip! running old queryUtxo()!")
+            // find payment_addr balance
+            val start = System.currentTimeMillis()
+            val addressInfoJson = try {
+                hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString --out-file=/dev/stdout")
+                    .trim()
+            } catch (t: Throwable) {
+                if (t.message?.contains("EraMismatch") == false) {
+                    log.error("Error getting payment addr info!", t)
+                }
+                ""
+            }
+            val utxos = try {
+                queryUtxoJsonAdapter.fromJson(addressInfoJson)
+            } catch (e: Throwable) {
+                log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
+                throw e
+            }
 
-        (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
-            log.warn("queryUtxo: $paymentAddr, ${it}ms")
-        }
+            (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
+                log.warn("queryUtxo: $paymentAddr, ${it}ms")
+            }
 
-        return utxos ?: emptyList()
+            utxos ?: emptyList()
+        }
     }
 
     fun getSKeyContent(skey: File, spendingPassword: String): String {
