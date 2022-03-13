@@ -1,0 +1,15 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="035" author="Andrew Westberg">
+
+        <dropIndex tableName="ledger_assets" indexName="idx_ledger_assets_policy_name"/>
+
+        <createIndex tableName="ledger_assets" indexName="idx_ledger_assets_policy_name" unique="true">
+            <column name="policy"/>
+            <column name="name"/>
+        </createIndex>
+
+    </changeSet>
+</databaseChangeLog>

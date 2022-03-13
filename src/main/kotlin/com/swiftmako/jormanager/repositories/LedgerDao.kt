@@ -264,6 +264,7 @@ class LedgerDao @Autowired constructor(
 //        }
         var rollbackTime = 0L
         var nativeAssetTime = 0L
+        var nativeAssetCount = 0L
         var spendTime = 0L
         var createTime = 0L
         var blockFetchCreateTime = 0L
@@ -283,6 +284,7 @@ class LedgerDao @Autowired constructor(
                     nativeAssetTime += measureTimeMillis {
                         upcertNativeAssets(nativeAssetsMetadata)
                     }
+                    nativeAssetCount += nativeAssetsMetadata.size
 
                     // Insert unspent utxos
                     createTime += measureTimeMillis {
@@ -346,26 +348,27 @@ class LedgerDao @Autowired constructor(
 
     fun upcertNativeAssets(nativeAssetsMetadata: Set<NativeAssetMetadata>) {
         nativeAssetsMetadata.forEach { nativeAssetMetadata ->
-            ledgerRepository.getLedgerAssetByPolicyAndName(
-                policy = nativeAssetMetadata.assetPolicy,
-                name = nativeAssetMetadata.assetName
-            )?.let { ledgerAsset ->
+            ledgerAssetIdCache[Pair(
+                nativeAssetMetadata.assetPolicy,
+                nativeAssetMetadata.assetName
+            )]?.let { ledgerAssetId ->
                 // Do update
                 ledgerAssetRepository.updateImageAndDescription(
-                    id = ledgerAsset.id!!,
+                    id = ledgerAssetId,
                     image = nativeAssetMetadata.metadataImage,
                     description = nativeAssetMetadata.metadataDescription,
                 )
             } ?: run {
                 // Do insert
-                ledgerAssetRepository.save(
+                val id = ledgerAssetRepository.save(
                     LedgerAsset(
                         policy = nativeAssetMetadata.assetPolicy,
                         name = nativeAssetMetadata.assetName,
                         image = nativeAssetMetadata.metadataImage,
                         description = nativeAssetMetadata.metadataDescription,
                     )
-                )
+                ).id!!
+                ledgerAssetIdCache.put(Pair(nativeAssetMetadata.assetPolicy, nativeAssetMetadata.assetName), id)
             }
         }
     }
@@ -390,6 +393,7 @@ class LedgerDao @Autowired constructor(
         var ledgerInsertTime = 0L
         var ledgerUtxoTime = 0L
         var ledgerAssetTime = 0L
+        var ledgerAssetCount = 0L
         var hit = 0L
         var miss = 0L
         createdUtxos.forEach { createdUtxo ->
@@ -451,9 +455,10 @@ class LedgerDao @Autowired constructor(
                 )
             }
             ledgerAssetTime += (System.currentTimeMillis() - start2)
+            ledgerAssetCount += createdUtxo.nativeAssets.size
         }
         if (ledgerTime > 1000L || ledgerUtxoTime > 1000L || ledgerAssetTime > 1000L) {
-            log.warn("complexBlock: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms")
+            log.warn("complexBlock: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms, assetCount: $ledgerAssetCount")
         }
     }
 

@@ -1,0 +1,10 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="036" author="Andrew Westberg">
+
+        <sql>ALTER TABLE ledger_assets ADD CONSTRAINT unique_ledger_assets_policy_name UNIQUE USING INDEX idx_ledger_assets_policy_name</sql>
+
+    </changeSet>
+</databaseChangeLog>
