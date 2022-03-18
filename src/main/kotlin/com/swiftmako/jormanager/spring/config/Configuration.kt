@@ -13,11 +13,15 @@ import com.swiftmako.jormanager.moshi.adapters.BigIntegerAdapter
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
+import com.zaxxer.hikari.HikariConfig
+import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import org.jetbrains.exposed.sql.Database
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -27,12 +31,40 @@ import org.springframework.transaction.annotation.EnableTransactionManagement
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.atomic.AtomicReference
+import javax.sql.DataSource
 
 
 @Configuration
 @EnableTransactionManagement
 class Configuration {
 
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    @org.springframework.context.annotation.Lazy(value = false)
+    fun getDataSource(
+        @Value("\${spring.datasource.url}") jdbcUrl: String,
+        @Value("\${spring.datasource.username}") dataSourceUser: String,
+        @Value("\${spring.datasource.password}") dataSourcePassword: String,
+    ): DataSource {
+        val hikariConfig = HikariConfig()
+        //hikariConfig.dataSourceClassName = "org.postgresql.ds.PGSimpleDataSource"
+        hikariConfig.jdbcUrl = jdbcUrl
+        hikariConfig.username = dataSourceUser
+        hikariConfig.password = dataSourcePassword
+
+        hikariConfig.isAutoCommit = false
+        hikariConfig.connectionTimeout = 120_000L
+        hikariConfig.maximumPoolSize = 30
+        hikariConfig.minimumIdle = 5
+        hikariConfig.maxLifetime = 600_000L // 10 minutes
+        hikariConfig.validationTimeout = 12_000L
+        hikariConfig.idleTimeout = 12_000L
+        hikariConfig.leakDetectionThreshold = 120_000L
+
+        val ds = HikariDataSource(hikariConfig)
+        Database.connect(ds)
+        return ds
+    }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)

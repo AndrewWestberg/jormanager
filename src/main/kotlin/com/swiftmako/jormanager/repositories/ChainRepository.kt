@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository
 import javax.transaction.Transactional
 
 @Repository
+@Transactional
 interface ChainRepository : JpaRepository<ChainBlock, Long> {
 
     @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber = :slot")
@@ -19,7 +20,6 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Query("SELECT c FROM ChainBlock c WHERE c.blockNumber = :block_number")
     fun findByBlockNumber(@Param("block_number") blockNumber: Long): ChainBlock?
 
-    @Transactional
     @Modifying
     @Query("DELETE FROM ChainBlock c WHERE c.blockNumber >= :block_number")
     fun deleteByBlockNumberAndAbove(@Param("block_number") blockNumber: Long)
@@ -39,7 +39,6 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber > :firstSlot AND c.slotNumber <= :lastSlot")
     fun findBetweenSlots(@Param("firstSlot") firstSlot: Long, @Param("lastSlot") lastSlot: Long): List<ChainBlock>
 
-    @Transactional
     @Modifying
     @Query("DELETE FROM ChainBlock c WHERE c.etaV=''")
     fun deleteEmptyEta()

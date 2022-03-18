@@ -10,9 +10,9 @@ import com.swiftmako.jormanager.model.SpentUtxo
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
-import com.swiftmako.jormanager.repositories.BlockFetchRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.Blake2b
 import com.swiftmako.jormanager.utils.CardanoUtils
@@ -44,14 +44,13 @@ import kotlin.math.min
 class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
     private val chainRepository: ChainRepository,
-    private val blockFetchRepository: BlockFetchRepository,
     private val ledgerDao: LedgerDao,
 ) : MiniProtocol(protocolId = 0x0003.toShort()), CoroutineScope {
 
     companion object {
         var isTip = false
 
-        private const val BLOCK_BUFFER_SIZE = 20L
+        private const val BLOCK_BUFFER_SIZE = 100L
 
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
@@ -126,7 +125,7 @@ class BlockFetchProtocol(
                 commitBlocksJob = null
 
                 var chainBlock = chainRepository.findTipBlock()
-                val blockFetch = blockFetchRepository.findTipBlock()
+                val blockFetch = LedgerRepository.findTipBlock()
                 if (chainBlock == null || chainBlock.hash == blockFetch?.hash) {
                     // wait until a new block has arrived
                     //log.info("Await next ChainSync block...")

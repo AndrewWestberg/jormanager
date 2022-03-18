@@ -21,14 +21,16 @@ object Versions {
     const val coroutines = "1.6.0"
     const val ehcache = "3.9.9"
     const val errorprone = "2.11.0"
+    const val exposed = "0.37.3"
     const val googleTruth = "1.1.3"
+    const val hikari = "5.0.1"
     const val jackson = "2.13.1"
     const val joda = "2.10.13"
     const val json = "20211205"
     const val jsoup = "1.14.3"
     const val junit = "5.8.2"
     const val kotlinxIo = "0.1.16"
-    const val ktor = "1.6.7"
+    const val ktor = "1.6.8"
     const val liquibase = "4.8.0"
     const val mockk = "1.12.3"
     const val moshi = "1.13.0"
@@ -100,8 +102,9 @@ dependencies {
     implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("org.postgresql:postgresql:${Versions.postgresql}")
-//    implementation("org.hibernate:hibernate-jcache")
-//    implementation("org.ehcache:ehcache:${Versions.ehcache}")
+    implementation("org.jetbrains.exposed:exposed-core:${Versions.exposed}")
+    implementation("org.jetbrains.exposed:exposed-jdbc:${Versions.exposed}")
+    implementation("com.zaxxer:HikariCP:${Versions.hikari}")
     implementation("com.github.ben-manes.caffeine:caffeine:${Versions.caffeine}")
 
     implementation("com.google.iot.cbor:cbor:${Versions.cbor}")

@@ -40,7 +40,6 @@ class ChainMonitor @Autowired constructor(
     private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val configAdapter: JsonAdapter<Config>,
     private val pooltoolService: PooltoolService,
-    private val blockFetchRepository: BlockFetchRepository,
     private val ledgerDao: LedgerDao,
 ) : SmartLifecycle, CoroutineScope {
 
@@ -111,7 +110,6 @@ class ChainMonitor @Autowired constructor(
                                     BlockFetchProtocol(
                                         cardanoUtils,
                                         chainRepository,
-                                        blockFetchRepository,
                                         ledgerDao,
                                     )
                                 )
