@@ -125,12 +125,13 @@ class BlockFetchProtocol(
                 commitBlocksJob = null
 
                 var chainBlock = chainRepository.findTipBlock()
-                val blockFetch = LedgerRepository.findTipBlock()
+                var blockFetch = LedgerRepository.findTipBlock()
                 if (chainBlock == null || chainBlock.hash == blockFetch?.hash) {
                     // wait until a new block has arrived
                     //log.info("Await next ChainSync block...")
                     ChainSyncProtocol.newBlockFlow.first()
                     chainBlock = chainRepository.findTipBlock()
+                    blockFetch = LedgerRepository.findTipBlock()
                 }
 
                 requireNotNull(chainBlock)

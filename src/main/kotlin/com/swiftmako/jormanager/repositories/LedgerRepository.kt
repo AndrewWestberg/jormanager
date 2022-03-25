@@ -43,6 +43,7 @@ object LedgerRepository {
     }
 
     fun doRollback(blockNumber: Long) {
+        BlockFetchTable.deleteWhere { BlockFetchTable.blockNumber greaterEq blockNumber }
         LedgerUtxosTable.deleteWhere { LedgerUtxosTable.blockCreated greaterEq blockNumber }
         LedgerUtxosTable.update({ LedgerUtxosTable.blockSpent greaterEq blockNumber }) {
             it[blockSpent] = null
@@ -262,10 +263,6 @@ object LedgerRepository {
         }
 
     fun siblingHashCount(hash: String): Long = siblingHashCountCache[hash]!!
-
-    fun doBlockFetchRollbackDelete(blockNumber: Long) {
-        BlockFetchTable.deleteWhere { BlockFetchTable.blockNumber greaterEq blockNumber }
-    }
 
     fun insertBlockFetch(blockNumber: Long, slotNumber: Long, hash: String, prevHash: String) {
         BlockFetchTable.insert { row ->

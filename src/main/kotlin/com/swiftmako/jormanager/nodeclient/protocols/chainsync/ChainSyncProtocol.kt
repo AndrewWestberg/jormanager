@@ -15,6 +15,7 @@ import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
+import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.digests.Blake2bDigest
+import org.jetbrains.exposed.sql.transactions.transaction
 import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.ISODateTimeFormat
@@ -232,6 +234,9 @@ class ChainSyncProtocol(
 
                     // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
                     chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
+                    transaction {
+                        LedgerRepository.doRollback(msgRollForward.blockNumber)
+                    }
 
                     // evolve the etaV nonce value
                     val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash

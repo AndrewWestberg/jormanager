@@ -116,7 +116,7 @@ class ChainMonitor @Autowired constructor(
                             }
                     }
                 } catch (e: Throwable) {
-                    if (e !is CancellationException && !isShuttingDown) {
+                    if (!isShuttingDown) {
                         log.error("ChainMonitor error", e)
                     }
                 }

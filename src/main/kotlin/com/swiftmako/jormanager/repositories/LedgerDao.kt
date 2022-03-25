@@ -271,12 +271,6 @@ class LedgerDao @Autowired constructor(
                         LedgerRepository.spendUtxos(slotNumber, blockNumber, spentUtxos)
                     }
 
-                    // Mark this block as fetched
-                    if (index == 0) {
-                        rollbackTime += measureTimeMillis {
-                            LedgerRepository.doBlockFetchRollbackDelete(blockNumber)
-                        }
-                    }
                     blockFetchCreateTime += measureTimeMillis {
                         LedgerRepository.insertBlockFetch(
                             blockNumber = blockNumber,
@@ -305,16 +299,25 @@ class LedgerDao @Autowired constructor(
             if (totalTime > 1000L) {
                 log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
             }
-            val blockNumber = blocksToCommit.last().blockNumber
-            log.info(
-                "BlckFetch: Saved block: $blockNumber of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
-                    blockNumber.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+            val blockNumberFirst = blocksToCommit.first().blockNumber
+            val blockNumberLast = blocksToCommit.last().blockNumber
+            if (blockNumberFirst == blockNumberLast) {
+                log.info(
+                    "BlckFetch: Saved block: $blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
+                        blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+                    )
                 )
-            )
+            } else {
+                log.info(
+                    "BlckFetch: Saved block(s): $blockNumberFirst-$blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
+                        blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+                    )
+                )
+            }
             val now = Instant.now()
             if (isTip || lastWalletRefreshTime.isBefore(now.minusSeconds(300))) {
                 runBlocking {
-                    refreshWalletChannel.emit(blockNumber)
+                    refreshWalletChannel.emit(blockNumberLast)
                 }
                 lastWalletRefreshTime = now
             }
