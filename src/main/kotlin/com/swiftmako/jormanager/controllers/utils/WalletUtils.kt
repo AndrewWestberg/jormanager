@@ -40,7 +40,6 @@ class WalletUtils @Autowired constructor(
 ) {
     private val log by lazy { LoggerFactory.getLogger("WalletUtils") }
 
-    @Transactional
     fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
         nodeRepository.findDefault()?.let { defaultNode ->

@@ -312,7 +312,7 @@ class LedgerDao @Autowired constructor(
                 )
             )
             val now = Instant.now()
-            if (isTip || lastWalletRefreshTime.isBefore(now.minusSeconds(60))) {
+            if (isTip || lastWalletRefreshTime.isBefore(now.minusSeconds(300))) {
                 runBlocking {
                     refreshWalletChannel.emit(blockNumber)
                 }
