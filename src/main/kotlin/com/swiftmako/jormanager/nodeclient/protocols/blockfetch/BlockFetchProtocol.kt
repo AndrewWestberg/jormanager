@@ -29,6 +29,7 @@ import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET
+import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -284,7 +285,7 @@ class BlockFetchProtocol(
 //            val protocolMajorVersion = blockHeaderCborArrayInner.elementToBigInteger(13).toInt()
 //            val protocolMinorVersion = blockHeaderCborArrayInner.elementToBigInteger(14).toInt()
 
-//            val transactionIdsInBlock = mutableListOf<String>()
+            val transactionIdsInBlock = mutableListOf<String>()
             val spentUtxos = mutableSetOf<SpentUtxo>()
             val createdUtxos = mutableSetOf<CreatedUtxo>()
             val nativeAssetsToMint =
@@ -296,14 +297,14 @@ class BlockFetchProtocol(
                 //log.warn("transactionId calculated: $transactionId")
 //                log.warn("transaction cbor: ${transaction.toCborByteArray().toHexString()}")
 
-//                BlockController.submittedTransactionCache[transactionId]?.let {
-//                    if (log.isDebugEnabled) {
-//                        log.debug("Our transaction $transactionId was seen in a block!")
-//                    }
-//                    // Store that our submitted transaction was included in a block in case this block is rolled back
-//                    // later.
-//                    transactionIdsInBlock.add(transactionId)
-//                }
+                TransactionCache.get(transactionId)?.let  {
+                    if (log.isDebugEnabled) {
+                        log.debug("Our transaction $transactionId was seen in a block!")
+                    }
+                    // Store that our submitted transaction was included in a block in case this block is rolled back
+                    // later.
+                    transactionIdsInBlock.add(transactionId)
+                }
 
                 ((transaction)[TX_SPENT_UTXOS_INDEX] as CborArray).forEach { source ->
                     var utxoHash = ""
@@ -498,6 +499,7 @@ class BlockFetchProtocol(
                     spentUtxos,
                     createdUtxos,
                     nativeAssetsMetadata,
+                    transactionIdsInBlock,
                 )
             )
 
@@ -514,6 +516,7 @@ class BlockFetchProtocol(
         val prevHash: String,
         val spentUtxos: Set<SpentUtxo>,
         val createdUtxos: Set<CreatedUtxo>,
-        val nativeAssetsMetadata: Set<NativeAssetMetadata>
+        val nativeAssetsMetadata: Set<NativeAssetMetadata>,
+        val transactionIdsInBlock: List<String>,
     )
 }

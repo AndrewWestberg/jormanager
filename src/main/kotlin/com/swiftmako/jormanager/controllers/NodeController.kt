@@ -19,6 +19,7 @@ import com.swiftmako.jormanager.model.tx.TxSigned
 import com.swiftmako.jormanager.repositories.*
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.services.SmashService
+import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.CacheControl
@@ -721,19 +722,21 @@ class NodeController @Autowired constructor(
                         // 10. Sign the transaction
                         defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
-                        // 11. Submit the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
-
-                        val txid =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
-                                .trim()
-
-                        val cborBytes = txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
                         runBlocking {
-                            ledgerDao.updateLiveLedgerState(txid, cborBytes)
-                        }
+                            TransactionCache.withLock {
+                                // 11. Submit the transaction
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                val txid =
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                        .trim()
+                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                TransactionCache.put(txid, txSigned)
 
-                        transactionRepository.save(Transaction(txid = txid))
+                                val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                                ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                                transactionRepository.save(Transaction(txid = txid))
+                            }
+                        }
 
                         // 13. Create and Save node information
                         var parentId: Long? = null
@@ -1168,18 +1171,22 @@ class NodeController @Autowired constructor(
                                 // 10. Sign the transaction
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
-                                // 11. Submit the transaction
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
-                                val txid =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
-                                        .trim()
-
-                                val cborBytes = txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
                                 runBlocking {
-                                    ledgerDao.updateLiveLedgerState(txid, cborBytes)
-                                }
+                                    TransactionCache.withLock {
+                                        // 11. Submit the transaction
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                        val txid =
+                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                                .trim()
+                                        val txSigned =
+                                            defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                        TransactionCache.put(txid, txSigned)
 
-                                transactionRepository.save(Transaction(txid = txid))
+                                        val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                                        ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                                        transactionRepository.save(Transaction(txid = txid))
+                                    }
+                                }
 
                                 // 13. Save node information
                                 nodeRepository.save(
@@ -1828,18 +1835,21 @@ class NodeController @Autowired constructor(
                     // 10. Sign the transaction
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
-                    // 11. Submit the transaction
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
-                    val txid =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
-                            .trim()
-
-                    val cborBytes = txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
                     runBlocking {
-                        ledgerDao.updateLiveLedgerState(txid, cborBytes)
-                    }
+                        TransactionCache.withLock {
+                            // 11. Submit the transaction
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                            val txid =
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                    .trim()
+                            val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                            TransactionCache.put(txid, txSigned)
 
-                    transactionRepository.save(Transaction(txid = txid))
+                            val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                            ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                            transactionRepository.save(Transaction(txid = txid))
+                        }
+                    }
 
                     // 13. Save node information
                     nodeRepository.save(
@@ -2116,18 +2126,21 @@ class NodeController @Autowired constructor(
                     // 10. Sign the transaction
                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
-                    // 11. Submit the transaction
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
-                    val txid =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
-                            .trim()
-
-                    val cborBytes = txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
                     runBlocking {
-                        ledgerDao.updateLiveLedgerState(txid, cborBytes)
-                    }
+                        TransactionCache.withLock {
+                            // 11. Submit the transaction
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                            val txid =
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                    .trim()
+                            val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                            TransactionCache.put(txid, txSigned)
 
-                    transactionRepository.save(Transaction(txid = txid))
+                            val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                            ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                            transactionRepository.save(Transaction(txid = txid))
+                        }
+                    }
                 } ?: throw IOException("Node not found!")
             } finally {
                 // Cleanup
@@ -2317,18 +2330,22 @@ class NodeController @Autowired constructor(
                     fileRepository.save(it.copy(name = it.name + "-$now"))
                 }
 
-                // 11. Submit the transaction
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
-                val txid =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
-                        .trim()
+                val txid = runBlocking {
+                    TransactionCache.withLock {
+                        // 11. Submit the transaction
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                        val txid =
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                .trim()
+                        val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                        TransactionCache.put(txid, txSigned)
 
-                val cborBytes = txSignedAdapter.fromJson(defaultHostConnection.commandGetFileBufferedSource("/tmp/transaction.txsigned"))!!.cborHex.hexToByteArray()
-                runBlocking {
-                    ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                        val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                        ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                        transactionRepository.save(Transaction(txid = txid))
+                        txid
+                    }
                 }
-
-                transactionRepository.save(Transaction(txid = txid))
 
                 // send all to the client for ui updates
                 val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }

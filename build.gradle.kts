@@ -3,20 +3,20 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.6.4"
+    id("org.springframework.boot") version "2.6.6"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.42.0"
-    kotlin("jvm") version "1.6.10"
-    kotlin("kapt") version "1.6.10"
-    kotlin("plugin.spring") version "1.6.10"
-    kotlin("plugin.jpa") version "1.6.10"
+    kotlin("jvm") version "1.6.20"
+    kotlin("kapt") version "1.6.20"
+    kotlin("plugin.spring") version "1.6.20"
+    kotlin("plugin.jpa") version "1.6.20"
 }
 
 object Versions {
     const val bouncycastle = "1.70"
-    const val caffeine = "3.0.5"
+    const val caffeine = "3.0.6"
     const val commonsio = "2.8.0"
-    const val cbor = "0.01.02-FIREHOSE3"
+    const val cbor = "0.01.02-FIREHOSE4"
     const val checkerFramework = "3.21.3"
     const val coroutines = "1.6.0"
     const val ehcache = "3.9.9"
@@ -24,14 +24,14 @@ object Versions {
     const val exposed = "0.37.3"
     const val googleTruth = "1.1.3"
     const val hikari = "5.0.1"
-    const val jackson = "2.13.1"
-    const val joda = "2.10.13"
-    const val json = "20211205"
+    const val jackson = "2.13.2"
+    const val joda = "2.10.14"
+    const val json = "20220320"
     const val jsoup = "1.14.3"
     const val junit = "5.8.2"
     const val kotlinxIo = "0.1.16"
     const val ktor = "1.6.8"
-    const val liquibase = "4.8.0"
+    const val liquibase = "4.9.1"
     const val mockk = "1.12.3"
     const val moshi = "1.13.0"
     const val okhttp = "4.9.3"
@@ -162,8 +162,8 @@ tasks.withType<KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf(
             "-Xjsr305=strict",
-            "-Xopt-in=kotlin.RequiresOptIn",
-            "-Xopt-in=io.ktor.utils.io.core.ExperimentalIoApi",
+            "-opt-in=kotlin.RequiresOptIn",
+            "-opt-in=io.ktor.utils.io.core.ExperimentalIoApi",
         )
         jvmTarget = "16"
     }

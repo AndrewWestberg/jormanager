@@ -89,7 +89,7 @@ class HostConnectionTest {
 
         val isRegistration = false
 
-        val walletUtils = WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter())
+        val walletUtils = WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter(), mockk())
 
         val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
         val defaultNode = Node(0, 0, null, "", "relay", 8, "guild", "127.0.0.1", 22, 12788, 0, 0, 0,0, isDefault = true, configFileId = 0)

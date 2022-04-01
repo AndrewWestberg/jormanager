@@ -17,7 +17,6 @@ import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.annotation.Lookup
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
@@ -37,7 +36,7 @@ class ChainMonitor @Autowired constructor(
     private val hostRepository: HostRepository,
     private val nodeRepository: NodeRepository,
     private val fileRepository: FileRepository,
-    private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val configAdapter: JsonAdapter<Config>,
     private val pooltoolService: PooltoolService,
     private val ledgerDao: LedgerDao,
@@ -77,7 +76,7 @@ class ChainMonitor @Autowired constructor(
                     nodeRepository.findDefault()?.let { defaultNode ->
                         val shelleyGenesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                             ?: throw IOException("Unable to read shelley genesis file!")
-                        val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+                        val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
                         val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                             ?: throw IOException("host for default node not found!")
@@ -144,12 +143,6 @@ class ChainMonitor @Autowired constructor(
     }
 
     override fun stop() {
-    }
-
-    @Lookup("blockFetchProtocol")
-    fun getBlockFetchProtocol(): BlockFetchProtocol? {
-        // lookup method will inject a new instance of the prototype bean blockFetchProtocol.
-        return null
     }
 
     companion object {

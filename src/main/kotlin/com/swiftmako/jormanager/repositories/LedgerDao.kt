@@ -1,15 +1,17 @@
 package com.swiftmako.jormanager.repositories
 
+import com.github.benmanes.caffeine.cache.Cache
+import com.github.benmanes.caffeine.cache.Caffeine
 import com.google.iot.cbor.*
+import com.squareup.moshi.JsonAdapter
+import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.CreatedUtxo
-import com.swiftmako.jormanager.model.NativeAsset
-import com.swiftmako.jormanager.model.SpentUtxo
-import com.swiftmako.jormanager.model.Utxo
+import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CardanoUtils
+import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -20,7 +22,9 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Scope
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
+import java.io.IOException
 import java.math.BigInteger
 import java.time.Duration
 import java.time.Instant
@@ -30,6 +34,10 @@ import kotlin.system.measureTimeMillis
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class LedgerDao @Autowired constructor(
+    private val nodeRepository: NodeRepository,
+    private val hostRepository: HostRepository,
+    private val fileRepository: FileRepository,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val cardanoUtils: CardanoUtils,
     @Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long?>,
 ) {
@@ -48,6 +56,14 @@ class LedgerDao @Autowired constructor(
      * removed once they are observed to be created in a block.
      */
     private val liveUtxoMap = mutableMapOf<String, Set<Utxo>>()
+
+    /**
+     * Store the blocknumber mapped to a list of transactionIds so we can re-submit to the mempool
+     * in the event of a rollback.
+     */
+    private val blockRollbackCache: Cache<Long, List<String>> = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofHours(1))
+        .build()
 
     fun queryUtxos(address: String): List<Utxo> = LedgerRepository.queryUtxos(address)
 
@@ -314,6 +330,13 @@ class LedgerDao @Autowired constructor(
                     )
                 )
             }
+
+            // check for block rollbacks
+            // If we rolled back, re-submit any transactions that aren't in this block
+            if (isTip || blockRollbackCache.getIfPresent(blockNumberLast) != null) {
+                checkBlockRollbacks(blocksToCommit.last())
+            }
+
             val now = Instant.now()
             if (isTip || lastWalletRefreshTime.isBefore(now.minusSeconds(300))) {
                 runBlocking {
@@ -323,126 +346,81 @@ class LedgerDao @Autowired constructor(
             }
         }
     }
-//
-//    fun upcertNativeAssets(nativeAssetsMetadata: Set<NativeAssetMetadata>) {
-//        nativeAssetsMetadata.forEach { nativeAssetMetadata ->
-//            ledgerAssetIdCache[Pair(
-//                nativeAssetMetadata.assetPolicy,
-//                nativeAssetMetadata.assetName
-//            )]?.let { ledgerAssetId ->
-//                // Do update
-//                ledgerAssetRepository.updateImageAndDescription(
-//                    id = ledgerAssetId,
-//                    image = nativeAssetMetadata.metadataImage,
-//                    description = nativeAssetMetadata.metadataDescription,
-//                )
-//            } ?: run {
-//                // Do insert
-//                val id = ledgerAssetRepository.save(
-//                    LedgerAsset(
-//                        policy = nativeAssetMetadata.assetPolicy,
-//                        name = nativeAssetMetadata.assetName,
-//                        image = nativeAssetMetadata.metadataImage,
-//                        description = nativeAssetMetadata.metadataDescription,
-//                    )
-//                ).id!!
-//                ledgerAssetIdCache.put(Pair(nativeAssetMetadata.assetPolicy, nativeAssetMetadata.assetName), id)
-//            }
-//        }
-//    }
-//
-//    private val ledgerIdCache = Caffeine.newBuilder()
-//        .expireAfterWrite(Duration.ofMinutes(10))
-//        .maximumSize(30_000L)
-//        .build<String, Long?> { address ->
-//            ledgerRepository.getIdByAddress(address)
-//        }
-//
-//    private val ledgerAssetIdCache = Caffeine.newBuilder()
-//        .expireAfterWrite(Duration.ofMinutes(10))
-//        .maximumSize(30_000L)
-//        .build<Pair<String, String>, Long?> { pair ->
-//            ledgerRepository.getLedgerAssetByPolicyAndName(pair.first, pair.second)?.id
-//        }
-//
-//    fun createUtxos(slotNumber: Long, blockNumber: Long, createdUtxos: Set<CreatedUtxo>) {
-//        var ledgerTime = 0L
-//        var ledgerQueryTime = 0L
-//        var ledgerInsertTime = 0L
-//        var ledgerUtxoTime = 0L
-//        var ledgerAssetTime = 0L
-//        var ledgerAssetCount = 0L
-//        var hit = 0L
-//        var miss = 0L
-//        createdUtxos.forEach { createdUtxo ->
-//            val start = System.currentTimeMillis()
-//            var ledgerTableId = ledgerIdCache[createdUtxo.address]
-//            ledgerQueryTime += (System.currentTimeMillis() - start)
-//            if (ledgerTableId == null) {
-//                miss++
-//                val start3 = System.currentTimeMillis()
-//                ledgerTableId = ledgerRepository.save(
-//                    LedgerAddress(
-//                        address = createdUtxo.address,
-//                        stakeAddress = createdUtxo.stakeAddress
-//                    )
-//                ).id!!
-//                ledgerIdCache.put(createdUtxo.address, ledgerTableId)
-//                ledgerInsertTime += (System.currentTimeMillis() - start3)
-//            } else {
-//                hit++
-//            }
-//            ledgerTime += (System.currentTimeMillis() - start)
-//
-//            val start1 = System.currentTimeMillis()
-//            val ledgerUtxoTableId = ledgerUtxoRepository.save(
-//                LedgerUtxo(
-//                    ledgerId = ledgerTableId,
-//                    txId = createdUtxo.hash,
-//                    txIx = createdUtxo.ix.toInt(),
-//                    lovelace = createdUtxo.lovelace.toString(),
-//                    blockCreated = blockNumber,
-//                    slotCreated = slotNumber,
-//                    blockSpent = null,
-//                    slotSpent = null,
-//                )
-//            ).id!!
-//            ledgerUtxoTime += (System.currentTimeMillis() - start1)
-//
-//            val start2 = System.currentTimeMillis()
-//            createdUtxo.nativeAssets.forEach { nativeAsset ->
-//                val ledgerAssetTableId = ledgerAssetIdCache[Pair(nativeAsset.policy, nativeAsset.name)]
-//                    ?: run {
-//                        val id = ledgerAssetRepository.save(
-//                            LedgerAsset(
-//                                policy = nativeAsset.policy,
-//                                name = nativeAsset.name,
-//                                image = "",
-//                                description = null,
-//                            )
-//                        ).id!!
-//                        ledgerAssetIdCache.put(Pair(nativeAsset.policy, nativeAsset.name), id)
-//                        id
-//                    }
-//                ledgerUtxoAssetRepository.save(
-//                    LedgerUtxoAsset(
-//                        ledgerUtxoId = ledgerUtxoTableId,
-//                        ledgerAssetId = ledgerAssetTableId,
-//                        amount = nativeAsset.amount.toString()
-//                    )
-//                )
-//            }
-//            ledgerAssetTime += (System.currentTimeMillis() - start2)
-//            ledgerAssetCount += createdUtxo.nativeAssets.size
-//        }
-//        if (ledgerTime > 1000L || ledgerUtxoTime > 1000L || ledgerAssetTime > 1000L) {
-//            log.warn("complexBlock: $blockNumber: ledgerTime: ${ledgerTime}ms, query: ${ledgerQueryTime}ms, hit/miss: ${hit}/${miss}, insert: ${ledgerInsertTime}ms, ledgerUtxoTime: ${ledgerUtxoTime}ms, ledgerAssetTime: ${ledgerAssetTime}ms, assetCount: $ledgerAssetCount")
-//        }
-//    }
-//
-//    fun spendUtxos(slotNumber: Long, blockNumber: Long, spentUtxos: Set<SpentUtxo>) {
-//        spentUtxos.forEach { spentUtxo ->
-//            ledgerRepository.spendUtxo(spentUtxo.hash, spentUtxo.ix.toInt(), blockNumber, slotNumber)
-//        }
-//    }
+
+    private fun checkBlockRollbacks(latestBlock: BlockFetchProtocol.LedgerBlock) {
+        // See if we're overwriting an existing block due to a rollback
+        blockRollbackCache.getIfPresent(latestBlock.blockNumber)?.let { rolledBackBlockTransactionList ->
+            runBlocking {
+                handleBlockRollback(rolledBackBlockTransactionList, latestBlock)
+            }
+        }
+        blockRollbackCache.put(latestBlock.blockNumber, latestBlock.transactionIdsInBlock)
+
+        // Remove any blocks that were pruned due to this rollback.
+        var blockNumber = latestBlock.blockNumber + 1
+        var rolledBackBlockTransactionIds = blockRollbackCache.getIfPresent(blockNumber)
+        while (rolledBackBlockTransactionIds != null) {
+            blockRollbackCache.invalidate(blockNumber)
+            blockNumber++
+            rolledBackBlockTransactionIds = blockRollbackCache.getIfPresent(blockNumber)
+        }
+    }
+
+    private suspend fun handleBlockRollback(
+        rolledBackBlockTransactionList: List<String>,
+        latestBlock: BlockFetchProtocol.LedgerBlock
+    ) {
+        TransactionCache.withLock {
+            // get the first transactionId in the rolled-back block that isn't in the new block
+            rolledBackBlockTransactionList.find { transactionId -> latestBlock.transactionIdsInBlock.find { it == transactionId } == null }
+                ?.let { firstTransactionIdNotInBlock ->
+                    val keys = TransactionCache.keys
+                    val startIndex = keys.indexOfFirst { it == firstTransactionIdNotInBlock }.let { index ->
+                        // try to start 20 transactions before we need to
+                        if (index < 0) {
+                            index
+                        } else if (index - 20 < 0) {
+                            0
+                        } else {
+                            index - 20
+                        }
+                    }
+                    val lastIndex = keys.size - 1
+                    if (startIndex > -1) {
+                        val defaultNode = nodeRepository.findDefault() ?: throw IOException("Default node not found!")
+                        val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
+                            ?: throw IOException("Default Host not found!")
+                        val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                        val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                            ?: throw IOException("Shelley genesis filenot found!")
+                        val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+                        val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                            "--testnet-magic ${genesis.networkMagic}"
+                        } else {
+                            "--mainnet"
+                        }
+
+                        keys.forEachIndexed { index, transactionId ->
+                            if (index >= startIndex) {
+                                TransactionCache.get(transactionId)?.let { txSigned ->
+                                    try {
+                                        // write the transaction to file
+                                        defaultHostConnection.commandWriteFile("/tmp/transaction.txsigned", txSigned)
+                                        // 2. Submit the transaction
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                    } catch (e: Throwable) {
+                                        if (index % 10 == 0 || index == lastIndex) {
+                                            log.info("Re-Submit txid to mempool exists already: $transactionId, $index/$lastIndex")
+                                        }
+                                        Unit
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } ?: run {
+                log.info("No transactions found to re-submit due to rollback.")
+            }
+        }
+    }
 }
