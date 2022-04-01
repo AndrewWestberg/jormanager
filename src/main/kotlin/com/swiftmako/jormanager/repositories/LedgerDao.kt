@@ -408,6 +408,7 @@ class LedgerDao @Autowired constructor(
                                         defaultHostConnection.commandWriteFile("/tmp/transaction.txsigned", txSigned)
                                         // 2. Submit the transaction
                                         defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                        log.warn("Re-Submit txid to mempool due to rollback: $transactionId, $index/$lastIndex")
                                     } catch (e: Throwable) {
                                         if (index % 10 == 0 || index == lastIndex) {
                                             log.info("Re-Submit txid to mempool exists already: $transactionId, $index/$lastIndex")
