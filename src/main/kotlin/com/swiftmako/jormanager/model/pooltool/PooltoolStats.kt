@@ -35,8 +35,10 @@ data class Data(
         val parentHash: String,
         @Json(name = "leaderVrf")
         val leaderVrf: String,
-        @Json(name = "leaderVrfProof")
-        val leaderVrfProof: String,
+        @Json(name = "blockVrf")
+        val blockVrf: String,
+        @Json(name = "blockVrfProof")
+        val blockVrfProof: String,
         @Json(name = "platform")
         val platform: String = "JorManager",
         @Json(name = "nodeVKey")

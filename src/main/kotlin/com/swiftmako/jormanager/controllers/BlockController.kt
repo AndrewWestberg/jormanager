@@ -13,6 +13,7 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.QueryTip.Companion.ERA_BABBAGE
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.repositories.*
 import kotlinx.coroutines.*
@@ -60,7 +61,7 @@ class BlockController @Autowired constructor(
     @Value("\${jormanager.blocks.pastEpochs:2}") private val pastEpochsToShow: Long,
 ) : CoroutineScope {
 
-    private val log by lazy {  LoggerFactory.getLogger("BlockController") }
+    private val log by lazy { LoggerFactory.getLogger("BlockController") }
 
     override val coroutineContext: CoroutineContext = Dispatchers.Default + CoroutineExceptionHandler { _, throwable ->
         if (throwable !is CancellationException) {
@@ -201,7 +202,9 @@ class BlockController @Autowired constructor(
                                 val tipJson =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
                                         .trim()
-                                val tipSlotNumber = queryTipAdapter.fromJson(tipJson)?.slot
+                                val tip = queryTipAdapter.fromJson(tipJson)
+                                log.info("Era: ${tip?.era}")
+                                val tipSlotNumber = tip?.slot
                                     ?: throw IOException("Unable to query tip!")
 //                                val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}.json"
 //                                defaultHostConnection.bashCommand("${defaultHost.cardanoCliPath} query ledger-state $magicString | jq -c > $ledgerStateFile", timeoutSecs = 300L)
@@ -244,8 +247,8 @@ class BlockController @Autowired constructor(
                                     ?: throw IOException("Invalid protocol params!")
 
                                 val ledger = LeaderLogLedger(
-                                    decentralizationParameter = protocolParameters.decentralisationParam,
-                                    futureDecentralizationParameter = protocolParameters.decentralisationParam,
+                                    decentralizationParameter = protocolParameters.decentralisationParam ?: 0.0,
+                                    futureDecentralizationParameter = protocolParameters.decentralisationParam ?: 0.0,
                                     poolIdToSigma = poolIdToSigma,
                                     futurePoolIdToSigma = futurePoolIdToSigma,
                                     extraPraosEntropy = null,
@@ -268,13 +271,15 @@ class BlockController @Autowired constructor(
                                     if (request.requestType == "futureEpoch") ledger.futureDecentralizationParameter.toBigDecimal() else ledger.decentralizationParameter.toBigDecimal()
 
                                 val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
-                                log.debug("slotsPerEpoch: $slotsPerEpoch, additionalSlots: $additionalSlots, firstSlotOfEpoch: $firstSlotOfEpoch, firstSlotOfPreviousEpoch: $firstSlotOfPreviousEpoch, stabilityWindow: $stabilityWindow, d: $decentralizationParam")
+                                log.info("slotsPerEpoch: $slotsPerEpoch, additionalSlots: $additionalSlots, firstSlotOfEpoch: $firstSlotOfEpoch, firstSlotOfPreviousEpoch: $firstSlotOfPreviousEpoch, stabilityWindow: $stabilityWindow, d: $decentralizationParam")
                                 val nc = chainRepository.findFirstBeforeSlot(stabilityWindowStart).firstOrNull()?.etaV
                                     ?: throw IOException("Not enough blocks sync'd to calculate! Try again later after slot $stabilityWindowStart is sync'd.")
                                 val nh =
                                     chainRepository.findFirstBeforeSlot(firstSlotOfPreviousEpoch)
                                         .firstOrNull()?.prevHash
                                         ?: throw IOException("Not enough blocks sync'd to calculate! Try again later.")
+                                log.info("nc: $nc")
+                                log.info("nh: $nh")
 
                                 var epochNonce = SodiumLibrary.cryptoBlake2bHash((nc + nh).hexToByteArray(), null)
                                 if (request.requestType == "futureEpoch") {
@@ -341,13 +346,24 @@ class BlockController @Autowired constructor(
                                                 }
                                             }
                                         }
-                                        val isSlotLeader = blockUtils.isSlotLeader(
-                                            slot = slot,
-                                            f = genesisShelley.activeSlotsCoeff,
-                                            sigma = sigma,
-                                            eta0 = epochNonce,
-                                            poolVrfSkey = poolVrfSkey
-                                        )
+
+                                        val isSlotLeader = if (tip.eraNumber >= ERA_BABBAGE) {
+                                            blockUtils.isSlotLeaderPraos(
+                                                slot = slot,
+                                                f = genesisShelley.activeSlotsCoeff,
+                                                sigma = sigma,
+                                                eta0 = epochNonce,
+                                                poolVrfSkey = poolVrfSkey
+                                            )
+                                        } else {
+                                            blockUtils.isSlotLeaderTPraos(
+                                                slot = slot,
+                                                f = genesisShelley.activeSlotsCoeff,
+                                                sigma = sigma,
+                                                eta0 = epochNonce,
+                                                poolVrfSkey = poolVrfSkey
+                                            )
+                                        }
 
                                         if (isSlotLeader) {
                                             mutex.withLock {

@@ -6,10 +6,8 @@ import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import io.ktor.network.sockets.*
 import io.ktor.util.cio.*
 import io.ktor.utils.io.*
-import io.ktor.utils.io.core.*
 import io.ktor.utils.io.pool.ByteBufferPool
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.sync.Mutex
@@ -20,17 +18,15 @@ import java.nio.ByteBuffer
 import java.time.Instant
 import kotlin.experimental.xor
 
-@OptIn(ExperimentalIoApi::class)
 val muxByteBufferPool: ByteBufferPool = ByteBufferPool(20, 64 * 1024)
 
-@OptIn(ExperimentalIoApi::class)
 class Mux(
     private val socketConnection: Connection,
 ) {
     private val log by lazy { LoggerFactory.getLogger("Mux") }
     private val rxMuxBufferMap: MutableMap<Short, MuxRxBuffer> = mutableMapOf()
 
-    private lateinit var runningProtocols:Array<out MiniProtocol>
+    private lateinit var runningProtocols: Array<out MiniProtocol>
 
     suspend fun execute(vararg protocols: MiniProtocol) = coroutineScope {
         runningProtocols = protocols

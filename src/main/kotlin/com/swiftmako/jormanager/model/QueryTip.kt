@@ -6,12 +6,34 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class QueryTip(
-        @Json(name = "epoch")
-        val epoch: Long = 0,
-        @Json(name = "block")
-        val block: Long = 0,
-        @Json(name = "hash")
-        val hash: String = "",
-        @Json(name = "slot")
-        val slot: Long = 0
-)
+    @Json(name = "era")
+    val era: String?,
+    @Json(name = "epoch")
+    val epoch: Long = 0,
+    @Json(name = "block")
+    val block: Long = 0,
+    @Json(name = "hash")
+    val hash: String = "",
+    @Json(name = "slot")
+    val slot: Long = 0
+) {
+    val eraNumber: Int
+        get() = when (era) {
+            "Byron" -> ERA_BYRON
+            "Shelley" -> ERA_SHELLEY
+            "Allegra" -> ERA_ALLEGRA
+            "Mary" -> ERA_MARY
+            "Alonzo" -> ERA_ALONZO
+            "Babbage" -> ERA_BABBAGE
+            else -> -1
+        }
+
+    companion object {
+        const val ERA_BYRON = 0
+        const val ERA_SHELLEY = 1
+        const val ERA_ALLEGRA = 2
+        const val ERA_MARY = 3
+        const val ERA_ALONZO = 4
+        const val ERA_BABBAGE = 5
+    }
+}

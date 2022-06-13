@@ -4,8 +4,8 @@
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
     <changeSet id="001" author="Andrew Westberg">
         <createSequence catalogName="cat" cycle="false"
-                        incrementBy="1" ordered="true" schemaName="public"
-                        sequenceName="hibernate_sequence" startValue="0"/>
+                        incrementBy="1" schemaName="public"
+                        sequenceName="hibernate_sequence" startValue="1"/>
 
         <!-- contains linux server hosts on which we will run our nodes -->
         <createTable tableName="hosts">

@@ -17,7 +17,6 @@ import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.services.PooltoolService
-import io.ktor.utils.io.core.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -34,8 +33,8 @@ import org.joda.time.DateTimeZone
 import org.joda.time.format.ISODateTimeFormat
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
+import java.lang.Long.max
 import java.nio.ByteBuffer
-import kotlin.io.use
 
 class ChainSyncProtocol(
     private val host: Host,
@@ -105,7 +104,6 @@ class ChainSyncProtocol(
         state = State.Done
     }
 
-    @OptIn(ExperimentalIoApi::class)
     override suspend fun sendData(): ByteBuffer {
         return when (state) {
             State.Idle -> {
@@ -167,8 +165,15 @@ class ChainSyncProtocol(
                                             // sync mode
                                             runBlocking {
                                                 blockSaveChannel.send(msgRollForward)
-                                                tipBlockNumber = msgRollForward.chainTip.block
-                                                tipHash = msgRollForward.chainTip.hash
+                                                if (msgRollForward.blockNumber > msgRollForward.chainTip.block) {
+                                                    // in babbage, the block can run ahead of the tip so treat it
+                                                    // like the tip
+                                                    tipBlockNumber = msgRollForward.blockNumber
+                                                    tipHash = msgRollForward.hash
+                                                } else {
+                                                    tipBlockNumber = msgRollForward.chainTip.block
+                                                    tipHash = msgRollForward.chainTip.hash
+                                                }
                                             }
                                         }
                                     }
@@ -240,6 +245,9 @@ class ChainSyncProtocol(
 
                     // evolve the etaV nonce value
                     val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
+                    if (previousEtaV.contentEquals(shelleyGenesisHash)) {
+                        log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
+                    }
                     val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
                     val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
 
@@ -257,13 +265,22 @@ class ChainSyncProtocol(
                     )
                     previousBlockMap[savedChainBlock.blockNumber] = savedChainBlock
 
-                    val isTip = msgRollForward.chainTip.hash == msgRollForward.hash
+                    val isTip =
+                        msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
                     if (canLog() || isTip) {
                         log.info(
-                            "ChainSync: Saved block: ${msgRollForward.blockNumber} of ${msgRollForward.chainTip.block}, %.2f%% synced, poolId: ${
+                            "ChainSync: Saved block: ${msgRollForward.blockNumber} of ${
+                                max(
+                                    msgRollForward.blockNumber,
+                                    msgRollForward.chainTip.block
+                                )
+                            }, %.2f%% synced, poolId: ${
                                 savedChainBlock.poolId.substring(0..8)
                             }...".format(
-                                msgRollForward.blockNumber.toDouble() / msgRollForward.chainTip.block * 100.0
+                                msgRollForward.blockNumber.toDouble() / max(
+                                    msgRollForward.blockNumber,
+                                    msgRollForward.chainTip.block
+                                ) * 100.0
                             )
                         )
 
@@ -306,7 +323,8 @@ class ChainSyncProtocol(
                     blockHash = msgRollForward.hash,
                     parentHash = msgRollForward.prevHash,
                     leaderVrf = msgRollForward.leaderVrf,
-                    leaderVrfProof = msgRollForward.leaderVrfProof,
+                    blockVrf = msgRollForward.blockVrf,
+                    blockVrfProof = msgRollForward.blockVrfProof,
                     nodeVKey = msgRollForward.nodeVKey,
                 )
             )

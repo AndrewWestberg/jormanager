@@ -20,7 +20,6 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -38,7 +37,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.io.IOException
 import java.net.DatagramSocket
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
@@ -169,7 +167,7 @@ class PooltoolMonitor @Autowired constructor(
                     this@coroutineScope.coroutineContext.cancelChildren()
                 }
 
-                delay(ChainMonitor.RECONNECT_DELAY_MS)
+                delay(RECONNECT_DELAY_MS)
             }
         }
     }
@@ -195,7 +193,7 @@ class PooltoolMonitor @Autowired constructor(
                     val serverSocket = ServerSocket().apply {
                         reuseAddress = true
                     }
-                    serverSocket.bind(InetSocketAddress(params.localHost, params.localPort))
+                    serverSocket.bind(java.net.InetSocketAddress(params.localHost, params.localPort))
                     localPortForwarder = ssh.newLocalPortForwarder(params, serverSocket)
 
                     object : Thread("port forward $localPort") {
@@ -256,7 +254,7 @@ class PooltoolMonitor @Autowired constructor(
                         return port
                     }
                 }
-            } catch (e: IOException) {
+            } catch (_: IOException) {
             }
         }
     }

@@ -8,6 +8,6 @@ import retrofit2.http.POST
 
 interface PooltoolService {
 
-    @POST("/v0/sendstats")
+    @POST("/v1/sendstats")
     suspend fun sendStats(@Body pooltoolStats: PooltoolStats): Response<PooltoolResponse>
 }

@@ -3,48 +3,48 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.6.6"
+    id("org.springframework.boot") version "2.7.0"
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("com.github.ben-manes.versions") version "0.42.0"
-    kotlin("jvm") version "1.6.20"
-    kotlin("kapt") version "1.6.20"
-    kotlin("plugin.spring") version "1.6.20"
-    kotlin("plugin.jpa") version "1.6.20"
+    kotlin("jvm") version "1.7.0"
+    kotlin("kapt") version "1.7.0"
+    kotlin("plugin.spring") version "1.7.0"
+    kotlin("plugin.jpa") version "1.7.0"
 }
 
 object Versions {
     const val bouncycastle = "1.70"
-    const val caffeine = "3.0.6"
+    const val caffeine = "3.1.1"
     const val commonsio = "2.8.0"
     const val cbor = "0.01.02-FIREHOSE4"
-    const val checkerFramework = "3.21.3"
-    const val coroutines = "1.6.0"
+    const val checkerFramework = "3.22.1"
+    const val coroutines = "1.6.2"
     const val ehcache = "3.9.9"
-    const val errorprone = "2.11.0"
-    const val exposed = "0.37.3"
+    const val errorprone = "2.14.0"
+    const val exposed = "0.38.2"
     const val googleTruth = "1.1.3"
     const val hikari = "5.0.1"
-    const val jackson = "2.13.2"
+    const val jackson = "2.13.3"
     const val joda = "2.10.14"
     const val json = "20220320"
-    const val jsoup = "1.14.3"
+    const val jsoup = "1.15.1"
     const val junit = "5.8.2"
     const val kotlinxIo = "0.1.16"
-    const val ktor = "1.6.8"
-    const val liquibase = "4.9.1"
-    const val mockk = "1.12.3"
+    const val ktor = "2.0.2"
+    const val liquibase = "4.11.0"
+    const val mockk = "1.12.4"
     const val moshi = "1.13.0"
-    const val okhttp = "4.9.3"
-    const val postgresql = "42.3.3"
+    const val okhttp = "4.10.0"
+    const val postgresql = "42.4.0"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.6.2"
-    const val sshj = "0.32.0"
+    const val springSecurity = "5.7.1"
+    const val sshj = "0.33.0"
 }
 
 group = "com.swiftmako"
-version = "6.0.1-SNAPSHOT"
-java.sourceCompatibility = JavaVersion.VERSION_16
-java.targetCompatibility = JavaVersion.VERSION_16
+version = "7.0.0-SNAPSHOT"
+java.sourceCompatibility = JavaVersion.VERSION_17
+java.targetCompatibility = JavaVersion.VERSION_17
 
 repositories {
     mavenLocal()
@@ -163,7 +163,6 @@ tasks.withType<KotlinCompile> {
         freeCompilerArgs = listOf(
             "-Xjsr305=strict",
             "-opt-in=kotlin.RequiresOptIn",
-            "-opt-in=io.ktor.utils.io.core.ExperimentalIoApi",
         )
         jvmTarget = "16"
     }

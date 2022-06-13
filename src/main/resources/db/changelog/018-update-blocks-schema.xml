@@ -3,15 +3,8 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
     <changeSet id="018" author="Andrew Westberg">
-        <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="1">
-                SELECT COUNT(*)
-                FROM INFORMATION_SCHEMA.CONSTRAINTS
-                WHERE CONSTRAINT_NAME='CONSTRAINT_74'
-            </sqlCheck>
-        </preConditions>
-        <dropUniqueConstraint tableName="blocks" constraintName="CONSTRAINT_74" uniqueColumns="hash"/>
-        
+        <dropUniqueConstraint tableName="blocks" constraintName="blocks_hash_key" uniqueColumns="hash"/>
+
         <addColumn tableName="blocks">
             <!-- pending(default), completed, forged, orphaned -->
             <column name="status" type="varchar(255)" defaultValue="pending" defaultOnNull="true"/>

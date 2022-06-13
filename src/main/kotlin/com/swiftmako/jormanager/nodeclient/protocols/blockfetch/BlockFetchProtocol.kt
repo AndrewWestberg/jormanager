@@ -41,6 +41,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.min
+import kotlin.system.exitProcess
 
 class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
@@ -58,6 +59,9 @@ class BlockFetchProtocol(
 
         //private val TX_CERTS_INDEX = CborInteger.create(4)
         private val TX_MINTS_INDEX = CborInteger.create(9)
+
+        private val UTXO_ADDRESS_INDEX = CborInteger.create(0)
+        private val UTXO_AMOUNT_INDEX = CborInteger.create(1)
 
         //private val POOL_REGISTRATION = BigInteger.valueOf(3L)
 
@@ -297,7 +301,7 @@ class BlockFetchProtocol(
                 //log.warn("transactionId calculated: $transactionId")
 //                log.warn("transaction cbor: ${transaction.toCborByteArray().toHexString()}")
 
-                TransactionCache.get(transactionId)?.let  {
+                TransactionCache.get(transactionId)?.let {
                     if (log.isDebugEnabled) {
                         log.debug("Our transaction $transactionId was seen in a block!")
                     }
@@ -306,7 +310,7 @@ class BlockFetchProtocol(
                     transactionIdsInBlock.add(transactionId)
                 }
 
-                ((transaction)[TX_SPENT_UTXOS_INDEX] as CborArray).forEach { source ->
+                (transaction[TX_SPENT_UTXOS_INDEX] as CborArray).forEach { source ->
                     var utxoHash = ""
                     var utxoIx = 0L
                     (source as CborArray).forEach { utxoElement ->
@@ -319,7 +323,20 @@ class BlockFetchProtocol(
                 }
 
                 (transaction[TX_DESTS_INDEX] as CborArray).forEachIndexed { ix, destination ->
-                    val addressBytes = ((destination as CborArray).elementAt(0) as CborByteString).byteArrayValue()
+                    val addressBytes = when (destination) {
+                        is CborArray -> {
+                            // alonzo and earlier is an array
+                            (destination.elementAt(0) as CborByteString).byteArrayValue()
+                        }
+                        is CborMap -> {
+                            (destination[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()
+                        }
+                        else -> {
+                            throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                        }
+                    }
+
+
                     var encodedAddress: String? = null
                     var stakeAddress: String? = null
                     if (addressBytes[0] == ENTERPRISE_ADDRESS_PREFIX_MAINNET) {
@@ -354,7 +371,20 @@ class BlockFetchProtocol(
                     }
 
                     // Lovelace and native assets sent along with this UTxO output
-                    val (utxoLovelace, nativeAssets) = when (val utxoItem = destination.elementAt(1)) {
+                    val utxoItem: CborObject = when (destination) {
+                        is CborArray -> {
+                            // alonzo and earlier is an array
+                            destination.elementAt(1)
+                        }
+                        is CborMap -> {
+                            // babbage is a map
+                            destination[UTXO_AMOUNT_INDEX]
+                        }
+                        else -> {
+                            throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                        }
+                    }
+                    val (utxoLovelace, nativeAssets) = when (utxoItem) {
                         is CborInteger -> Pair(utxoItem.bigIntegerValue(), emptyList())
                         is CborArray -> {
                             val nativeAssets = mutableListOf<NativeAsset>()
@@ -506,6 +536,7 @@ class BlockFetchProtocol(
         } catch (e: Throwable) {
             log.error("Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}")
             log.error("Exception!", e)
+            exitProcess(1)
         }
     }
 

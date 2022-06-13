@@ -3,13 +3,6 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
     <changeSet id="016" author="Andrew Westberg">
-        <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="1">
-                SELECT COUNT(*)
-                FROM INFORMATION_SCHEMA.CONSTRAINTS
-                WHERE CONSTRAINT_NAME='CONSTRAINT_7'
-            </sqlCheck>
-        </preConditions>
-        <dropUniqueConstraint tableName="blocks" constraintName="CONSTRAINT_7" uniqueColumns="slot"/>
+        <dropUniqueConstraint tableName="blocks" constraintName="blocks_slot_key" uniqueColumns="slot"/>
     </changeSet>
 </databaseChangeLog>

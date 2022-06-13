@@ -24,7 +24,6 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.io.IOException
-import java.net.InetSocketAddress
 import kotlin.coroutines.CoroutineContext
 
 @Component("chainMonitor")

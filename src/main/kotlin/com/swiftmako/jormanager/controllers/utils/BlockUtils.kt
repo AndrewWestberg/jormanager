@@ -6,6 +6,8 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
+import com.swiftmako.jormanager.nodeclient.protocols.chainsync.MsgRollForwardAdapter.LEADER_VRF_HEADER
+import com.swiftmako.jormanager.utils.Blake2b
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.slf4j.Logger
@@ -29,8 +31,8 @@ import kotlin.math.ln
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class BlockUtils @Autowired constructor(
-        @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
-        @Value("\${libsodium.path}") libsodiumPath: String
+    @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
+    @Value("\${libsodium.path}") libsodiumPath: String
 ) {
     final val log: Logger = LoggerFactory.getLogger("BlockUtils")
 
@@ -49,7 +51,7 @@ class BlockUtils @Autowired constructor(
      */
     private val ucNonce by lazy {
         SodiumLibrary.cryptoBlake2bHash(
-                byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01), null
+            byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01), null
         )
     }
 
@@ -134,8 +136,13 @@ class BlockUtils @Autowired constructor(
      * true if this slot is reserved for the BFT nodes based on the decentralization parameter d
      */
     fun isOverlaySlot(firstSlotOfEpoch: Long, currentSlot: Long, d: BigDecimal): Boolean {
+        if (d.toDouble() == 0.0) {
+            return false
+        }
         val diffSlot = abs(currentSlot - firstSlotOfEpoch)
-        return d.times(diffSlot.toBigDecimal()).setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal()).setScale(0, RoundingMode.CEILING)
+        return d.times(diffSlot.toBigDecimal())
+            .setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal())
+            .setScale(0, RoundingMode.CEILING)
     }
 
     /**
@@ -146,18 +153,42 @@ class BlockUtils @Autowired constructor(
      * @param eta0 The epoch nonce value
      * @param poolVrfSkey The vrf signing key for the pool
      */
-    fun isSlotLeader(slot: Long, f: Double, sigma: BigDecimal, eta0: ByteArray, poolVrfSkey: ByteArray): Boolean {
+    fun isSlotLeaderTPraos(slot: Long, f: Double, sigma: BigDecimal, eta0: ByteArray, poolVrfSkey: ByteArray): Boolean {
+        // alonzo and earlier
         val seed = mkSeed(slot, eta0)
         // add 00 to make sure we don't get a negative number by accident
         val certVrfHex = "00${vrfEvalCertified(seed, poolVrfSkey).toHexString()}"
-
-        return isLeaderVrfAllowedToLead(slot, certVrfHex, f, sigma)
+        return isLeaderVrfAllowedToLead(slot, certVrfHex, 64, f, sigma)
     }
 
-    fun isLeaderVrfAllowedToLead(slot: Long, certVrfHex: String, f: Double, sigma: BigDecimal): Boolean {
+    /**
+     * Determine if our pool is a slot leader for this given slot
+     * @param slot The slot to check
+     * @param f The activeSlotsCoeff value from protocol params
+     * @param sigma The controlled stake proportion for the pool
+     * @param eta0 The epoch nonce value
+     * @param poolVrfSkey The vrf signing key for the pool
+     */
+    fun isSlotLeaderPraos(slot: Long, f: Double, sigma: BigDecimal, eta0: ByteArray, poolVrfSkey: ByteArray): Boolean {
+        // babbage and later
+        val seed = mkInputVRF(slot, eta0)
+        val certVrf = vrfEvalCertified(seed, poolVrfSkey)
+        // add 00 to make sure we don't get a negative number by accident
+        val certLeaderVrf = "00${vrfLeaderValue(certVrf).toHexString()}"
+        return isLeaderVrfAllowedToLead(slot, certLeaderVrf, 32, f, sigma)
+    }
+
+
+    fun isLeaderVrfAllowedToLead(
+        slot: Long,
+        certVrfHex: String,
+        vrfSizeBytes: Int,
+        f: Double,
+        sigma: BigDecimal
+    ): Boolean {
         val certNat = BigInteger(certVrfHex.hexToByteArray())
 
-        val certNatMax = BigInteger("2").pow(8 * 64) // 8 * vrfoutput bytes
+        val certNatMax = BigInteger("2").pow(8 * vrfSizeBytes) // 8 * vrfoutput bytes
         val denominator = certNatMax.minus(certNat)
 
         val q = certNatMax.toBigDecimal().divide(denominator.toBigDecimal(), 34, RoundingMode.CEILING)
@@ -174,14 +205,11 @@ class BlockUtils @Autowired constructor(
     }
 
     /**
-     * Create the leadership seed value
+     * Create the leadership seed value for Alonzo and earlier epochs (TPraos)
      * @param slot The slot to create the leadership seed value for
      * @param eta0 The epoch nonce value
      */
     fun mkSeed(slot: Long, eta0: ByteArray): ByteArray {
-//        // The epoch nonce for 87 on testnet (figure out how to calculate it ourselves later instead of trace from the node)
-//        val eta0 = "70c0f591099a8de944e02585841d602479493f2d7e360f04c8b8cf990988eda3".hexToByteArray()
-
         val concatByteArray = ByteArray(8 + 32)
         val concatByteBuffer = ByteBuffer.wrap(concatByteArray)
         concatByteBuffer.putLong(slot)
@@ -194,9 +222,27 @@ class BlockUtils @Autowired constructor(
     }
 
     /**
+     * Create the leadership input VRF value for Babbage and later epochs (Praos)
+     * @param slot The slot to create the leadership value for
+     * @param eta0 The epoch nonce value
+     */
+    fun mkInputVRF(slot: Long, eta0: ByteArray): ByteArray {
+        val concatByteArray = ByteArray(8 + 32)
+        val concatByteBuffer = ByteBuffer.wrap(concatByteArray)
+        concatByteBuffer.putLong(slot)
+        concatByteBuffer.put(eta0)
+
+        return SodiumLibrary.cryptoBlake2bHash(concatByteArray, null)
+    }
+
+    fun vrfLeaderValue(rawVrf: ByteArray): ByteArray {
+        return Blake2b.hash256(LEADER_VRF_HEADER + rawVrf)
+    }
+
+    /**
      * Sign and hash the slot seed value with our node vrf signing key. The output is the certified natural (certNat)
      */
-    private fun vrfEvalCertified(seed: ByteArray, tpraosCanBeLeaderSignKeyVRF: ByteArray): ByteArray {
+    fun vrfEvalCertified(seed: ByteArray, tpraosCanBeLeaderSignKeyVRF: ByteArray): ByteArray {
 
 //        // output of mkseed for slot 7397153L
 //        val mkSeed = "7e2a4eff14e47fa5d8df184a1d6c3e8906837224a7f9392d1994293a4bc6d709".hexToByteArray()

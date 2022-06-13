@@ -78,10 +78,16 @@ class CardanoUtils @Autowired constructor(
 
     val byronToShelleyEpochs by lazy {
         if (getShelleyGenesis().networkId.equals("testnet", ignoreCase = true)) {
-            if (getShelleyGenesis().networkMagic == GUILD_NETWORK_MAGIC) {
-                BYRON_TO_SHELLEY_EPOCHS_GUILD
-            } else {
-                BYRON_TO_SHELLEY_EPOCHS_TESTNET
+            when (getShelleyGenesis().networkMagic) {
+                GUILD_NETWORK_MAGIC -> {
+                    BYRON_TO_SHELLEY_EPOCHS_GUILD
+                }
+                VASIL_DEV_NETWORK_MAGIC -> {
+                    BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV
+                }
+                else -> {
+                    BYRON_TO_SHELLEY_EPOCHS_TESTNET
+                }
             }
         } else {
             BYRON_TO_SHELLEY_EPOCHS_MAINNET
@@ -92,7 +98,9 @@ class CardanoUtils @Autowired constructor(
         private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L
         private const val BYRON_TO_SHELLEY_EPOCHS_TESTNET = 74L
         private const val BYRON_TO_SHELLEY_EPOCHS_GUILD = 1L
+        private const val BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV = 1L
 
         private const val GUILD_NETWORK_MAGIC = 141L
+        private const val VASIL_DEV_NETWORK_MAGIC = 9L
     }
 }
