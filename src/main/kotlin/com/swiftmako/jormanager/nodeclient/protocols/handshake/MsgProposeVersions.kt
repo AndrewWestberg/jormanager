@@ -9,6 +9,8 @@ class MsgProposeVersions(private val networkMagic: Long) : MiniProtocolMessage {
 
     companion object {
         const val PROTOCOL_VERSION_7 = 7L
+        const val PROTOCOL_VERSION_8 = 8L
+        const val PROTOCOL_VERSION_9 = 9L
         const val PROTOCOL_VERSION_10 = 10L
         const val MESSAGE_ID = 0L
         private val initiatorAndResponderDiffusionMode = CborSimple.FALSE
@@ -21,6 +23,18 @@ class MsgProposeVersions(private val networkMagic: Long) : MiniProtocolMessage {
             CborMap.create(
                 mutableMapOf<CborObject, CborObject>(
                     CborInteger.create(PROTOCOL_VERSION_7) to CborArray.create(
+                        listOf(
+                            CborInteger.create(networkMagic),
+                            initiatorAndResponderDiffusionMode
+                        )
+                    ),
+                    CborInteger.create(PROTOCOL_VERSION_8) to CborArray.create(
+                        listOf(
+                            CborInteger.create(networkMagic),
+                            initiatorAndResponderDiffusionMode
+                        )
+                    ),
+                    CborInteger.create(PROTOCOL_VERSION_9) to CborArray.create(
                         listOf(
                             CborInteger.create(networkMagic),
                             initiatorAndResponderDiffusionMode
