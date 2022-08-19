@@ -15,6 +15,8 @@ data class ProtocolParameters(
     val minUTxOValue: Long? = null,
     @Json(name = "utxoCostPerWord")
     val utxoCostPerWord: Long? = null,
+    @Json(name = "utxoCostPerByte")
+    val utxoCostPerByte: Long? = null,
     @Json(name = "decentralization")
     val decentralisationParam: Double?,
     @Json(name = "maxTxSize")

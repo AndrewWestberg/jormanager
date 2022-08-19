@@ -3,46 +3,47 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("org.springframework.boot") version "2.7.0"
-    id("io.spring.dependency-management") version "1.0.11.RELEASE"
+    id("org.springframework.boot") version "2.7.3"
+    id("io.spring.dependency-management") version "1.0.13.RELEASE"
     id("com.github.ben-manes.versions") version "0.42.0"
-    kotlin("jvm") version "1.7.0"
-    kotlin("kapt") version "1.7.0"
-    kotlin("plugin.spring") version "1.7.0"
-    kotlin("plugin.jpa") version "1.7.0"
+    kotlin("jvm") version "1.7.10"
+    kotlin("kapt") version "1.7.10"
+    kotlin("plugin.spring") version "1.7.10"
+    kotlin("plugin.jpa") version "1.7.10"
 }
 
 object Versions {
     const val bouncycastle = "1.70"
     const val caffeine = "3.1.1"
     const val commonsio = "2.8.0"
-    const val cbor = "0.01.02-FIREHOSE4"
-    const val checkerFramework = "3.22.1"
-    const val coroutines = "1.6.2"
+    const val cbor = "0.01.02-NEWM"
+    const val checkerFramework = "3.24.0"
+    const val coroutines = "1.6.4"
     const val ehcache = "3.9.9"
-    const val errorprone = "2.14.0"
-    const val exposed = "0.38.2"
+    const val errorprone = "2.15.0"
+    const val exposed = "0.39.2"
     const val googleTruth = "1.1.3"
     const val hikari = "5.0.1"
     const val jackson = "2.13.3"
-    const val joda = "2.10.14"
+    const val joda = "2.11.0"
     const val json = "20220320"
-    const val jsoup = "1.15.1"
-    const val junit = "5.8.2"
+    const val jsoup = "1.15.2"
+    const val junit = "5.9.0"
     const val kotlinxIo = "0.1.16"
-    const val ktor = "2.0.2"
-    const val liquibase = "4.11.0"
-    const val mockk = "1.12.4"
+    const val ktor = "2.1.0"
+    const val libSodiumJna = "1.1.0-NEWM"
+    const val liquibase = "4.15.0"
+    const val mockk = "1.12.5"
     const val moshi = "1.13.0"
     const val okhttp = "4.10.0"
-    const val postgresql = "42.4.0"
+    const val postgresql = "42.4.2"
     const val retrofit = "2.9.0"
-    const val springSecurity = "5.7.1"
-    const val sshj = "0.33.0"
+    const val springSecurity = "5.7.3"
+    const val sshj = "0.34.0"
 }
 
 group = "com.swiftmako"
-version = "7.0.1-SNAPSHOT"
+version = "7.0.2-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_17
 java.targetCompatibility = JavaVersion.VERSION_17
 
@@ -107,12 +108,12 @@ dependencies {
     implementation("com.zaxxer:HikariCP:${Versions.hikari}")
     implementation("com.github.ben-manes.caffeine:caffeine:${Versions.caffeine}")
 
-    implementation("com.google.iot.cbor:cbor:${Versions.cbor}")
+    implementation("io.newm:com.google.iot.cbor:${Versions.cbor}")
     implementation("org.json:json:${Versions.json}")
     compileOnly("com.google.errorprone:error_prone_annotations:${Versions.errorprone}")
     compileOnly("org.checkerframework:checker-qual:${Versions.checkerFramework}")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
-    implementation("com.muquit.libsodiumjna:libsodium-jna:1.1.0-IOG-SNAPSHOT")
+    implementation("io.newm:com.muquit.libsodiumjna.libsodium-jna:${Versions.libSodiumJna}")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
 
 

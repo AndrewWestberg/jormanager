@@ -18,7 +18,7 @@ import com.swiftmako.jormanager.model.metadata.pool.Social
 import com.swiftmako.jormanager.model.tx.TxSigned
 import com.swiftmako.jormanager.repositories.*
 import com.swiftmako.jormanager.services.MetadataService
-import com.swiftmako.jormanager.services.SmashService
+import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
@@ -546,7 +546,7 @@ class NodeController @Autowired constructor(
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex")
                                 .trim()
                         log.debug("poolId: $poolId")
-                        val isPoolOnChain = isPoolOnChain(poolId, magicString == "--mainnet")
+                        val isPoolOnChain = isPoolOnChain(defaultHost, defaultHostConnection, poolId, magicString)
 
                         // 5. Create and upload metadata files
                         var itnPrivateKeyId = -1L
@@ -2376,19 +2376,15 @@ class NodeController @Autowired constructor(
         }
     }
 
-    private fun isPoolOnChain(poolId: String, isMainnet: Boolean): Boolean = runBlocking {
-        val baseUrl = if (isMainnet) {
-            "https://smash.cardano-mainnet.iohk.io"
-        } else {
-            "https://smash.cardano-testnet.iohkdev.io"
-        }
-
-        try {
-            val service = retrofit.newBuilder().baseUrl(baseUrl).build().create(SmashService::class.java)
-            service.exists(poolId)?.poolExists() ?: false
-        } catch (e: Throwable) {
-            false
-        }
+    private fun isPoolOnChain(
+        defaultHost: Host,
+        defaultHostConnection: HostConnection,
+        poolId: String,
+        magicString: String
+    ): Boolean {
+        val poolIdBech32 = Bech32.encode("pool", poolId.hexToByteArray())
+        val pools = defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-pools $magicString").trim()
+        return poolIdBech32 in pools
     }
 
     private fun uploadMetadata(metadataJson: String): String = runBlocking {
