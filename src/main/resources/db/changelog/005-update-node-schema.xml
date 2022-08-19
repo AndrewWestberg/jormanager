@@ -5,7 +5,7 @@
     <changeSet id="005" author="Andrew Westberg">
 
         <addColumn tableName="nodes">
-            <column name="genesis_shelley_file_id" type="int" afterColumn="genesis_file_id">
+            <column name="genesis_shelley_file_id" type="int">
                 <constraints nullable="false"/>
             </column>
         </addColumn>

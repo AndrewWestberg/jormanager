@@ -43,7 +43,7 @@ object Versions {
 }
 
 group = "com.swiftmako"
-version = "7.0.2-SNAPSHOT"
+version = "7.0.3-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_17
 java.targetCompatibility = JavaVersion.VERSION_17
 

@@ -5,7 +5,7 @@
     <changeSet id="006" author="Andrew Westberg">
 
         <addColumn tableName="wallet">
-            <column name="staking_reg_cert" type="int" afterColumn="staking_vkey"/>
+            <column name="staking_reg_cert" type="int"/>
         </addColumn>
 
     </changeSet>
