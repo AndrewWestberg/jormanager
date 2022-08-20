@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.nodeclient.protocols.chainsync
 
 import com.google.iot.cbor.CborArray
+import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.ktx.*
@@ -37,7 +38,11 @@ object MsgRollForwardAdapter {
 
 //            log.error("block: $blockNumber, slot: $slotNumber, cbor: ${cborArray.toCborByteArray().toHexString()}")
 
-            val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
+            val prevHash = when(val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
+                is CborByteString -> prevHashElement.byteArrayValue().toHexString()
+                // might be cbor null if we launched without the byron era
+                else -> ""
+            }
             val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
             val blockVrf: String

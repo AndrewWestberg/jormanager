@@ -271,7 +271,11 @@ class BlockFetchProtocol(
             val blockNumber = blockHeaderCborArrayInner.elementToBigInteger(0).toLong()
             val slotNumber = blockHeaderCborArrayInner.elementToBigInteger(1).toLong()
 
-            val prevHash = blockHeaderCborArrayInner.elementToHexString(2)
+            val prevHash = when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
+                is CborByteString -> prevHashElement.byteArrayValue().toHexString()
+                // might be cbor null if we launched without the byron era
+                else -> ""
+            }
 //            val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //            val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
 //            val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray

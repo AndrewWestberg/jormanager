@@ -306,7 +306,7 @@ class NodeMonitor @Autowired constructor(
                 val incomingPeers: Int = ssh?.let {
                     ssh.startSession().use { session ->
                         val command =
-                            "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
+                            "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep \\/${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
                         session.exec(command).use { cmd ->
                             output = cmd.inputStream.source().buffer().use { it.readUtf8() }
                             errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
@@ -321,7 +321,7 @@ class NodeMonitor @Autowired constructor(
                     val process = ProcessBuilder(
                         "/bin/bash",
                         "-c",
-                        "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep ${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
+                        "ss -n -p -4 state established | grep pid=\$(ps -Af | grep cardano-node | grep \\/${node.name}\\/topology | awk '{ print \$2 }') | grep ${node.port} | wc -l"
                     ).start()
                     output = process.inputStream.source().buffer().use { it.readUtf8() }
                     process.waitFor(5, TimeUnit.SECONDS)

@@ -91,6 +91,9 @@ class CardanoUtils @Autowired constructor(
                 PREPROD_NETWORK_MAGIC -> {
                     BYRON_TO_SHELLEY_EPOCHS_PREPROD
                 }
+                MIXED_NETWORK_MAGIC -> {
+                    BYRON_TO_SHELLEY_EPOCHS_MIXED
+                }
                 else -> {
                     BYRON_TO_SHELLEY_EPOCHS_TESTNET
                 }
@@ -107,10 +110,12 @@ class CardanoUtils @Autowired constructor(
         private const val BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV = 1L
         private const val BYRON_TO_SHELLEY_EPOCHS_PREVIEW = 0L
         private const val BYRON_TO_SHELLEY_EPOCHS_PREPROD = 4L
+        private const val BYRON_TO_SHELLEY_EPOCHS_MIXED = 0L
 
         private const val GUILD_NETWORK_MAGIC = 141L
         private const val VASIL_DEV_NETWORK_MAGIC = 9L
         private const val PREVIEW_NETWORK_MAGIC = 2L
         private const val PREPROD_NETWORK_MAGIC = 1L
+        private const val MIXED_NETWORK_MAGIC = 5L
     }
 }
