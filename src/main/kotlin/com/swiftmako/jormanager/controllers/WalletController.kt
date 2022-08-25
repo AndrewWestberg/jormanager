@@ -112,6 +112,11 @@ class WalletController @Autowired constructor(
                 protocolParams
             )
 
+            val queryTip = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+            val era = queryTipAdapter.fromJson(queryTip)?.era
+                ?: throw IOException("Couldn't parse query tip!")
+            val eraString = "--${era.lowercase()}-era"
+
             val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                 ?: throw IOException("Wallet entry id ${request.fromId} not found!")
 
@@ -372,7 +377,7 @@ class WalletController @Autowired constructor(
                                 ?: "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+" // start with dummy amount of ada to send
                             multiAssetString += "${toAccount.amount} ${toAccount.currency}"
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             val tokenFee = (minValueResult.split(" ")[1].toBigInteger() - (adaAmountsMap[destination]
                                 ?: BigInteger.ZERO)).takeIf { tokenFee -> tokenFee > BigInteger.ZERO }
@@ -396,7 +401,7 @@ class WalletController @Autowired constructor(
                                 prefix = "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+1 "
                             )
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             tokenKeepFee += minValueResult.split(" ")[1].toBigInteger()
                         }
@@ -897,6 +902,11 @@ class WalletController @Autowired constructor(
                     protocolParams
                 )
 
+                val queryTip = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                val era = queryTipAdapter.fromJson(queryTip)?.era
+                    ?: throw IOException("Couldn't parse query tip!")
+                val eraString = "--${era.lowercase()}-era"
+
                 val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                     ?: throw IOException("Wallet entry id ${request.fromId} not found!")
                 val feePayerWalletEntry = if (request.isClaim) {
@@ -1046,7 +1056,7 @@ class WalletController @Autowired constructor(
                         val multiAssetString =
                             chunk.joinToString(separator = "+") { (currency, amount) -> "$amount $currency" }
                         val minValueResult =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo --alonzo-era --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'")
                                 .trim()
                         val tokenKeepFee = minValueResult.split(" ")[1].toBigInteger()
 
