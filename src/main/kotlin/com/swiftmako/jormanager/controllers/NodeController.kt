@@ -19,6 +19,7 @@ import com.swiftmako.jormanager.model.tx.TxSigned
 import com.swiftmako.jormanager.repositories.*
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.utils.Bech32
+import com.swiftmako.jormanager.utils.CardanoUtils
 import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
@@ -69,6 +70,7 @@ class NodeController @Autowired constructor(
     private val bulkCredentialsJsonAdapter: JsonAdapter<List<List<Key>>>,
     private val txSignedAdapter: JsonAdapter<TxSigned>,
     private val ledgerDao: LedgerDao,
+    private val cardanoUtils: CardanoUtils,
     //@Value("\${jormanager.era}") private val eraString: String,
 ) {
     private val log by lazy { LoggerFactory.getLogger("NodeController") }
@@ -225,15 +227,7 @@ class NodeController @Autowired constructor(
                     } else {
                         "--mainnet"
                     }
-                    val byronToShelleyEpochs = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
-                        if (genesisShelley.networkMagic == GUILD_NETWORK_MAGIC) {
-                            BYRON_TO_SHELLEY_EPOCHS_GUILD
-                        } else {
-                            BYRON_TO_SHELLEY_EPOCHS_TESTNET
-                        }
-                    } else {
-                        BYRON_TO_SHELLEY_EPOCHS_MAINNET
-                    }
+                    val byronToShelleyEpochs = cardanoUtils.byronToShelleyEpochs
                     val genesisByronFile = fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))
                         ?: throw IOException("Genesis Byron file for default node not found!")
                     val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
@@ -520,13 +514,12 @@ class NodeController @Autowired constructor(
                         if (currentKESPeriod < 0L) {
                             currentKESPeriod = 0L
                         }
-                        log.debug("currentKESPeriod: $currentKESPeriod")
 
                         val maxKESEvolutions = genesisShelley.maxKESEvolutions
                         val expiresKESPeriod = currentKESPeriod + maxKESEvolutions
                         val kesExpireTimeSec = (currentTimeSec + (slotLength * maxKESEvolutions * slotsPerKESPeriod))
                         val kesExpireDate = defaultHostConnection.command("date --date=@$kesExpireTimeSec").trim()
-                        log.debug("expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
+                        log.warn("CreateKES: currentKESPeriod: $currentKESPeriod, expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
 
                         defaultHostConnection.command("${defaultHost.cardanoCliPath} node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
                         val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
@@ -1240,15 +1233,7 @@ class NodeController @Autowired constructor(
             val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                 ?: throw IOException("Genesis shelley not found!")
             val genesisShelley = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
-            val byronToShelleyEpochs = if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
-                if (genesisShelley.networkMagic == GUILD_NETWORK_MAGIC) {
-                    BYRON_TO_SHELLEY_EPOCHS_GUILD
-                } else {
-                    BYRON_TO_SHELLEY_EPOCHS_TESTNET
-                }
-            } else {
-                BYRON_TO_SHELLEY_EPOCHS_MAINNET
-            }
+            val byronToShelleyEpochs = cardanoUtils.byronToShelleyEpochs
 
             val genesisByronFile = fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))
                 ?: throw IOException("Genesis byron not found!")
@@ -1325,13 +1310,12 @@ class NodeController @Autowired constructor(
                 if (currentKESPeriod < 0L) {
                     currentKESPeriod = 0L
                 }
-                log.debug("currentKESPeriod: $currentKESPeriod")
 
                 val maxKESEvolutions = genesisShelley.maxKESEvolutions
                 val expiresKESPeriod = currentKESPeriod + maxKESEvolutions
                 val kesExpireTimeSec = (currentTimeSec + (slotLength * maxKESEvolutions * slotsPerKESPeriod))
                 val kesExpireDate = defaultHostConnection.command("date --date=@$kesExpireTimeSec").trim()
-                log.debug("expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
+                log.warn("RotatingKES: currentKESPeriod: $currentKESPeriod, expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
 
                 defaultHostConnection.command("${defaultHost.cardanoCliPath} node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
                 val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
