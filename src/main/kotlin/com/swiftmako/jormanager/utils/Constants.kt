@@ -1,5 +1,7 @@
 package com.swiftmako.jormanager.utils
 
+import com.google.iot.cbor.CborInteger
+
 object Constants {
     const val ENTERPRISE_ADDRESS_PREFIX_MAINNET = 0x61.toByte()
     const val ENTERPRISE_ADDRESS_PREFIX_TESTNET = 0x60.toByte()
@@ -16,4 +18,7 @@ object Constants {
     const val BYRON_ADDRESS_PREFIX = 0x82.toByte()
     const val RECEIVE_ADDRESS_PATTERN = "^addr(_test)?1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{98})$"
     const val STAKE_ADDRESS_PATTERN = "^stake(_test)?1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53})$"
+
+    val UTXO_ADDRESS_INDEX: CborInteger = CborInteger.create(0)
+    val UTXO_AMOUNT_INDEX: CborInteger = CborInteger.create(1)
 }

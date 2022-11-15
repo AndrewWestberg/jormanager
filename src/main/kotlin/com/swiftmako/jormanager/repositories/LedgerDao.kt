@@ -11,6 +11,8 @@ import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtoc
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CardanoUtils
+import com.swiftmako.jormanager.utils.Constants.UTXO_ADDRESS_INDEX
+import com.swiftmako.jormanager.utils.Constants.UTXO_AMOUNT_INDEX
 import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -114,36 +116,43 @@ class LedgerDao @Autowired constructor(
                 var address = ""
                 var lovelace = BigInteger.ZERO
                 val nativeAssets = mutableListOf<NativeAsset>()
-                (txOutput as CborArray).forEach { item ->
-                    when (item) {
-                        is CborByteString -> {
-                            val addressBytes = item.byteArrayValue()
-                            val prefix = if (addressBytes[0] and 0x01.toByte() == 0x01.toByte()) {
-                                "addr"
-                            } else {
-                                "addr_test"
-                            }
-                            address = Bech32.encode(prefix, addressBytes)
-                        }
-                        is CborInteger -> lovelace = item.bigIntegerValue()
-                        is CborArray -> {
-                            item.forEach { subItem ->
-                                when (subItem) {
-                                    is CborInteger -> lovelace = subItem.bigIntegerValue()
-                                    is CborMap -> {
-                                        subItem.keySet().forEach { policyId ->
-                                            val policy = (policyId as CborByteString).byteArrayValue().toHexString()
-                                            val token = subItem[policyId] as CborMap
-                                            token.keySet().forEach { tokenName ->
-                                                val name = (tokenName as CborByteString).byteArrayValue().toHexString()
-                                                val amount = (token[tokenName] as CborInteger).bigIntegerValue()
-                                                nativeAssets.add(
-                                                    NativeAsset(
-                                                        name = name,
-                                                        policy = policy,
-                                                        amount = amount
-                                                    )
-                                                )
+                when (txOutput) {
+                    is CborArray -> {
+                        txOutput.forEach { item ->
+                            when (item) {
+                                is CborByteString -> {
+                                    val addressBytes = item.byteArrayValue()
+                                    val prefix = if (addressBytes[0] and 0x01.toByte() == 0x01.toByte()) {
+                                        "addr"
+                                    } else {
+                                        "addr_test"
+                                    }
+                                    address = Bech32.encode(prefix, addressBytes)
+                                }
+
+                                is CborInteger -> lovelace = item.bigIntegerValue()
+                                is CborArray -> {
+                                    item.forEach { subItem ->
+                                        when (subItem) {
+                                            is CborInteger -> lovelace = subItem.bigIntegerValue()
+                                            is CborMap -> {
+                                                subItem.keySet().forEach { policyId ->
+                                                    val policy =
+                                                        (policyId as CborByteString).byteArrayValue().toHexString()
+                                                    val token = subItem[policyId] as CborMap
+                                                    token.keySet().forEach { tokenName ->
+                                                        val name =
+                                                            (tokenName as CborByteString).byteArrayValue().toHexString()
+                                                        val amount = (token[tokenName] as CborInteger).bigIntegerValue()
+                                                        nativeAssets.add(
+                                                            NativeAsset(
+                                                                name = name,
+                                                                policy = policy,
+                                                                amount = amount
+                                                            )
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -151,7 +160,54 @@ class LedgerDao @Autowired constructor(
                             }
                         }
                     }
+
+                    is CborMap -> {
+                        val addressBytes = (txOutput[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()
+                        address = if (addressBytes[0] and 0x01.toByte() == 0x01.toByte()) {
+                            Bech32.encode("addr", addressBytes)
+                        } else {
+                            Bech32.encode("addr_test", addressBytes)
+                        }
+                        when (val amountCborObject = txOutput[UTXO_AMOUNT_INDEX]) {
+                            is CborInteger -> {
+                                lovelace = amountCborObject.bigIntegerValue()
+                            }
+
+                            is CborArray -> {
+                                amountCborObject.forEach { amountItemCborObject ->
+                                    when (amountItemCborObject) {
+                                        is CborInteger -> {
+                                            lovelace = amountItemCborObject.bigIntegerValue()
+                                        }
+
+                                        is CborMap -> {
+                                            amountItemCborObject.keySet().forEach { policyId ->
+                                                val policy =
+                                                    (policyId as CborByteString).byteArrayValue().toHexString()
+                                                val token = amountItemCborObject[policyId] as CborMap
+                                                token.keySet().forEach { tokenName ->
+                                                    val name =
+                                                        (tokenName as CborByteString).byteArrayValue().toHexString()
+                                                    val amount = (token[tokenName] as CborInteger).bigIntegerValue()
+                                                    nativeAssets.add(
+                                                        NativeAsset(
+                                                            name = name,
+                                                            policy = policy,
+                                                            amount = amount
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    else -> throw IllegalStateException("txOutput is not Array or Map!")
                 }
+
                 processLiveUtxoFromSubmitTx(address,
                     Utxo(
                         hash = transactionId,

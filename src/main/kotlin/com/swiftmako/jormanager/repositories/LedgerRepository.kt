@@ -5,6 +5,8 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.tables.*
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
 import java.math.BigInteger
