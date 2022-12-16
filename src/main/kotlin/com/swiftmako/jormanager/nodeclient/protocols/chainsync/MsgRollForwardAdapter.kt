@@ -4,7 +4,11 @@ import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
 import com.muquit.libsodiumjna.SodiumLibrary
-import com.swiftmako.jormanager.ktx.*
+import com.swiftmako.jormanager.ktx.elementToByteArray
+import com.swiftmako.jormanager.ktx.elementToHexString
+import com.swiftmako.jormanager.ktx.elementToLong
+import com.swiftmako.jormanager.ktx.hexToByteArray
+import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.utils.Blake2b
 import org.slf4j.LoggerFactory
 import java.util.*
@@ -38,8 +42,8 @@ object MsgRollForwardAdapter {
 
 //            log.error("block: $blockNumber, slot: $slotNumber, cbor: ${cborArray.toCborByteArray().toHexString()}")
 
-            val prevHash = when(val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
-                is CborByteString -> prevHashElement.byteArrayValue().toHexString()
+            val prevHash = when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
+                is CborByteString -> prevHashElement.byteArrayValue()[0].toHexString()
                 // might be cbor null if we launched without the byron era
                 else -> ""
             }

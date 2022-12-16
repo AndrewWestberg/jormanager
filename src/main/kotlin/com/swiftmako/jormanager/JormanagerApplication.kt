@@ -21,8 +21,11 @@ fun main(args: Array<String>) {
     }
 }
 
+val passwordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
+
 fun runInstallation() {
-    val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString().substringAfter("file:").substringBeforeLast("/jormanager")
+    val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()
+        .substringAfter("file:").substringBeforeLast("/jormanager")
     val jormanagerFolderPath = File(uri).absolutePath
 
     val applicationProperties = StringBuilder()
@@ -53,21 +56,24 @@ fun runInstallation() {
         return
     }
 
-    val encodedPassword = Argon2PasswordEncoder().encode(spendingPassword)
+    val encodedPassword = passwordEncoder.encode(spendingPassword)
     applicationProperties.append("jormanager.spendingpassword=$encodedPassword")
 
-    File("$jormanagerFolderPath${File.separator}application.properties").sink().buffer().use { it.writeUtf8(applicationProperties.toString()) }
+    File("$jormanagerFolderPath${File.separator}application.properties").sink().buffer()
+        .use { it.writeUtf8(applicationProperties.toString()) }
     println("application.properties successfully created!")
     println()
 
     val host = Host(0, "local", "", "", "", "", 22, "", "", "")
-    val defaultNode = Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 12789, 0, 0, 0, 0, isDefault = true)
+    val defaultNode =
+        Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 12789, 0, 0, 0, 0, isDefault = true)
     val hostConnection = HostConnection(host, defaultNode)
     val javaPath = hostConnection.command("which java").trim()
 
     val startScriptPath = "$jormanagerFolderPath${File.separator}startJormanager.sh"
     File(startScriptPath).sink().buffer().use {
-        it.writeUtf8("""
+        it.writeUtf8(
+            """
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -80,7 +86,8 @@ fun runInstallation() {
     }
     val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
     File(stopScriptPath).sink().buffer().use {
-        it.writeUtf8("""
+        it.writeUtf8(
+            """
                 |#!/bin/bash
                 |OLDPWD=`pwd`
                 |cd $jormanagerFolderPath
@@ -103,13 +110,14 @@ fun runInstallation() {
     } else {
         print("Specify the service name for the JorManager systemd startup script or Enter to accept default [jm.service]: ")
         var systemdServiceName = console.readLine().trim()
-        systemdServiceName = if (systemdServiceName.isNotBlank()) systemdServiceName else "jm.service"
+        systemdServiceName = systemdServiceName.ifBlank { "jm.service" }
 
         val user = hostConnection.command("whoami").trim()
 
         print("Enter your sudo password to allow installer to modify systemd scripts: ")
         val sudoPassword = String(console.readPassword())
-        hostConnection.sudoCommandWriteFile("/etc/systemd/system/$systemdServiceName", """
+        hostConnection.sudoCommandWriteFile(
+            "/etc/systemd/system/$systemdServiceName", """
                 |[Unit]
                 |Description=JorManager - Manager for Cardano Nodes
                 |After=syslog.target
@@ -131,7 +139,7 @@ fun runInstallation() {
                 |[Install]
                 |WantedBy=multi-user.target
                 """.trimMargin(),
-                sudoPassword
+            sudoPassword
         )
         hostConnection.sudoCommand("systemctl daemon-reload", sudoPassword)
         hostConnection.sudoCommand("systemctl stop $systemdServiceName", sudoPassword)

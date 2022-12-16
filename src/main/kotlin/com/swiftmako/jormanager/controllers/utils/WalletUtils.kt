@@ -22,7 +22,6 @@ import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.encrypt.Encryptors
 import org.springframework.stereotype.Component
 import java.math.BigInteger
-import javax.transaction.Transactional
 
 
 @Component

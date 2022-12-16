@@ -198,7 +198,7 @@ class Configuration {
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun argonPasswordEncoder(): Argon2PasswordEncoder {
-        return Argon2PasswordEncoder()
+        return Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
     }
 
     @Bean("latestNodeStats")

@@ -344,7 +344,7 @@ class BlockController @Autowired constructor(
                                                     ?: throw IOException("Unable to parse VRF Skey!")
                                                 val reader =
                                                     CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
-                                                (reader.readDataItem() as CborByteString).byteArrayValue().also {
+                                                (reader.readDataItem() as CborByteString).byteArrayValue()[0].also {
                                                     poolIdToVrfSkey[coreNode.poolId] = it
                                                 }
                                             }

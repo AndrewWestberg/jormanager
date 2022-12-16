@@ -30,7 +30,7 @@ fun CborArray.elementToBigInteger(index: Int): BigInteger {
 }
 
 fun CborArray.elementToByteArray(index: Int): ByteArray {
-    return (elementAt(index) as CborByteString).byteArrayValue()
+    return (elementAt(index) as CborByteString).byteArrayValue()[0]
 }
 
 fun CborArray.elementToHexString(index: Int): String {

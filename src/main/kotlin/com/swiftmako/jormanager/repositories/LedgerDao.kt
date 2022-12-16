@@ -98,7 +98,7 @@ class LedgerDao @Autowired constructor(
                 var ix = 0L
                 (utxo as CborArray).forEach { utxoElement ->
                     when (utxoElement) {
-                        is CborByteString -> hash = utxoElement.byteArrayValue().toHexString()
+                        is CborByteString -> hash = utxoElement.byteArrayValue()[0].toHexString()
                         else -> ix = (utxoElement as CborInteger).longValue()
                     }
                 }
@@ -121,7 +121,7 @@ class LedgerDao @Autowired constructor(
                         txOutput.forEach { item ->
                             when (item) {
                                 is CborByteString -> {
-                                    val addressBytes = item.byteArrayValue()
+                                    val addressBytes = item.byteArrayValue()[0]
                                     val prefix = if (addressBytes[0] and 0x01.toByte() == 0x01.toByte()) {
                                         "addr"
                                     } else {
@@ -138,11 +138,11 @@ class LedgerDao @Autowired constructor(
                                             is CborMap -> {
                                                 subItem.keySet().forEach { policyId ->
                                                     val policy =
-                                                        (policyId as CborByteString).byteArrayValue().toHexString()
+                                                        (policyId as CborByteString).byteArrayValue()[0].toHexString()
                                                     val token = subItem[policyId] as CborMap
                                                     token.keySet().forEach { tokenName ->
                                                         val name =
-                                                            (tokenName as CborByteString).byteArrayValue().toHexString()
+                                                            (tokenName as CborByteString).byteArrayValue()[0].toHexString()
                                                         val amount = (token[tokenName] as CborInteger).bigIntegerValue()
                                                         nativeAssets.add(
                                                             NativeAsset(
@@ -162,7 +162,7 @@ class LedgerDao @Autowired constructor(
                     }
 
                     is CborMap -> {
-                        val addressBytes = (txOutput[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()
+                        val addressBytes = (txOutput[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()[0]
                         address = if (addressBytes[0] and 0x01.toByte() == 0x01.toByte()) {
                             Bech32.encode("addr", addressBytes)
                         } else {
@@ -183,11 +183,11 @@ class LedgerDao @Autowired constructor(
                                         is CborMap -> {
                                             amountItemCborObject.keySet().forEach { policyId ->
                                                 val policy =
-                                                    (policyId as CborByteString).byteArrayValue().toHexString()
+                                                    (policyId as CborByteString).byteArrayValue()[0].toHexString()
                                                 val token = amountItemCborObject[policyId] as CborMap
                                                 token.keySet().forEach { tokenName ->
                                                     val name =
-                                                        (tokenName as CborByteString).byteArrayValue().toHexString()
+                                                        (tokenName as CborByteString).byteArrayValue()[0].toHexString()
                                                     val amount = (token[tokenName] as CborInteger).bigIntegerValue()
                                                     nativeAssets.add(
                                                         NativeAsset(

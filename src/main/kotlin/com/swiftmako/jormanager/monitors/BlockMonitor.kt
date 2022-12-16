@@ -16,7 +16,6 @@ import com.swiftmako.jormanager.model.TraceAdoptedBlock
 import com.swiftmako.jormanager.repositories.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -115,6 +114,7 @@ class BlockMonitor @Autowired constructor(
                                 "local" -> {
                                     monitorBlocksLocal(host, node)
                                 }
+
                                 "remote" -> {
                                     monitorBlocksRemote(host, node)
                                 }
@@ -244,7 +244,15 @@ class BlockMonitor @Autowired constructor(
                         while (true) {
                             val line = source.readUtf8Line() ?: break
                             if (line.contains("val")) {
-                                saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
+                                saveBlocksFromRemoteNode(
+                                    null,
+                                    host.hostname,
+                                    monitoredNode,
+                                    magicString,
+                                    byron,
+                                    shelley,
+                                    line
+                                )
                             }
                         }
                     }
@@ -259,7 +267,15 @@ class BlockMonitor @Autowired constructor(
                         while (true) {
                             val line = source.readUtf8Line() ?: break
                             if (line.contains("val")) {
-                                saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
+                                saveBlocksFromRemoteNode(
+                                    host,
+                                    host.hostname,
+                                    monitoredNode,
+                                    magicString,
+                                    byron,
+                                    shelley,
+                                    line
+                                )
                             }
                         }
                     }
@@ -331,7 +347,15 @@ class BlockMonitor @Autowired constructor(
                             while (true) {
                                 val line = source.readUtf8Line() ?: break
                                 if (line.contains("val")) {
-                                    saveBlocksFromRemoteNode(null, monitoredNode, magicString, byron, shelley, line)
+                                    saveBlocksFromRemoteNode(
+                                        null,
+                                        host.hostname,
+                                        monitoredNode,
+                                        magicString,
+                                        byron,
+                                        shelley,
+                                        line
+                                    )
                                 }
                             }
                         }
@@ -344,7 +368,15 @@ class BlockMonitor @Autowired constructor(
                             while (true) {
                                 val line = source.readUtf8Line() ?: break
                                 if (line.contains("val")) {
-                                    saveBlocksFromRemoteNode(host, monitoredNode, magicString, byron, shelley, line)
+                                    saveBlocksFromRemoteNode(
+                                        host,
+                                        host.hostname,
+                                        monitoredNode,
+                                        magicString,
+                                        byron,
+                                        shelley,
+                                        line
+                                    )
                                 }
                             }
                         }
@@ -376,6 +408,7 @@ class BlockMonitor @Autowired constructor(
 
     private suspend fun saveBlocksFromRemoteNode(
         host: Host?,
+        hostname: String,
         node: Node,
         magicString: String,
         byron: GenesisByron,
@@ -394,7 +427,7 @@ class BlockMonitor @Autowired constructor(
                         val block = Block(
                             at = traceAdoptedBlock.localTimeString(),
                             pool = "---",
-                            host = traceAdoptedBlock.host,
+                            host = hostname,
                             slot = traceAdoptedBlock.data.block.slot,
                             epoch = epoch,
                             slotInEpoch = slotInEpoch,
