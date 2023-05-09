@@ -44,9 +44,10 @@ class WalletUtils @Autowired constructor(
         nodeRepository.findDefault()?.let { defaultNode ->
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 val hostConnection = HostConnection(host, defaultNode)
+                val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
                 walletRepository.findAllNotDeleted().forEach { walletEntry ->
                     walletItems.add(
-                        getWalletItem(host, hostConnection, magicString, walletEntry)
+                        getWalletItem(host, hostConnection, magicString, socketPath, walletEntry)
                     )
                 }
             } ?: log.error("Host for default node not found!")
@@ -59,16 +60,17 @@ class WalletUtils @Autowired constructor(
         host: Host,
         hostConnection: HostConnection,
         magicString: String,
-        walletEntry: WalletEntry
+        socketPath: String,
+        walletEntry: WalletEntry,
     ): WalletItem {
-        val utxos = getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
+        val utxos = getUtxos(host, hostConnection, magicString, socketPath, walletEntry.paymentAddr)
 
         // find staking_addr balance
         val start = System.currentTimeMillis()
         val stakingInfoString =
             if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
                 try {
-                    hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString")
+                    hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString $socketPath")
                 } catch (t: Throwable) {
                     if (t.message?.contains("EraMismatch") == false) {
                         log.error("Error getting stake addr info!", t)
@@ -117,7 +119,8 @@ class WalletUtils @Autowired constructor(
         host: Host,
         hostConnection: HostConnection,
         magicString: String,
-        paymentAddr: String
+        socketPath: String,
+        paymentAddr: String,
     ): List<Utxo> {
         return if (BlockFetchProtocol.isTip) {
             runBlocking {
@@ -128,7 +131,7 @@ class WalletUtils @Autowired constructor(
             // find payment_addr balance
             val start = System.currentTimeMillis()
             val addressInfoJson = try {
-                hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString --out-file=/dev/stdout")
+                hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString $socketPath --out-file=/dev/stdout")
                     .trim()
             } catch (t: Throwable) {
                 if (t.message?.contains("EraMismatch") == false) {

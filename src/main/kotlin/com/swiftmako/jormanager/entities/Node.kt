@@ -42,6 +42,8 @@ data class Node(
     val genesisShelleyFileId: Long,
     @Column(name = "genesis_alonzo_file_id")
     val genesisAlonzoFileId: Long,
+    @Column(name = "genesis_conway_file_id")
+    val genesisConwayFileId: Long,
     @Column(name = "config_file_id")
     val configFileId: Long,
     @Column(name = "pool_id")

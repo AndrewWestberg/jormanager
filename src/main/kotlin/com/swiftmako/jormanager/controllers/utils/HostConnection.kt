@@ -71,11 +71,7 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
                     "/bin/bash",
                     "-c",
                     command
-            ).also {
-                defaultNode?.let { node ->
-                    it.environment()["CARDANO_NODE_SOCKET_PATH"] = "${host.nodeHomePath}/${node.name}/db/socket"
-                }
-            }.start()
+            ).start()
             output = process.inputStream.source().buffer().use { it.readUtf8() }
             errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
             process.waitFor(timeoutSecs, TimeUnit.SECONDS)
@@ -97,9 +93,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         try {
             ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
-                defaultNode?.let { node ->
-                    session.setEnvVar("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
-                }
                 session.exec(command).use { cmd ->
                     output = cmd.inputStream.source().buffer().use { it.readUtf8() }
                     errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
@@ -147,9 +140,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         try {
             ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
-                defaultNode?.let { node ->
-                    session.setEnvVar("CARDANO_NODE_SOCKET_PATH", "${host.nodeHomePath}/${node.name}/db/socket")
-                }
                 session.exec(command).use { cmd ->
                     output = cmd.inputStream.source().buffer().use { it.readUtf8() }
                     errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
@@ -216,9 +206,6 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         commandList = commandList.map { clause -> clause.trim('\'') }
         try {
             val process = ProcessBuilder(commandList).also {
-                defaultNode?.let { node ->
-                    it.environment()["CARDANO_NODE_SOCKET_PATH"] = "${host.nodeHomePath}/${node.name}/db/socket"
-                }
                 if (redirectAppendFile.isNotBlank()) {
                     it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
                 }

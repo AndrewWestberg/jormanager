@@ -86,9 +86,10 @@ class BlockController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Host not found for default node!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -202,8 +203,9 @@ class BlockController @Autowired constructor(
                                 )
 
                                 val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                                val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                                 val tipJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
                                         .trim()
                                 val tip = queryTipAdapter.fromJson(tipJson)
                                 log.info("Era: ${tip?.era}")
@@ -221,30 +223,33 @@ class BlockController @Autowired constructor(
 
                                 val poolIdToSigma = mutableMapOf<String, BigDecimal>()
                                 val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
-                                coreNodes.forEach { node ->
-                                    node.poolId?.let { poolId ->
-                                        val stakeSnapshotJson =
-                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot --stake-pool-id $poolId $magicString")
-                                                .trim()
-                                        val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
-                                            ?: throw IOException("Unable to parse stakeSnapshot json for $poolId!")
-                                        log.debug("pool: ${poolId.substring(0, 6)} - $stakeSnapshot")
-                                        poolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeSet).divide(
-                                            BigDecimal(stakeSnapshot.activeStakeSet),
+
+                                // build a command to query stake-snapshot for all pools at once
+                                val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                                val poolIdsString = poolIds.joinToString(" ") { "--stake-pool-id $it" }
+
+                                val stakeSnapshotJson =
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot $poolIdsString $magicString $socketPath")
+                                        .trim()
+                                val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
+                                    ?: throw IOException("Unable to parse stakeSnapshot json!")
+                                poolIds.forEach { poolId ->
+                                    poolIdToSigma[poolId] = BigDecimal(stakeSnapshot.pools[poolId]!!.stakeSet).divide(
+                                        BigDecimal(stakeSnapshot.total.stakeSet),
+                                        34,
+                                        RoundingMode.HALF_UP
+                                    )
+                                    futurePoolIdToSigma[poolId] =
+                                        BigDecimal(stakeSnapshot.pools[poolId]!!.stakeMark).divide(
+                                            BigDecimal(stakeSnapshot.total.stakeMark),
                                             34,
                                             RoundingMode.HALF_UP
                                         )
-                                        futurePoolIdToSigma[poolId] = BigDecimal(stakeSnapshot.poolStakeMark).divide(
-                                            BigDecimal(stakeSnapshot.activeStakeMark),
-                                            34,
-                                            RoundingMode.HALF_UP
-                                        )
-                                    }
                                 }
 
                                 // if we're doing the stake-snapshot command, assume future d stays the same and no entropy
                                 val protocolParamsJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                                         .trim()
                                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                                     ?: throw IOException("Invalid protocol params!")

@@ -7,16 +7,18 @@ import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class StakeSnapshot(
-        @Json(name = "activeStakeMark")
-        val activeStakeMark: BigInteger,
-        @Json(name = "activeStakeSet")
-        val activeStakeSet: BigInteger,
-        @Json(name = "activeStakeGo")
-        val activeStakeGo: BigInteger,
-        @Json(name = "poolStakeMark")
-        val poolStakeMark: BigInteger,
-        @Json(name = "poolStakeSet")
-        val poolStakeSet: BigInteger,
-        @Json(name = "poolStakeGo")
-        val poolStakeGo: BigInteger,
+    @Json(name = "pools")
+    val pools: Map<String, Snapshot>,
+    @Json(name = "total")
+    val total: Snapshot,
+)
+
+@JsonClass(generateAdapter = true)
+data class Snapshot(
+    @Json(name = "stakeMark")
+    val stakeMark: BigInteger,
+    @Json(name = "stakeSet")
+    val stakeSet: BigInteger,
+    @Json(name = "stakeGo")
+    val stakeGo: BigInteger,
 )

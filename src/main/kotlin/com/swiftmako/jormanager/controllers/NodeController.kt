@@ -145,7 +145,7 @@ class NodeController @Autowired constructor(
             if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
-            log.debug("$request")
+            log.debug(request.toString())
             val host = hostRepository.findByIdOrNull(request.hostId)
                 ?: throw IOException("Invalid HostId: ${request.hostId}")
             val hostConnection = HostConnection(host)
@@ -160,6 +160,7 @@ class NodeController @Autowired constructor(
                         createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
                     createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
                     createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
+                    createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
                     createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                     val (configFileId, ekgPort, promPort) = createConfigFile(
                         request.hostId,
@@ -202,6 +203,7 @@ class NodeController @Autowired constructor(
                         genesisByronFileId = request.genesisByronFileId,
                         genesisShelleyFileId = request.genesisShelleyFileId,
                         genesisAlonzoFileId = request.genesisAlonzoFileId,
+                        genesisConwayFileId = request.genesisConwayFileId,
                         configFileId = configFileId,
                         isDefault = request.isDefault
                     )
@@ -217,6 +219,7 @@ class NodeController @Autowired constructor(
                         SocketResponse.Success(type = "nodes", data = nodes)
                     )
                 }
+
                 NODE_TYPE_CORE, NODE_TYPE_POOL -> {
                     val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
                     val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
@@ -235,9 +238,10 @@ class NodeController @Autowired constructor(
                     val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                         ?: throw IOException("Host not found for default node!")
                     val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                    val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                     try {
                         val protocolParamsJson =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                                 .trim()
                         defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                         val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -256,6 +260,7 @@ class NodeController @Autowired constructor(
                             defaultHost,
                             defaultHostConnection,
                             magicString,
+                            socketPath,
                             feePayerAccount.paymentAddr
                         )
                         utxos.forEach { utxo ->
@@ -277,7 +282,8 @@ class NodeController @Autowired constructor(
                         transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                         val queryTipString =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                                .trim()
                         val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                         transaction.append("--invalid-hereafter $ttl ")
                         transaction.append("--fee 100 ")
@@ -300,6 +306,7 @@ class NodeController @Autowired constructor(
                             defaultHost,
                             defaultHostConnection,
                             magicString,
+                            socketPath,
                             ownerStakingAccount
                         )
                         if (!ownerStakingWalletItem.stakingAddrRegistered) {
@@ -335,6 +342,7 @@ class NodeController @Autowired constructor(
                                 defaultHost,
                                 defaultHostConnection,
                                 magicString,
+                                socketPath,
                                 rewardsStakingAccount
                             )
                             if (!rewardsStakingWalletItem.stakingAddrRegistered) {
@@ -539,7 +547,8 @@ class NodeController @Autowired constructor(
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex")
                                 .trim()
                         log.debug("poolId: $poolId")
-                        val isPoolOnChain = isPoolOnChain(defaultHost, defaultHostConnection, poolId, magicString)
+                        val isPoolOnChain =
+                            isPoolOnChain(defaultHost, defaultHostConnection, poolId, magicString, socketPath)
 
                         // 5. Create and upload metadata files
                         var itnPrivateKeyId = -1L
@@ -718,7 +727,7 @@ class NodeController @Autowired constructor(
                         runBlocking {
                             TransactionCache.withLock {
                                 // 11. Submit the transaction
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                 val txid =
                                     defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                         .trim()
@@ -739,6 +748,7 @@ class NodeController @Autowired constructor(
                             createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
                             createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
                             createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
+                            createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
                             createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                             val (configFileId, ekgPort, promPort) = createConfigFile(
                                 request.hostId,
@@ -861,6 +871,7 @@ class NodeController @Autowired constructor(
                             genesisByronFileId = request.genesisByronFileId,
                             genesisShelleyFileId = request.genesisShelleyFileId,
                             genesisAlonzoFileId = request.genesisAlonzoFileId,
+                            genesisConwayFileId = request.genesisConwayFileId,
                             configFileId = configFileId,
                             isDefault = false,
                             poolId = poolId,
@@ -915,6 +926,7 @@ class NodeController @Autowired constructor(
                         defaultHostConnection.command("rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/core.pool.cert  /tmp/feepayer.payment.skey /tmp/owner.staking.skey /tmp/owner.staking.vkey /tmp/owner.staking.cert /tmp/owner.deleg.cert /tmp/rewards.staking.skey /tmp/rewards.staking.vkey /tmp/rewards.staking.cert /tmp/core.node.skey /tmp/core.node.vkey /tmp/core.node.counter /tmp/core.vrf.skey /tmp/core.vrf.vkey /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert /tmp/core.pool.id /tmp/core.itn.skey /tmp/core.itn.vkey /tmp/metadata.json")
                     }
                 }
+
                 else -> {
                     throw IOException("Invalid node type: ${request.type}")
                 }
@@ -953,9 +965,10 @@ class NodeController @Autowired constructor(
 
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                        val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val protocolParamsJson =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                                     .trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -974,6 +987,7 @@ class NodeController @Autowired constructor(
                                 defaultHost,
                                 defaultHostConnection,
                                 magicString,
+                                socketPath,
                                 feePayerAccount.paymentAddr
                             )
                             utxos.forEach { utxo ->
@@ -995,7 +1009,7 @@ class NodeController @Autowired constructor(
                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                             val queryTipString =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
@@ -1019,6 +1033,7 @@ class NodeController @Autowired constructor(
                                 defaultHost,
                                 defaultHostConnection,
                                 magicString,
+                                socketPath,
                                 ownerStakingAccount
                             )
                             if (!ownerStakingWalletItem.stakingAddrRegistered) {
@@ -1054,6 +1069,7 @@ class NodeController @Autowired constructor(
                                     defaultHost,
                                     defaultHostConnection,
                                     magicString,
+                                    socketPath,
                                     rewardsStakingAccount
                                 )
                                 if (!rewardsStakingWalletItem.stakingAddrRegistered) {
@@ -1167,7 +1183,7 @@ class NodeController @Autowired constructor(
                                 runBlocking {
                                     TransactionCache.withLock {
                                         // 11. Submit the transaction
-                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                         val txid =
                                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                                 .trim()
@@ -1498,9 +1514,10 @@ class NodeController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Host not found for default node!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1519,6 +1536,7 @@ class NodeController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     feePayerAccount.paymentAddr
                 )
                 utxos.forEach { utxo ->
@@ -1540,7 +1558,8 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                        .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
@@ -1564,6 +1583,7 @@ class NodeController @Autowired constructor(
                         defaultHost,
                         defaultHostConnection,
                         magicString,
+                        socketPath,
                         ownerStakingAccount
                     )
                     if (!ownerStakingWalletItem.stakingAddrRegistered) {
@@ -1599,6 +1619,7 @@ class NodeController @Autowired constructor(
                             defaultHost,
                             defaultHostConnection,
                             magicString,
+                            socketPath,
                             rewardsStakingAccount
                         )
                         if (!rewardsStakingWalletItem.stakingAddrRegistered) {
@@ -1822,7 +1843,7 @@ class NodeController @Autowired constructor(
                     runBlocking {
                         TransactionCache.withLock {
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
@@ -1896,9 +1917,10 @@ class NodeController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Host not found for default node!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1917,6 +1939,7 @@ class NodeController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     feePayerAccount.paymentAddr
                 )
                 utxos.forEach { utxo ->
@@ -1938,7 +1961,8 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                        .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
@@ -1963,6 +1987,7 @@ class NodeController @Autowired constructor(
                         defaultHost,
                         defaultHostConnection,
                         magicString,
+                        socketPath,
                         ownerStakingAccount
                     )
                     if (!ownerStakingWalletItem.stakingAddrRegistered) {
@@ -1998,6 +2023,7 @@ class NodeController @Autowired constructor(
                             defaultHost,
                             defaultHostConnection,
                             magicString,
+                            socketPath,
                             rewardsStakingAccount
                         )
                         if (!rewardsStakingWalletItem.stakingAddrRegistered) {
@@ -2113,7 +2139,7 @@ class NodeController @Autowired constructor(
                     runBlocking {
                         TransactionCache.withLock {
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
@@ -2157,6 +2183,7 @@ class NodeController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Default Host not found!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
 
             val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Node not found!")
             if (node.isDefault) {
@@ -2179,7 +2206,7 @@ class NodeController @Autowired constructor(
 
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
@@ -2196,6 +2223,7 @@ class NodeController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     feePayerAccount.paymentAddr
                 )
                 utxos.forEach { utxo ->
@@ -2214,7 +2242,8 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                        .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee 100 ")
@@ -2317,7 +2346,7 @@ class NodeController @Autowired constructor(
                 val txid = runBlocking {
                     TransactionCache.withLock {
                         // 11. Submit the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                         val txid =
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                 .trim()
@@ -2364,10 +2393,13 @@ class NodeController @Autowired constructor(
         defaultHost: Host,
         defaultHostConnection: HostConnection,
         poolId: String,
-        magicString: String
+        magicString: String,
+        socketPath: String,
     ): Boolean {
         val poolIdBech32 = Bech32.encode("pool", poolId.hexToByteArray())
-        val pools = defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-pools $magicString").trim()
+        val pools =
+            defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-pools $magicString $socketPath")
+                .trim()
         return poolIdBech32 in pools
     }
 
@@ -2446,6 +2478,7 @@ class NodeController @Autowired constructor(
                     |echo "Started with logfile ${request.name}.log"
                 """.trimMargin()
             }
+
             else -> {
                 """
                     |#!/bin/bash
@@ -2529,6 +2562,7 @@ class NodeController @Autowired constructor(
                     |WantedBy=multi-user.target
                 """.trimMargin()
             }
+
             NODE_TYPE_CORE -> {
                 """
                     |[Unit]
@@ -2564,6 +2598,7 @@ class NodeController @Autowired constructor(
                     |WantedBy=multi-user.target
                 """.trimMargin()
             }
+
             else -> {
                 // NODE_TYPE_POOL
                 """
@@ -2636,6 +2671,7 @@ class NodeController @Autowired constructor(
                 """.trimMargin()
                 )
             }
+
             NODE_TYPE_CORE -> {
                 hostConnection.commandWriteFile(
                     "${nodeFolder}/env",
@@ -2652,6 +2688,7 @@ class NodeController @Autowired constructor(
                 """.trimMargin()
                 )
             }
+
             NODE_TYPE_POOL -> {
                 hostConnection.commandWriteFile(
                     "${nodeFolder}/env",
@@ -2734,6 +2771,7 @@ class NodeController @Autowired constructor(
         }
         val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
         val configFileContent = configFile?.content
+            ?.replace(Regex(""""ConwayGenesisFile": .*,"""), """"ConwayGenesisFile": "conway-genesis.json",""")
             ?.replace(Regex(""""AlonzoGenesisFile": .*,"""), """"AlonzoGenesisFile": "alonzo-genesis.json",""")
             ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
             ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
@@ -2811,9 +2849,5 @@ class NodeController @Autowired constructor(
         const val NODE_TYPE_POOL = "pool"
         private val IP4_ADDRESS =
             Regex("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)")
-        private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L
-        private const val BYRON_TO_SHELLEY_EPOCHS_TESTNET = 74L
-        private const val BYRON_TO_SHELLEY_EPOCHS_GUILD = 1L
-        private const val GUILD_NETWORK_MAGIC = 141L
     }
 }

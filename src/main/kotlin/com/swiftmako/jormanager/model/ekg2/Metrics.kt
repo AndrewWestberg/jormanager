@@ -8,8 +8,8 @@ import com.squareup.moshi.JsonClass
 data class Metrics(
     @Json(name = "blockNum")
     val blockNum: BlockNum = BlockNum(),
-    @Json(name = "connectedPeers")
-    val connectedPeers: ConnectedPeers = ConnectedPeers(),
+    @Json(name = "connectionManager")
+    val connectionManager: ConnectionManager = ConnectionManager(),
     @Json(name = "currentKESPeriod")
     val currentKESPeriod: CurrentKESPeriod = CurrentKESPeriod(),
     @Json(name = "delegMapSize")

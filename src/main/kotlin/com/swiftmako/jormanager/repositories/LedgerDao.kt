@@ -447,6 +447,7 @@ class LedgerDao @Autowired constructor(
                         val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                             ?: throw IOException("Default Host not found!")
                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                        val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                             ?: throw IOException("Shelley genesis filenot found!")
                         val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
@@ -463,7 +464,7 @@ class LedgerDao @Autowired constructor(
                                         // write the transaction to file
                                         defaultHostConnection.commandWriteFile("/tmp/transaction.txsigned", txSigned)
                                         // 2. Submit the transaction
-                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                         log.warn("Re-Submit txid to mempool due to rollback: $transactionId, $index/$lastIndex")
                                     } catch (e: Throwable) {
                                         if (index % 10 == 0 || index == lastIndex) {

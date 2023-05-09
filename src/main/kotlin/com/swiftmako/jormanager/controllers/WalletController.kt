@@ -104,15 +104,17 @@ class WalletController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Host not found for default node!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             val protocolParams =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                     .trim()
             defaultHostConnection.commandWriteFile(
                 "/tmp/protocol-parameters-${genesis.networkMagic}.json",
                 protocolParams
             )
 
-            val queryTip = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+            val queryTip =
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath").trim()
             val era = queryTipAdapter.fromJson(queryTip)?.era
                 ?: throw IOException("Couldn't parse query tip!")
             val eraString = "--${era.lowercase()}-era"
@@ -125,6 +127,7 @@ class WalletController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     request.toAccounts.map { it.account },
                     BigInteger.ZERO
                 )
@@ -139,6 +142,7 @@ class WalletController @Autowired constructor(
                 defaultHost,
                 defaultHostConnection,
                 magicString,
+                socketPath,
                 feePayerWalletEntry.paymentAddr
             )
             val transaction = StringBuilder()
@@ -182,7 +186,7 @@ class WalletController @Autowired constructor(
             }
 
             val walletItem =
-                walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, fromWalletEntry)
+                walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, socketPath, fromWalletEntry)
 
             val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
             // amount of ada locked keeping tokens on utxos that won't be spent. Don't allow the gui to spend this ada.
@@ -208,6 +212,7 @@ class WalletController @Autowired constructor(
                             paymentAddr = account.address
                         )
                     }
+
                     account.account < 1L -> {
                         WalletEntry(
                             name = "dummy_entry",
@@ -215,6 +220,7 @@ class WalletController @Autowired constructor(
                             paymentAddr = "addr_test1vqwyf8g87u0x2ex9mjczrceyh65zj77fra23nfylnf4gxhqwz3dvu"
                         )
                     }
+
                     else -> {
                         walletRepository.findByIdOrNull(account.account)
                             ?: throw IOException("Wallet entry id ${account.account} not found!")
@@ -280,7 +286,7 @@ class WalletController @Autowired constructor(
             }
 
             val queryTipString =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath").trim()
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
             transaction.append("--invalid-hereafter $ttl ")
             transaction.append("--fee 300000 ")
@@ -335,6 +341,7 @@ class WalletController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     request.toAccounts.map { it.account },
                     lovelace
                 )
@@ -452,9 +459,11 @@ class WalletController @Autowired constructor(
                         paymentAddr = request.paymentAddr
                     )
                 }
+
                 "payment" -> {
                     createPaymentWalletEntry(request)
                 }
+
                 else -> {
                     // "stake" or "pledge"
                     createStakeWalletEntry(request)
@@ -488,9 +497,10 @@ class WalletController @Autowired constructor(
 
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                        val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val protocolParamsJson =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                                     .trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -509,6 +519,7 @@ class WalletController @Autowired constructor(
                                 defaultHost,
                                 defaultHostConnection,
                                 magicString,
+                                socketPath,
                                 feePayerAccount.paymentAddr
                             )
                             utxos.forEach { utxo ->
@@ -530,7 +541,7 @@ class WalletController @Autowired constructor(
                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                             val queryTipString =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
                                 ?: -1
@@ -555,6 +566,7 @@ class WalletController @Autowired constructor(
                                 defaultHost,
                                 defaultHostConnection,
                                 magicString,
+                                socketPath,
                                 stakingAccount
                             )
 
@@ -625,7 +637,7 @@ class WalletController @Autowired constructor(
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
                                 defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
@@ -683,9 +695,11 @@ class WalletController @Autowired constructor(
                                 val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
                                 Pair(paymentSKey, paymentVKey)
                             }
+
                             request.type == "pledge" -> {
                                 Pair(null, null)
                             }
+
                             else -> {
                                 Pair(request.paymentSKey!!, request.paymentVKey!!)
                             }
@@ -893,16 +907,19 @@ class WalletController @Autowired constructor(
             val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
                 ?: throw IOException("Host not found for default node!")
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParams =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile(
                     "/tmp/protocol-parameters-${genesis.networkMagic}.json",
                     protocolParams
                 )
 
-                val queryTip = defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                val queryTip =
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                        .trim()
                 val era = queryTipAdapter.fromJson(queryTip)?.era
                     ?: throw IOException("Couldn't parse query tip!")
                 val eraString = "--${era.lowercase()}-era"
@@ -914,6 +931,7 @@ class WalletController @Autowired constructor(
                         defaultHost,
                         defaultHostConnection,
                         magicString,
+                        socketPath,
                         request.toAccounts.filter { !it.isAddress }.map { it.account },
                         request.txFee
                     )
@@ -926,6 +944,7 @@ class WalletController @Autowired constructor(
                     defaultHost,
                     defaultHostConnection,
                     magicString,
+                    socketPath,
                     feePayerWalletEntry.paymentAddr
                 )
                 val transaction = StringBuilder()
@@ -969,7 +988,13 @@ class WalletController @Autowired constructor(
                 }
 
                 val walletItem =
-                    walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, fromWalletEntry)
+                    walletUtils.getWalletItem(
+                        defaultHost,
+                        defaultHostConnection,
+                        magicString,
+                        socketPath,
+                        fromWalletEntry
+                    )
 
                 val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
                 baseAmount["ada"] = if (request.isClaim) {
@@ -993,6 +1018,7 @@ class WalletController @Autowired constructor(
                                 paymentAddr = account.address
                             )
                         }
+
                         else -> {
                             walletRepository.findByIdOrNull(account.account)
                                 ?: throw IOException("Wallet entry id ${account.account} not found!")
@@ -1071,7 +1097,8 @@ class WalletController @Autowired constructor(
                 }
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString").trim()
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                        .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
                 transaction.append("--fee ${request.txFee} ")
@@ -1108,7 +1135,7 @@ class WalletController @Autowired constructor(
                 val txid = runBlocking {
                     TransactionCache.withLock {
                         // submit the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             .trim()
                         val txid =
                             defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
@@ -1148,6 +1175,7 @@ class WalletController @Autowired constructor(
         host: Host,
         hostConnection: HostConnection,
         magicString: String,
+        socketPath: String,
         toAccounts: List<Long?>,
         txFee: BigInteger,
     ): WalletEntry {
@@ -1155,8 +1183,9 @@ class WalletController @Autowired constructor(
             if (id > 0) {
                 walletRepository.findByIdOrNull(id)?.let { walletEntry ->
                     if (walletEntry.paymentSkey != null) {
-                        val lovelace = walletUtils.getUtxos(host, hostConnection, magicString, walletEntry.paymentAddr)
-                            .sumByBigInteger { it.lovelace }
+                        val lovelace =
+                            walletUtils.getUtxos(host, hostConnection, magicString, socketPath, walletEntry.paymentAddr)
+                                .sumByBigInteger { it.lovelace }
                         if (lovelace >= BigInteger("1000000") + txFee) {
                             return walletEntry
                         }

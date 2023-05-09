@@ -23,7 +23,7 @@ import kotlin.experimental.and
 
 class HostConnectionTest {
 
-    private val log by lazy {  LoggerFactory.getLogger("HostConnectionTest") }
+    private val log by lazy { LoggerFactory.getLogger("HostConnectionTest") }
 
     @Test
     fun testMultilineStringToFile() {
@@ -60,22 +60,65 @@ class HostConnectionTest {
                             """.trimMargin()
 
         val hostConnection = HostConnection(Host(0, "local", "", "", "", "", 22, "", "", ""))
-        hostConnection.sudoCommandWriteFile("/home/westbam/haskell/tickr-node.service", systemdContent, "******************")
+        hostConnection.sudoCommandWriteFile(
+            "/home/westbam/haskell/tickr-node.service",
+            systemdContent,
+            "******************"
+        )
     }
 
     @Test
     fun testQueryAddress() {
-        val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0,0, isDefault = true, configFileId = 0)
+        val host =
+            Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
+        val defaultNode = Node(
+            0,
+            0,
+            null,
+            "",
+            "relay",
+            8,
+            "local",
+            "127.0.0.1",
+            22,
+            12788,
+            0,
+            0,
+            0,
+            0,
+            0,
+            isDefault = true,
+            configFileId = 0
+        )
         val hostConnection = HostConnection(host, defaultNode)
-        val output = hostConnection.command("${host.cardanoCliPath} query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --testnet-magic 42")
+        val output =
+            hostConnection.command("${host.cardanoCliPath} query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --testnet-magic 42")
         println(output)
     }
 
     @Test
     fun testIsPortUsed() {
-        val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(0, 0, null, "", "relay", 8, "local", "127.0.0.1", 22, 12788, 0, 0, 0,0, isDefault = true, configFileId = 0)
+        val host =
+            Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
+        val defaultNode = Node(
+            0,
+            0,
+            null,
+            "",
+            "relay",
+            8,
+            "local",
+            "127.0.0.1",
+            22,
+            12788,
+            0,
+            0,
+            0,
+            0,
+            0,
+            isDefault = true,
+            configFileId = 0
+        )
         val hostConnection = HostConnection(host, defaultNode)
         val port = 12955
         val output = hostConnection.command("ss -tulw").trim().contains(":$port")
@@ -89,22 +132,43 @@ class HostConnectionTest {
 
         val isRegistration = false
 
-        val walletUtils = WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter(), mockk())
+        val walletUtils =
+            WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter(), mockk())
 
-        val host = Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(0, 0, null, "", "relay", 8, "guild", "127.0.0.1", 22, 12788, 0, 0, 0,0, isDefault = true, configFileId = 0)
+        val host =
+            Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
+        val defaultNode = Node(
+            0,
+            0,
+            null,
+            "",
+            "relay",
+            8,
+            "guild",
+            "127.0.0.1",
+            22,
+            12788,
+            0,
+            0,
+            0,
+            0,
+            0,
+            isDefault = true,
+            configFileId = 0
+        )
         val hostConnection = HostConnection(host, defaultNode)
+        val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
 
         val magicString = "--testnet-magic 141"
         val moshi = Moshi.Builder().add(BigIntegerAdapter).add(JodaDateTimeAdapter()).build()
         val queryTipAdapter = moshi.adapter(QueryTip::class.java)
         val protocolParamsAdapter = moshi.adapter(ProtocolParameters::class.java)
         val protocolParamsJson =
-                hostConnection.command("${host.cardanoCliPath} query protocol-parameters $magicString")
-                        .trim()
+            hostConnection.command("${host.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                .trim()
         hostConnection.commandWriteFile("/tmp/protocol-parameters-spam.json", protocolParamsJson)
         val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
-                ?: throw IOException("Invalid protocol params!")
+            ?: throw IOException("Invalid protocol params!")
 
 
         val blake2b256 = Blake2bDigest(256)
@@ -115,14 +179,16 @@ class HostConnectionTest {
             while (true) {
                 try {
                     log.debug("Waiting for next block...")
-                    val queryTip = hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
+                    val queryTip =
+                        hostConnection.command("${host.cardanoCliPath} query tip $magicString $socketPath").trim()
                     val block = queryTipAdapter.fromJson(queryTip)?.block
-                            ?: throw IOException("Couldn't parse query tip!")
+                        ?: throw IOException("Couldn't parse query tip!")
                     while (true) {
                         Thread.sleep(1000)
-                        val qt = hostConnection.command("${host.cardanoCliPath} query tip $magicString").trim()
+                        val qt =
+                            hostConnection.command("${host.cardanoCliPath} query tip $magicString $socketPath").trim()
                         val nextBlock = queryTipAdapter.fromJson(qt)?.block
-                                ?: throw IOException("Couldn't parse query tip!")
+                            ?: throw IOException("Couldn't parse query tip!")
                         if (nextBlock > block) {
                             log.debug("...$nextBlock")
                             Thread.sleep(5000)
@@ -133,7 +199,7 @@ class HostConnectionTest {
                     val start = x * 100L
                     val end = start + 99L
 
-                    if(isRegistration) {
+                    if (isRegistration) {
                         log.debug("Registering keys $start..$end...")
                     } else {
                         log.debug("Un-registering keys $start..$end...")
@@ -169,11 +235,15 @@ class HostConnectionTest {
                         hostConnection.command("${host.cardanoCliPath} key verification-key --signing-key-file /tmp/staking$i.skey --verification-key-file /tmp/staking$i.vkey")
 
                         // generate payment address
-                        val paymentAddress = hostConnection.command("${host.cardanoCliPath} address build --payment-verification-key-file /tmp/payment$i.vkey --staking-verification-key-file /tmp/staking$i.vkey $magicString").trim()
+                        val paymentAddress =
+                            hostConnection.command("${host.cardanoCliPath} address build --payment-verification-key-file /tmp/payment$i.vkey --staking-verification-key-file /tmp/staking$i.vkey $magicString")
+                                .trim()
                         File("/tmp/payment$i.addr").writeText(paymentAddress)
 
                         //generate staking address
-                        val stakingAddress = hostConnection.command("${host.cardanoCliPath} stake-address build --staking-verification-key-file /tmp/staking$i.vkey $magicString").trim()
+                        val stakingAddress =
+                            hostConnection.command("${host.cardanoCliPath} stake-address build --staking-verification-key-file /tmp/staking$i.vkey $magicString")
+                                .trim()
                         File("/tmp/staking$i.addr").writeText(stakingAddress)
 
                         // generate stake reg-cert
@@ -195,10 +265,11 @@ class HostConnectionTest {
                     transaction.append("${host.cardanoCliPath} transaction build-raw ")
                     val feePayerAddress = File("/home/westbam/haskell/gfunds.payment.addr").readText().trim()
                     val utxos = walletUtils.getUtxos(
-                            host,
-                            hostConnection,
-                            magicString,
-                            feePayerAddress
+                        host,
+                        hostConnection,
+                        magicString,
+                        socketPath,
+                        feePayerAddress
                     )
                     utxos.forEach { utxo ->
                         transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
@@ -212,10 +283,10 @@ class HostConnectionTest {
                     transaction.append("--tx-out $feePayerAddress+1234567890 ")
 
                     val queryTipString =
-                            hostConnection.command("${host.cardanoCliPath} query tip $magicString")
-                                    .trim()
+                        hostConnection.command("${host.cardanoCliPath} query tip $magicString $socketPath")
+                            .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
-                            ?: -1
+                        ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
                     transaction.append("--fee 100 ")
 
@@ -240,7 +311,9 @@ class HostConnectionTest {
                     hostConnection.command(transaction.toString())
 
                     log.debug("depositAndFees: $depositAndFees")
-                    val feesString = hostConnection.command("${host.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction-spam.txbody --protocol-params-file /tmp/protocol-parameters-spam.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0").trim()
+                    val feesString =
+                        hostConnection.command("${host.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction-spam.txbody --protocol-params-file /tmp/protocol-parameters-spam.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                            .trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
                     depositAndFees += fees
@@ -265,11 +338,11 @@ class HostConnectionTest {
                     }
 
                     val realTransaction = transaction.toString()
-                            .replace("--fee 100 ", "--fee $fees ")
-                            .replace(
-                                    "--tx-out ${feePayerAddress}+1234567890 ",
-                                    "--tx-out '${feePayerAddress}+$change$tokenChange' "
-                            )
+                        .replace("--fee 100 ", "--fee $fees ")
+                        .replace(
+                            "--tx-out ${feePayerAddress}+1234567890 ",
+                            "--tx-out '${feePayerAddress}+$change$tokenChange' "
+                        )
                     log.debug("StakeKey Transaction Command: $realTransaction")
                     hostConnection.command(realTransaction)
 
@@ -277,9 +350,9 @@ class HostConnectionTest {
                     hostConnection.command("${host.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction-spam.txbody $signingKeys $magicString --out-file /tmp/transaction-spam.txsigned")
 
                     // 11. Submit the transaction
-                    hostConnection.command("${host.cardanoCliPath} transaction submit --tx-file /tmp/transaction-spam.txsigned $magicString")
+                    hostConnection.command("${host.cardanoCliPath} transaction submit --tx-file /tmp/transaction-spam.txsigned $magicString $socketPath")
                     val txid =
-                            hostConnection.command("${host.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction-spam.txbody")
+                        hostConnection.command("${host.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction-spam.txbody")
 
                     println("Transaction ID: $txid")
                     break
