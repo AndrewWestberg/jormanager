@@ -249,10 +249,10 @@ class BlockUtils @Autowired constructor(
 //        // prfit.vrf.skey
 //        val tpraosCanBeLeaderSignKeyVRF = "30780cc944d4c32d5774d1b1c102f69ca954095722c26f0696dc39adec9532f09162a3ec9fa00531afea9c26bddbb663fe95904e9076fd86b94f9c075b83fd30".hexToByteArray()
 
-        val certifiedProof = SodiumLibrary.cryptoVrfProve(tpraosCanBeLeaderSignKeyVRF, seed)
+        val certifiedProof = SodiumLibrary.cryptoVrfProve_ietfdraft03(tpraosCanBeLeaderSignKeyVRF, seed)
 
         // return the certVRF value
-        return SodiumLibrary.cryptoVrfProofToHash(certifiedProof)
+        return SodiumLibrary.cryptoVrfProofToHash_ietfdraft03(certifiedProof)
     }
 
 }

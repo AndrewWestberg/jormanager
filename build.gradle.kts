@@ -31,7 +31,7 @@ object Versions {
     const val junit = "5.9.3"
     const val kotlinxIo = "0.1.16"
     const val ktor = "2.3.0"
-    const val libSodiumJna = "1.1.0-NEWM"
+    const val libSodiumJna = "1.2.0-NEWM"
     const val liquibase = "4.21.1"
     const val mockk = "1.13.5"
     const val moshi = "1.14.0"
