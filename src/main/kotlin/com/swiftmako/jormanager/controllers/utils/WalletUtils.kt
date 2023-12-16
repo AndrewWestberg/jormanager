@@ -70,7 +70,7 @@ class WalletUtils @Autowired constructor(
         val stakingInfoString =
             if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
                 try {
-                    hostConnection.command("${host.cardanoCliPath} query stake-address-info --address ${walletEntry.stakingAddr} $magicString $socketPath")
+                    hostConnection.command("${host.cardanoCliPath} babbage query stake-address-info --address ${walletEntry.stakingAddr} $magicString $socketPath")
                 } catch (t: Throwable) {
                     if (t.message?.contains("EraMismatch") == false) {
                         log.error("Error getting stake addr info!", t)
@@ -131,7 +131,7 @@ class WalletUtils @Autowired constructor(
             // find payment_addr balance
             val start = System.currentTimeMillis()
             val addressInfoJson = try {
-                hostConnection.command("${host.cardanoCliPath} query utxo --address $paymentAddr $magicString $socketPath --out-file=/dev/stdout")
+                hostConnection.command("${host.cardanoCliPath} babbage query utxo --address $paymentAddr $magicString $socketPath --out-file=/dev/stdout")
                     .trim()
             } catch (t: Throwable) {
                 if (t.message?.contains("EraMismatch") == false) {

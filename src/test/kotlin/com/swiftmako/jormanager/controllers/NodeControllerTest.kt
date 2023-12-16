@@ -52,6 +52,7 @@ class NodeControllerTest {
             bulkCredentialsJsonAdapter = mockk(relaxed = true),
             txSignedAdapter = mockk(relaxed = true),
             ledgerDao = mockk(relaxed = true),
+            cardanoUtils = mockk(relaxed = true),
         )
 
         val request = CreateNodeRequest(
@@ -66,6 +67,7 @@ class NodeControllerTest {
             genesisByronFileId = 1L,
             genesisShelleyFileId = 2L,
             genesisAlonzoFileId = 3L,
+            genesisConwayFileId = 4L,
             generateColdKeys = true,
             coldSKey = null,
             coldVKey = null,

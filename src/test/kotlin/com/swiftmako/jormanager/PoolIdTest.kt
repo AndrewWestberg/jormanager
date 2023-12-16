@@ -97,7 +97,7 @@ class PoolIdTest {
 
         // Quick verification that the block's leaderVrf is not malformed so we can fail-fast for people trying to
         // game the system.
-        val leaderVrfHash = SodiumLibrary.cryptoVrfProofToHash(leaderVrfSig).toHexString()
+        val leaderVrfHash = SodiumLibrary.cryptoVrfProofToHash_ietfdraft03(leaderVrfSig).toHexString()
         assertThat(leaderVrfHash).isEqualTo(leaderVrf)
 
         val blockUtils = BlockUtils(mockk {}, libraryPath)
@@ -105,11 +105,11 @@ class PoolIdTest {
         println("seed for slot $slot: ${seed.toHexString()}")
 
         // This PROVES that the block was signed by the node's VRF SKey. We only need their public VKey to verify that.
-        val leaderVrfVerify = SodiumLibrary.cryptoVrfVerify(vrfVkey, leaderVrfSig, seed).toHexString()
+        val leaderVrfVerify = SodiumLibrary.cryptoVrfVerify_ietfdraft03(vrfVkey, leaderVrfSig, seed).toHexString()
         assertThat(leaderVrfVerify).isEqualTo(leaderVrf)
 
         // This PROVES that the block won the lottery and is allowed to mint in this slot
-        val isLeader = blockUtils.isLeaderVrfAllowedToLead(slot, leaderVrf, f, sigma)
+        val isLeader = blockUtils.isLeaderVrfAllowedToLead(slot, leaderVrf, 32, f, sigma)
         assertThat(isLeader).isTrue()
     }
 }

@@ -8,13 +8,30 @@ import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlo
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.keepalive.KeepAliveProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
-import com.swiftmako.jormanager.repositories.*
+import com.swiftmako.jormanager.repositories.ChainRepository
+import com.swiftmako.jormanager.repositories.FileRepository
+import com.swiftmako.jormanager.repositories.HostRepository
+import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.utils.CardanoUtils
-import io.ktor.network.selector.*
-import io.ktor.network.sockets.*
-import kotlinx.coroutines.*
+import io.ktor.network.selector.ActorSelectorManager
+import io.ktor.network.sockets.InetSocketAddress
+import io.ktor.network.sockets.TypeOfService
+import io.ktor.network.sockets.aSocket
+import io.ktor.network.sockets.connection
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
@@ -85,13 +102,19 @@ class ChainMonitor @Autowired constructor(
                             configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
 
                         aSocket(ActorSelectorManager(coroutineContext)).tcp()
-                            .connect(InetSocketAddress(defaultHost.hostname, defaultNode.port))
+                            .connect(InetSocketAddress(defaultHost.hostname, defaultNode.port)) {
+                                noDelay = true
+                                keepAlive = true
+                                lingerSeconds = 0
+                                typeOfService = TypeOfService.IPTOS_LOWDELAY
+                            }
                             .use { socket ->
                                 log.debug("ChainMonitor Socket connected")
                                 val socketConnection = socket.connection()
                                 mux = Mux(socketConnection)
                                 mux.execute(HandshakeProtocol(networkMagic))
                                 mux.execute(
+                                    KeepAliveProtocol(),
                                     ChainSyncProtocol(
                                         defaultHost,
                                         shelleyGenesisHash,
@@ -101,10 +124,7 @@ class ChainMonitor @Autowired constructor(
                                         pooltoolService = pooltoolService,
                                         pooltoolApiKey = "",
                                         poolId = "",
-                                    ).also {
-                                        // launch coroutine to save blocks
-                                        it.initBlockReceiveHandler(this@launch)
-                                    },
+                                    ),
                                     BlockFetchProtocol(
                                         cardanoUtils,
                                         chainRepository,
@@ -117,6 +137,7 @@ class ChainMonitor @Autowired constructor(
                     if (!isShuttingDown) {
                         log.error("ChainMonitor error", e)
                     }
+                    mux.shutdownGracefully()
                 }
                 if (!isShuttingDown) {
                     log.info("ChainMonitor Socket not connected. Wait 10 seconds to reconnect...")

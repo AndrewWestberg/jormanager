@@ -2,11 +2,19 @@ package com.swiftmako.jormanager.repositories
 
 import com.github.benmanes.caffeine.cache.Cache
 import com.github.benmanes.caffeine.cache.Caffeine
-import com.google.iot.cbor.*
+import com.google.iot.cbor.CborArray
+import com.google.iot.cbor.CborByteString
+import com.google.iot.cbor.CborInteger
+import com.google.iot.cbor.CborMap
+import com.google.iot.cbor.CborReader
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.CreatedUtxo
+import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.model.NativeAsset
+import com.swiftmako.jormanager.model.SpentUtxo
+import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.utils.Bech32
@@ -31,6 +39,7 @@ import java.math.BigInteger
 import java.time.Duration
 import java.time.Instant
 import kotlin.experimental.and
+import kotlin.math.floor
 import kotlin.system.measureTimeMillis
 
 @Component
@@ -362,29 +371,31 @@ class LedgerDao @Autowired constructor(
             // Prune any old spent utxos we don't need any longer older than 30 minutes
             pruneTime = measureTimeMillis {
                 val now = Instant.now()
-                if (lastPruneTime.isBefore(now.minus(Duration.ofMinutes(1)))) {
+                if (lastPruneTime.isBefore(now.minus(Duration.ofMinutes(10)))) {
                     LedgerRepository.pruneSpent(beforeSlot = cardanoUtils.getCurrentSlot() - 1800L)
                     lastPruneTime = now
                 }
             }
         }.also { totalTime ->
             if (totalTime > 1000L) {
-                log.warn("commitBlocks() total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
+                log.warn("commitBlocks(${blocksToCommit.size}) total: ${totalTime}ms, rollback: ${rollbackTime}ms, nativeAsset: ${nativeAssetTime}ms, create: ${createTime}ms, blockFetchCreate: ${blockFetchCreateTime}ms, spend: ${spendTime}ms, prune: ${pruneTime}ms")
             }
             val blockNumberFirst = blocksToCommit.first().blockNumber
             val blockNumberLast = blocksToCommit.last().blockNumber
-            if (blockNumberFirst == blockNumberLast) {
-                log.info(
-                    "BlckFetch: Saved block: $blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
-                        blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+            if (canLog() || isTip) {
+                if (blockNumberFirst == blockNumberLast) {
+                    log.info(
+                        "BlckFetch: Saved block: $blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
+                            floor(blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 10000.0) / 100.0
+                        )
                     )
-                )
-            } else {
-                log.info(
-                    "BlckFetch: Saved block(s): $blockNumberFirst-$blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
-                        blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 100.0
+                } else {
+                    log.info(
+                        "BlckFetch: Saved block(s): $blockNumberFirst-$blockNumberLast of ${ChainSyncProtocol.tipBlockNumber}, %.2f%% synced".format(
+                            floor(blockNumberLast.toDouble() / ChainSyncProtocol.tipBlockNumber * 10000.0) / 100.0
+                        )
                     )
-                )
+                }
             }
 
             // check for block rollbacks
@@ -402,6 +413,20 @@ class LedgerDao @Autowired constructor(
             }
         }
     }
+
+    private var nextLogTime = System.currentTimeMillis()
+    private fun canLog(updateNext: Boolean = true): Boolean {
+        val now = System.currentTimeMillis()
+        return if (now > nextLogTime) {
+            if (updateNext) {
+                nextLogTime = now + 10_000L
+            }
+            true
+        } else {
+            false
+        }
+    }
+
 
     private fun checkBlockRollbacks(latestBlock: BlockFetchProtocol.LedgerBlock) {
         // See if we're overwriting an existing block due to a rollback
@@ -464,7 +489,7 @@ class LedgerDao @Autowired constructor(
                                         // write the transaction to file
                                         defaultHostConnection.commandWriteFile("/tmp/transaction.txsigned", txSigned)
                                         // 2. Submit the transaction
-                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                         log.warn("Re-Submit txid to mempool due to rollback: $transactionId, $index/$lastIndex")
                                     } catch (e: Throwable) {
                                         if (index % 10 == 0 || index == lastIndex) {

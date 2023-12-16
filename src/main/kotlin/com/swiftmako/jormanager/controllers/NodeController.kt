@@ -241,7 +241,7 @@ class NodeController @Autowired constructor(
                     val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                     try {
                         val protocolParamsJson =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                                 .trim()
                         defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                         val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -282,7 +282,7 @@ class NodeController @Autowired constructor(
                         transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                         val queryTipString =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                                 .trim()
                         val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                         transaction.append("--invalid-hereafter $ttl ")
@@ -363,7 +363,7 @@ class NodeController @Autowired constructor(
                         val coreVKeyId: Long
                         val coreCounterId: Long
                         if (request.generateColdKeys) {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} node key-gen --verification-key-file /tmp/core.node.vkey --signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node key-gen --verification-key-file /tmp/core.node.vkey --signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter")
                             val coreSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.node.skey")
                             val coreVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.node.vkey")
                             val coreSKey = com.swiftmako.jormanager.entities.File(
@@ -411,7 +411,7 @@ class NodeController @Autowired constructor(
                         val vrfSKeyId: Long
                         val vrfVKeyId: Long
                         val vrfSKeyContent = if (request.generateVRFKeys) {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} node key-gen-VRF --verification-key-file /tmp/core.vrf.vkey --signing-key-file /tmp/core.vrf.skey")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node key-gen-VRF --verification-key-file /tmp/core.vrf.vkey --signing-key-file /tmp/core.vrf.skey")
                             val vrfSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.skey")
                             val vrfVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.vrf.vkey")
                             val vrfSKey = com.swiftmako.jormanager.entities.File(
@@ -455,7 +455,7 @@ class NodeController @Autowired constructor(
                         val kesSKeyId: Long
                         val kesVKeyId: Long
                         val kesSKeyContent = if (request.generateKESKeys) {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
                             val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
                             val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
                             val kesSKey = com.swiftmako.jormanager.entities.File(
@@ -529,7 +529,7 @@ class NodeController @Autowired constructor(
                         val kesExpireDate = defaultHostConnection.command("date --date=@$kesExpireTimeSec").trim()
                         log.warn("CreateKES: currentKESPeriod: $currentKESPeriod, expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
 
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
                         val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
                         val opcertFile = com.swiftmako.jormanager.entities.File(
                             name = "${request.name}.node.opcert",
@@ -544,7 +544,7 @@ class NodeController @Autowired constructor(
                         coreCounterId = fileRepository.save(coreCounter).id!!
 
                         val poolId =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex")
                                 .trim()
                         log.debug("poolId: $poolId")
                         val isPoolOnChain =
@@ -648,7 +648,7 @@ class NodeController @Autowired constructor(
                         // download and get the hash!
                         defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
                         val metadataHash =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
                                 .trim()
 
                         // 6. create the pool registration certificate
@@ -682,7 +682,7 @@ class NodeController @Autowired constructor(
                         }
 
                         // 7. Create delegation certificates for owner(s)
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address delegation-certificate --stake-verification-key-file /tmp/owner.staking.vkey --cold-verification-key-file /tmp/core.node.vkey --out-file /tmp/owner.deleg.cert")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address stake-delegation-certificate --stake-verification-key-file /tmp/owner.staking.vkey --cold-verification-key-file /tmp/core.node.vkey --out-file /tmp/owner.deleg.cert")
                         certificates.append("--certificate /tmp/owner.deleg.cert ")
 
                         // 8. Calculate fees
@@ -692,7 +692,7 @@ class NodeController @Autowired constructor(
 
                         log.debug("depositAndFees: $depositAndFees")
                         val feesString =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                                 .trim()
                         val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
@@ -722,14 +722,14 @@ class NodeController @Autowired constructor(
                         defaultHostConnection.command(realTransaction)
 
                         // 10. Sign the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                         runBlocking {
                             TransactionCache.withLock {
                                 // 11. Submit the transaction
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                 val txid =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                         .trim()
                                 val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
@@ -968,7 +968,7 @@ class NodeController @Autowired constructor(
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val protocolParamsJson =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                                     .trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1009,7 +1009,7 @@ class NodeController @Autowired constructor(
                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                             val queryTipString =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
@@ -1107,7 +1107,7 @@ class NodeController @Autowired constructor(
                                 // download and get the hash!
                                 defaultHostConnection.command("curl ${node.metadataUrl} --output /tmp/metadata.json")
                                 val metadataHash =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
                                         .trim()
 
                                 // 6. create the pool registration certificate
@@ -1137,7 +1137,7 @@ class NodeController @Autowired constructor(
 
                                 // 7. Create delegation certificates for owner(s) if it changed.
                                 if (request.ownerStakingAccount != node.ownerStakingAccountId) {
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address delegation-certificate --stake-verification-key-file /tmp/owner.staking.vkey --cold-verification-key-file /tmp/core.node.vkey --out-file /tmp/owner.deleg.cert")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address stake-delegation-certificate --stake-verification-key-file /tmp/owner.staking.vkey --cold-verification-key-file /tmp/core.node.vkey --out-file /tmp/owner.deleg.cert")
                                     certificates.append("--certificate /tmp/owner.deleg.cert ")
                                 }
 
@@ -1148,7 +1148,7 @@ class NodeController @Autowired constructor(
 
                                 log.debug("depositAndFees: $depositAndFees")
                                 val feesString =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                                         .trim()
                                 val fees = feesString.split(" ")[0].toBigInteger()
                                 log.debug("fees: $fees")
@@ -1183,9 +1183,9 @@ class NodeController @Autowired constructor(
                                 runBlocking {
                                     TransactionCache.withLock {
                                         // 11. Submit the transaction
-                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                                         val txid =
-                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                                 .trim()
                                         val txSigned =
                                             defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
@@ -1278,7 +1278,7 @@ class NodeController @Autowired constructor(
                 } ?: throw IOException("Could not find vrf skey!")
 
                 // generate new KES keys
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey")
                 val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
                 val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
                 val kesSKey = com.swiftmako.jormanager.entities.File(
@@ -1333,7 +1333,7 @@ class NodeController @Autowired constructor(
                 val kesExpireDate = defaultHostConnection.command("date --date=@$kesExpireTimeSec").trim()
                 log.warn("RotatingKES: currentKESPeriod: $currentKESPeriod, expiresKESPeriod: $expiresKESPeriod, expireDate: $kesExpireDate")
 
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert")
                 val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
                 val opcertFile = com.swiftmako.jormanager.entities.File(
                     name = "${node.name}.node.opcert",
@@ -1517,7 +1517,7 @@ class NodeController @Autowired constructor(
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1558,7 +1558,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                         .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
@@ -1671,7 +1671,7 @@ class NodeController @Autowired constructor(
                                 "/tmp/core.itn.skey",
                                 request.extended.itn.privateKey.trim()
                             )
-                            defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id")
+                            defaultHostConnection.command("${defaultHost.jcliPath} babbage key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id")
                                 .trim()
                         } else {
                             if (node.itnPrivateKeyId > -1) {
@@ -1682,7 +1682,7 @@ class NodeController @Autowired constructor(
                                     "/tmp/core.itn.skey",
                                     walletUtils.getSKeyContent(itnPrivateKey, request.spendingPassword)
                                 )
-                                defaultHostConnection.command("${defaultHost.jcliPath} key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id")
+                                defaultHostConnection.command("${defaultHost.jcliPath} babbage key sign --secret-key /tmp/core.itn.skey /tmp/core.pool.id")
                                     .trim()
                             } else {
                                 null
@@ -1772,7 +1772,7 @@ class NodeController @Autowired constructor(
                     // download and get the hash!
                     defaultHostConnection.command("curl $metadataUrl --output /tmp/metadata.json")
                     val metadataHash =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
                             .trim()
                     log.debug("metadata hash for $metadataUrl is $metadataHash")
 
@@ -1808,7 +1808,7 @@ class NodeController @Autowired constructor(
 
                     log.debug("depositAndFees: $depositAndFees")
                     val feesString =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                             .trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
@@ -1838,14 +1838,14 @@ class NodeController @Autowired constructor(
                     defaultHostConnection.command(realTransaction)
 
                     // 10. Sign the transaction
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                     runBlocking {
                         TransactionCache.withLock {
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
                             val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                             TransactionCache.put(txid, txSigned)
@@ -1920,7 +1920,7 @@ class NodeController @Autowired constructor(
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1961,7 +1961,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                         .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
@@ -2069,7 +2069,7 @@ class NodeController @Autowired constructor(
                     // download and get the hash!
                     defaultHostConnection.command("curl ${node.metadataUrl} --output /tmp/metadata.json")
                     val metadataHash =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json")
                             .trim()
 
                     // 6. create the pool registration certificate
@@ -2104,7 +2104,7 @@ class NodeController @Autowired constructor(
 
                     log.debug("depositAndFees: $depositAndFees")
                     val feesString =
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                             .trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
@@ -2134,14 +2134,14 @@ class NodeController @Autowired constructor(
                     defaultHostConnection.command(realTransaction)
 
                     // 10. Sign the transaction
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                     runBlocking {
                         TransactionCache.withLock {
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
                             val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                             TransactionCache.put(txid, txSigned)
@@ -2206,7 +2206,7 @@ class NodeController @Autowired constructor(
 
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
@@ -2242,7 +2242,7 @@ class NodeController @Autowired constructor(
                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                         .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
@@ -2259,7 +2259,7 @@ class NodeController @Autowired constructor(
                 defaultHostConnection.commandWriteFile("/tmp/core.node.vkey", coldVKeyFile.content)
 
                 // generate dereg cert
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-pool deregistration-certificate --cold-verification-key-file /tmp/core.node.vkey --epoch ${request.retireEpoch} --out-file /tmp/core.dereg-cert")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-pool deregistration-certificate --cold-verification-key-file /tmp/core.node.vkey --epoch ${request.retireEpoch} --out-file /tmp/core.dereg-cert")
                 certificates.append("--certificate /tmp/core.dereg-cert ")
 
                 witnessCount++ // the core.node.skey is a witness
@@ -2272,7 +2272,7 @@ class NodeController @Autowired constructor(
 
                 log.debug("depositAndFees: $depositAndFees")
                 val feesString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                         .trim()
                 val fees = feesString.split(" ")[0].toBigInteger()
                 log.debug("fees: $fees")
@@ -2302,7 +2302,7 @@ class NodeController @Autowired constructor(
                 defaultHostConnection.command(realTransaction)
 
                 // 10. Sign the transaction
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                 nodeRepository.save(node.copy(isDeleted = true))
 
@@ -2346,9 +2346,9 @@ class NodeController @Autowired constructor(
                 val txid = runBlocking {
                     TransactionCache.withLock {
                         // 11. Submit the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                         val txid =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                 .trim()
                         val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                         TransactionCache.put(txid, txSigned)
@@ -2398,7 +2398,7 @@ class NodeController @Autowired constructor(
     ): Boolean {
         val poolIdBech32 = Bech32.encode("pool", poolId.hexToByteArray())
         val pools =
-            defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-pools $magicString $socketPath")
+            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query stake-pools $magicString $socketPath")
                 .trim()
         return poolIdBech32 in pools
     }
@@ -2554,8 +2554,6 @@ class NodeController @Autowired constructor(
                     |  --port ${'$'}{PORT} \
                     |  --config ${'$'}{CONFIG}
                     |KillSignal=SIGINT
-                    |StandardOutput=syslog
-                    |StandardError=syslog
                     |SyslogIdentifier=$name-node
                     |
                     |[Install]
@@ -2590,8 +2588,6 @@ class NodeController @Autowired constructor(
                     |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
                     |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}
                     |KillSignal=SIGINT
-                    |StandardOutput=syslog
-                    |StandardError=syslog
                     |SyslogIdentifier=$name-node
                     |
                     |[Install]
@@ -2625,8 +2621,6 @@ class NodeController @Autowired constructor(
                     |  --config ${'$'}{CONFIG} \
                     |  --bulk-credentials-file ${'$'}{BULK_CREDENTIALS}
                     |KillSignal=SIGINT
-                    |StandardOutput=syslog
-                    |StandardError=syslog
                     |SyslogIdentifier=$name-node
                     |
                     |[Install]

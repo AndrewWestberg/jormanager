@@ -444,7 +444,7 @@ class BlockMonitor @Autowired constructor(
                                 val hostConnection = HostConnection(host, node)
                                 val socketPath = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
                                 val tipJson =
-                                    hostConnection.command("${host.cardanoCliPath} query tip $magicString $socketPath").trim()
+                                    hostConnection.command("${host.cardanoCliPath} babbage query tip $magicString $socketPath").trim()
                                 queryTipAdapter.fromJson(tipJson)?.let { queryTip ->
                                     if (queryTip.hash.startsWith(block.hash)) {
                                         block.copy(id = existingBlock?.id, pool = pool, hash = queryTip.hash)

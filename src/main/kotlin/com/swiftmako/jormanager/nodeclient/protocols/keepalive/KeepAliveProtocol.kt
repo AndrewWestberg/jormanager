@@ -1,4 +1,4 @@
-package com.swiftmako.jormanager.nodeclient.protocols.handshake
+package com.swiftmako.jormanager.nodeclient.protocols.keepalive
 
 import com.firehose.controllers.nodeclient.protocol.Agency
 import com.google.iot.cbor.CborArray
@@ -6,19 +6,21 @@ import com.google.iot.cbor.CborReader
 import com.swiftmako.jormanager.ktx.elementToLong
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
-import io.ktor.utils.io.core.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
-import java.io.IOException
 import java.nio.ByteBuffer
-import kotlin.io.use
+import java.time.Instant
 
-class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000) {
-    private val log by lazy { LoggerFactory.getLogger("HandshakeProtocol") }
+class KeepAliveProtocol(delaySeconds: Long = 10L) : MiniProtocol(protocolId = 0x0008.toShort()) {
+    private val log by lazy { LoggerFactory.getLogger("KeepAliveProtocol") }
 
-    private var state = State.Propose
+    private var cookie: Short = 0
+    private var nextSendTime: Instant = Instant.now().plusSeconds(delaySeconds)
+
+    private var state = State.Client
         set(value) {
             field = value
             _agencyFlow.tryEmit(agency)
@@ -31,66 +33,68 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
 
     override val agency: Agency
         get() = when (state) {
-            State.Propose -> Agency.Client
-            State.Confirm -> Agency.Server
+            State.Client -> Agency.Client
+            State.Server -> Agency.Server
             State.Done -> Agency.None
         }
 
-    lateinit var msgAcceptVersion: MsgAcceptVersion
-
-    override fun shutdown() {
-        state = State.Done
+    enum class State {
+        Client,
+        Server,
+        Done,
     }
 
     override suspend fun sendData(): ByteBuffer {
-        log.debug("send: {}", state)
         return when (state) {
-            State.Propose -> {
+            State.Client -> {
+                val delayTime = nextSendTime.toEpochMilli() - Instant.now().toEpochMilli()
+                if (delayTime > 0) {
+                    delay(delayTime)
+                }
+
+                cookie = (0..Short.MAX_VALUE).random().toShort()
+                log.debug("Sending cookie: {}", cookie)
                 val payload = muxByteBufferPool.borrow()
-                MsgProposeVersions(networkMagic).writeToBuffer(payload)
-                state = State.Confirm
+                MsgKeepAlive(cookie).writeToBuffer(payload)
+                state = State.Server
                 payload.flip()
             }
+
             else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
         }
+
     }
 
     override fun receiveData(payload: ByteBuffer) {
         when (state) {
-            State.Confirm -> {
-                state = State.Done
+            State.Server -> {
                 ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
                     CborReader.createFromInputStream(byteStream).apply {
                         while (byteStream.available() > 0) {
                             val cborArray = readDataItem() as CborArray
-                            val messageId: Long = cborArray.elementToLong(0)
-                            when (messageId) {
-                                MsgAcceptVersion.MESSAGE_ID -> {
-                                    msgAcceptVersion = MsgAcceptVersion(cborArray)
-                                    if (msgAcceptVersion.networkMagic != networkMagic) {
-                                        throw IOException("Handshake succeeded, but networkMagic did not match!")
+                            when (val messageId: Long = cborArray.elementToLong(0)) {
+                                MsgKeepAliveResponse.MESSAGE_ID -> {
+                                    val msgKeepAliveResponse = MsgKeepAliveResponse(cborArray)
+                                    log.debug("Received cookie: {}", msgKeepAliveResponse.cookie)
+                                    if (msgKeepAliveResponse.cookie != cookie) {
+                                        throw IllegalStateException("Cookie mismatch! -> ${msgKeepAliveResponse.cookie} != $cookie}")
                                     }
-                                    log.info("Handshake Successful: $msgAcceptVersion")
                                 }
-                                MsgRefuse.MESSAGE_ID -> {
-                                    val msgRefuse = MsgRefuse(cborArray)
-                                    throw IOException("Handshake Failed: $msgRefuse")
-                                }
-                                else -> {
-                                    throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
-                                }
+
+                                else -> throw IllegalStateException("Unknown message ID: $messageId")
                             }
                         }
                     }
                 }
+                state = State.Client
+                nextSendTime = Instant.now().plusSeconds(10L)
             }
+
             else -> throw IllegalStateException("We should not call receiveData() when we're in a $state state!")
         }
     }
 
-    enum class State {
-        Propose,
-        Confirm,
-        Done,
+    override fun shutdown() {
+        state = State.Done
     }
 }

@@ -132,8 +132,6 @@ fun runInstallation() {
                 |WorkingDirectory=$jormanagerFolderPath
                 |ExecStart=/usr/bin/java -XX:+DisableAttachMechanism -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx4096m -jar jormanager.jar
                 |SuccessExitStatus=143
-                |StandardOutput=syslog
-                |StandardError=syslog
                 |SyslogIdentifier=${systemdServiceName.substringBefore('.')}
                 |                
                 |[Install]

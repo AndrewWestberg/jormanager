@@ -183,12 +183,12 @@ class NodeConnectTest {
         val tpraosCanBeLeaderSignKeyVRF =
             "30780cc944d4c32d5774d1b1c102f69ca9xxxxxxxxxxxxxxxxxxxxxxdec9532f09162a3ec9fa00531afea9c26bddbb663fe95904e9076fd86b94f9c075b83fd30".hexToByteArray()
 
-        val certifiedProof = SodiumLibrary.cryptoVrfProve(tpraosCanBeLeaderSignKeyVRF, mkSeed)
+        val certifiedProof = SodiumLibrary.cryptoVrfProve_ietfdraft03(tpraosCanBeLeaderSignKeyVRF, mkSeed)
         println("certifiedProof ${certifiedProof.size} bytes")
         println(certifiedProof.toHexString())
         assertThat(certifiedProof.toHexString()).isEqualTo("1db3358d54b28ae8ba73acf1bf6f1b7bf9cb57a90528c8cfc0bd591c19f918f69e2f70449227294d91c559900c0cf60b6a1c4acbbc7d598a290674cd0a1d270369ca2a1148549c685abf14c7c1b97303")
 
-        val certVRF = SodiumLibrary.cryptoVrfProofToHash(certifiedProof)
+        val certVRF = SodiumLibrary.cryptoVrfProofToHash_ietfdraft03(certifiedProof)
         println("certVRF ${certVRF.size} bytes")
         println(certVRF.toHexString())
         assertThat(certVRF.toHexString()).isEqualTo("ba4d3bd56de3a92a0c8d14189b54267c1c935a7103057c9e50de6ba0276199d2910186635730ac5a6ebbd750d45a389357431a8e611c0ad6bd9357d607eaa609")

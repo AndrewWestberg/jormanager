@@ -1,49 +1,20 @@
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.util.Locale
 
 plugins {
     java
-    id("org.springframework.boot") version "3.0.6"
-    id("io.spring.dependency-management") version "1.1.0"
-    id("com.github.ben-manes.versions") version "0.46.0"
-    kotlin("jvm") version "1.8.21"
-    kotlin("kapt") version "1.8.21"
-    kotlin("plugin.spring") version "1.8.21"
-    kotlin("plugin.jpa") version "1.8.21"
-}
-
-object Versions {
-    const val bouncycastle = "1.70"
-    const val caffeine = "3.1.6"
-    const val commonsio = "2.8.0"
-    const val cbor = "0.01.04-NEWM"
-    const val checkerFramework = "3.34.0"
-    const val coroutines = "1.7.0"
-    const val ehcache = "3.9.9"
-    const val errorprone = "2.18.0"
-    const val exposed = "0.41.1"
-    const val googleTruth = "1.1.3"
-    const val hikari = "5.0.1"
-    const val jackson = "2.15.0"
-    const val joda = "2.12.5"
-    const val json = "20230227"
-    const val jsoup = "1.16.1"
-    const val junit = "5.9.3"
-    const val kotlinxIo = "0.1.16"
-    const val ktor = "2.3.0"
-    const val libSodiumJna = "1.2.0-NEWM"
-    const val liquibase = "4.21.1"
-    const val mockk = "1.13.5"
-    const val moshi = "1.14.0"
-    const val okhttp = "4.11.0"
-    const val postgresql = "42.6.0"
-    const val retrofit = "2.9.0"
-    const val springSecurity = "6.0.3"
-    const val sshj = "0.35.0"
+    id("org.springframework.boot") version Versions.SPRING_BOOT
+    id("io.spring.dependency-management") version Versions.SPRING_DEPENDENCY
+    id("com.github.ben-manes.versions") version Versions.VERSIONS
+    id("com.google.devtools.ksp") version Versions.KSP
+    kotlin("jvm") version Versions.KOTLIN
+    kotlin("plugin.spring") version Versions.KOTLIN
+    kotlin("plugin.jpa") version Versions.KOTLIN
 }
 
 group = "com.swiftmako"
-version = "8.0.0-SNAPSHOT"
+version = "9.0.0-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_17
 java.targetCompatibility = JavaVersion.VERSION_17
 
@@ -73,60 +44,59 @@ kotlin {
 }
 
 dependencies {
-    kapt("com.squareup.moshi:moshi-kotlin-codegen:${Versions.moshi}")
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:${Versions.MOSHI}")
 
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${Versions.jackson}")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${Versions.JACKSON}")
 
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.coroutines}")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.coroutines}")
-    implementation("org.jetbrains.kotlinx:kotlinx-io-jvm:${Versions.kotlinxIo}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.COROUTINES}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.COROUTINES}")
 
-    implementation("com.hierynomus:sshj:${Versions.sshj}")
-    implementation("org.jsoup:jsoup:${Versions.jsoup}")
-    implementation("com.squareup.okhttp3:okhttp:${Versions.okhttp}")
-    implementation("com.squareup.okhttp3:logging-interceptor:${Versions.okhttp}")
+    implementation("com.hierynomus:sshj:${Versions.SSHJ}")
+    implementation("org.jsoup:jsoup:${Versions.JSOUP}")
+    implementation("com.squareup.okhttp3:okhttp:${Versions.OKHTTP}")
+    implementation("com.squareup.okhttp3:logging-interceptor:${Versions.OKHTTP}")
 
-    implementation("com.squareup.moshi:moshi-kotlin:${Versions.moshi}")
-    implementation("com.squareup.retrofit2:converter-moshi:${Versions.retrofit}")
-    implementation("joda-time:joda-time:${Versions.joda}")
+    implementation("com.squareup.moshi:moshi-kotlin:${Versions.MOSHI}")
+    implementation("com.squareup.retrofit2:converter-moshi:${Versions.RETROFIT}")
+    implementation("joda-time:joda-time:${Versions.JODA_TIME}")
 
-    implementation("io.ktor:ktor-network:${Versions.ktor}")
+    implementation("io.ktor:ktor-network:${Versions.KTOR}")
 
-    implementation("org.springframework.security:spring-security-core:${Versions.springSecurity}")
-    implementation("org.bouncycastle:bcprov-jdk15on:${Versions.bouncycastle}")
+    implementation("org.springframework.security:spring-security-core:${Versions.SPRING_SECURITY}")
+    implementation("org.bouncycastle:bcprov-jdk15on:${Versions.BOUNCY_CASTLE}")
 
-    implementation("org.liquibase:liquibase-core:${Versions.liquibase}")
+    implementation("org.liquibase:liquibase-core:${Versions.LIQUIBASE}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
-    implementation("org.postgresql:postgresql:${Versions.postgresql}")
-    implementation("org.jetbrains.exposed:exposed-core:${Versions.exposed}")
-    implementation("org.jetbrains.exposed:exposed-jdbc:${Versions.exposed}")
-    implementation("com.zaxxer:HikariCP:${Versions.hikari}")
-    implementation("com.github.ben-manes.caffeine:caffeine:${Versions.caffeine}")
+    implementation("org.postgresql:postgresql:${Versions.POSTGRESQL}")
+    implementation("org.jetbrains.exposed:exposed-core:${Versions.EXPOSED}")
+    implementation("org.jetbrains.exposed:exposed-jdbc:${Versions.EXPOSED}")
+    implementation("com.zaxxer:HikariCP:${Versions.HIKARI}")
+    implementation("com.github.ben-manes.caffeine:caffeine:${Versions.CAFFEINE}")
 
-    implementation("io.newm:com.google.iot.cbor:${Versions.cbor}")
-    implementation("org.json:json:${Versions.json}")
-    compileOnly("com.google.errorprone:error_prone_annotations:${Versions.errorprone}")
-    compileOnly("org.checkerframework:checker-qual:${Versions.checkerFramework}")
+    implementation("io.newm:com.google.iot.cbor:${Versions.CBOR}")
+    implementation("org.json:json:${Versions.JSON}")
+    compileOnly("com.google.errorprone:error_prone_annotations:${Versions.ERROR_PRONE}")
+    compileOnly("org.checkerframework:checker-qual:${Versions.CHECKER_FRAMEWORK}")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
-    implementation("io.newm:com.muquit.libsodiumjna.libsodium-jna:${Versions.libSodiumJna}")
+    implementation("io.newm:com.muquit.libsodiumjna.libsodium-jna:${Versions.LIBSODIUM_JNA}")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
 
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
-    testImplementation("io.mockk:mockk:${Versions.mockk}")
-    testImplementation("com.google.truth:truth:${Versions.googleTruth}")
-    testImplementation("org.junit.jupiter:junit-jupiter:${Versions.junit}")
+    testImplementation("io.mockk:mockk:${Versions.MOCKK}")
+    testImplementation("com.google.truth:truth:${Versions.GOOGLE_TRUTH}")
+    testImplementation("org.junit.jupiter:junit-jupiter:${Versions.JUNIT}")
 }
 
 fun isNonStable(version: String): Boolean {
-    val stableKeyword = listOf("RELEASE", "FINAL", "GA").any { version.toUpperCase().contains(it) }
+    val stableKeyword = listOf("RELEASE", "FINAL", "GA").any { version.uppercase(Locale.getDefault()).contains(it) }
     val regex = "^[0-9,.v-]+(-r)?$".toRegex()
     val isStable = stableKeyword || regex.matches(version)
     return isStable.not()

@@ -46,6 +46,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
@@ -103,7 +104,7 @@ class BlockFetchProtocol(
                     log.error("Uncaught coroutine exception!", throwable)
                 }
             }
-    var commitBlocksJob: Job? = null
+    private var commitBlocksJob: Job? = null
 
     private var state = State.Idle
         set(value) {
@@ -135,6 +136,7 @@ class BlockFetchProtocol(
 
     override fun shutdown() {
         state = State.Done
+        job.cancelChildren()
     }
 
     override suspend fun sendData(): ByteBuffer {
@@ -185,6 +187,7 @@ class BlockFetchProtocol(
                         MsgRequestRange(start = point, end = point).writeToBuffer(payload)
                     } else if (difference > 100L) {
                         // only fetch 100 blocks
+                        //log.warn("fetch blockNumber: ${blockFetch.blockNumber} to ${blockFetch.blockNumber + 100}")
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
                         val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + BLOCK_BUFFER_SIZE)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())

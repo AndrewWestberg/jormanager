@@ -15,12 +15,13 @@ import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.services.PooltoolService
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -35,6 +36,9 @@ import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 import java.lang.Long.max
 import java.nio.ByteBuffer
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.floor
 
 class ChainSyncProtocol(
     private val host: Host,
@@ -45,9 +49,16 @@ class ChainSyncProtocol(
     private val pooltoolService: PooltoolService,
     private val pooltoolApiKey: String,
     private val poolId: String,
-) : MiniProtocol(protocolId = 0x0002.toShort()) {
+) : MiniProtocol(protocolId = 0x0002.toShort()), CoroutineScope {
 
     private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
+
+    private val job = SupervisorJob()
+    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+        if (throwable !is CancellationException) {
+            log.error("Uncaught coroutine exception!", throwable)
+        }
+    }
 
     override val RX_BUFFER_SIZE: Int = 64 * 1024
 
@@ -67,7 +78,7 @@ class ChainSyncProtocol(
             else -> Agency.Server
         }
 
-    var isIntersectFound = false
+    private var isIntersectFound = false
 
     // hardcode for now
     private val lastByronBlocks: List<Pair<Long, ByteArray>> = listOf(
@@ -85,7 +96,9 @@ class ChainSyncProtocol(
         Pair(1598399L, "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4".hexToByteArray()), //testnet
         Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), //guild
     )
-    private val blockSaveChannel = Channel<MsgRollForward>(Channel.UNLIMITED)
+
+    //private val blockSaveChannel = Channel<MsgRollForward>(Channel.RENDEZVOUS)
+    private val blockSaveFlow = MutableSharedFlow<MsgRollForward>()
 
     private val chainBlocksPairs by lazy {
         chainBlocks.map { chainBlock ->
@@ -100,8 +113,13 @@ class ChainSyncProtocol(
     private val tipToIntersect: List<Pair<Long, ByteArray>>
         get() = _tipToIntersect ?: chainBlocksPairs
 
+    init {
+        initBlockReceiveHandler()
+    }
+
     override fun shutdown() {
         state = State.Done
+        job.cancelChildren()
     }
 
     override suspend fun sendData(): ByteBuffer {
@@ -120,6 +138,7 @@ class ChainSyncProtocol(
                 }
                 payload.flip()
             }
+
             else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
         }
     }
@@ -149,7 +168,7 @@ class ChainSyncProtocol(
                                             if (isTip) {
                                                 // We're on tip! Send to pooltool
                                                 runBlocking {
-                                                    blockSaveChannel.send(msgRollForward)
+                                                    blockSaveFlow.emit(msgRollForward)
                                                 }
                                             } else {
                                                 // try to jump to tip since we're doing pooltool sending
@@ -164,7 +183,7 @@ class ChainSyncProtocol(
                                         } else {
                                             // sync mode
                                             runBlocking {
-                                                blockSaveChannel.send(msgRollForward)
+                                                blockSaveFlow.emit(msgRollForward)
                                                 if (msgRollForward.blockNumber > msgRollForward.chainTip.block) {
                                                     // in babbage, the block can run ahead of the tip so treat it
                                                     // like the tip
@@ -179,10 +198,12 @@ class ChainSyncProtocol(
                                     }
                                     state = State.Idle
                                 }
+
                                 MsgRollBackward.MESSAGE_ID -> {
                                     log.info("MsgRollBackward: ${cborArray.toCborByteArray().toHexString()}")
                                     state = State.Idle
                                 }
+
                                 MsgAwaitReply.MESSAGE_ID -> {
                                     log.trace("MsgAwaitReply: ${cborArray.toCborByteArray().toHexString()}")
                                     state = State.MustReply
@@ -192,6 +213,7 @@ class ChainSyncProtocol(
                     }
                 }
             }
+
             State.Intersect -> {
                 ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
                     CborReader.createFromInputStream(byteStream).apply {
@@ -204,6 +226,7 @@ class ChainSyncProtocol(
                                     isIntersectFound = true
                                     state = State.Idle
                                 }
+
                                 MsgIntersectNotFound.MESSAGE_ID -> {
                                     log.info("MsgIntersectNotFound: ${cborArray.toCborByteArray().toHexString()}")
 //                            // Jump to the tip
@@ -220,50 +243,46 @@ class ChainSyncProtocol(
                     }
                 }
             }
+
             else -> throw IllegalStateException("We should not call receiveData() when we're not in a $state state!")
         }
         Unit
     }
 
-    suspend fun initBlockReceiveHandler(scope: CoroutineScope) {
-        scope.launch {
-            val previousBlockMap = mutableMapOf<Long, ChainBlock>()
-            blockSaveChannel.consumeEach { msgRollForward ->
+    private fun initBlockReceiveHandler() {
+        launch {
+            blockSaveFlow.collect { msgRollForward ->
                 if (isPooltool) {
                     // We're on tip! Send to pooltool
                     sendBlockToPooltool(msgRollForward)
                 } else {
-                    val previousChainBlock = previousBlockMap[msgRollForward.blockNumber - 1]
-                        ?: chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
-                    previousBlockMap.remove(msgRollForward.blockNumber - 1)
+                    val savedChainBlock = transaction {
+                        // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
+                        chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
+// LedgerRepository.doRollback(msgRollForward.blockNumber)
+                        val previousChainBlock = chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
 
-                    // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
-                    chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
-                    transaction {
-                        LedgerRepository.doRollback(msgRollForward.blockNumber)
-                    }
+                        // evolve the etaV nonce value
+                        val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
+                        if (previousEtaV.contentEquals(shelleyGenesisHash)) {
+                            log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
+                        }
+                        val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
+                        val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
 
-                    // evolve the etaV nonce value
-                    val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
-                    if (previousEtaV.contentEquals(shelleyGenesisHash)) {
-                        log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
-                    }
-                    val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
-                    val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
-
-                    // add this block to the database
-                    val savedChainBlock = chainRepository.save(
-                        ChainBlock(
-                            blockNumber = msgRollForward.blockNumber,
-                            slotNumber = msgRollForward.slotNumber,
-                            hash = msgRollForward.hash,
-                            prevHash = msgRollForward.prevHash,
-                            etaV = etaV,
-                            poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
-                            leaderVrf = msgRollForward.leaderVrf,
+                        // add this block to the database
+                        chainRepository.save(
+                            ChainBlock(
+                                blockNumber = msgRollForward.blockNumber,
+                                slotNumber = msgRollForward.slotNumber,
+                                hash = msgRollForward.hash,
+                                prevHash = msgRollForward.prevHash,
+                                etaV = etaV,
+                                poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
+                                leaderVrf = msgRollForward.leaderVrf,
+                            )
                         )
-                    )
-                    previousBlockMap[savedChainBlock.blockNumber] = savedChainBlock
+                    }
 
                     val isTip =
                         msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
@@ -277,10 +296,12 @@ class ChainSyncProtocol(
                             }, %.2f%% synced, poolId: ${
                                 savedChainBlock.poolId.substring(0..8)
                             }...".format(
-                                msgRollForward.blockNumber.toDouble() / max(
-                                    msgRollForward.blockNumber,
-                                    msgRollForward.chainTip.block
-                                ) * 100.0
+                                floor(
+                                    msgRollForward.blockNumber.toDouble() / max(
+                                        msgRollForward.blockNumber,
+                                        msgRollForward.chainTip.block
+                                    ) * 10000.0
+                                ) / 100.0
                             )
                         )
 
@@ -296,7 +317,6 @@ class ChainSyncProtocol(
     private var lastNodeVersionTime = 0L
     private var nodeVersion = ""
 
-    @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun sendBlockToPooltool(msgRollForward: MsgRollForward) {
         val now = System.currentTimeMillis()
         if (now - lastNodeVersionTime > 3600L) {
@@ -330,7 +350,7 @@ class ChainSyncProtocol(
             )
             log.info("Pooltool Request: $stats")
             val response = pooltoolService.sendStats(stats)
-            log.debug("pooltool response: ${response.body()}")
+            log.debug("pooltool response: {}", response.body())
         } catch (e: Throwable) {
             log.error("Error sending stats to pooltool!", e)
         }

@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.swiftmako.jormanager.entities.Host
-import kotlinx.io.pool.DefaultPool
+import io.ktor.utils.io.pool.DefaultPool
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SSHRuntimeException
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier

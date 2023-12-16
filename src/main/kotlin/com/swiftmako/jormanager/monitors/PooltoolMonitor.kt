@@ -11,15 +11,31 @@ import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlocksForSyncStart
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.keepalive.KeepAliveProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.services.PooltoolService
-import io.ktor.network.selector.*
-import io.ktor.network.sockets.*
-import kotlinx.coroutines.*
+import io.ktor.network.selector.ActorSelectorManager
+import io.ktor.network.sockets.InetSocketAddress
+import io.ktor.network.sockets.TypeOfService
+import io.ktor.network.sockets.aSocket
+import io.ktor.network.sockets.connection
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -57,11 +73,12 @@ class PooltoolMonitor @Autowired constructor(
     private val log by lazy { LoggerFactory.getLogger("PooltoolMonitor") }
 
     private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
-        if (throwable !is CancellationException) {
-            log.error("Uncaught coroutine exception!", throwable)
+    override val coroutineContext: CoroutineContext =
+        job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            if (throwable !is CancellationException) {
+                log.error("Uncaught coroutine exception!", throwable)
+            }
         }
-    }
 
     private val mutex = Mutex()
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
@@ -106,6 +123,7 @@ class PooltoolMonitor @Autowired constructor(
                                 "local" -> {
                                     monitorBlocksLocal(host, node)
                                 }
+
                                 "remote" -> {
                                     monitorBlocksRemote(host, node)
                                 }
@@ -118,7 +136,8 @@ class PooltoolMonitor @Autowired constructor(
         }
     }
 
-    @Suppress("BlockingMethodInNonBlockingContext")
+    private lateinit var mux: Mux
+
     private suspend fun monitorBlocksLocal(host: Host, node: Node, port: Int? = null) {
         coroutineScope {
             while (true) {
@@ -139,13 +158,19 @@ class PooltoolMonitor @Autowired constructor(
                     }
 
                     aSocket(ActorSelectorManager(coroutineContext)).tcp()
-                        .connect(InetSocketAddress(listen, port ?: node.port))
+                        .connect(InetSocketAddress(listen, port ?: node.port)) {
+                            noDelay = true
+                            keepAlive = true
+                            lingerSeconds = 0
+                            typeOfService = TypeOfService.IPTOS_LOWDELAY
+                        }
                         .use { socket ->
                             log.debug("ChainMonitor Socket connected")
                             val socketConnection = socket.connection()
-                            val mux = Mux(socketConnection)
+                            mux = Mux(socketConnection)
                             mux.execute(HandshakeProtocol(networkMagic))
                             mux.execute(
+                                KeepAliveProtocol(),
                                 ChainSyncProtocol(
                                     host,
                                     shelleyGenesisHash,
@@ -155,14 +180,12 @@ class PooltoolMonitor @Autowired constructor(
                                     pooltoolService = pooltoolService,
                                     pooltoolApiKey = pooltoolApiKey,
                                     poolId = node.poolId!!,
-                                ).also {
-                                    // launch coroutine to save blocks
-                                    it.initBlockReceiveHandler(this)
-                                }
+                                )
                             )
                         }
                 } catch (e: Throwable) {
                     log.error("Error monitoring chain for pooltool!", e)
+                    mux.shutdownGracefully()
                 } finally {
                     this@coroutineScope.coroutineContext.cancelChildren()
                 }

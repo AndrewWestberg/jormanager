@@ -106,18 +106,12 @@ class WalletController @Autowired constructor(
             val defaultHostConnection = HostConnection(defaultHost, defaultNode)
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             val protocolParams =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                     .trim()
             defaultHostConnection.commandWriteFile(
                 "/tmp/protocol-parameters-${genesis.networkMagic}.json",
                 protocolParams
             )
-
-            val queryTip =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath").trim()
-            val era = queryTipAdapter.fromJson(queryTip)?.era
-                ?: throw IOException("Couldn't parse query tip!")
-            val eraString = "--${era.lowercase()}-era"
 
             val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                 ?: throw IOException("Wallet entry id ${request.fromId} not found!")
@@ -286,7 +280,7 @@ class WalletController @Autowired constructor(
             }
 
             val queryTipString =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath").trim()
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath").trim()
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
             transaction.append("--invalid-hereafter $ttl ")
             transaction.append("--fee 300000 ")
@@ -325,10 +319,10 @@ class WalletController @Autowired constructor(
             }
 
             val fee = if (request.isClaim) {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 0 $magicString --witness-count 2 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 1 $magicString --witness-count 2 --byron-witness-count 0")
                     .trim()
             } else {
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 0 $magicString --witness-count 1 --byron-witness-count 0")
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count 0 --tx-out-count 1 $magicString --witness-count 1 --byron-witness-count 0")
                     .trim()
             }
             val lovelace = fee.split(" ")[0].toBigInteger()
@@ -384,7 +378,7 @@ class WalletController @Autowired constructor(
                                 ?: "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+" // start with dummy amount of ada to send
                             multiAssetString += "${toAccount.amount} ${toAccount.currency}"
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-required-utxo --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             val tokenFee = (minValueResult.split(" ")[1].toBigInteger() - (adaAmountsMap[destination]
                                 ?: BigInteger.ZERO)).takeIf { tokenFee -> tokenFee > BigInteger.ZERO }
@@ -408,7 +402,7 @@ class WalletController @Autowired constructor(
                                 prefix = "addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+1 "
                             )
                             val minValueResult =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-required-utxo --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out '$multiAssetString'")
                                     .trim()
                             tokenKeepFee += minValueResult.split(" ")[1].toBigInteger()
                         }
@@ -500,7 +494,7 @@ class WalletController @Autowired constructor(
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val protocolParamsJson =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                                     .trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -525,7 +519,7 @@ class WalletController @Autowired constructor(
                             utxos.forEach { utxo ->
                                 transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                             }
-                            log.debug("feePayerAccount balance: ${utxos.sumByBigInteger { it.lovelace }}")
+                            log.debug("feePayerAccount balance: {}", utxos.sumByBigInteger { it.lovelace })
                             witnessCount++ // fee payer is a witness
                             defaultHostConnection.commandWriteFile(
                                 "/tmp/feepayer.payment.skey",
@@ -541,7 +535,7 @@ class WalletController @Autowired constructor(
                             transaction.append("--tx-out ${feePayerAccount.paymentAddr}+1234567890 ")
 
                             val queryTipString =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
                                 ?: -1
@@ -585,7 +579,7 @@ class WalletController @Autowired constructor(
                                 certificates.append("--certificate /tmp/staking.cert ")
                             } else {
                                 // staking address is registered. We should *de* register it on chain as part of the transaction
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address deregistration-certificate --stake-verification-key-file /tmp/staking.vkey --out-file /tmp/staking.dereg-cert")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address deregistration-certificate --stake-verification-key-file /tmp/staking.vkey --out-file /tmp/staking.dereg-cert")
                                 certificates.append("--certificate /tmp/staking.dereg-cert ")
                             }
                             witnessCount++ // the staking.skey is a witness
@@ -596,14 +590,14 @@ class WalletController @Autowired constructor(
                             transaction.append("--out-file /tmp/transaction.txbody")
                             defaultHostConnection.command(transaction.toString())
 
-                            log.debug("depositAndFees: $depositAndFees")
+                            log.debug("depositAndFees: {}", depositAndFees)
                             val feesString =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
                                     .trim()
                             val fees = feesString.split(" ")[0].toBigInteger()
-                            log.debug("fees: $fees")
+                            log.debug("fees: {}", fees)
                             depositAndFees += fees
-                            log.debug("final depositAndFees: $depositAndFees")
+                            log.debug("final depositAndFees: {}", depositAndFees)
 
                             // 9. Create the transaction
                             val change =
@@ -634,12 +628,12 @@ class WalletController @Autowired constructor(
                             defaultHostConnection.command(realTransaction)
 
                             // 10. Sign the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned")
 
                             // 11. Submit the transaction
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             val txid =
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                     .trim()
                             val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                             TransactionCache.put(txid, txSigned)
@@ -690,7 +684,7 @@ class WalletController @Autowired constructor(
                     try {
                         val (pskeyContent, pvkeyContent) = when {
                             request.generateKeys -> {
-                                defaultHostConnection.command("${defaultHost.cardanoCliPath} address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
                                 val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
                                 val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
                                 Pair(paymentSKey, paymentVKey)
@@ -723,7 +717,7 @@ class WalletController @Autowired constructor(
                         }
 
                         val (sskeyContent, svkeyContent) = if (request.generateKeys) {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey")
                             val stakingSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-sskey")
                             val stakingVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-svkey")
                             Pair(stakingSKey, stakingVKey)
@@ -748,7 +742,7 @@ class WalletController @Autowired constructor(
                             defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
                         }
                         defaultHostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address registration-certificate --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert")
                             .trim()
                         val regcertContent = defaultHostConnection.commandReadFile("/tmp/jormanager-regcert")
                         val savedRegcertFile = fileRepository.save(
@@ -761,11 +755,11 @@ class WalletController @Autowired constructor(
                         val paymentAddr = if (request.type == "pledge") {
                             request.paymentAddr
                         } else {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString")
                                 .trim()
                         }
                         val stakingAddr =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString")
                                 .trim()
                         WalletEntry(
                             name = request.name,
@@ -799,7 +793,7 @@ class WalletController @Autowired constructor(
                     val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                     try {
                         val (skeyContent, vkeyContent) = if (request.generateKeys) {
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey")
                             val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
                             val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
                             Pair(paymentSKey, paymentVKey)
@@ -822,7 +816,7 @@ class WalletController @Autowired constructor(
 
                         defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", vkeyContent)
                         val paymentAddr =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString")
                                 .trim()
                         WalletEntry(
                             name = request.name,
@@ -889,7 +883,7 @@ class WalletController @Autowired constructor(
     @Synchronized
     fun submitTransaction(request: SubmitTransactionRequest) {
         try {
-            log.debug("submitTransaction request: $request")
+            log.debug("submitTransaction request: {}", request)
             if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
@@ -910,19 +904,12 @@ class WalletController @Autowired constructor(
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParams =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile(
                     "/tmp/protocol-parameters-${genesis.networkMagic}.json",
                     protocolParams
                 )
-
-                val queryTip =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
-                        .trim()
-                val era = queryTipAdapter.fromJson(queryTip)?.era
-                    ?: throw IOException("Couldn't parse query tip!")
-                val eraString = "--${era.lowercase()}-era"
 
                 val fromWalletEntry = walletRepository.findByIdOrNull(request.fromId)
                     ?: throw IOException("Wallet entry id ${request.fromId} not found!")
@@ -1029,10 +1016,10 @@ class WalletController @Autowired constructor(
                     val amount = toAccountsGroup.sumByBigInteger { toAccount ->
                         if (toAccount.currency == "ada") {
                             if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                if (toAccount.percent ?: -1 > 0 && baseAmount["ada"]!! - account.amount!! >= request.txFee) {
+                                if ((toAccount.percent ?: -1) > 0 && baseAmount["ada"]!! - account.amount!! >= request.txFee) {
                                     // Reimburse payer for the txFee when claiming rewards
                                     claimAmount = paymentAddressLovelace - request.txFee
-                                    log.debug("claimAmount: $claimAmount")
+                                    log.debug("claimAmount: {}", claimAmount)
                                     account.amount + request.txFee
                                 } else {
                                     // We've already reimbursed txFee on the client side. take it out of the base amount
@@ -1082,7 +1069,7 @@ class WalletController @Autowired constructor(
                         val multiAssetString =
                             chunk.joinToString(separator = "+") { (currency, amount) -> "$amount $currency" }
                         val minValueResult =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction calculate-min-required-utxo $eraString --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction calculate-min-required-utxo --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'")
                                 .trim()
                         val tokenKeepFee = minValueResult.split(" ")[1].toBigInteger()
 
@@ -1097,7 +1084,7 @@ class WalletController @Autowired constructor(
                 }
 
                 val queryTipString =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                         .trim()
                 val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                 transaction.append("--invalid-hereafter $ttl ")
@@ -1114,7 +1101,7 @@ class WalletController @Autowired constructor(
                 transaction.append("--out-file /tmp/transaction.txbody")
 
                 // build the transaction
-                log.debug("transaction: $transaction")
+                log.debug("transaction: {}", transaction)
                 defaultHostConnection.command(transaction.toString())
 
                 // sign the transaction
@@ -1127,18 +1114,18 @@ class WalletController @Autowired constructor(
                         val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
                         defaultHostConnection.commandWriteFile("/tmp/staking_signing.skey", skeyContent)
                     } ?: throw IllegalArgumentException("Couldn't find staking skey for transaction")
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey --signing-key-file /tmp/staking_signing.skey $magicString --out-file /tmp/transaction.txsigned")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey --signing-key-file /tmp/staking_signing.skey $magicString --out-file /tmp/transaction.txsigned")
                 } else {
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $magicString --out-file /tmp/transaction.txsigned")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $magicString --out-file /tmp/transaction.txsigned")
                 }
 
                 val txid = runBlocking {
                     TransactionCache.withLock {
                         // submit the transaction
-                        defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
+                        defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath")
                             .trim()
                         val txid =
-                            defaultHostConnection.command("${defaultHost.cardanoCliPath} transaction txid --tx-body-file /tmp/transaction.txbody")
+                            defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction.txbody")
                                 .trim()
                         val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                         TransactionCache.put(txid, txSigned)

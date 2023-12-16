@@ -3,13 +3,20 @@ package com.swiftmako.jormanager.nodeclient.protocols.mux
 import com.firehose.controllers.nodeclient.protocol.Agency
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
-import io.ktor.network.sockets.*
-import io.ktor.util.cio.*
-import io.ktor.utils.io.*
+import io.ktor.network.sockets.Connection
+import io.ktor.network.sockets.isClosed
+import io.ktor.util.cio.KtorDefaultPool
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.pool.ByteBufferPool
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
@@ -199,6 +206,7 @@ class Mux(
 
     fun shutdownGracefully() {
         runningProtocols.forEach { it.shutdown() }
+        runningProtocols = emptyArray()
     }
 
     private class MiniProtocolHeader(

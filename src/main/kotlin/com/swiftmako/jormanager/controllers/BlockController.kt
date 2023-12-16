@@ -40,6 +40,7 @@ import kotlin.math.ceil
 
 @Controller
 @Scope(SCOPE_SINGLETON)
+@OptIn(ExperimentalCoroutinesApi::class)
 class BlockController @Autowired constructor(
     private val buildProperties: BuildProperties,
     private val blockRepository: BlockRepository,
@@ -89,7 +90,7 @@ class BlockController @Autowired constructor(
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val protocolParamsJson =
-                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                         .trim()
                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -205,7 +206,7 @@ class BlockController @Autowired constructor(
                                 val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                                 val tipJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query tip $magicString $socketPath")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
                                         .trim()
                                 val tip = queryTipAdapter.fromJson(tipJson)
                                 log.info("Era: ${tip?.era}")
@@ -229,7 +230,7 @@ class BlockController @Autowired constructor(
                                 val poolIdsString = poolIds.joinToString(" ") { "--stake-pool-id $it" }
 
                                 val stakeSnapshotJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query stake-snapshot $poolIdsString $magicString $socketPath")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query stake-snapshot $poolIdsString $magicString $socketPath")
                                         .trim()
                                 val stakeSnapshot = stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
                                     ?: throw IOException("Unable to parse stakeSnapshot json!")
@@ -249,7 +250,7 @@ class BlockController @Autowired constructor(
 
                                 // if we're doing the stake-snapshot command, assume future d stays the same and no entropy
                                 val protocolParamsJson =
-                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} query protocol-parameters $magicString $socketPath")
+                                    defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                                         .trim()
                                 val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
                                     ?: throw IOException("Invalid protocol params!")
