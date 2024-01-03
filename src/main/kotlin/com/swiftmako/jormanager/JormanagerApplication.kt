@@ -25,7 +25,7 @@ val passwordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
 
 fun runInstallation() {
     val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()
-        .substringAfter("file:").substringBeforeLast("/jormanager")
+        .substringAfterLast(":").substringBeforeLast("/jormanager")
     val jormanagerFolderPath = File(uri).absolutePath
 
     val applicationProperties = StringBuilder()
