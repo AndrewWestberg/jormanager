@@ -83,7 +83,7 @@ class ChainMonitor @Autowired constructor(
         monitorChain()
     }
 
-    private lateinit var mux: Mux
+    private var mux: Mux? = null
 
     private fun monitorChain() {
         launch {
@@ -112,8 +112,8 @@ class ChainMonitor @Autowired constructor(
                                 log.debug("ChainMonitor Socket connected")
                                 val socketConnection = socket.connection()
                                 mux = Mux(socketConnection)
-                                mux.execute(HandshakeProtocol(networkMagic))
-                                mux.execute(
+                                mux?.execute(HandshakeProtocol(networkMagic))
+                                mux?.execute(
                                     KeepAliveProtocol(),
                                     ChainSyncProtocol(
                                         defaultHost,
@@ -137,7 +137,8 @@ class ChainMonitor @Autowired constructor(
                     if (!isShuttingDown) {
                         log.error("ChainMonitor error", e)
                     }
-                    mux.shutdownGracefully()
+                    mux?.shutdownGracefully()
+                    mux = null
                 }
                 if (!isShuttingDown) {
                     log.info("ChainMonitor Socket not connected. Wait 10 seconds to reconnect...")
@@ -154,7 +155,7 @@ class ChainMonitor @Autowired constructor(
     override fun stop(callback: java.lang.Runnable) {
         isShuttingDown = true
         GlobalScope.launch {
-            mux.shutdownGracefully()
+            mux?.shutdownGracefully()
             delay(3000)
             job.cancelChildren()
             log.info("ChainMonitor stopped.")

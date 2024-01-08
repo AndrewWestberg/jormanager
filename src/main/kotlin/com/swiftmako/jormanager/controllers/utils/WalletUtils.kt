@@ -10,7 +10,11 @@ import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
-import com.swiftmako.jormanager.repositories.*
+import com.swiftmako.jormanager.repositories.FileRepository
+import com.swiftmako.jormanager.repositories.HostRepository
+import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.WalletRepository
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -127,30 +131,8 @@ class WalletUtils @Autowired constructor(
                 ledgerDao.queryLiveUtxos(paymentAddr)
             }
         } else {
-            //log.warn("Not on tip! running old queryUtxo()!")
-            // find payment_addr balance
-            val start = System.currentTimeMillis()
-            val addressInfoJson = try {
-                hostConnection.command("${host.cardanoCliPath} babbage query utxo --address $paymentAddr $magicString $socketPath --out-file=/dev/stdout")
-                    .trim()
-            } catch (t: Throwable) {
-                if (t.message?.contains("EraMismatch") == false) {
-                    log.error("Error getting payment addr info!", t)
-                }
-                ""
-            }
-            val utxos = try {
-                queryUtxoJsonAdapter.fromJson(addressInfoJson)
-            } catch (e: Throwable) {
-                log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
-                throw e
-            }
-
-            (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
-                log.warn("queryUtxo: $paymentAddr, ${it}ms")
-            }
-
-            utxos ?: emptyList()
+            log.warn("Not on tip! skipping getUtxos...")
+            emptyList()
         }
     }
 

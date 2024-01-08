@@ -33,7 +33,7 @@ class Mux(
     private val log by lazy { LoggerFactory.getLogger("Mux") }
     private val rxMuxBufferMap: MutableMap<Short, MuxRxBuffer> = mutableMapOf()
 
-    private lateinit var runningProtocols: Array<out MiniProtocol>
+    private var runningProtocols: Array<out MiniProtocol> = emptyArray()
 
     suspend fun execute(vararg protocols: MiniProtocol) = coroutineScope {
         runningProtocols = protocols
