@@ -3,18 +3,38 @@ package com.swiftmako.jormanager.controllers
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
-import com.swiftmako.jormanager.entities.*
 import com.swiftmako.jormanager.entities.File
+import com.swiftmako.jormanager.entities.Host
+import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.entities.Transaction
+import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.sumByBigInteger
-import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.CalculateFeeRequest
+import com.swiftmako.jormanager.model.CalculateFeeResponse
+import com.swiftmako.jormanager.model.CreateWalletEntryRequest
+import com.swiftmako.jormanager.model.DeleteWalletEntryRequest
+import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.model.ProtocolParameters
+import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.SubmitTransactionRequest
+import com.swiftmako.jormanager.model.UpdateStakingAddressRequest
+import com.swiftmako.jormanager.model.Utxo
+import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.model.tx.TxSigned
-import com.swiftmako.jormanager.repositories.*
+import com.swiftmako.jormanager.repositories.FileRepository
+import com.swiftmako.jormanager.repositories.HostRepository
+import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.TransactionRepository
+import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.utils.TransactionCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -59,7 +79,7 @@ class WalletController @Autowired constructor(
 
     init {
         launch {
-            debounceFlow.filterNotNull().collect { request -> calculateTxFee(request) }
+            debounceFlow.filterNotNull().buffer(CONFLATED).collect { request -> calculateTxFee(request) }
         }
     }
 
@@ -75,7 +95,9 @@ class WalletController @Autowired constructor(
                     } else {
                         "--mainnet"
                     }
-                    SocketResponse.Success(type = "wallet", data = walletUtils.getWalletItems(magicString))
+                    SocketResponse.Success(
+                        type = "wallet",
+                        data = runBlocking { walletUtils.getWalletItems(magicString) })
                 } ?: throw IOException("Error finding shelley genesis file!")
             } ?: throw IOException("Error finding default node!")
         } catch (e: Throwable) {
@@ -280,7 +302,8 @@ class WalletController @Autowired constructor(
             }
 
             val queryTipString =
-                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath").trim()
+                defaultHostConnection.command("${defaultHost.cardanoCliPath} babbage query tip $magicString $socketPath")
+                    .trim()
             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
             transaction.append("--invalid-hereafter $ttl ")
             transaction.append("--fee 300000 ")
@@ -1016,7 +1039,9 @@ class WalletController @Autowired constructor(
                     val amount = toAccountsGroup.sumByBigInteger { toAccount ->
                         if (toAccount.currency == "ada") {
                             if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                if ((toAccount.percent ?: -1) > 0 && baseAmount["ada"]!! - account.amount!! >= request.txFee) {
+                                if ((toAccount.percent
+                                        ?: -1) > 0 && baseAmount["ada"]!! - account.amount!! >= request.txFee
+                                ) {
                                     // Reimburse payer for the txFee when claiming rewards
                                     claimAmount = paymentAddressLovelace - request.txFee
                                     log.debug("claimAmount: {}", claimAmount)

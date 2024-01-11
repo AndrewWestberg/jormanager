@@ -10,11 +10,13 @@ import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -43,16 +45,19 @@ class WalletUtils @Autowired constructor(
 ) {
     private val log by lazy { LoggerFactory.getLogger("WalletUtils") }
 
-    fun getWalletItems(magicString: String): List<WalletItem> {
+    suspend fun getWalletItems(magicString: String): List<WalletItem> {
         val walletItems = mutableListOf<WalletItem>()
         nodeRepository.findDefault()?.let { defaultNode ->
             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { host ->
                 val hostConnection = HostConnection(host, defaultNode)
                 val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
-                walletRepository.findAllNotDeleted().forEach { walletEntry ->
+                val walletEntries = walletRepository.findAllNotDeleted()
+                val total = walletEntries.size
+                walletEntries.forEachIndexed { index, walletEntry ->
                     walletItems.add(
-                        getWalletItem(host, hostConnection, magicString, socketPath, walletEntry)
+                        getWalletItem(host, hostConnection, magicString, socketPath, walletEntry, index + 1, total)
                     )
+                    delay(1L) // check to see if we're interrupted
                 }
             } ?: log.error("Host for default node not found!")
         } ?: log.warn("No default node set! Cannot check wallet for updates!")
@@ -66,8 +71,10 @@ class WalletUtils @Autowired constructor(
         magicString: String,
         socketPath: String,
         walletEntry: WalletEntry,
+        index: Int? = null,
+        total: Int? = null,
     ): WalletItem {
-        val utxos = getUtxos(host, hostConnection, magicString, socketPath, walletEntry.paymentAddr)
+        val utxos = getUtxos(host, hostConnection, magicString, socketPath, walletEntry.paymentAddr, index, total)
 
         // find staking_addr balance
         val start = System.currentTimeMillis()
@@ -125,13 +132,40 @@ class WalletUtils @Autowired constructor(
         magicString: String,
         socketPath: String,
         paymentAddr: String,
+        index: Int? = null,
+        total: Int? = null,
     ): List<Utxo> {
         return if (BlockFetchProtocol.isTip) {
             runBlocking {
                 ledgerDao.queryLiveUtxos(paymentAddr)
             }
+        } else if (ChainSyncProtocol.isTip) {
+            //log.warn("Not on tip! running old queryUtxo()!")
+            // find payment_addr balance
+            val start = System.currentTimeMillis()
+            val addressInfoJson = try {
+                hostConnection.command("${host.cardanoCliPath} babbage query utxo --address $paymentAddr $magicString $socketPath --out-file=/dev/stdout")
+                    .trim()
+            } catch (t: Throwable) {
+                if (t.message?.contains("EraMismatch") == false) {
+                    log.error("Error getting payment addr info!", t)
+                }
+                ""
+            }
+            val utxos = try {
+                queryUtxoJsonAdapter.fromJson(addressInfoJson)
+            } catch (e: Throwable) {
+                log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
+                throw e
+            }
+
+            (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
+                log.warn("queryUtxo $index of $total: $paymentAddr, ${it}ms")
+            }
+
+            utxos ?: emptyList()
         } else {
-            log.warn("Not on tip! skipping getUtxos...")
+            log.warn("Not on tip! skipping queryUtxo()!")
             emptyList()
         }
     }

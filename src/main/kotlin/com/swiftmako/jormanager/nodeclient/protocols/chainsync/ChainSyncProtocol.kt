@@ -284,7 +284,7 @@ class ChainSyncProtocol(
                         )
                     }
 
-                    val isTip =
+                    isTip =
                         msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
                     if (canLog() || isTip) {
                         log.info(
@@ -407,6 +407,7 @@ class ChainSyncProtocol(
             onBufferOverflow = BufferOverflow.DROP_OLDEST
         )
         val newBlockFlow = newBlockMutableSharedFlow.distinctUntilChanged()
+        var isTip = false
         var tipBlockNumber: Long = 0L
         var tipHash: String = ""
     }

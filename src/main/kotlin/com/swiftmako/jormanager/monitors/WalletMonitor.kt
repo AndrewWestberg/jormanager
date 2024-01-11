@@ -6,10 +6,20 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -62,7 +72,7 @@ class WalletMonitor @Autowired constructor(
     private fun monitorWallet() {
         launch {
             var magicString = ""
-            refreshWalletChannel.filterNotNull().collect {
+            refreshWalletChannel.filterNotNull().buffer(capacity = CONFLATED).collect {
 
                 try {
                     if (magicString.isBlank()) {
