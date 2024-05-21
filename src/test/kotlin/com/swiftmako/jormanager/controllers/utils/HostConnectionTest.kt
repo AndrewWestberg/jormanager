@@ -22,12 +22,12 @@ import java.math.BigInteger
 import kotlin.experimental.and
 
 class HostConnectionTest {
-
     private val log by lazy { LoggerFactory.getLogger("HostConnectionTest") }
 
     @Test
     fun testMultilineStringToFile() {
-        val systemdContent = """
+        val systemdContent =
+            """
                                 |[Unit]
                                 |Description=Cardano Haskell Node - tickr
                                 |After=syslog.target
@@ -55,7 +55,7 @@ class HostConnectionTest {
                                 |
                                 |[Install]
                                 |WantedBy=multi-user.target
-                            """.trimMargin()
+            """.trimMargin()
 
         val hostConnection = HostConnection(Host(0, "local", "", "", "", "", 22, "", "", ""))
         hostConnection.sudoCommandWriteFile(
@@ -69,28 +69,31 @@ class HostConnectionTest {
     fun testQueryAddress() {
         val host =
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(
-            0,
-            0,
-            null,
-            "",
-            "relay",
-            8,
-            "local",
-            "127.0.0.1",
-            22,
-            12788,
-            0,
-            0,
-            0,
-            0,
-            0,
-            isDefault = true,
-            configFileId = 0
-        )
+        val defaultNode =
+            Node(
+                0,
+                0,
+                null,
+                "",
+                "relay",
+                8,
+                "local",
+                "127.0.0.1",
+                22,
+                12788,
+                0,
+                0,
+                0,
+                0,
+                0,
+                isDefault = true,
+                configFileId = 0
+            )
         val hostConnection = HostConnection(host, defaultNode)
         val output =
-            hostConnection.command("${host.cardanoCliPath} babbage query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --testnet-magic 42")
+            hostConnection.command(
+                "${host.cardanoCliPath} babbage query utxo --address 60f9a5546c4d82ee112781dd02074a8b4a68e33ecced8a27e24bd2642b --testnet-magic 42"
+            )
         println(output)
     }
 
@@ -98,25 +101,26 @@ class HostConnectionTest {
     fun testIsPortUsed() {
         val host =
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(
-            0,
-            0,
-            null,
-            "",
-            "relay",
-            8,
-            "local",
-            "127.0.0.1",
-            22,
-            12788,
-            0,
-            0,
-            0,
-            0,
-            0,
-            isDefault = true,
-            configFileId = 0
-        )
+        val defaultNode =
+            Node(
+                0,
+                0,
+                null,
+                "",
+                "relay",
+                8,
+                "local",
+                "127.0.0.1",
+                22,
+                12788,
+                0,
+                0,
+                0,
+                0,
+                0,
+                isDefault = true,
+                configFileId = 0
+            )
         val hostConnection = HostConnection(host, defaultNode)
         val port = 12955
         val output = hostConnection.command("ss -tulw").trim().contains(":$port")
@@ -131,64 +135,74 @@ class HostConnectionTest {
         val isRegistration = false
 
         val walletUtils =
-            WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter(), mockk())
+            WalletUtils(mockk(), mockk(), mockk(), mockk(), mockk(), "", mockk(), QueryUtxoJsonAdapter(), mockk(), mockk())
 
         val host =
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
-        val defaultNode = Node(
-            0,
-            0,
-            null,
-            "",
-            "relay",
-            8,
-            "guild",
-            "127.0.0.1",
-            22,
-            12788,
-            0,
-            0,
-            0,
-            0,
-            0,
-            isDefault = true,
-            configFileId = 0
-        )
+        val defaultNode =
+            Node(
+                0,
+                0,
+                null,
+                "",
+                "relay",
+                8,
+                "guild",
+                "127.0.0.1",
+                22,
+                12788,
+                0,
+                0,
+                0,
+                0,
+                0,
+                isDefault = true,
+                configFileId = 0
+            )
         val hostConnection = HostConnection(host, defaultNode)
         val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
 
         val magicString = "--testnet-magic 141"
-        val moshi = Moshi.Builder().add(BigIntegerAdapter).add(JodaDateTimeAdapter()).build()
+        val moshi =
+            Moshi
+                .Builder()
+                .add(BigIntegerAdapter)
+                .add(JodaDateTimeAdapter())
+                .build()
         val queryTipAdapter = moshi.adapter(QueryTip::class.java)
         val protocolParamsAdapter = moshi.adapter(ProtocolParameters::class.java)
         val protocolParamsJson =
-            hostConnection.command("${host.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
+            hostConnection
+                .command("${host.cardanoCliPath} babbage query protocol-parameters $magicString $socketPath")
                 .trim()
         hostConnection.commandWriteFile("/tmp/protocol-parameters-spam.json", protocolParamsJson)
-        val protocolParameters = protocolParamsAdapter.fromJson(protocolParamsJson)
-            ?: throw IOException("Invalid protocol params!")
-
+        val protocolParameters =
+            protocolParamsAdapter.fromJson(protocolParamsJson)
+                ?: throw IOException("Invalid protocol params!")
 
         val blake2b256 = Blake2bDigest(256)
 
 //        for (x in 23903..29999) {
         for (x in 0..1873) {
-
             while (true) {
                 try {
                     log.debug("Waiting for next block...")
                     val queryTip =
-                        hostConnection.command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
+                        hostConnection
+                            .command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
                             .trim()
-                    val block = queryTipAdapter.fromJson(queryTip)?.block
-                        ?: throw IOException("Couldn't parse query tip!")
+                    val block =
+                        queryTipAdapter.fromJson(queryTip)?.block
+                            ?: throw IOException("Couldn't parse query tip!")
                     while (true) {
                         Thread.sleep(1000)
                         val qt =
-                            hostConnection.command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
+                            hostConnection
+                                .command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
                                 .trim()
-                        val nextBlock = queryTipAdapter.fromJson(qt)?.block
-                            ?: throw IOException("Couldn't parse query tip!")
+                        val nextBlock =
+                            queryTipAdapter.fromJson(qt)?.block
+                                ?: throw IOException("Couldn't parse query tip!")
                         if (nextBlock > block) {
                             log.debug("...$nextBlock")
                             Thread.sleep(5000)
@@ -213,47 +227,63 @@ class HostConnectionTest {
                         blake2b256.doFinal(output, 0)
 
                         // generate payment keys
-                        val paymentSKey = """
+                        val paymentSKey =
+                            """
                 |{
                 | "type": "PaymentSigningKeyShelley_ed25519",
                 | "description": "Payment Signing Key",
                 | "cborHex": "5820${output.toHexString()}"
                 | }
-            """.trimMargin()
+                            """.trimMargin()
                         File("/tmp/payment$i.skey").writeText(paymentSKey)
-                        hostConnection.command("${host.cardanoCliPath} babbage key verification-key --signing-key-file /tmp/payment$i.skey --verification-key-file /tmp/payment$i.vkey")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage key verification-key --signing-key-file /tmp/payment$i.skey --verification-key-file /tmp/payment$i.vkey"
+                        )
 
                         // generate staking keys
-                        val stakingSKey = """
+                        val stakingSKey =
+                            """
                 |{
                 | "type": "StakeSigningKeyShelley_ed25519",
                 | "description": "Stake Signing Key",
                 | "cborHex": "5820${output.toHexString()}"
                 | }
-            """.trimMargin()
+                            """.trimMargin()
                         File("/tmp/staking$i.skey").writeText(stakingSKey)
-                        hostConnection.command("${host.cardanoCliPath} babbage key verification-key --signing-key-file /tmp/staking$i.skey --verification-key-file /tmp/staking$i.vkey")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage key verification-key --signing-key-file /tmp/staking$i.skey --verification-key-file /tmp/staking$i.vkey"
+                        )
 
                         // generate payment address
                         val paymentAddress =
-                            hostConnection.command("${host.cardanoCliPath} babbage address build --payment-verification-key-file /tmp/payment$i.vkey --staking-verification-key-file /tmp/staking$i.vkey $magicString")
-                                .trim()
+                            hostConnection
+                                .command(
+                                    "${host.cardanoCliPath} babbage address build --payment-verification-key-file /tmp/payment$i.vkey --staking-verification-key-file /tmp/staking$i.vkey $magicString"
+                                ).trim()
                         File("/tmp/payment$i.addr").writeText(paymentAddress)
 
-                        //generate staking address
+                        // generate staking address
                         val stakingAddress =
-                            hostConnection.command("${host.cardanoCliPath} babbage stake-address build --staking-verification-key-file /tmp/staking$i.vkey $magicString")
-                                .trim()
+                            hostConnection
+                                .command(
+                                    "${host.cardanoCliPath} babbage stake-address build --staking-verification-key-file /tmp/staking$i.vkey $magicString"
+                                ).trim()
                         File("/tmp/staking$i.addr").writeText(stakingAddress)
 
                         // generate stake reg-cert
-                        hostConnection.command("${host.cardanoCliPath} babbage stake-address registration-certificate --staking-verification-key-file /tmp/staking$i.vkey --out-file /tmp/staking$i.cert")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage stake-address registration-certificate --key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} --staking-verification-key-file /tmp/staking$i.vkey --out-file /tmp/staking$i.cert"
+                        )
 
                         // generate stake dereg-cert
-                        hostConnection.command("${host.cardanoCliPath} babbage stake-address deregistration-certificate --stake-verification-key-file /tmp/staking$i.vkey --out-file /tmp/staking$i.dereg-cert")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage stake-address deregistration-certificate --key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} --stake-verification-key-file /tmp/staking$i.vkey --out-file /tmp/staking$i.dereg-cert"
+                        )
 
                         // generate delegation cert
-                        hostConnection.command("${host.cardanoCliPath} babbage stake-address stake-delegation-certificate --stake-verification-key-file /tmp/staking$i.vkey --cold-verification-key-file /home/westbam/haskell/gpool.node.vkey --out-file /tmp/staking$i.deleg.cert")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage stake-address stake-delegation-certificate --stake-verification-key-file /tmp/staking$i.vkey --cold-verification-key-file /home/westbam/haskell/gpool.node.vkey --out-file /tmp/staking$i.deleg.cert"
+                        )
                     }
 
                     // 1. Create a transaction to dump EVERYTHING into
@@ -262,15 +292,17 @@ class HostConnectionTest {
                     val transaction = StringBuilder()
                     val certificates = StringBuilder()
                     val signingKeys = StringBuilder()
-                    transaction.append("${host.cardanoCliPath} transaction build-raw ")
+                    transaction.append("${host.cardanoCliPath} babbage transaction build-raw ")
                     val feePayerAddress = File("/home/westbam/haskell/gfunds.payment.addr").readText().trim()
-                    val utxos = walletUtils.getUtxos(
-                        host,
-                        hostConnection,
-                        magicString,
-                        socketPath,
-                        feePayerAddress
-                    )
+                    val utxos =
+                        walletUtils.getUtxos(
+                            host,
+                            hostConnection,
+                            magicString,
+                            socketPath,
+                            "babbage",
+                            feePayerAddress
+                        )
                     utxos.forEach { utxo ->
                         transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
                     }
@@ -280,15 +312,17 @@ class HostConnectionTest {
 
                     // initial dummy value to return change to the fee payer account.
                     // We'll replace this with the actual change to return later
-                    transaction.append("--tx-out $feePayerAddress+1234567890 ")
+                    transaction.append("--tx-out $feePayerAddress+$feePayerAccountBalance ")
 
                     val queryTipString =
-                        hostConnection.command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
+                        hostConnection
+                            .command("${host.cardanoCliPath} babbage query tip $magicString $socketPath")
                             .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
-                        ?: -1
+                    val ttl =
+                        queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
+                            ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee 100 ")
+                    transaction.append("--fee 200000 ")
 
                     for (i in start..end) {
                         if (isRegistration) {
@@ -312,20 +346,24 @@ class HostConnectionTest {
 
                     log.debug("depositAndFees: $depositAndFees")
                     val feesString =
-                        hostConnection.command("${host.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction-spam.txbody --protocol-params-file /tmp/protocol-parameters-spam.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0")
-                            .trim()
+                        hostConnection
+                            .command(
+                                "${host.cardanoCliPath} babbage transaction calculate-min-fee --tx-body-file /tmp/transaction-spam.txbody --protocol-params-file /tmp/protocol-parameters-spam.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                            ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
                     depositAndFees += fees
                     log.debug("final depositAndFees: $depositAndFees")
 
                     // 9. Create the transaction
-                    val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees + if (!isRegistration) {
-                        // for a deregistration, we get the 2 ada deposit back as change
-                        protocolParameters.stakeAddressDeposit * (witnessCount - 1).toBigInteger()
-                    } else {
-                        BigInteger.ZERO
-                    }
+                    val change =
+                        utxos.sumByBigInteger { it.lovelace } - depositAndFees +
+                            if (!isRegistration) {
+                                // for a deregistration, we get the 2 ada deposit back as change
+                                protocolParameters.stakeAddressDeposit * (witnessCount - 1).toBigInteger()
+                            } else {
+                                BigInteger.ZERO
+                            }
                     if (change < BigInteger.ONE) {
                         throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
                     }
@@ -337,22 +375,30 @@ class HostConnectionTest {
                         }
                     }
 
-                    val realTransaction = transaction.toString()
-                        .replace("--fee 100 ", "--fee $fees ")
-                        .replace(
-                            "--tx-out ${feePayerAddress}+1234567890 ",
-                            "--tx-out '${feePayerAddress}+$change$tokenChange' "
-                        )
+                    val realTransaction =
+                        transaction
+                            .toString()
+                            .replace("--fee 200000 ", "--fee $fees ")
+                            .replace(
+                                "--tx-out $feePayerAddress+$feePayerAccountBalance ",
+                                "--tx-out '$feePayerAddress+$change$tokenChange' "
+                            )
                     log.debug("StakeKey Transaction Command: $realTransaction")
                     hostConnection.command(realTransaction)
 
                     // 10. Sign the transaction
-                    hostConnection.command("${host.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction-spam.txbody $signingKeys $magicString --out-file /tmp/transaction-spam.txsigned")
+                    hostConnection.command(
+                        "${host.cardanoCliPath} babbage transaction sign --tx-body-file /tmp/transaction-spam.txbody $signingKeys $magicString --out-file /tmp/transaction-spam.txsigned"
+                    )
 
                     // 11. Submit the transaction
-                    hostConnection.command("${host.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction-spam.txsigned $magicString $socketPath")
+                    hostConnection.command(
+                        "${host.cardanoCliPath} babbage transaction submit --tx-file /tmp/transaction-spam.txsigned $magicString $socketPath"
+                    )
                     val txid =
-                        hostConnection.command("${host.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction-spam.txbody")
+                        hostConnection.command(
+                            "${host.cardanoCliPath} babbage transaction txid --tx-body-file /tmp/transaction-spam.txbody"
+                        )
 
                     println("Transaction ID: $txid")
                     break

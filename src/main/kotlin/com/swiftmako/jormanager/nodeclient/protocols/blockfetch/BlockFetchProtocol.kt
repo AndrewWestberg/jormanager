@@ -1,18 +1,8 @@
 package com.swiftmako.jormanager.nodeclient.protocols.blockfetch
 
 import com.firehose.controllers.nodeclient.protocol.Agency
-import com.google.iot.cbor.CborArray
-import com.google.iot.cbor.CborByteString
-import com.google.iot.cbor.CborInteger
-import com.google.iot.cbor.CborMap
-import com.google.iot.cbor.CborObject
-import com.google.iot.cbor.CborReader
-import com.google.iot.cbor.CborTextString
-import com.swiftmako.jormanager.ktx.elementToBigInteger
-import com.swiftmako.jormanager.ktx.elementToByteArray
-import com.swiftmako.jormanager.ktx.elementToLong
-import com.swiftmako.jormanager.ktx.hexToByteArray
-import com.swiftmako.jormanager.ktx.toHexString
+import com.google.iot.cbor.*
+import com.swiftmako.jormanager.ktx.*
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.NativeAssetMetadata
@@ -40,17 +30,10 @@ import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.TransactionCache
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 import java.math.BigInteger
@@ -65,7 +48,6 @@ class BlockFetchProtocol(
     private val chainRepository: ChainRepository,
     private val ledgerDao: LedgerDao,
 ) : MiniProtocol(protocolId = 0x0003.toShort()), CoroutineScope {
-
     companion object {
         var isTip = false
 
@@ -74,20 +56,20 @@ class BlockFetchProtocol(
         private val TX_SPENT_UTXOS_INDEX = CborInteger.create(0)
         private val TX_DESTS_INDEX = CborInteger.create(1) // destination addresses are at index 1
 
-        //private val TX_CERTS_INDEX = CborInteger.create(4)
+        // private val TX_CERTS_INDEX = CborInteger.create(4)
         private val TX_MINTS_INDEX = CborInteger.create(9)
 
         private val UTXO_ADDRESS_INDEX = CborInteger.create(0)
         private val UTXO_AMOUNT_INDEX = CborInteger.create(1)
 
-        //private val POOL_REGISTRATION = BigInteger.valueOf(3L)
+        // private val POOL_REGISTRATION = BigInteger.valueOf(3L)
 
         private val NFT_METADATA_KEY = CborInteger.create(721)
         private val NFT_METADATA_KEY_NAME = CborTextString.create("name")
         private val NFT_METADATA_KEY_IMAGE = CborTextString.create("image")
         private val NFT_METADATA_KEY_DESC = CborTextString.create("description")
-        //private val FT_METADATA_KEY_DECIMALS = CborTextString.create("name")
-        //private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
+        // private val FT_METADATA_KEY_DECIMALS = CborTextString.create("name")
+        // private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
     }
 
     private val log by lazy { LoggerFactory.getLogger("BlockFetchProtocol") }
@@ -97,7 +79,8 @@ class BlockFetchProtocol(
     private val blockBuffer = mutableListOf<LedgerBlock>()
 
     private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = job +
+    override val coroutineContext: CoroutineContext =
+        job +
             Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher() +
             CoroutineExceptionHandler { _, throwable ->
                 if (throwable !is CancellationException) {
@@ -114,24 +97,26 @@ class BlockFetchProtocol(
             }
         }
 
-    private val _agencyFlow = MutableSharedFlow<Agency>(
-        replay = 1,
-        extraBufferCapacity = BLOCK_BUFFER_SIZE.toInt() * 2
-    ).apply { tryEmit(agency) }
+    private val _agencyFlow =
+        MutableSharedFlow<Agency>(
+            replay = 1,
+            extraBufferCapacity = BLOCK_BUFFER_SIZE.toInt() * 2,
+        ).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
     override val agency: Agency
-        get() = when (state) {
-            State.Idle -> Agency.Client
-            State.Busy, State.Streaming -> Agency.Server
-            State.Done -> Agency.None
-        }
+        get() =
+            when (state) {
+                State.Idle -> Agency.Client
+                State.Busy, State.Streaming -> Agency.Server
+                State.Done -> Agency.None
+            }
 
     enum class State {
         Idle,
         Busy,
         Streaming,
-        Done
+        Done,
     }
 
     override fun shutdown() {
@@ -140,7 +125,7 @@ class BlockFetchProtocol(
     }
 
     override suspend fun sendData(): ByteBuffer {
-        //log.info("sendData(): state = $state")
+        // log.info("sendData(): state = $state")
         return when (state) {
             State.Idle -> {
                 // Wait to finish committing any blocks before we request new ones
@@ -151,7 +136,7 @@ class BlockFetchProtocol(
                 var blockFetch = LedgerRepository.findTipBlock()
                 if (chainBlock == null || chainBlock.hash == blockFetch?.hash) {
                     // wait until a new block has arrived
-                    //log.info("Await next ChainSync block...")
+                    // log.info("Await next ChainSync block...")
                     ChainSyncProtocol.newBlockFlow.first()
                     chainBlock = chainRepository.findTipBlock()
                     blockFetch = LedgerRepository.findTipBlock()
@@ -162,14 +147,16 @@ class BlockFetchProtocol(
                 if (blockFetch == null) {
                     // no blocks fetched yet. Start at the start block.
                     val startChainBlock = chainRepository.findStartBlock()!!
-                    val endChainBlock = chainRepository.findByBlockNumber(
-                        startChainBlock.blockNumber + min(
-                            chainBlock.blockNumber - startChainBlock.blockNumber,
-                            BLOCK_BUFFER_SIZE
-                        )
-                    )!!
+                    val endChainBlock =
+                        chainRepository.findByBlockNumber(
+                            startChainBlock.blockNumber +
+                                min(
+                                    chainBlock.blockNumber - startChainBlock.blockNumber,
+                                    BLOCK_BUFFER_SIZE,
+                                ),
+                        )!!
                     val payload = muxByteBufferPool.borrow()
-                    //log.warn("MsgRequestRange at beginning. from ${startChainBlock.blockNumber} to ${endChainBlock.blockNumber}")
+                    // log.warn("MsgRequestRange at beginning. from ${startChainBlock.blockNumber} to ${endChainBlock.blockNumber}")
                     MsgRequestRange(
                         start = Pair(startChainBlock.slotNumber, startChainBlock.hash.hexToByteArray()),
                         end = Pair(endChainBlock.slotNumber, endChainBlock.hash.hexToByteArray()),
@@ -183,23 +170,23 @@ class BlockFetchProtocol(
                     if (difference == 0L) {
                         // re-fetch the tip block. We must have rolled back
                         val point = Pair(chainBlock.slotNumber, chainBlock.hash.hexToByteArray())
-                        //log.warn("MsgRequestRange at tip. from ${chainBlock.blockNumber} to ${chainBlock.blockNumber}")
+                        // log.warn("MsgRequestRange at tip. from ${chainBlock.blockNumber} to ${chainBlock.blockNumber}")
                         MsgRequestRange(start = point, end = point).writeToBuffer(payload)
                     } else if (difference > 100L) {
                         // only fetch 100 blocks
-                        //log.warn("fetch blockNumber: ${blockFetch.blockNumber} to ${blockFetch.blockNumber + 100}")
+                        // log.warn("fetch blockNumber: ${blockFetch.blockNumber} to ${blockFetch.blockNumber + 100}")
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
                         val endBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + BLOCK_BUFFER_SIZE)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())
                         val endPoint = Pair(endBlock.slotNumber, endBlock.hash.hexToByteArray())
-                        //log.warn("MsgRequestRange in middle. from ${startBlock.blockNumber} to ${endBlock.blockNumber}")
+                        // log.warn("MsgRequestRange in middle. from ${startBlock.blockNumber} to ${endBlock.blockNumber}")
                         MsgRequestRange(start = startPoint, end = endPoint).writeToBuffer(payload)
                     } else {
                         // fetch remaining blocks up to tip
                         val startBlock = chainRepository.findByBlockNumber(blockFetch.blockNumber + 1)!!
                         val startPoint = Pair(startBlock.slotNumber, startBlock.hash.hexToByteArray())
                         val endPoint = Pair(chainBlock.slotNumber, chainBlock.hash.hexToByteArray())
-                        //log.warn("MsgRequestRange catchup. from ${startBlock.blockNumber} to ${chainBlock.blockNumber}")
+                        // log.warn("MsgRequestRange catchup. from ${startBlock.blockNumber} to ${chainBlock.blockNumber}")
                         MsgRequestRange(start = startPoint, end = endPoint).writeToBuffer(payload)
                     }
                     state = State.Busy
@@ -215,12 +202,15 @@ class BlockFetchProtocol(
         ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
             CborReader.createFromInputStream(byteStream).apply {
                 while (byteStream.available() > 0) {
-                    val cborArray = try {
-                        readDataItem() as CborArray
-                    } catch (e: Throwable) {
-                        log.error("Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}")
-                        throw e
-                    }
+                    val cborArray =
+                        try {
+                            readDataItem() as CborArray
+                        } catch (e: Throwable) {
+                            log.error(
+                                "Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}",
+                            )
+                            throw e
+                        }
                     val messageId: Long = cborArray.elementToLong(0)
                     when (state) {
                         State.Busy -> {
@@ -231,7 +221,7 @@ class BlockFetchProtocol(
                                 }
 
                                 MsgStartBatch.MESSAGE_ID -> {
-                                    //log.warn("MsgStartBatch")
+                                    // log.warn("MsgStartBatch")
                                     state = State.Streaming
                                 }
                             }
@@ -240,20 +230,21 @@ class BlockFetchProtocol(
                         State.Streaming -> {
                             when (messageId) {
                                 MsgBatchDone.MESSAGE_ID -> {
-                                    //log.warn("MsgBatchDone")
+                                    // log.warn("MsgBatchDone")
 
-                                    commitBlocksJob = launch {
-                                        val isTip = blockBuffer.last().hash == ChainSyncProtocol.tipHash
-                                        ledgerDao.commitBlocks(blockBuffer, isTip)
-                                        blockBuffer.clear()
-                                        BlockFetchProtocol.isTip = isTip
-                                    }
+                                    commitBlocksJob =
+                                        launch {
+                                            val isTip = blockBuffer.last().hash == ChainSyncProtocol.tipHash
+                                            ledgerDao.commitBlocks(blockBuffer, isTip)
+                                            blockBuffer.clear()
+                                            BlockFetchProtocol.isTip = isTip
+                                        }
 
                                     state = State.Idle
                                 }
 
                                 MsgBlock.MESSAGE_ID -> {
-                                    //log.warn("MsgBlock: ${blockBuffer.size + 1}")
+                                    // log.warn("MsgBlock: ${blockBuffer.size + 1}")
                                     processBlock(cborArray)
                                     state = State.Streaming
                                 }
@@ -280,11 +271,11 @@ class BlockFetchProtocol(
 //                Thread.sleep(1000)
 //                exitProcess(0)
 //            }
-            //val witnessSetsCborHex = wholeBlockCborArray.elementAt(2).toCborByteArray().toHexString()
-            //val transactionMetadataCborHex = wholeBlockCborArray.elementAt(3).toCborByteArray().toHexString()
-            //if (transactionMetadataCborHex.length > 10) {
+            // val witnessSetsCborHex = wholeBlockCborArray.elementAt(2).toCborByteArray().toHexString()
+            // val transactionMetadataCborHex = wholeBlockCborArray.elementAt(3).toCborByteArray().toHexString()
+            // if (transactionMetadataCborHex.length > 10) {
             //    log.warn("block cborMetadata: $transactionMetadataCborHex")
-            //}
+            // }
 
             // calculate the block hash
             val wrappedBlockHeaderBytes = blockHeaderCborArray.toCborByteArray()
@@ -295,11 +286,12 @@ class BlockFetchProtocol(
             val blockNumber = blockHeaderCborArrayInner.elementToBigInteger(0).toLong()
             val slotNumber = blockHeaderCborArrayInner.elementToBigInteger(1).toLong()
 
-            val prevHash = when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
-                is CborByteString -> prevHashElement.byteArrayValue()[0].toHexString()
-                // might be cbor null if we launched without the byron era
-                else -> ""
-            }
+            val prevHash =
+                when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
+                    is CborByteString -> prevHashElement.byteArrayValue()[0].toHexString()
+                    // might be cbor null if we launched without the byron era
+                    else -> ""
+                }
 //            val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //            val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
 //            val nonceCborArray = blockHeaderCborArrayInner.elementAt(5) as CborArray
@@ -326,7 +318,7 @@ class BlockFetchProtocol(
             (wholeBlockCborArray.elementAt(1) as CborArray).forEachIndexed { transactionIndex, transaction ->
                 val transactionId = cardanoUtils.calculateTransactionId(transaction as CborMap)
 
-                //log.warn("transactionId calculated: $transactionId")
+                // log.warn("transactionId calculated: $transactionId")
 //                log.warn("transaction cbor: ${transaction.toCborByteArray().toHexString()}")
 
                 TransactionCache.get(transactionId)?.let {
@@ -351,21 +343,21 @@ class BlockFetchProtocol(
                 }
 
                 (transaction[TX_DESTS_INDEX] as CborArray).forEachIndexed { ix, destination ->
-                    val addressBytes = when (destination) {
-                        is CborArray -> {
-                            // alonzo and earlier is an array
-                            (destination.elementAt(0) as CborByteString).byteArrayValue()[0]
-                        }
+                    val addressBytes =
+                        when (destination) {
+                            is CborArray -> {
+                                // alonzo and earlier is an array
+                                (destination.elementAt(0) as CborByteString).byteArrayValue()[0]
+                            }
 
-                        is CborMap -> {
-                            (destination[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()[0]
-                        }
+                            is CborMap -> {
+                                (destination[UTXO_ADDRESS_INDEX] as CborByteString).byteArrayValue()[0]
+                            }
 
-                        else -> {
-                            throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                            else -> {
+                                throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                            }
                         }
-                    }
-
 
                     var encodedAddress: String? = null
                     var stakeAddress: String? = null
@@ -375,73 +367,95 @@ class BlockFetchProtocol(
                     } else if (addressBytes[0] == ENTERPRISE_ADDRESS_PREFIX_TESTNET) {
                         // this is a testnet enterprise address we might care about
                         encodedAddress = Bech32.encode("addr_test", addressBytes)
-                    } else if (addressBytes[0] == STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET || addressBytes[0] == STAKED_SCRIPT_ADDRESS_PREFIX_MAINNET) {
+                    } else if (
+                        addressBytes[0] == STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET ||
+                        addressBytes[0] == STAKED_SCRIPT_ADDRESS_PREFIX_MAINNET
+                    ) {
                         encodedAddress = Bech32.encode("addr", addressBytes)
-                        stakeAddress = Bech32.encode("stake", ByteArray(29).apply {
-                            set(0, STAKE_ADDRESS_PREFIX_MAINNET)
-                            addressBytes.sliceArray(29..56).copyInto(this, 1)
-                        })
-                    } else if (addressBytes[0] == STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET || addressBytes[0] == STAKED_SCRIPT_ADDRESS_PREFIX_TESTNET) {
+                        stakeAddress =
+                            Bech32.encode(
+                                "stake",
+                                ByteArray(29).apply {
+                                    set(0, STAKE_ADDRESS_PREFIX_MAINNET)
+                                    addressBytes.sliceArray(29..56).copyInto(this, 1)
+                                },
+                            )
+                    } else if (
+                        addressBytes[0] == STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET ||
+                        addressBytes[0] == STAKED_SCRIPT_ADDRESS_PREFIX_TESTNET
+                    ) {
                         encodedAddress = Bech32.encode("addr_test", addressBytes)
-                        stakeAddress = Bech32.encode("stake_test", ByteArray(29).apply {
-                            set(0, STAKE_ADDRESS_PREFIX_TESTNET)
-                            addressBytes.sliceArray(29..56).copyInto(this, 1)
-                        })
-                    } else if (addressBytes[0] == SCRIPT_ADDRESS_PREFIX_MAINNET || addressBytes[0] == SCRIPT2_ADDRESS_PREFIX_MAINNET) {
+                        stakeAddress =
+                            Bech32.encode(
+                                "stake_test",
+                                ByteArray(29).apply {
+                                    set(0, STAKE_ADDRESS_PREFIX_TESTNET)
+                                    addressBytes.sliceArray(29..56).copyInto(this, 1)
+                                },
+                            )
+                    } else if (
+                        addressBytes[0] == SCRIPT_ADDRESS_PREFIX_MAINNET ||
+                        addressBytes[0] == SCRIPT2_ADDRESS_PREFIX_MAINNET
+                    ) {
                         encodedAddress = Bech32.encode("addr", addressBytes)
-                    } else if (addressBytes[0] == SCRIPT_ADDRESS_PREFIX_TESTNET || addressBytes[0] == SCRIPT2_ADDRESS_PREFIX_TESTNET) {
+                    } else if (
+                        addressBytes[0] == SCRIPT_ADDRESS_PREFIX_TESTNET ||
+                        addressBytes[0] == SCRIPT2_ADDRESS_PREFIX_TESTNET
+                    ) {
                         encodedAddress = Bech32.encode("addr_test", addressBytes)
                     } else if (addressBytes[0] == BYRON_ADDRESS_PREFIX) {
-                        //do not save byron address utxos
-                        //encodedAddress = addressBytes.toHexString()
+                        // do not save byron address utxos
+                        // encodedAddress = addressBytes.toHexString()
                     } else {
-                        //do not save unknown address utxos
-                        //encodedAddress = addressBytes.toHexString()
+                        // do not save unknown address utxos
+                        // encodedAddress = addressBytes.toHexString()
                         log.trace("Unknown Address: ${addressBytes.toHexString()}")
                     }
 
                     // Lovelace and native assets sent along with this UTxO output
-                    val utxoItem: CborObject = when (destination) {
-                        is CborArray -> {
-                            // alonzo and earlier is an array
-                            destination.elementAt(1)
-                        }
+                    val utxoItem: CborObject =
+                        when (destination) {
+                            is CborArray -> {
+                                // alonzo and earlier is an array
+                                destination.elementAt(1)
+                            }
 
-                        is CborMap -> {
-                            // babbage is a map
-                            destination[UTXO_AMOUNT_INDEX]
-                        }
+                            is CborMap -> {
+                                // babbage is a map
+                                destination[UTXO_AMOUNT_INDEX]!!
+                            }
 
-                        else -> {
-                            throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                            else -> {
+                                throw IllegalArgumentException("Expected UTXO to be Array or Map!")
+                            }
                         }
-                    }
-                    val (utxoLovelace, nativeAssets) = when (utxoItem) {
-                        is CborInteger -> Pair(utxoItem.bigIntegerValue(), emptyList())
-                        is CborArray -> {
-                            val nativeAssets = mutableListOf<NativeAsset>()
-                            (utxoItem.elementAt(1) as? CborMap)?.let { nativeAssetMap ->
-                                nativeAssetMap.keySet().forEach { policyIdCborObject ->
-                                    val policyId =
-                                        (policyIdCborObject as CborByteString).byteArrayValue()[0].toHexString()
-                                    val policyMap = nativeAssetMap[policyIdCborObject] as CborMap
-                                    policyMap.entrySet().forEach { (assetNameCborObject, assetAmountCborObject) ->
-                                        val assetName =
-                                            (assetNameCborObject as CborByteString).byteArrayValue()
-                                                .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
-                                        val assetAmount = (assetAmountCborObject as CborInteger).bigIntegerValue()
-                                        nativeAssets.add(NativeAsset(assetName, policyId, assetAmount))
+                    val (utxoLovelace, nativeAssets) =
+                        when (utxoItem) {
+                            is CborInteger -> Pair(utxoItem.bigIntegerValue(), emptyList())
+                            is CborArray -> {
+                                val nativeAssets = mutableListOf<NativeAsset>()
+                                (utxoItem.elementAt(1) as? CborMap)?.let { nativeAssetMap ->
+                                    nativeAssetMap.keySet().forEach { policyIdCborObject ->
+                                        val policyId =
+                                            (policyIdCborObject as CborByteString).byteArrayValue()[0].toHexString()
+                                        val policyMap = nativeAssetMap[policyIdCborObject] as CborMap
+                                        policyMap.entrySet().forEach { (assetNameCborObject, assetAmountCborObject) ->
+                                            val assetName =
+                                                (assetNameCborObject as CborByteString).byteArrayValue()
+                                                    .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
+                                            val assetAmount = (assetAmountCborObject as CborInteger).bigIntegerValue()
+                                            nativeAssets.add(NativeAsset(assetName, policyId, assetAmount))
+                                        }
                                     }
                                 }
+                                Pair(utxoItem.elementToBigInteger(0), nativeAssets.toList())
                             }
-                            Pair(utxoItem.elementToBigInteger(0), nativeAssets.toList())
-                        }
 
-                        else -> {
-                            log.error("Could not convert utxo output lovelace value!")
-                            Pair(BigInteger.ZERO, emptyList())
+                            else -> {
+                                log.error("Could not convert utxo output lovelace value!")
+                                Pair(BigInteger.ZERO, emptyList())
+                            }
                         }
-                    }
 
                     encodedAddress?.let {
                         createdUtxos.add(
@@ -451,8 +465,8 @@ class BlockFetchProtocol(
                                 hash = transactionId,
                                 ix = ix.toLong(),
                                 lovelace = utxoLovelace,
-                                nativeAssets = nativeAssets
-                            )
+                                nativeAssets = nativeAssets,
+                            ),
                         )
                     }
                 }
@@ -491,13 +505,15 @@ class BlockFetchProtocol(
                 (transaction[TX_MINTS_INDEX] as? CborMap)?.entrySet()?.forEach { policyEntry ->
                     val mintPolicyId = (policyEntry.key as CborByteString).byteArrayValue()[0].toHexString()
                     (policyEntry.value as CborMap).entrySet().forEach { nameEntry ->
-                        val mintName = (nameEntry.key as CborByteString).byteArrayValue()
-                            .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
+                        val mintName =
+                            (nameEntry.key as CborByteString).byteArrayValue()
+                                .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
                         val mintAmount = (nameEntry.value as CborInteger).bigIntegerValue()
                         if (mintAmount > BigInteger.ZERO) {
-                            val tokenSet = nativeAssetsToMint[transactionIndex] ?: run {
-                                mutableSetOf<NativeAsset>().also { nativeAssetsToMint[transactionIndex] = it }
-                            }
+                            val tokenSet =
+                                nativeAssetsToMint[transactionIndex] ?: run {
+                                    mutableSetOf<NativeAsset>().also { nativeAssetsToMint[transactionIndex] = it }
+                                }
                             tokenSet.add(NativeAsset(mintName, mintPolicyId, mintAmount))
                         }
                     }
@@ -506,50 +522,56 @@ class BlockFetchProtocol(
 
             (wholeBlockCborArray.elementAt(3) as? CborMap)?.let { blockMetadataMap ->
                 nativeAssetsToMint.forEach { (transactionInBlockIndex, nativeAssets) ->
-                    ((blockMetadataMap[CborInteger.create(transactionInBlockIndex)] as? CborArray)?.elementAt(0) as? CborMap)?.let { metadataMap ->
-                        //log.warn("metadataMap: ${metadataMap.toJavaObject()}")
+                    ((blockMetadataMap[CborInteger.create(transactionInBlockIndex)] as? CborArray)?.elementAt(0) as? CborMap)?.let {
+                            metadataMap ->
+                        // log.warn("metadataMap: ${metadataMap.toJavaObject()}")
                         (metadataMap[NFT_METADATA_KEY] as? CborMap)?.let { nftMetadata ->
-                            //val ftMetadata = metadataMap[CborInteger.create(20)] as? CborMap // TODO handle token decimals
-                            //log.warn("nftMetadata: ${nftMetadata.toJavaObject()}")
+                            // val ftMetadata = metadataMap[CborInteger.create(20)] as? CborMap // TODO handle token decimals
+                            // log.warn("nftMetadata: ${nftMetadata.toJavaObject()}")
                             nativeAssets.forEach { nativeAsset ->
-                                ((nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
-                                    CborTextString.create(String(nativeAsset.name.hexToByteArray()))
-                                ) as? CborMap)
+                                (
+                                    (nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
+                                        CborTextString.create(String(nativeAsset.name.hexToByteArray())),
+                                    ) as? CborMap
+                                )
                                     ?.let inner@{ tokenMetadataDetails ->
-                                        //log.warn("tokenMetadataDetails: ${tokenMetadataDetails.toJavaObject()}")
+                                        // log.warn("tokenMetadataDetails: ${tokenMetadataDetails.toJavaObject()}")
                                         val tokenName =
                                             (tokenMetadataDetails[NFT_METADATA_KEY_NAME] as? CborTextString)?.stringValue()
                                                 ?: return@inner
-                                        val tokenImage = when (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE]) {
-                                            is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborTextString).stringValue()
-                                            is CborArray -> {
-                                                (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborArray).joinToString(
-                                                    separator = ""
-                                                ) {
-                                                    it.toJavaObject().toString()
+                                        val tokenImage =
+                                            when (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE]) {
+                                                is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborTextString).stringValue()
+                                                is CborArray -> {
+                                                    (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborArray).joinToString(
+                                                        separator = "",
+                                                    ) {
+                                                        it.toJavaObject().toString()
+                                                    }
                                                 }
+
+                                                else -> return@inner
+                                            }
+                                        val tokenDesc =
+                                            when (tokenMetadataDetails[NFT_METADATA_KEY_DESC]) {
+                                                is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborTextString).stringValue()
+                                                is CborArray -> {
+                                                    (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborArray).joinToString(
+                                                        separator = " ",
+                                                    ) { it.toJsonString().toString() }
+                                                }
+
+                                                else -> null
                                             }
 
-                                            else -> return@inner
-                                        }
-                                        val tokenDesc = when (tokenMetadataDetails[NFT_METADATA_KEY_DESC]) {
-                                            is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborTextString).stringValue()
-                                            is CborArray -> {
-                                                (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborArray).joinToString(
-                                                    separator = " "
-                                                ) { it.toJsonString().toString() }
-                                            }
-
-                                            else -> null
-                                        }
-
-                                        val nativeAssetMetadata = NativeAssetMetadata(
-                                            assetName = nativeAsset.name,
-                                            assetPolicy = nativeAsset.policy,
-                                            metadataName = tokenName,
-                                            metadataImage = tokenImage,
-                                            metadataDescription = tokenDesc
-                                        )
+                                        val nativeAssetMetadata =
+                                            NativeAssetMetadata(
+                                                assetName = nativeAsset.name,
+                                                assetPolicy = nativeAsset.policy,
+                                                metadataName = tokenName,
+                                                metadataImage = tokenImage,
+                                                metadataDescription = tokenDesc,
+                                            )
                                         nativeAssetsMetadata.add(nativeAssetMetadata)
                                     }
                             }
@@ -568,9 +590,8 @@ class BlockFetchProtocol(
                     createdUtxos,
                     nativeAssetsMetadata,
                     transactionIdsInBlock,
-                )
+                ),
             )
-
         } catch (e: Throwable) {
             log.error("Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}")
             log.error("Exception!", e)

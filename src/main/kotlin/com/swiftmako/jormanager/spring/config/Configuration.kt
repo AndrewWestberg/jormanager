@@ -4,7 +4,18 @@ import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.swiftmako.jormanager.entities.Node
-import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.AddedToCurrentChain
+import com.swiftmako.jormanager.model.Config
+import com.swiftmako.jormanager.model.GenesisByron
+import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.model.NodeStats
+import com.swiftmako.jormanager.model.ProtocolParameters
+import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.RegCert
+import com.swiftmako.jormanager.model.StakeAddressInfo
+import com.swiftmako.jormanager.model.StakeSnapshot
+import com.swiftmako.jormanager.model.TraceAdoptedBlock
+import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
@@ -15,6 +26,8 @@ import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import java.util.concurrent.atomic.AtomicReference
+import javax.sql.DataSource
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
@@ -30,14 +43,10 @@ import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
-import java.util.concurrent.atomic.AtomicReference
-import javax.sql.DataSource
-
 
 @Configuration
 @EnableTransactionManagement
 class Configuration {
-
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     @org.springframework.context.annotation.Lazy(value = false)
@@ -47,7 +56,7 @@ class Configuration {
         @Value("\${spring.datasource.password}") dataSourcePassword: String,
     ): DataSource {
         val hikariConfig = HikariConfig()
-        //hikariConfig.dataSourceClassName = "org.postgresql.ds.PGSimpleDataSource"
+        // hikariConfig.dataSourceClassName = "org.postgresql.ds.PGSimpleDataSource"
         hikariConfig.jdbcUrl = jdbcUrl
         hikariConfig.username = dataSourceUser
         hikariConfig.password = dataSourcePassword
@@ -74,13 +83,11 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getAdoptedBlockAdapter(moshi: Moshi): JsonAdapter<TraceAdoptedBlock> =
-        moshi.adapter(TraceAdoptedBlock::class.java)
+    fun getAdoptedBlockAdapter(moshi: Moshi): JsonAdapter<TraceAdoptedBlock> = moshi.adapter(TraceAdoptedBlock::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getAddedToCurrentChainAdapter(moshi: Moshi): JsonAdapter<AddedToCurrentChain> =
-        moshi.adapter(AddedToCurrentChain::class.java)
+    fun getAddedToCurrentChainAdapter(moshi: Moshi): JsonAdapter<AddedToCurrentChain> = moshi.adapter(AddedToCurrentChain::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -96,7 +103,7 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getConfigAdapter(moshi: Moshi): JsonAdapter<Config> = moshi.adapter(Config::class.java)
+    fun getConfigAdapter(moshi: Moshi): JsonAdapter<Config> = moshi.adapter(Config::class.java).lenient()
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -111,8 +118,7 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getProtocolParametersAdapter(moshi: Moshi): JsonAdapter<ProtocolParameters> =
-        moshi.adapter(ProtocolParameters::class.java)
+    fun getProtocolParametersAdapter(moshi: Moshi): JsonAdapter<ProtocolParameters> = moshi.adapter(ProtocolParameters::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -124,8 +130,7 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getExtendedMetadataAdapter(moshi: Moshi): JsonAdapter<ExtendedMetadata> =
-        moshi.adapter(ExtendedMetadata::class.java)
+    fun getExtendedMetadataAdapter(moshi: Moshi): JsonAdapter<ExtendedMetadata> = moshi.adapter(ExtendedMetadata::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -150,15 +155,22 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun getRegCertAdapter(moshi: Moshi): JsonAdapter<RegCert> = moshi.adapter(RegCert::class.java)
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .addNetworkInterceptor(
-                HttpLoggingInterceptor(object : HttpLoggingInterceptor.Logger {
-                    private val log by lazy { LoggerFactory.getLogger("NETWORK") }
-                    override fun log(message: String) {
-                        log.info(message)
+                HttpLoggingInterceptor(
+                    object : HttpLoggingInterceptor.Logger {
+                        private val log by lazy { LoggerFactory.getLogger("NETWORK") }
+
+                        override fun log(message: String) {
+                            log.info(message)
+                        }
                     }
-                }).setLevel(
+                ).setLevel(
                     HttpLoggingInterceptor.Level.NONE
 //                         HttpLoggingInterceptor.Level.BODY
                 )
@@ -168,7 +180,10 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getRetrofit(client: OkHttpClient, moshi: Moshi): Retrofit {
+    fun getRetrofit(
+        client: OkHttpClient,
+        moshi: Moshi
+    ): Retrofit {
         return Retrofit.Builder()
             .baseUrl("http://127.0.0.1")
             .client(client)

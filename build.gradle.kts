@@ -1,6 +1,7 @@
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.Locale
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
@@ -14,9 +15,9 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "9.0.3-SNAPSHOT"
-java.sourceCompatibility = JavaVersion.VERSION_17
-java.targetCompatibility = JavaVersion.VERSION_17
+version = "10.0.0-SNAPSHOT"
+java.sourceCompatibility = JavaVersion.VERSION_21
+java.targetCompatibility = JavaVersion.VERSION_21
 
 repositories {
     mavenLocal()
@@ -28,19 +29,20 @@ repositories {
 }
 
 kotlin {
-    kotlinDaemonJvmArgs = listOf(
-        "-Dfile.encoding=UTF-8",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.jvm=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED"
-    )
+    kotlinDaemonJvmArgs =
+        listOf(
+            "-Dfile.encoding=UTF-8",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.jvm=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+            "--add-opens=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+        )
 }
 
 dependencies {
@@ -86,7 +88,6 @@ dependencies {
     implementation("io.newm:com.muquit.libsodiumjna.libsodium-jna:${Versions.LIBSODIUM_JNA}")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
 
-
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
@@ -130,12 +131,13 @@ tasks.withType<Test> {
 }
 
 tasks.withType<KotlinCompile> {
-    kotlinOptions {
-        freeCompilerArgs = listOf(
-            "-Xjsr305=strict",
-            "-opt-in=kotlin.RequiresOptIn",
-        )
-        jvmTarget = "17"
+    compilerOptions {
+        freeCompilerArgs =
+            listOf(
+                "-Xjsr305=strict",
+                "-opt-in=kotlin.RequiresOptIn",
+            )
+        jvmTarget.set(JvmTarget.JVM_21)
     }
 }
 
@@ -145,12 +147,12 @@ tasks.register("buildVue") {
     }
 }
 
-//tasks.register("jvmOptsConfFile") {
+// tasks.register("jvmOptsConfFile") {
 //    doFirst {
 //        File("${project.buildDir.absolutePath}/libs/jormanager-${version}.conf")
 //                .writeText("JAVA_OPTS=-XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m")
 //    }
-//}
+// }
 
 tasks {
     springBoot {
@@ -161,4 +163,3 @@ tasks {
         dependsOn("buildVue" /*, "jvmOptsConfFile"*/)
     }
 }
-

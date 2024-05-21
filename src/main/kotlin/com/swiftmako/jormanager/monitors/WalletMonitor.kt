@@ -4,8 +4,12 @@ import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
+import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -30,91 +34,101 @@ import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
-import kotlin.coroutines.CoroutineContext
 
 @Component("walletMonitor")
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
-class WalletMonitor @Autowired constructor(
-    private val nodeRepository: NodeRepository,
-    private val fileRepository: FileRepository,
-    private val walletUtils: WalletUtils,
-    private val webSocketTemplate: SimpMessagingTemplate,
-    @Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long?>,
-    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>
-) : SmartLifecycle, CoroutineScope {
+class WalletMonitor
+    @Autowired
+    constructor(
+        private val nodeRepository: NodeRepository,
+        private val fileRepository: FileRepository,
+        private val walletUtils: WalletUtils,
+        private val webSocketTemplate: SimpMessagingTemplate,
+        @Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long>,
+        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val hostRepository: HostRepository,
+        private val cardanoRepository: CardanoRepository,
+    ) : SmartLifecycle,
+        CoroutineScope {
+        private val log by lazy { LoggerFactory.getLogger("WalletMonitor") }
 
-    private val log by lazy { LoggerFactory.getLogger("WalletMonitor") }
+        private val job = SupervisorJob()
+        override val coroutineContext: CoroutineContext =
+            job + Dispatchers.IO +
+                CoroutineExceptionHandler { _, throwable ->
+                    if (throwable !is CancellationException) {
+                        log.error("Uncaught coroutine exception!", throwable)
+                    }
+                }
 
-    private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
-        if (throwable !is CancellationException) {
-            log.error("Uncaught coroutine exception!", throwable)
+        private var isShuttingDown = false
+
+        override fun isAutoStartup() = true
+
+        override fun isRunning(): Boolean {
+            val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
+            log.info("WalletMonitor isRunning: $isRunning")
+            return isRunning
         }
-    }
 
-    private var isShuttingDown = false
+        override fun start() {
+            log.info("Starting WalletMonitor...")
 
-    override fun isAutoStartup() = true
+            monitorWallet()
+        }
 
-    override fun isRunning(): Boolean {
-        val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
-        log.info("WalletMonitor isRunning: $isRunning")
-        return isRunning
-    }
-
-    override fun start() {
-        log.info("Starting WalletMonitor...")
-
-        monitorWallet()
-    }
-
-    private fun monitorWallet() {
-        launch {
-            var magicString = ""
-            refreshWalletChannel.filterNotNull().buffer(capacity = CONFLATED).collect {
-
-                try {
-                    if (magicString.isBlank()) {
-                        nodeRepository.findDefault()?.let { defaultNode ->
-                            fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
-                                magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                                    "--testnet-magic ${genesis.networkMagic}"
-                                } else {
-                                    "--mainnet"
+        private fun monitorWallet() {
+            launch {
+                var magicString = ""
+                var era = ""
+                refreshWalletChannel.filterNotNull().buffer(capacity = CONFLATED).collect {
+                    try {
+                        if (magicString.isBlank() || era.isBlank()) {
+                            nodeRepository.findDefault()?.let { defaultNode ->
+                                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
+                                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+                                    magicString =
+                                        if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                                            "--testnet-magic ${genesis.networkMagic}"
+                                        } else {
+                                            "--mainnet"
+                                        }
+                                    val defaultHost =
+                                        hostRepository.findByIdOrNull(defaultNode.hostId)
+                                            ?: throw IOException("Host not found for default node!")
+                                    val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                                    era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                                 }
                             }
                         }
-                    }
-                    if (magicString.isNotBlank()) {
-                        // A new block has arrived.
-                        val walletItems = walletUtils.getWalletItems(magicString)
-                        webSocketTemplate.convertAndSend(
-                            "/topic/messages",
-                            SocketResponse.Success(type = "wallet", data = walletItems)
-                        )
-                    }
-                } catch (e: Throwable) {
-                    if (!isShuttingDown) {
-                        log.error("Error monitoring wallet!", e)
+                        if (magicString.isNotBlank() && era.isNotBlank()) {
+                            // A new block has arrived.
+                            val walletItems = walletUtils.getWalletItems(magicString, era)
+                            webSocketTemplate.convertAndSend(
+                                "/topic/messages",
+                                SocketResponse.Success(type = "wallet", data = walletItems)
+                            )
+                        }
+                    } catch (e: Throwable) {
+                        if (!isShuttingDown) {
+                            log.error("Error monitoring wallet!", e)
+                        }
                     }
                 }
             }
+        }
 
+        @OptIn(DelicateCoroutinesApi::class)
+        override fun stop(callback: Runnable) {
+            isShuttingDown = true
+            GlobalScope.launch {
+                job.cancelAndJoin()
+                log.info("WalletMonitor stopped.")
+                callback.run()
+            }
+        }
+
+        override fun stop() {
         }
     }
-
-    @OptIn(DelicateCoroutinesApi::class)
-    override fun stop(callback: Runnable) {
-        isShuttingDown = true
-        GlobalScope.launch {
-            job.cancelAndJoin()
-            log.info("WalletMonitor stopped.")
-            callback.run()
-        }
-    }
-
-    override fun stop() {
-    }
-}
