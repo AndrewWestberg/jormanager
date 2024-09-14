@@ -361,7 +361,11 @@ class NodeController
                                     val content =
                                         if ("Shelley" in stakingRegCert.content) {
                                             // we need to convert the shelley cert to a conway cert
-                                            walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                            walletUtils
+                                                .upgradeShelleyRegcertToConway(
+                                                    stakingRegCert,
+                                                    protocolParameters
+                                                ).content
                                         } else {
                                             stakingRegCert.content
                                         }
@@ -408,7 +412,11 @@ class NodeController
                                         val content =
                                             if ("Shelley" in stakingRegCert.content) {
                                                 // we need to convert the shelley cert to a conway cert
-                                                walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                                walletUtils
+                                                    .upgradeShelleyRegcertToConway(
+                                                        stakingRegCert,
+                                                        protocolParameters
+                                                    ).content
                                             } else {
                                                 stakingRegCert.content
                                             }
@@ -1099,7 +1107,13 @@ class NodeController
                                             )
                                         )
                                         createBulkCredentials(hostConnection, nodeFolder, credentials)
-                                        createSystemdFile(request, host, hostConnection, coreNode.name, 4 + credentials.size)
+                                        createSystemdFile(
+                                            request,
+                                            host,
+                                            hostConnection,
+                                            coreNode.name,
+                                            4 + credentials.size
+                                        )
 
                                         Triple(coreNode.configFileId, coreNode.ekgPort, coreNode.promPort)
                                     } ?: throw IOException("Parent core node not found!")
@@ -1307,7 +1321,11 @@ class NodeController
                                         val content =
                                             if ("Shelley" in stakingRegCert.content) {
                                                 // we need to convert the shelley cert to a conway cert
-                                                walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                                walletUtils
+                                                    .upgradeShelleyRegcertToConway(
+                                                        stakingRegCert,
+                                                        protocolParameters
+                                                    ).content
                                             } else {
                                                 stakingRegCert.content
                                             }
@@ -1353,7 +1371,11 @@ class NodeController
                                             val content =
                                                 if ("Shelley" in stakingRegCert.content) {
                                                     // we need to convert the shelley cert to a conway cert
-                                                    walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                                    walletUtils
+                                                        .upgradeShelleyRegcertToConway(
+                                                            stakingRegCert,
+                                                            protocolParameters
+                                                        ).content
                                                 } else {
                                                     stakingRegCert.content
                                                 }
@@ -1400,7 +1422,7 @@ class NodeController
                                     // 6. create the pool registration certificate
                                     val poolRegcertCommand =
                                         StringBuilder().apply {
-                                            append("${defaultHost.cardanoCliPath} stake-pool registration-certificate ")
+                                            append("${defaultHost.cardanoCliPath} $era stake-pool registration-certificate ")
                                             append("--cold-verification-key-file /tmp/core.node.vkey ")
                                             append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
                                             append("--pool-pledge ${request.poolPledge} ")
@@ -1950,7 +1972,11 @@ class NodeController
                                 val content =
                                     if ("Shelley" in stakingRegCert.content) {
                                         // we need to convert the shelley cert to a conway cert
-                                        walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                        walletUtils
+                                            .upgradeShelleyRegcertToConway(
+                                                stakingRegCert,
+                                                protocolParameters
+                                            ).content
                                     } else {
                                         stakingRegCert.content
                                     }
@@ -1996,7 +2022,11 @@ class NodeController
                                     val content =
                                         if ("Shelley" in stakingRegCert.content) {
                                             // we need to convert the shelley cert to a conway cert
-                                            walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                            walletUtils
+                                                .upgradeShelleyRegcertToConway(
+                                                    stakingRegCert,
+                                                    protocolParameters
+                                                ).content
                                         } else {
                                             stakingRegCert.content
                                         }
@@ -2248,7 +2278,7 @@ class NodeController
                         // 6. create the pool registration certificate
                         val poolRegcertCommand =
                             StringBuilder().apply {
-                                append("${defaultHost.cardanoCliPath} stake-pool registration-certificate ")
+                                append("${defaultHost.cardanoCliPath} $era stake-pool registration-certificate ")
                                 append("--cold-verification-key-file /tmp/core.node.vkey ")
                                 append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
                                 append("--pool-pledge ${node.poolPledge} ")
@@ -2493,7 +2523,11 @@ class NodeController
                                 val content =
                                     if ("Shelley" in stakingRegCert.content) {
                                         // we need to convert the shelley cert to a conway cert
-                                        walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                        walletUtils
+                                            .upgradeShelleyRegcertToConway(
+                                                stakingRegCert,
+                                                protocolParameters
+                                            ).content
                                     } else {
                                         stakingRegCert.content
                                     }
@@ -2539,7 +2573,11 @@ class NodeController
                                     val content =
                                         if ("Shelley" in stakingRegCert.content) {
                                             // we need to convert the shelley cert to a conway cert
-                                            walletUtils.upgradeShelleyRegcertToConway(stakingRegCert, protocolParameters).content
+                                            walletUtils
+                                                .upgradeShelleyRegcertToConway(
+                                                    stakingRegCert,
+                                                    protocolParameters
+                                                ).content
                                         } else {
                                             stakingRegCert.content
                                         }
@@ -2595,7 +2633,7 @@ class NodeController
                         // 6. create the pool registration certificate
                         val poolRegcertCommand =
                             StringBuilder().apply {
-                                append("${defaultHost.cardanoCliPath} stake-pool registration-certificate ")
+                                append("${defaultHost.cardanoCliPath} $era stake-pool registration-certificate ")
                                 append("--cold-verification-key-file /tmp/core.node.vkey ")
                                 append("--vrf-verification-key-file /tmp/core.vrf.vkey ")
                                 append("--pool-pledge ${node.poolPledge} ")
@@ -2806,7 +2844,7 @@ class NodeController
 
                     // generate dereg cert
                     defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} conway stake-pool deregistration-certificate --cold-verification-key-file /tmp/core.node.vkey --epoch ${request.retireEpoch} --out-file /tmp/core.dereg-cert"
+                        "${defaultHost.cardanoCliPath} $era stake-pool deregistration-certificate --cold-verification-key-file /tmp/core.node.vkey --epoch ${request.retireEpoch} --out-file /tmp/core.dereg-cert"
                     )
                     certificates.append("--certificate /tmp/core.dereg-cert ")
 
@@ -3358,8 +3396,10 @@ class NodeController
                     ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
                     ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "shelley-genesis.json",""")
                     ?.replace(Regex(""""PeerSharing": .*"""), """"PeerSharing": $peerSharing,""")
-                    ?.replace(Regex(""""TraceBlockFetchDecisions":.*(true|false),"""), """"TraceBlockFetchDecisions": true,""")
                     ?.replace(
+                        Regex(""""TraceBlockFetchDecisions":.*(true|false),"""),
+                        """"TraceBlockFetchDecisions": true,"""
+                    )?.replace(
                         Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
                         """
                                                 |  "defaultScribes": [
