@@ -5,6 +5,7 @@ build/
 !**/src/main/**
 !**/src/test/**
 src/main/resources/static/**
+.kotlin
 
 ### STS ###
 .apt_generated
