@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "10.1.0-SNAPSHOT"
+version = "10.1.1-SNAPSHOT"
 java.sourceCompatibility = JavaVersion.VERSION_21
 java.targetCompatibility = JavaVersion.VERSION_21
 
@@ -141,11 +141,24 @@ tasks.withType<KotlinCompile> {
     }
 }
 
-tasks.register("buildVue") {
-    project.exec {
-        commandLine = listOf("/bin/bash", "./vue/deploy.sh")
+abstract class BuildVueTask
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations
+    ) : DefaultTask() {
+        init {
+            group = "build"
+            description = "Builds the Vue.js frontend"
+        }
+
+        @TaskAction
+        fun buildVue() {
+            execOperations.exec {
+                commandLine("/bin/bash", "./vue/deploy.sh")
+            }
+        }
     }
-}
+tasks.register<BuildVueTask>("buildVue")
 
 // tasks.register("jvmOptsConfFile") {
 //    doFirst {

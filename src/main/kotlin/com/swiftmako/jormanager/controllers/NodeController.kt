@@ -1495,7 +1495,7 @@ class NodeController
 
                                     // 10. Sign the transaction
                                     defaultHostConnection.command(
-                                        "${defaultHost.cardanoCliPath} transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
+                                        "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
                                     )
 
                                     runBlocking {
