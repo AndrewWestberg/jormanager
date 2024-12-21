@@ -58,6 +58,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.COROUTINES}")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${Versions.COROUTINES}")
 
+    implementation("io.github.oshai:kotlin-logging:${Versions.KOTLIN_LOGGING}")
+
     implementation("com.hierynomus:sshj:${Versions.SSHJ}")
     implementation("org.jsoup:jsoup:${Versions.JSOUP}")
     implementation("com.squareup.okhttp3:okhttp:${Versions.OKHTTP}")

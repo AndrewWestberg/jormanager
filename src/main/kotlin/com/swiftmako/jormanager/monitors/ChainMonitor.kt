@@ -17,11 +17,14 @@ import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.utils.CardanoUtils
+import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.network.selector.ActorSelectorManager
 import io.ktor.network.sockets.InetSocketAddress
 import io.ktor.network.sockets.TypeOfService
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.connection
+import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +35,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
@@ -40,8 +42,6 @@ import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
-import java.io.IOException
-import kotlin.coroutines.CoroutineContext
 
 @Component("chainMonitor")
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -58,7 +58,7 @@ class ChainMonitor @Autowired constructor(
     private val ledgerDao: LedgerDao,
 ) : SmartLifecycle, CoroutineScope {
 
-    private val log by lazy { LoggerFactory.getLogger("ChainMonitor") }
+    private val log by lazy { KotlinLogging.logger("ChainMonitor") }
 
     private var isShuttingDown = false
 
@@ -66,7 +66,7 @@ class ChainMonitor @Autowired constructor(
     override val coroutineContext: CoroutineContext =
         job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
             if (throwable !is CancellationException) {
-                log.error("Uncaught coroutine exception!", throwable)
+                log.error(throwable) { "Uncaught coroutine exception!" }
             }
         }
 
@@ -74,12 +74,12 @@ class ChainMonitor @Autowired constructor(
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
-        log.info("ChainMonitor isRunning: $isRunning")
+        log.info { "ChainMonitor isRunning: $isRunning" }
         return isRunning
     }
 
     override fun start() {
-        log.info("Starting ChainMonitor...")
+        log.info { "Starting ChainMonitor..." }
         monitorChain()
     }
 
@@ -109,7 +109,7 @@ class ChainMonitor @Autowired constructor(
                                 typeOfService = TypeOfService.IPTOS_LOWDELAY
                             }
                             .use { socket ->
-                                log.debug("ChainMonitor Socket connected")
+                                log.debug { "ChainMonitor Socket connected" }
                                 val socketConnection = socket.connection()
                                 mux = Mux(socketConnection)
                                 mux?.execute(HandshakeProtocol(networkMagic))
@@ -135,30 +135,30 @@ class ChainMonitor @Autowired constructor(
                     }
                 } catch (e: Throwable) {
                     if (!isShuttingDown) {
-                        log.error("ChainMonitor error", e)
+                        log.error(e) { "ChainMonitor error" }
                     }
                     mux?.shutdownGracefully()
                     mux = null
                 }
                 if (!isShuttingDown) {
-                    log.info("ChainMonitor Socket not connected. Wait 10 seconds to reconnect...")
+                    log.info { "ChainMonitor Socket not connected. Wait 10 seconds to reconnect..." }
                     delay(RECONNECT_DELAY_MS)
                 } else {
-                    log.info("ChainMonitor Socket not connected. Shutting down...")
+                    log.info { "ChainMonitor Socket not connected. Shutting down..." }
                 }
             }
         }
-        log.info("... ChainMonitor start complete.")
+        log.info { "... ChainMonitor start complete." }
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    override fun stop(callback: java.lang.Runnable) {
+    override fun stop(callback: Runnable) {
         isShuttingDown = true
         GlobalScope.launch {
             mux?.shutdownGracefully()
             delay(3000)
             job.cancelChildren()
-            log.info("ChainMonitor stopped.")
+            log.info { "ChainMonitor stopped." }
             callback.run()
         }
     }

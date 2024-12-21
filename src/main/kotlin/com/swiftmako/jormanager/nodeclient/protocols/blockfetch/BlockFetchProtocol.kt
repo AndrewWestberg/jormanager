@@ -1,8 +1,18 @@
 package com.swiftmako.jormanager.nodeclient.protocols.blockfetch
 
 import com.firehose.controllers.nodeclient.protocol.Agency
-import com.google.iot.cbor.*
-import com.swiftmako.jormanager.ktx.*
+import com.google.iot.cbor.CborArray
+import com.google.iot.cbor.CborByteString
+import com.google.iot.cbor.CborInteger
+import com.google.iot.cbor.CborMap
+import com.google.iot.cbor.CborObject
+import com.google.iot.cbor.CborReader
+import com.google.iot.cbor.CborTextString
+import com.swiftmako.jormanager.ktx.elementToBigInteger
+import com.swiftmako.jormanager.ktx.elementToByteArray
+import com.swiftmako.jormanager.ktx.elementToLong
+import com.swiftmako.jormanager.ktx.hexToByteArray
+import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.CreatedUtxo
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.NativeAssetMetadata
@@ -30,11 +40,7 @@ import com.swiftmako.jormanager.utils.Constants.STAKE_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_MAINNET
 import com.swiftmako.jormanager.utils.Constants.STAKE_PAYMENT_ADDRESS_PREFIX_TESTNET
 import com.swiftmako.jormanager.utils.TransactionCache
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.first
-import org.slf4j.LoggerFactory
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
@@ -42,6 +48,17 @@ import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.min
 import kotlin.system.exitProcess
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
@@ -72,7 +89,7 @@ class BlockFetchProtocol(
         // private val FT_METADATA_KEY_DESC = CborTextString.create("desc")
     }
 
-    private val log by lazy { LoggerFactory.getLogger("BlockFetchProtocol") }
+    private val log by lazy { KotlinLogging.logger("BlockFetchProtocol") }
 
     override val RX_BUFFER_SIZE: Int = 8_388_608 // 8mb
 
@@ -80,20 +97,19 @@ class BlockFetchProtocol(
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext =
-        job +
-            Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher() +
-            CoroutineExceptionHandler { _, throwable ->
-                if (throwable !is CancellationException) {
-                    log.error("Uncaught coroutine exception!", throwable)
+        job + Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher() +
+                CoroutineExceptionHandler { _, throwable ->
+                    if (throwable !is CancellationException) {
+                        log.error(throwable) { "Uncaught coroutine exception!" }
+                    }
                 }
-            }
     private var commitBlocksJob: Job? = null
 
     private var state = State.Idle
         set(value) {
             field = value
             if (!_agencyFlow.tryEmit(agency)) {
-                log.error("Failed to emit Agency!")
+                log.error { "Failed to emit Agency!" }
             }
         }
 
@@ -150,10 +166,10 @@ class BlockFetchProtocol(
                     val endChainBlock =
                         chainRepository.findByBlockNumber(
                             startChainBlock.blockNumber +
-                                min(
-                                    chainBlock.blockNumber - startChainBlock.blockNumber,
-                                    BLOCK_BUFFER_SIZE,
-                                ),
+                                    min(
+                                        chainBlock.blockNumber - startChainBlock.blockNumber,
+                                        BLOCK_BUFFER_SIZE,
+                                    ),
                         )!!
                     val payload = muxByteBufferPool.borrow()
                     // log.warn("MsgRequestRange at beginning. from ${startChainBlock.blockNumber} to ${endChainBlock.blockNumber}")
@@ -206,9 +222,7 @@ class BlockFetchProtocol(
                         try {
                             readDataItem() as CborArray
                         } catch (e: Throwable) {
-                            log.error(
-                                "Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}",
-                            )
+                            log.error { "Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}" }
                             throw e
                         }
                     val messageId: Long = cborArray.elementToLong(0)
@@ -216,7 +230,7 @@ class BlockFetchProtocol(
                         State.Busy -> {
                             when (messageId) {
                                 MsgNoBlocks.MESSAGE_ID -> {
-                                    log.warn("MsgNoBlocks")
+                                    log.warn { "MsgNoBlocks" }
                                     state = State.Idle
                                 }
 
@@ -322,9 +336,7 @@ class BlockFetchProtocol(
 //                log.warn("transaction cbor: ${transaction.toCborByteArray().toHexString()}")
 
                 TransactionCache.get(transactionId)?.let {
-                    if (log.isDebugEnabled) {
-                        log.debug("Our transaction $transactionId was seen in a block!")
-                    }
+                    log.debug { "Our transaction $transactionId was seen in a block!" }
                     // Store that our submitted transaction was included in a block in case this block is rolled back
                     // later.
                     transactionIdsInBlock.add(transactionId)
@@ -409,7 +421,7 @@ class BlockFetchProtocol(
                     } else {
                         // do not save unknown address utxos
                         // encodedAddress = addressBytes.toHexString()
-                        log.trace("Unknown Address: ${addressBytes.toHexString()}")
+                        log.trace { "Unknown Address: ${addressBytes.toHexString()}" }
                     }
 
                     // Lovelace and native assets sent along with this UTxO output
@@ -452,7 +464,7 @@ class BlockFetchProtocol(
                             }
 
                             else -> {
-                                log.error("Could not convert utxo output lovelace value!")
+                                log.error { "Could not convert utxo output lovelace value!" }
                                 Pair(BigInteger.ZERO, emptyList())
                             }
                         }
@@ -522,18 +534,17 @@ class BlockFetchProtocol(
 
             (wholeBlockCborArray.elementAt(3) as? CborMap)?.let { blockMetadataMap ->
                 nativeAssetsToMint.forEach { (transactionInBlockIndex, nativeAssets) ->
-                    ((blockMetadataMap[CborInteger.create(transactionInBlockIndex)] as? CborArray)?.elementAt(0) as? CborMap)?.let {
-                            metadataMap ->
+                    ((blockMetadataMap[CborInteger.create(transactionInBlockIndex)] as? CborArray)?.elementAt(0) as? CborMap)?.let { metadataMap ->
                         // log.warn("metadataMap: ${metadataMap.toJavaObject()}")
                         (metadataMap[NFT_METADATA_KEY] as? CborMap)?.let { nftMetadata ->
                             // val ftMetadata = metadataMap[CborInteger.create(20)] as? CborMap // TODO handle token decimals
                             // log.warn("nftMetadata: ${nftMetadata.toJavaObject()}")
                             nativeAssets.forEach { nativeAsset ->
                                 (
-                                    (nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
-                                        CborTextString.create(String(nativeAsset.name.hexToByteArray())),
-                                    ) as? CborMap
-                                )
+                                        (nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
+                                            CborTextString.create(String(nativeAsset.name.hexToByteArray())),
+                                        ) as? CborMap
+                                        )
                                     ?.let inner@{ tokenMetadataDetails ->
                                         // log.warn("tokenMetadataDetails: ${tokenMetadataDetails.toJavaObject()}")
                                         val tokenName =
@@ -593,8 +604,8 @@ class BlockFetchProtocol(
                 ),
             )
         } catch (e: Throwable) {
-            log.error("Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}")
-            log.error("Exception!", e)
+            log.error { "Error Processing Block cbor!: ${cborArray.toCborByteArray().toHexString()}" }
+            log.error(e) { "Exception!" }
             exitProcess(1)
         }
     }
