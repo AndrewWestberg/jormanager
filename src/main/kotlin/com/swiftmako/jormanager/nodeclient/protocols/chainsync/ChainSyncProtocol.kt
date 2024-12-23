@@ -16,6 +16,12 @@ import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
+import java.io.ByteArrayInputStream
+import java.lang.Long.max
+import java.nio.ByteBuffer
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.floor
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,12 +39,6 @@ import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.ISODateTimeFormat
 import org.slf4j.LoggerFactory
-import java.io.ByteArrayInputStream
-import java.lang.Long.max
-import java.nio.ByteBuffer
-import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.floor
 
 class ChainSyncProtocol(
     private val host: Host,
@@ -93,7 +93,7 @@ class ChainSyncProtocol(
         // Pair(25530581L, "d9a9004c29643ff43cfe217f0e59017be359c6b864e66e795c884c5d3a7bf470".hexToByteArray()),
 
         Pair(4492799L, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457".hexToByteArray()), //mainnet
-        Pair(1598399L, "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4".hexToByteArray()), //testnet
+        Pair(84242L, "45899e8002b27df291e09188bfe3aeb5397ac03546a7d0ead93aa2500860f1af".hexToByteArray()), // preprod
         Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), //guild
     )
 
@@ -132,7 +132,11 @@ class ChainSyncProtocol(
                     State.CanAwait
                 } else {
                     log.trace("MsgFindIntersect")
-                    MsgFindIntersect(tipToIntersect + lastByronBlocks).writeToBuffer(payload)
+                    if (tipToIntersect.isNotEmpty()) {
+                        MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
+                    } else {
+                        MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
+                    }
                     _tipToIntersect = null
                     State.Intersect
                 }
@@ -229,13 +233,9 @@ class ChainSyncProtocol(
 
                                 MsgIntersectNotFound.MESSAGE_ID -> {
                                     log.info("MsgIntersectNotFound: ${cborArray.toCborByteArray().toHexString()}")
-//                            // Jump to the tip
-//                            val (slot, hash) = ((cborArray.elementAt(1) as CborArray).elementAt(0) as CborArray).let {
-//                                Pair(it.elementToLong(0), (it.elementAt(1) as CborByteString).byteArrayValue())
-//                            }
-//                            intersectSlot = slot
-//                            intersectHash = hash
-                                    isIntersectFound = true
+                                    // start from genesis if we can't find an intersect and we passed on existing
+                                    // tipToIntersect blocks
+                                    isIntersectFound = tipToIntersect.isEmpty()
                                     state = State.Idle
                                 }
                             }

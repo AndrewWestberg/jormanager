@@ -183,7 +183,7 @@ class BlockFetchProtocol(
                     val payload = muxByteBufferPool.borrow()
                     // we have blocks to fetch
                     val difference = chainBlock.blockNumber - blockFetch.blockNumber
-                    if (difference == 0L) {
+                    if (difference <= 0L) {
                         // re-fetch the tip block. We must have rolled back
                         val point = Pair(chainBlock.slotNumber, chainBlock.hash.hexToByteArray())
                         // log.warn("MsgRequestRange at tip. from ${chainBlock.blockNumber} to ${chainBlock.blockNumber}")
