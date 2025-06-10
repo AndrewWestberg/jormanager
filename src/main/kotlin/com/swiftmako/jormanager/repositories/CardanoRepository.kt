@@ -26,7 +26,7 @@ class CardanoRepository
             val hostConnection = HostConnection(host, node)
             val tipJson =
                 hostConnection
-                    .command("${host.cardanoCliPath} query tip $magicString $socketPath")
+                    .command("${host.cardanoCliPath} query tip $magicString $socketPath --output-json")
                     .trim()
             val tip = queryTipAdapter.fromJson(tipJson)
             val era = requireNotNull(tip?.era?.lowercase()) { "Era not found!" }

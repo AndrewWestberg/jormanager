@@ -2,10 +2,10 @@ package com.swiftmako.jormanager.controllers
 
 import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
-import org.junit.jupiter.api.Test
 import java.security.SecureRandom
 import kotlin.math.abs
 import kotlin.math.round
+import org.junit.jupiter.api.Test
 
 class WalletTest {
 
@@ -21,7 +21,8 @@ class WalletTest {
                 val user1Amount = round((user1Percentage / 100.0) * amountToSplit).toLong()
                 val spentPercentage = user1Percentage
                 val spentAmount = user1Amount
-                val user2Amount = round(((user2Percentage + spentPercentage) / 100.0) * amountToSplit).toLong() - spentAmount
+                val user2Amount =
+                    round(((user2Percentage + spentPercentage) / 100.0) * amountToSplit).toLong() - spentAmount
 
                 assertThat(user1Amount + user2Amount).isEqualTo(amountToSplit)
 
@@ -103,5 +104,48 @@ class WalletTest {
         println("$utxos")
         assertThat(utxos.size).isEqualTo(3)
         assertThat(utxos[0].nativeAssets.size).isEqualTo(4)
+    }
+
+    @Test
+    fun `test 10_4_1 wallet parsing`() {
+        val json = """
+            {
+                "01a0be6c18aa32bb48bafe60c49e1f1213f628b552fd3257274cf58b96c7cd22#1": {
+                    "address": "addr1v88v00pdjyumu8xseh4ek04jtau9mvhnq73gq8p8jatfgnqafuxzv",
+                    "datum": null,
+                    "datumhash": null,
+                    "inlineDatum": null,
+                    "inlineDatumRaw": null,
+                    "referenceScript": null,
+                    "value": {
+                        "682fe60c9918842b3323c43b5144bc3d52a23bd2fb81345560d73f63": {
+                            "4e45574d": 149764655
+                        },
+                        "lovelace": 1043020
+                    }
+                },
+                "0274ef4c0d7531bb21c15f6744668d705a436355b5ce32959b4b7665f09eb293#1": {
+                    "address": "addr1v88v00pdjyumu8xseh4ek04jtau9mvhnq73gq8p8jatfgnqafuxzv",
+                    "datum": null,
+                    "datumhash": null,
+                    "inlineDatum": null,
+                    "inlineDatumRaw": null,
+                    "referenceScript": null,
+                    "value": {
+                        "682fe60c9918842b3323c43b5144bc3d52a23bd2fb81345560d73f63": {
+                            "4e45574d": 5050500
+                        },
+                        "lovelace": 1043020
+                    }
+                }
+            }
+        """.trimIndent()
+
+        val adapter = QueryUtxoJsonAdapter()
+        val utxos = adapter.fromJson(json)!!
+
+        println("$utxos")
+        assertThat(utxos.size).isEqualTo(2)
+        assertThat(utxos[0].nativeAssets.size).isEqualTo(1)
     }
 }

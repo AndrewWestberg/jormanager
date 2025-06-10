@@ -278,7 +278,7 @@ class NodeController
                             val protocolParamsJson =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                        "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                                     ).trim()
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters =
@@ -293,7 +293,7 @@ class NodeController
                             val signingKeys = StringBuilder()
                             transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                             val feePayerAccount =
-                                walletRepository.findByIdOrNull(request.registrationFeesAccount)
+                                walletRepository.findByIdOrNull(request.registrationFeesAccount!!)
                                     ?: throw IOException("Registration fees account not found!")
                             val utxos =
                                 walletUtils.getUtxos(
@@ -325,7 +325,7 @@ class NodeController
 
                             val queryTipString =
                                 defaultHostConnection
-                                    .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath")
+                                    .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
                             transaction.append("--invalid-hereafter $ttl ")
@@ -333,7 +333,7 @@ class NodeController
 
                             // 2. Register owner address on the chain if not yet registered
                             val ownerStakingAccount =
-                                walletRepository.findByIdOrNull(request.ownerStakingAccount)
+                                walletRepository.findByIdOrNull(request.ownerStakingAccount!!)
                                     ?: throw IOException("Owner staking account not found!")
                             defaultHostConnection.commandWriteFile(
                                 "/tmp/owner.staking.skey",
@@ -383,7 +383,7 @@ class NodeController
 
                             // 3. Register rewards address on the chain if not yet registered
                             val rewardsStakingAccount =
-                                walletRepository.findByIdOrNull(request.rewardsStakingAccount)
+                                walletRepository.findByIdOrNull(request.rewardsStakingAccount!!)
                                     ?: throw IOException("Rewards staking account not found!")
                             defaultHostConnection.commandWriteFile(
                                 "/tmp/rewards.staking.skey",
@@ -654,11 +654,11 @@ class NodeController
                             val poolId =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-format hex"
+                                        "${defaultHost.cardanoCliPath} $era stake-pool id --cold-verification-key-file /tmp/core.node.vkey --output-hex"
                                     ).trim()
                             log.debug("poolId: $poolId")
                             val isPoolOnChain =
-                                isPoolOnChain(defaultHost, defaultHostConnection, poolId, magicString, socketPath)
+                                isPoolOnChain(defaultHost, defaultHostConnection, poolId, era, magicString, socketPath)
 
                             // 5. Create and upload metadata files
                             var itnPrivateKeyId = -1L
@@ -933,7 +933,7 @@ class NodeController
                             val feesString =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                                        "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                                     ).trim()
                             val fees = feesString.split(" ")[0].toBigInteger()
                             log.debug("fees: $fees")
@@ -978,7 +978,7 @@ class NodeController
                                     val txid =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody"
+                                                "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                             ).trim()
                                     val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                     TransactionCache.put(txid, txSigned)
@@ -1032,7 +1032,7 @@ class NodeController
                                     Triple(configFileId, ekgPort, promPort)
                                 } else {
                                     // pool
-                                    nodeRepository.findByIdOrNull(request.parentId)?.let { coreNode ->
+                                    nodeRepository.findByIdOrNull(request.parentId!!)?.let { coreNode ->
                                         parentId = coreNode.id
                                         val nodeFolder = "${host.nodeHomePath}${File.separator}${coreNode.name}"
                                         createKesVrfOpcert(
@@ -1237,7 +1237,7 @@ class NodeController
                                 val protocolParamsJson =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                            "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                                         ).trim()
                                 defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                                 val protocolParameters =
@@ -1282,12 +1282,12 @@ class NodeController
                                 // We'll replace this with the actual change to return later
                                 transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
 
-                                val queryTipString =
+                                val queryTipJson =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath"
+                                            "${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json"
                                         ).trim()
-                                val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
+                                val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                                 transaction.append("--invalid-hereafter $ttl ")
                                 transaction.append("--fee 200000 ")
 
@@ -1462,7 +1462,7 @@ class NodeController
                                     val feesString =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                                             ).trim()
                                     val fees = feesString.split(" ")[0].toBigInteger()
                                     log.debug("fees: $fees")
@@ -1507,7 +1507,7 @@ class NodeController
                                             val txid =
                                                 defaultHostConnection
                                                     .command(
-                                                        "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody"
+                                                        "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                                     ).trim()
                                             val txSigned =
                                                 defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
@@ -1888,7 +1888,7 @@ class NodeController
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                     val protocolParameters =
@@ -1933,11 +1933,11 @@ class NodeController
                     // We'll replace this with the actual change to return later
                     transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
 
-                    val queryTipString =
+                    val queryTipJson =
                         defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath")
+                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
+                    val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
                     transaction.append("--fee 200000 ")
 
@@ -2310,7 +2310,7 @@ class NodeController
                         val feesString =
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                                 ).trim()
                         val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
@@ -2355,7 +2355,7 @@ class NodeController
                                 val txid =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody"
+                                            "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
                                 val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
@@ -2438,7 +2438,7 @@ class NodeController
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                     val protocolParameters =
@@ -2483,11 +2483,11 @@ class NodeController
                     // We'll replace this with the actual change to return later
                     transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
 
-                    val queryTipString =
+                    val queryTipJson =
                         defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath")
+                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
+                    val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
                     transaction.append("--fee 200000 ")
 
@@ -2627,7 +2627,7 @@ class NodeController
                         val metadataHash =
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} conway stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json"
+                                    "${defaultHost.cardanoCliPath} $era stake-pool metadata-hash --pool-metadata-file /tmp/metadata.json"
                                 ).trim()
 
                         // 6. create the pool registration certificate
@@ -2665,7 +2665,7 @@ class NodeController
                         val feesString =
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                                 ).trim()
                         val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
@@ -2698,19 +2698,19 @@ class NodeController
 
                         // 10. Sign the transaction
                         defaultHostConnection.command(
-                            "${defaultHost.cardanoCliPath} conway transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
+                            "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
                         )
 
                         runBlocking {
                             TransactionCache.withLock {
                                 // 11. Submit the transaction
                                 defaultHostConnection.command(
-                                    "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
+                                    "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
                                 )
                                 val txid =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/transaction.txbody"
+                                            "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
                                 val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
@@ -2783,7 +2783,7 @@ class NodeController
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath"
+                                "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
@@ -2822,11 +2822,11 @@ class NodeController
                     // We'll replace this with the actual change to return later
                     transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
 
-                    val queryTipString =
+                    val queryTipJson =
                         defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath")
+                            .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
                             .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
+                    val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
                     transaction.append("--fee 200000 ")
 
@@ -2860,7 +2860,7 @@ class NodeController
                     val feesString =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0"
+                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                             ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
@@ -2945,7 +2945,7 @@ class NodeController
                                 val txid =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/transaction.txbody"
+                                            "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
                                 val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
@@ -2992,13 +2992,14 @@ class NodeController
             defaultHost: Host,
             defaultHostConnection: HostConnection,
             poolId: String,
+            era: String,
             magicString: String,
             socketPath: String,
         ): Boolean {
             val poolIdBech32 = Bech32.encode("pool", poolId.hexToByteArray())
             val pools =
                 defaultHostConnection
-                    .command("${defaultHost.cardanoCliPath} conway query stake-pools $magicString $socketPath")
+                    .command("${defaultHost.cardanoCliPath} $era query stake-pools $magicString $socketPath --output-text")
                     .trim()
             return poolIdBech32 in pools
         }

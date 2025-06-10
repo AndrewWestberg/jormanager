@@ -140,7 +140,7 @@ class NodeMonitor @Autowired constructor(
 
                             val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}_pools.json"
                             defaultHostConnection.bashCommand(
-                                "${defaultHost.cardanoCliPath} query ledger-state $magicString $socketPath | jq -c > $ledgerStateFile",
+                                "${defaultHost.cardanoCliPath} conway query ledger-state $magicString $socketPath --output-json | jq -c > $ledgerStateFile",
                                 timeoutSecs = 300L
                             )
                             val poolLedger = defaultHostConnection.commandGetFileBufferedSource(ledgerStateFile)

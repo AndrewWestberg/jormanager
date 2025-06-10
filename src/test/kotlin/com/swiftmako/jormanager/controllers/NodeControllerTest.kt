@@ -53,6 +53,7 @@ class NodeControllerTest {
             txSignedAdapter = mockk(relaxed = true),
             ledgerDao = mockk(relaxed = true),
             cardanoUtils = mockk(relaxed = true),
+            cardanoRepository = mockk(relaxed = true),
         )
 
         val request = CreateNodeRequest(

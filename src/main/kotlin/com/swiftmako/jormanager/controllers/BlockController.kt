@@ -126,7 +126,7 @@ class BlockController
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                     val protocolParameters =
@@ -249,7 +249,7 @@ class BlockController
                                     val tipJson =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath"
+                                                "${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json"
                                             ).trim()
                                     val tip = queryTipAdapter.fromJson(tipJson)
                                     log.info("Era: ${tip?.era}")
@@ -267,7 +267,7 @@ class BlockController
                                     val stakeSnapshotJson =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era query stake-snapshot $poolIdsString $magicString $socketPath"
+                                                "${defaultHost.cardanoCliPath} $era query stake-snapshot $poolIdsString $magicString $socketPath --output-json"
                                             ).trim()
                                     val stakeSnapshot =
                                         stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
@@ -291,7 +291,7 @@ class BlockController
                                     val protocolParamsJson =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath"
+                                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                                             ).trim()
                                     val protocolParameters =
                                         protocolParamsAdapter.fromJson(protocolParamsJson)

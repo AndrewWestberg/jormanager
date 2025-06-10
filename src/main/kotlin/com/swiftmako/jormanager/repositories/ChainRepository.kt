@@ -45,6 +45,6 @@ interface ChainRepository : JpaRepository<ChainBlock, Long> {
     @Query("DELETE FROM ChainBlock c WHERE c.etaV=''")
     fun deleteEmptyEta()
 
-    @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber < :slot ORDER BY c.slotNumber DESC")
+    @Query("SELECT c FROM ChainBlock c WHERE c.slotNumber < :slot AND :slot - c.slotNumber < 480 ORDER BY c.slotNumber DESC")
     fun findFirstBeforeSlot(@Param("slot") slot: Long, pageable: Pageable = PageRequest.of(0, 1)): List<ChainBlock>
 }
