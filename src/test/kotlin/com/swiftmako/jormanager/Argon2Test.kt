@@ -13,4 +13,14 @@ class Argon2Test {
         val encoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
         assertThat(encoder.matches("password", hash)).isTrue()
     }
+
+    @Test
+    fun testEncodeArgon2Password() {
+        val encoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
+        val password = "password"
+        val encoded = encoder.encode(password)
+        assertThat(encoded).isNotEmpty()
+        assertThat(encoder.matches(password, encoded)).isTrue()
+        println("jormanager.spendingpassword=$encoded")
+    }
 }

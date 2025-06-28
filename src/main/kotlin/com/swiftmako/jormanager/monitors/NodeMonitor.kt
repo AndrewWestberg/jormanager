@@ -16,11 +16,31 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.services.EkgService
-import kotlinx.coroutines.*
+import java.io.IOException
+import java.net.ConnectException
+import java.net.DatagramSocket
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.CoroutineContext
+import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.Channel.Factory.BUFFERED
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.schmizz.sshj.SSHClient
@@ -37,14 +57,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 import retrofit2.Retrofit
-import java.io.IOException
-import java.net.ConnectException
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.CoroutineContext
-import kotlin.random.Random
 
 
 @Component("nodeMonitor")
@@ -76,7 +88,7 @@ class NodeMonitor @Autowired constructor(
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
     private var isShuttingDown = false
 
-    override fun isAutoStartup() = true
+    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode")
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0

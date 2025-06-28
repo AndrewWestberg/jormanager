@@ -70,7 +70,7 @@ class ChainMonitor @Autowired constructor(
             }
         }
 
-    override fun isAutoStartup() = true
+    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode")
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0

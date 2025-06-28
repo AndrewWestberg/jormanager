@@ -88,7 +88,7 @@ constructor(
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
     private var isShuttingDown = false
 
-    override fun isAutoStartup() = true
+    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode")
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0

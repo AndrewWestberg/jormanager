@@ -242,6 +242,26 @@ constructor(
     fun isValidSpendingPassword(spendingPassword: String): Boolean =
         argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)
 
+    fun decryptSKeyContentForRepair(
+        ciphertext: String,
+        spendingPassword: String
+    ): String? {
+        return try {
+            val textEncryptor = Encryptors.delux(spendingPassword, S)
+            textEncryptor.decrypt(ciphertext)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun encryptSKeyContentForRepair(
+        cleartext: String,
+        spendingPassword: String
+    ): String {
+        val textEncryptor = Encryptors.delux(spendingPassword, S)
+        return textEncryptor.encrypt(cleartext)
+    }
+
     fun encryptSKeyContent(
         cleartext: String,
         spendingPassword: String

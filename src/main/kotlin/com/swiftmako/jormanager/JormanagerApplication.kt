@@ -1,27 +1,159 @@
 package com.swiftmako.jormanager
 
 import com.swiftmako.jormanager.controllers.utils.HostConnection
+import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.repositories.FileRepository
+import java.io.File
+import kotlin.system.exitProcess
 import okio.buffer
 import okio.sink
+import okio.source
+import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.boot.runApplication
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
-import java.io.File
+import org.springframework.security.crypto.password.PasswordEncoder
 
 @SpringBootApplication
 class JormanagerApplication
 
+val passwordEncoder: PasswordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
+
 fun main(args: Array<String>) {
-    if (args.isNotEmpty() && args[0] == "install") {
-        runInstallation()
+    if (args.isNotEmpty()) {
+        when (args[0]) {
+            "install" -> runInstallation()
+            "repair" -> {
+                System.setProperty("jormanager.mode", "repair")
+                val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()
+                    .substringAfterLast(":").substringBeforeLast("/jormanager")
+                val jormanagerFolderPath = File(uri).absolutePath
+                val applicationPropertiesPath = "$jormanagerFolderPath${File.separator}application.properties"
+
+                val app = SpringApplicationBuilder(JormanagerApplication::class.java)
+                    .web(WebApplicationType.NONE)
+                    .run(*args)
+
+                val fileRepository = app.getBean(FileRepository::class.java)
+                val walletUtils = app.getBean(WalletUtils::class.java)
+                runRepair(fileRepository, walletUtils, applicationPropertiesPath)
+                app.close()
+                exitProcess(0)
+            }
+
+            else -> runApplication<JormanagerApplication>(*args)
+        }
     } else {
         runApplication<JormanagerApplication>(*args)
     }
 }
 
-val passwordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
+fun runRepair(
+    fileRepository: FileRepository,
+    walletUtils: WalletUtils,
+    applicationPropertiesPath: String
+) {
+    val console = System.console()
+    println("--- Spending Password Repair ---")
+    print("Specify your new JorManager spending password: ")
+    val newSpendingPassword = String(console.readPassword())
+    print("Verify your new JorManager spending password: ")
+    val newSpendingPassword2 = String(console.readPassword())
+    if (newSpendingPassword != newSpendingPassword2) {
+        println("Passwords do not match! Aborting.")
+        return
+    }
+
+    val oldPasswords = mutableListOf<String>()
+    println("Enter previous spending passwords, one per line. Press Enter on an empty line to continue.")
+    while (true) {
+        print("Previous password: ")
+        val oldPassword = String(console.readPassword())
+        if (oldPassword.isBlank()) {
+            break
+        }
+        oldPasswords.add(oldPassword)
+    }
+
+    val skeyFiles = fileRepository.findByNameLike("%skey%")
+    if (skeyFiles.isEmpty()) {
+        println("No skey files found. Aborting repair.")
+        return
+    }
+    println("Found ${skeyFiles.size} skey files.")
+
+    var successCount = 0
+    var failCount = 0
+
+    val passwordsToTry = listOf(newSpendingPassword) + oldPasswords
+
+    skeyFiles.forEach { skeyFile ->
+
+        var decryptedContent: String? = null
+
+        for (password in passwordsToTry) {
+            try {
+                decryptedContent = walletUtils.decryptSKeyContentForRepair(skeyFile.content, password)
+                if (decryptedContent != null) {
+                    println("Successfully decrypted ${skeyFile.name}.")
+                    break
+                }
+            } catch (_: Exception) {
+                // Decryption failed, try next password
+            }
+        }
+
+        if (decryptedContent != null) {
+            try {
+                val encryptedContent = walletUtils.encryptSKeyContentForRepair(decryptedContent, newSpendingPassword)
+                fileRepository.save(skeyFile.copy(content = encryptedContent))
+                println("Successfully re-encrypted and saved ${skeyFile.name}.")
+                successCount++
+            } catch (_: Exception) {
+                println("Failed to re-encrypt ${skeyFile.name} with the new spending password.")
+                failCount++
+            }
+        } else {
+            println("Failed to decrypt ${skeyFile.name} with all provided passwords.")
+            failCount++
+        }
+    }
+
+    println("Repair process finished. Success: $successCount, Failed: $failCount.")
+
+    if (successCount > 0 || failCount == 0) {
+        updateApplicationProperties(applicationPropertiesPath, newSpendingPassword)
+    } else {
+        println("No skeys were successfully re-encrypted. Application properties will not be updated.")
+    }
+}
+
+private fun updateApplicationProperties(
+    applicationPropertiesPath: String,
+    newSpendingPassword: String
+) {
+    val propertiesFile = File(applicationPropertiesPath)
+    val lines = propertiesFile.source().buffer().readUtf8().lines().toMutableList()
+    val newHash = passwordEncoder.encode(newSpendingPassword)
+
+    val oldHashIndex = lines.indexOfFirst { it.startsWith("jormanager.spendingpassword=") }
+    if (oldHashIndex != -1) {
+        lines[oldHashIndex] = "#${lines[oldHashIndex]}"
+    }
+
+    lines.add("jormanager.spendingpassword=$newHash")
+
+    propertiesFile.sink().buffer().use { sink ->
+        lines.forEach { sink.writeUtf8(it).writeUtf8("\n") }
+    }
+
+    println("application.properties updated successfully.")
+    println("New spending password: '$newSpendingPassword'")
+    println("New spending password hash: jormanager.spendingpassword=$newHash")
+}
 
 fun runInstallation() {
     val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()

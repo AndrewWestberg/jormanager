@@ -2,7 +2,19 @@ package com.swiftmako.jormanager.monitors
 
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.repositories.FileRepository
-import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -13,8 +25,6 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
 import org.springframework.stereotype.Component
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.coroutines.CoroutineContext
 
 /**
  * Monitors https://hydra.iohk.io/job/Cardano/cardano-node/cardano-deployment/latest-finished/download/1/index.html
@@ -38,7 +48,7 @@ class EnvironmentMonitor @Autowired constructor(
         }
     }
 
-    override fun isAutoStartup() = true
+    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode")
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0

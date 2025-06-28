@@ -22,6 +22,11 @@ import io.ktor.network.sockets.InetSocketAddress
 import io.ktor.network.sockets.TypeOfService
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.connection
+import java.io.IOException
+import java.net.DatagramSocket
+import java.net.ServerSocket
+import kotlin.coroutines.CoroutineContext
+import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -51,11 +56,6 @@ import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
-import java.io.IOException
-import java.net.DatagramSocket
-import java.net.ServerSocket
-import kotlin.coroutines.CoroutineContext
-import kotlin.random.Random
 
 @Component("pooltoolMonitor")
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -84,7 +84,7 @@ class PooltoolMonitor @Autowired constructor(
     private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
     private var isShuttingDown = false
 
-    override fun isAutoStartup() = pooltoolApiKey.isNotBlank()
+    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode") && pooltoolApiKey.isNotBlank()
 
     override fun isRunning(): Boolean {
         val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
