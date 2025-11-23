@@ -46,7 +46,7 @@ constructor(
     private val walletRepository: WalletRepository,
     private val fileRepository: FileRepository,
     private val argon2PasswordEncoder: Argon2PasswordEncoder,
-    @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+    @param:Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
     private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
     private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
     private val regCertAdapter: JsonAdapter<RegCert>,
