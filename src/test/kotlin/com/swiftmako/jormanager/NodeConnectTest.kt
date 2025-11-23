@@ -23,7 +23,6 @@ import kotlin.math.ln
 import kotlin.system.measureTimeMillis
 
 class NodeConnectTest {
-
     @Test
     fun libsodiumTest() {
         // Linux
@@ -39,53 +38,64 @@ class NodeConnectTest {
 
     @Test
     fun testLedgerState() {
-        val duration = measureTimeMillis {
-            val moshi = Moshi.Builder().build()
-            val ledgerAdapter = moshi.adapter(Ledger::class.java)
+        val duration =
+            measureTimeMillis {
+                val moshi = Moshi.Builder().build()
+                val ledgerAdapter = moshi.adapter(Ledger::class.java)
 
 //            val source = File("/tmp/ledger-state-219.json").source().buffer()
-            File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
-                val ledger = ledgerAdapter.fromJson(source)
+                File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
+                    val ledger = ledgerAdapter.fromJson(source)
 
-                val computeTime = measureTimeMillis {
-                    val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-                        (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong()
-                            .toBigInteger()
-                    }.toMap()
-                    val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
+                    val computeTime =
+                        measureTimeMillis {
+                            val stakeMap =
+                                ledger!!
+                                    .esSnapshots.pstakeSet.stake
+                                    .map { stakeItem ->
+                                        (stakeItem[0] as Map<String, String>)["key hash"] to
+                                            (stakeItem[1] as Double)
+                                                .toLong()
+                                                .toBigInteger()
+                                    }.toMap()
+                            val activeStake =
+                                ledger.esSnapshots.pstakeSet.delegations
+                                    .filter {
 //                    it[1] == "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
-                        it[1] == "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
-                    }.mapNotNull { delegation ->
-                        val keyHash = (delegation[0] as Map<String, String>)["key hash"]
-                        stakeMap[keyHash]
-                    }.sumByBigInteger { it }
+                                        it[1] == "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
+                                    }.mapNotNull { delegation ->
+                                        val keyHash = (delegation[0] as Map<String, String>)["key hash"]
+                                        stakeMap[keyHash]
+                                    }.sumByBigInteger { it }
 
-                    val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
-                    val percentOfTotalStake =
-                        BigDecimal(activeStake).divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP)
-                            .times(BigDecimal(100L))
+                            val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
+                            val percentOfTotalStake =
+                                BigDecimal(activeStake)
+                                    .divide(BigDecimal(totalStake), 12, RoundingMode.HALF_UP)
+                                    .times(BigDecimal(100L))
 
-                    println("Active Stake: $activeStake lovelace")
-                    println("Total Stake: $totalStake lovelace")
-                    println("Stake Percentage: ${percentOfTotalStake}%")
+                            println("Active Stake: $activeStake lovelace")
+                            println("Total Stake: $totalStake lovelace")
+                            println("Stake Percentage: $percentOfTotalStake%")
+                        }
+                    println("Compute Time: ${computeTime}ms")
                 }
-                println("Compute Time: ${computeTime}ms")
             }
-        }
         println("Total Duration: ${duration}ms")
     }
 
     @Test
     fun testNewLedgerState() {
-        val duration = measureTimeMillis {
-            val moshi = Moshi.Builder().build()
-            val leaderLogLedgerAdapter =
-                LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
-            File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
-                val leaderLogLedger = leaderLogLedgerAdapter.fromJson(source)
-                println(leaderLogLedger)
+        val duration =
+            measureTimeMillis {
+                val moshi = Moshi.Builder().build()
+                val leaderLogLedgerAdapter =
+                    LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
+                File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
+                    val leaderLogLedger = leaderLogLedgerAdapter.fromJson(source)
+                    println(leaderLogLedger)
+                }
             }
-        }
         println("Total Duration: ${duration}ms")
     }
 
@@ -128,10 +138,10 @@ class NodeConnectTest {
 //        assertThat(newEtaV.toHexString()).isEqualTo("1182cb17f29c6ea3e94bcfaac8d39b2c7745410d766ab3dcbb47ea4f83f1357a")
 
         println(
-            SodiumLibrary.cryptoBlake2bHash(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00), null)
+            SodiumLibrary
+                .cryptoBlake2bHash(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00), null)
                 .toHexString()
         )
-
     }
 
     @Test
@@ -166,8 +176,6 @@ class NodeConnectTest {
 
         val seed = seedL.mapIndexed { index, byte -> byte xor slotToSeedByteArray[index] }.toByteArray()
         assertThat(seed.toHexString()).isEqualTo("7e2a4eff14e47fa5d8df184a1d6c3e8906837224a7f9392d1994293a4bc6d709")
-
-
     }
 
     @Test
@@ -240,11 +248,18 @@ class NodeConnectTest {
         assertThat(communitySlots).isEqualTo(28)
     }
 
-    private fun isOverlaySlot(firstSlotOfEpoch: Long, currentSlot: Long, d: BigDecimal): Boolean {
+    private fun isOverlaySlot(
+        firstSlotOfEpoch: Long,
+        currentSlot: Long,
+        d: BigDecimal
+    ): Boolean {
         val diffSlot = abs(currentSlot - firstSlotOfEpoch)
-        return d.times(diffSlot.toBigDecimal())
-            .setScale(0, RoundingMode.CEILING) < d.times((diffSlot + 1L).toBigDecimal())
-            .setScale(0, RoundingMode.CEILING)
+        return d
+            .times(diffSlot.toBigDecimal())
+            .setScale(0, RoundingMode.CEILING) <
+            d
+                .times((diffSlot + 1L).toBigDecimal())
+                .setScale(0, RoundingMode.CEILING)
     }
 
     @Test
@@ -274,13 +289,13 @@ class NodeConnectTest {
     @Test
     fun testLeaderCheck() {
         // BCSH
-        //val poolId = "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
+        // val poolId = "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
         // BCSH0
-        //val poolId = "00beef8710427e328a29555283c74b202b40bec9a62630a9f03b1e18"
+        // val poolId = "00beef8710427e328a29555283c74b202b40bec9a62630a9f03b1e18"
         // BCSH1
-        //val poolId = "00beef9385526062d41cd7293746048c6a9a13ab8b591920cf40c706"
+        // val poolId = "00beef9385526062d41cd7293746048c6a9a13ab8b591920cf40c706"
         // BCSH2
-        //val poolId = "00beef9385526062d41cd7293746048c6a9a13ab8b591920cf40c706"
+        // val poolId = "00beef9385526062d41cd7293746048c6a9a13ab8b591920cf40c706"
         // PRFIT
         val poolId = "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
         // Calculate Stake proportion
@@ -289,27 +304,31 @@ class NodeConnectTest {
     }
 
     private fun getSigma(poolId: String): BigDecimal {
-        //Gmp.checkLoaded()
+        // Gmp.checkLoaded()
         val moshi = Moshi.Builder().build()
         val ledgerAdapter = moshi.adapter(Ledger::class.java)
 
-        //val source = File("/tmp/ledger-state-219.json").source().buffer()
+        // val source = File("/tmp/ledger-state-219.json").source().buffer()
         val source = File("/tmp/ledger-state-87-testnet.json").source().buffer()
 
         val ledger = ledgerAdapter.fromJson(source)
 
-        val stakeMap = ledger!!.esSnapshots.pstakeSet.stake.map { stakeItem ->
-            (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
-        }.toMap()
-        val activeStake = ledger.esSnapshots.pstakeSet.delegations.filter {
-            it[1] == poolId
-        }.mapNotNull { delegation ->
-            val keyHash = (delegation[0] as Map<String, String>)["key hash"]
-            stakeMap[keyHash]
-        }.sumByBigInteger { it }
+        val stakeMap =
+            ledger!!
+                .esSnapshots.pstakeSet.stake
+                .map { stakeItem ->
+                    (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
+                }.toMap()
+        val activeStake =
+            ledger.esSnapshots.pstakeSet.delegations
+                .filter {
+                    it[1] == poolId
+                }.mapNotNull { delegation ->
+                    val keyHash = (delegation[0] as Map<String, String>)["key hash"]
+                    stakeMap[keyHash]
+                }.sumByBigInteger { it }
 
         val totalStake = stakeMap.map { entry -> entry.value }.sumByBigInteger { it }
         return BigDecimal(activeStake).divide(BigDecimal(totalStake), 34, RoundingMode.HALF_UP)
     }
 }
-

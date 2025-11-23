@@ -15,7 +15,9 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.io.use
 
-class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolId = 0x0000) {
+class HandshakeProtocol(
+    private val networkMagic: Long
+) : MiniProtocol(protocolId = 0x0000) {
     private val log by lazy { LoggerFactory.getLogger("HandshakeProtocol") }
 
     private var state = State.Propose
@@ -27,14 +29,15 @@ class HandshakeProtocol(private val networkMagic: Long) : MiniProtocol(protocolI
     private val _agencyFlow = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
-    override val RX_BUFFER_SIZE: Int = 64 * 1024
+    override val rxBufferSize: Int = 64 * 1024
 
     override val agency: Agency
-        get() = when (state) {
-            State.Propose -> Agency.Client
-            State.Confirm -> Agency.Server
-            State.Done -> Agency.None
-        }
+        get() =
+            when (state) {
+                State.Propose -> Agency.Client
+                State.Confirm -> Agency.Server
+                State.Done -> Agency.None
+            }
 
     lateinit var msgAcceptVersion: MsgAcceptVersion
 

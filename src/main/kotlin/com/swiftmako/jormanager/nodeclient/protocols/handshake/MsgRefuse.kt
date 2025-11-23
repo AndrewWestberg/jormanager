@@ -3,7 +3,9 @@ package com.swiftmako.jormanager.nodeclient.protocols.handshake
 import com.google.iot.cbor.CborArray
 import com.swiftmako.jormanager.ktx.elementToLong
 
-class MsgRefuse(private val cborArray: CborArray) {
+class MsgRefuse(
+    private val cborArray: CborArray
+) {
     companion object {
         const val MESSAGE_ID = 2L
 
@@ -14,7 +16,5 @@ class MsgRefuse(private val cborArray: CborArray) {
 
     val refuseReasonId: Long by lazy { cborArray.elementToLong(0) }
 
-    override fun toString(): String {
-        return "MsgRefuse(refuseReason = ${cborArray.toJsonString()}"
-    }
+    override fun toString(): String = "MsgRefuse(refuseReason = ${cborArray.toJsonString()}"
 }

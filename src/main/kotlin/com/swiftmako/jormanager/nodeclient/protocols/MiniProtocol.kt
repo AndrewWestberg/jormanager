@@ -4,7 +4,9 @@ import com.firehose.controllers.nodeclient.protocol.Agency
 import kotlinx.coroutines.flow.Flow
 import java.nio.ByteBuffer
 
-abstract class MiniProtocol(val protocolId: Short) {
+abstract class MiniProtocol(
+    val protocolId: Short
+) {
     // Tells us what agency state the protocol is in
     abstract val agency: Agency
 
@@ -12,7 +14,7 @@ abstract class MiniProtocol(val protocolId: Short) {
     abstract val agencyFlow: Flow<Agency>
 
     // Tells us how big of a receive buffer this MiniProtocol needs
-    abstract val RX_BUFFER_SIZE: Int
+    abstract val rxBufferSize: Int
 
     /**
      * Get the data to send. suspend until there is something to send
@@ -29,5 +31,4 @@ abstract class MiniProtocol(val protocolId: Short) {
      * Gracefully shutdown the protocol
      */
     abstract fun shutdown()
-
 }

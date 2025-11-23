@@ -10,9 +10,11 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class BlockVerifyTest {
-
     companion object {
-        private val LEADER_VRF_HEADER = ByteArray(1) { 0x4C.toByte() /* 'L' */ }
+        private val LEADER_VRF_HEADER =
+            ByteArray(1) {
+                0x4C.toByte() // 'L'
+            }
     }
 
     @Test
@@ -32,7 +34,6 @@ class BlockVerifyTest {
         val blockVrfSignature =
             "e5cfc760a2c6fb8cbc73c9cfab3492a19aafc8e6a103cbfb3c9e72cd737a6aac5248fda1a49e61a1ee128e02265ad56a7fcaa75a0c7c9260d8dc29e434b9a646ba8f8a8dd613eedf0acc3e8a4d91c605".hexToByteArray()
         val blockBodyHash = "c4a1ce54bf726c66ea5a1384d5952f8c14491b9a36e22d3635fa448ab5e77a4f".hexToByteArray()
-
 
         // calculate the leader vrf from the block vrf
         val expectedLeaderVrf = "00000d9118cdc93f8640c71693ffe8f80796d07423691f00611e66f988672d24"

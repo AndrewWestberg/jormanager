@@ -7,7 +7,6 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface WalletRepository : JpaRepository<WalletEntry, Long> {
-
     @Query("SELECT w FROM WalletEntry w WHERE w.deleted = false")
     fun findAllNotDeleted(): List<WalletEntry>
 }

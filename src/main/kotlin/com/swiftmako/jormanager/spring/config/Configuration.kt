@@ -77,9 +77,12 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getMoshi(): Moshi {
-        return Moshi.Builder().add(BigIntegerAdapter).add(JodaDateTimeAdapter()).build()
-    }
+    fun getMoshi(): Moshi =
+        Moshi
+            .Builder()
+            .add(BigIntegerAdapter)
+            .add(JodaDateTimeAdapter())
+            .build()
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -134,8 +137,7 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getMetadataAdapter(moshi: Moshi): JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata> =
-        moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java)
+    fun getMetadataAdapter(moshi: Moshi): JsonAdapter<com.swiftmako.jormanager.model.metadata.pool.Metadata> = moshi.adapter(com.swiftmako.jormanager.model.metadata.pool.Metadata::class.java)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -159,8 +161,9 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
+    fun getOkHttpClient(): OkHttpClient =
+        OkHttpClient
+            .Builder()
             .addNetworkInterceptor(
                 HttpLoggingInterceptor(
                     object : HttpLoggingInterceptor.Logger {
@@ -174,28 +177,29 @@ class Configuration {
                     HttpLoggingInterceptor.Level.NONE
 //                         HttpLoggingInterceptor.Level.BODY
                 )
-            )
-            .build()
-    }
+            ).build()
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getRetrofit(
         client: OkHttpClient,
         moshi: Moshi
-    ): Retrofit {
-        return Retrofit.Builder()
+    ): Retrofit =
+        Retrofit
+            .Builder()
             .baseUrl("http://127.0.0.1")
             .client(client)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
-    }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getPooltoolService(retrofit: Retrofit): PooltoolService {
-        return retrofit.newBuilder().baseUrl("https://api.pooltool.io").build().create(PooltoolService::class.java)
-    }
+    fun getPooltoolService(retrofit: Retrofit): PooltoolService =
+        retrofit
+            .newBuilder()
+            .baseUrl("https://api.pooltool.io")
+            .build()
+            .create(PooltoolService::class.java)
 
     @Bean("nodesChannel")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -206,19 +210,13 @@ class Configuration {
 
     @Bean("refreshWalletChannel")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getRefreshWalletChannel(): MutableStateFlow<Long?> {
-        return MutableStateFlow(null)
-    }
+    fun getRefreshWalletChannel(): MutableStateFlow<Long?> = MutableStateFlow(null)
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun argonPasswordEncoder(): Argon2PasswordEncoder {
-        return Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
-    }
+    fun argonPasswordEncoder(): Argon2PasswordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
 
     @Bean("latestNodeStats")
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getLatestNodeStats(): AtomicReference<NodeStats?> {
-        return AtomicReference(null)
-    }
+    fun getLatestNodeStats(): AtomicReference<NodeStats?> = AtomicReference(null)
 }

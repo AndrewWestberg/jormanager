@@ -10,7 +10,6 @@ import jakarta.persistence.SequenceGenerator
 import jakarta.persistence.Table
 import org.joda.time.DateTime
 
-
 @Entity
 @Table(name = "transactions")
 data class Transaction(

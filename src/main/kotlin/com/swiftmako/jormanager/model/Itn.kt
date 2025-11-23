@@ -1,9 +1,8 @@
 package com.swiftmako.jormanager.model
 
-
 import com.fasterxml.jackson.annotation.JsonProperty
 
 data class Itn(
-        @JsonProperty("publicKey") val publicKey: String?,
-        @JsonProperty("privateKey") val privateKey: String?
+    @param:JsonProperty("publicKey") val publicKey: String?,
+    @param:JsonProperty("privateKey") val privateKey: String?
 )

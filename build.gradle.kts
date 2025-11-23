@@ -9,6 +9,7 @@ plugins {
     id("io.spring.dependency-management") version Versions.SPRING_DEPENDENCY
     id("com.github.ben-manes.versions") version Versions.VERSIONS
     id("com.google.devtools.ksp") version Versions.KSP
+    id("org.jlleitschuh.gradle.ktlint") version Versions.KTLINT_PLUGIN
     kotlin("jvm") version Versions.KOTLIN
     kotlin("plugin.spring") version Versions.KOTLIN
     kotlin("plugin.jpa") version Versions.KOTLIN
@@ -28,21 +29,8 @@ repositories {
     mavenCentral()
 }
 
-kotlin {
-    kotlinDaemonJvmArgs =
-        listOf(
-            "-Dfile.encoding=UTF-8",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.jvm=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
-        )
+ktlint {
+    version.set(Versions.KTLINT)
 }
 
 dependencies {
@@ -109,9 +97,10 @@ tasks.withType<DependencyUpdatesTask> {
     rejectVersionIf {
         isNonStable(candidate.version) && !isNonStable(currentVersion)
     }
-    filterConfigurations = Spec<Configuration> {
-        it.name.contains("ktlint", ignoreCase = true).not()
-    }
+    filterConfigurations =
+        Spec<Configuration> {
+            it.name.contains("ktlint", ignoreCase = true).not()
+        }
 }
 
 tasks.withType<Test> {
@@ -148,18 +137,11 @@ abstract class BuildVueTask
     }
 tasks.register<BuildVueTask>("buildVue")
 
-// tasks.register("jvmOptsConfFile") {
-//    doFirst {
-//        File("${project.buildDir.absolutePath}/libs/jormanager-${version}.conf")
-//                .writeText("JAVA_OPTS=-XX:+UnlockExperimentalVMOptions -XX:+UseZGC -Xmx1024m")
-//    }
-// }
-
 tasks {
     springBoot {
         buildInfo()
     }
     bootJar {
-        dependsOn("buildVue" /*, "jvmOptsConfFile"*/)
+        dependsOn("buildVue")
     }
 }

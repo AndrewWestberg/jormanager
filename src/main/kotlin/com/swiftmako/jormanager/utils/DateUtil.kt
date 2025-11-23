@@ -4,7 +4,8 @@ import org.joda.time.DateTime
 import org.joda.time.DateTimeZone
 import org.joda.time.format.DateTimeFormatterBuilder
 
-private val localDateTimeFormat = DateTimeFormatterBuilder()
+private val localDateTimeFormat =
+    DateTimeFormatterBuilder()
         .appendYear(4, 4)
         .appendLiteral('-')
         .appendMonthOfYear(2)
@@ -24,6 +25,4 @@ private val localDateTimeFormat = DateTimeFormatterBuilder()
         .appendTimeZoneShortName()
         .toFormatter()
 
-fun DateTime.toLocalTimeString(): String {
-    return localDateTimeFormat.print(this.withZone(DateTimeZone.getDefault()))
-}
+fun DateTime.toLocalTimeString(): String = localDateTimeFormat.print(this.withZone(DateTimeZone.getDefault()))

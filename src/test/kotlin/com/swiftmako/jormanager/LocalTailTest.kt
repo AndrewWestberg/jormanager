@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.TimeUnit
 
 class LocalTailTest {
-
     @Test
     fun testTail() {
         val process = ProcessBuilder("/bin/bash", "-c", "cat /home/westbam/haskell/prfit/logs/node-*.json | grep --line-buffered \"TraceAdoptedBlock\"").start()

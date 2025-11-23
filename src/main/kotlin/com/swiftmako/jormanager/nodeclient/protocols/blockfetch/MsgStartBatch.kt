@@ -9,6 +9,6 @@ class MsgStartBatch : MiniProtocolMessage {
     }
 
     override fun writeToBuffer(buffer: ByteBuffer) {
-        //no-op
+        // no-op
     }
 }

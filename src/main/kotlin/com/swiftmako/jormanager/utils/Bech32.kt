@@ -9,11 +9,11 @@ object Bech32 {
     private fun polymodStep(pre: Int): Int {
         val b = pre shr 25
         return ((pre and 0x1ffffff) shl 5) xor
-                (-((b shr 0) and 1) and 0x3b6a57b2) xor
-                (-((b shr 1) and 1) and 0x26508e6d) xor
-                (-((b shr 2) and 1) and 0x1ea119fa) xor
-                (-((b shr 3) and 1) and 0x3d4233dd) xor
-                (-((b shr 4) and 1) and 0x2a1462b3)
+            (-((b shr 0) and 1) and 0x3b6a57b2) xor
+            (-((b shr 1) and 1) and 0x26508e6d) xor
+            (-((b shr 2) and 1) and 0x1ea119fa) xor
+            (-((b shr 3) and 1) and 0x3d4233dd) xor
+            (-((b shr 4) and 1) and 0x2a1462b3)
     }
 
     private fun prefixChk(prefix: String): Int {
@@ -33,7 +33,12 @@ object Bech32 {
         return chk
     }
 
-    private fun convert(data: IntArray, inBits: Int, outBits: Int, pad: Boolean): IntArray {
+    private fun convert(
+        data: IntArray,
+        inBits: Int,
+        outBits: Int,
+        pad: Boolean
+    ): IntArray {
         var value = 0
         var bits = 0
         val maxV = (1 shl outBits) - 1
@@ -75,7 +80,10 @@ object Bech32 {
         return res.map { it.toByte() }.toByteArray()
     }
 
-    fun encode(prefix: String, bytes: ByteArray): String {
+    fun encode(
+        prefix: String,
+        bytes: ByteArray
+    ): String {
         val words = toWords(bytes)
         val pre = prefix.lowercase()
         var chk = prefixChk(pre)
@@ -149,7 +157,10 @@ object Bech32 {
         return Decoded(prefix, fromWords(words.toIntArray()))
     }
 
-    data class Decoded(val prefix: String, val bytes: ByteArray) {
+    data class Decoded(
+        val prefix: String,
+        val bytes: ByteArray
+    ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (javaClass != other?.javaClass) return false

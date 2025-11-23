@@ -167,7 +167,7 @@ class HostConnectionTest {
 //
 //        val blake2b256 = Blake2bDigest(256)
 //
-////        for (x in 23903..29999) {
+// //        for (x in 23903..29999) {
 //        for (x in 0..1873) {
 //            while (true) {
 //                try {
@@ -312,8 +312,8 @@ class HostConnectionTest {
 //                    for (i in start..end) {
 //                        if (isRegistration) {
 //                            // 2. Register staking addresses on the chain
-////                            depositAndFees += protocolParameters.stakeAddressDeposit
-////                            certificates.append("--certificate /tmp/staking$i.cert ")
+// //                            depositAndFees += protocolParameters.stakeAddressDeposit
+// //                            certificates.append("--certificate /tmp/staking$i.cert ")
 //
 //                            certificates.append("--certificate /tmp/staking$i.deleg.cert ")
 //                        } else {

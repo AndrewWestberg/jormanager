@@ -8,7 +8,6 @@ import kotlin.math.round
 import org.junit.jupiter.api.Test
 
 class WalletTest {
-
     private val random = SecureRandom(System.currentTimeMillis().toString().toByteArray())
 
     @Test
@@ -59,7 +58,8 @@ class WalletTest {
 //            |}
 //            """.trimMargin()
 
-        val json = """
+        val json =
+            """
                 |{
                 |    "55b0751876f5a846faa11b7aeaff979c00c42d21f1960d5610bbcf9a4fbd72ac#2": {
                 |        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
@@ -108,7 +108,8 @@ class WalletTest {
 
     @Test
     fun `test 10_4_1 wallet parsing`() {
-        val json = """
+        val json =
+            """
             {
                 "01a0be6c18aa32bb48bafe60c49e1f1213f628b552fd3257274cf58b96c7cd22#1": {
                     "address": "addr1v88v00pdjyumu8xseh4ek04jtau9mvhnq73gq8p8jatfgnqafuxzv",
@@ -139,7 +140,7 @@ class WalletTest {
                     }
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
 
         val adapter = QueryUtxoJsonAdapter()
         val utxos = adapter.fromJson(json)!!

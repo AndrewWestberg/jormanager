@@ -1,21 +1,20 @@
 package com.swiftmako.jormanager.model
 
-
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class CalculateFeeRequest(
-    @Json(name = "fromId")
+    @param:Json(name = "fromId")
     val fromId: Long,
-    @Json(name = "toAccounts")
+    @param:Json(name = "toAccounts")
     val toAccounts: List<ToAccountFeeRequest>,
-    @Json(name = "txOut")
+    @param:Json(name = "txOut")
     val txOut: Int,
-    @Json(name = "isClaim")
+    @param:Json(name = "isClaim")
     val isClaim: Boolean,
-    @Json(name = "metadata")
+    @param:Json(name = "metadata")
     val metadata: String?,
-    @Json(name = "uuid")
+    @param:Json(name = "uuid")
     val uuid: String,
 )

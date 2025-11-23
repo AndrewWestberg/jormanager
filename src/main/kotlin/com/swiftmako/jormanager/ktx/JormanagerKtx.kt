@@ -20,27 +20,17 @@ inline fun <T> Iterable<T>.sumByBigInteger(selector: (T) -> BigInteger): BigInte
     return sum
 }
 
-fun CborArray.elementToLong(index: Int): Long {
-    return this.elementToBigInteger(index).toLong()
-}
+fun CborArray.elementToLong(index: Int): Long = this.elementToBigInteger(index).toLong()
 
 fun CborArray.elementToBigInteger(index: Int): BigInteger {
     val obj = elementAt(index).toJavaObject()
     return (obj as? BigInteger) ?: (obj as? Long)?.toBigInteger() ?: (obj as Int).toBigInteger()
 }
 
-fun CborArray.elementToByteArray(index: Int): ByteArray {
-    return (elementAt(index) as CborByteString).byteArrayValue()[0]
-}
+fun CborArray.elementToByteArray(index: Int): ByteArray = (elementAt(index) as CborByteString).byteArrayValue()[0]
 
-fun CborArray.elementToHexString(index: Int): String {
-    return elementToByteArray(index).toHexString()
-}
+fun CborArray.elementToHexString(index: Int): String = elementToByteArray(index).toHexString()
 
-fun ByteArray.toHexString(): String {
-    return String(Hex.encode(this))
-}
+fun ByteArray.toHexString(): String = String(Hex.encode(this))
 
-fun String.hexToByteArray(): ByteArray {
-    return Hex.decode(this)
-}
+fun String.hexToByteArray(): ByteArray = Hex.decode(this)

@@ -7,18 +7,21 @@ import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.model.PoolLedger
 import com.swiftmako.jormanager.model.PoolLedgerParams
 
-class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<PoolLedger>() {
-
+class PoolLedgerJsonAdapter(
+    moshi: Moshi,
+    poolIds: Set<String>
+) : JsonAdapter<PoolLedger>() {
     private val poolLedgerParamsAdapter = moshi.adapter(PoolLedgerParams::class.java)
 
-    private val options: List<JsonReader.Options> = listOf(
+    private val options: List<JsonReader.Options> =
+        listOf(
             JsonReader.Options.of("nesEs"),
             JsonReader.Options.of("esLState"),
             JsonReader.Options.of("_delegationState"),
             JsonReader.Options.of("_pstate"),
             JsonReader.Options.of("_pParams", "_fPParams"),
             JsonReader.Options.of(*poolIds.toTypedArray())
-    )
+        )
 
     override fun fromJson(reader: JsonReader): PoolLedger? {
         val poolIdToLedgerParams = mutableMapOf<String, PoolLedgerParams>()
@@ -29,7 +32,7 @@ class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<Po
                 0 -> {
                     // nesEs
                     reader.beginObject()
-                    while(reader.hasNext()) {
+                    while (reader.hasNext()) {
                         when (reader.selectName(options[1])) {
                             0 -> {
                                 // esLState
@@ -124,13 +127,13 @@ class PoolLedgerJsonAdapter(moshi: Moshi, poolIds: Set<String>) : JsonAdapter<Po
         reader.endObject()
 
         return PoolLedger(
-                poolIdToLedgerParams = poolIdToLedgerParams,
-                poolIdToFutureLedgerParams = poolIdToFutureLedgerParams,
+            poolIdToLedgerParams = poolIdToLedgerParams,
+            poolIdToFutureLedgerParams = poolIdToFutureLedgerParams,
         )
     }
 
-
-    override fun toJson(writer: JsonWriter, value: PoolLedger?) {
-        throw NotImplementedError("Not allowed to convert PoolLedger to json!")
-    }
+    override fun toJson(
+        writer: JsonWriter,
+        value: PoolLedger?
+    ): Unit = throw NotImplementedError("Not allowed to convert PoolLedger to json!")
 }

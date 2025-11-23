@@ -8,9 +8,10 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface NodeRepository : JpaRepository<Node, Long> {
-
     @Query("SELECT COUNT(n) FROM Node n WHERE n.hostId = :hostId")
-    fun countForHost(@Param("hostId") hostId: Long): Int
+    fun countForHost(
+        @Param("hostId") hostId: Long
+    ): Int
 
     @Query("SELECT n FROM Node n WHERE n.isDefault = true")
     fun findDefault(): Node?
@@ -19,8 +20,12 @@ interface NodeRepository : JpaRepository<Node, Long> {
     fun findPoolIds(): List<String>
 
     @Query("SELECT n.name FROM Node n WHERE n.isDeleted=false AND lower(n.poolId) = lower(:poolId)")
-    fun findByPoolId(@Param("poolId") poolId: String): String?
+    fun findByPoolId(
+        @Param("poolId") poolId: String
+    ): String?
 
     @Query("SELECT n FROM Node n WHERE n.isDeleted=false AND n.parentId = :parentId")
-    fun findByParentId(@Param("parentId") parentId: Long): List<Node>
+    fun findByParentId(
+        @Param("parentId") parentId: Long
+    ): List<Node>
 }

@@ -52,7 +52,7 @@ class LedgerDao
         private val fileRepository: FileRepository,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val cardanoUtils: CardanoUtils,
-        @Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long>,
+        @param:Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long>,
         private val cardanoRepository: CardanoRepository,
     ) {
         private val log by lazy { LoggerFactory.getLogger("LedgerDao") }

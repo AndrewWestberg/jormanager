@@ -25,10 +25,11 @@ import kotlin.coroutines.resumeWithException
  * If the [Job] of the current coroutine is cancelled or completed while this suspending function is waiting, this function
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
-suspend fun AsynchronousFileChannel.aLock() = suspendCancellableCoroutine<FileLock> { cont ->
-    lock(cont, asyncIOHandler())
-    closeOnCancel(cont)
-}
+suspend fun AsynchronousFileChannel.aLock() =
+    suspendCancellableCoroutine<FileLock> { cont ->
+        lock(cont, asyncIOHandler())
+        closeOnCancel(cont)
+    }
 
 /**
  * Performs [AsynchronousFileChannel.lock] without blocking a thread and resumes when asynchronous operation completes.
@@ -37,9 +38,9 @@ suspend fun AsynchronousFileChannel.aLock() = suspendCancellableCoroutine<FileLo
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousFileChannel.aLock(
-        position: Long,
-        size: Long,
-        shared: Boolean
+    position: Long,
+    size: Long,
+    shared: Boolean
 ) = suspendCancellableCoroutine<FileLock> { cont ->
     lock(position, size, shared, cont, asyncIOHandler())
     closeOnCancel(cont)
@@ -52,8 +53,8 @@ suspend fun AsynchronousFileChannel.aLock(
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousFileChannel.aRead(
-        buf: ByteBuffer,
-        position: Long
+    buf: ByteBuffer,
+    position: Long
 ) = suspendCancellableCoroutine<Int> { cont ->
     read(buf, position, cont, asyncIOHandler())
     closeOnCancel(cont)
@@ -66,8 +67,8 @@ suspend fun AsynchronousFileChannel.aRead(
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousFileChannel.aWrite(
-        buf: ByteBuffer,
-        position: Long
+    buf: ByteBuffer,
+    position: Long
 ) = suspendCancellableCoroutine<Int> { cont ->
     write(buf, position, cont, asyncIOHandler())
     closeOnCancel(cont)
@@ -79,10 +80,11 @@ suspend fun AsynchronousFileChannel.aWrite(
  * If the [Job] of the current coroutine is cancelled or completed while this suspending function is waiting, this function
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
-suspend fun AsynchronousServerSocketChannel.aAccept() = suspendCancellableCoroutine<AsynchronousSocketChannel> { cont ->
-    accept(cont, asyncIOHandler())
-    closeOnCancel(cont)
-}
+suspend fun AsynchronousServerSocketChannel.aAccept() =
+    suspendCancellableCoroutine<AsynchronousSocketChannel> { cont ->
+        accept(cont, asyncIOHandler())
+        closeOnCancel(cont)
+    }
 
 /**
  * Performs [AsynchronousSocketChannel.connect] without blocking a thread and resumes when asynchronous operation completes.
@@ -91,7 +93,7 @@ suspend fun AsynchronousServerSocketChannel.aAccept() = suspendCancellableCorout
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousSocketChannel.aConnect(
-        socketAddress: SocketAddress
+    socketAddress: SocketAddress
 ) = suspendCancellableCoroutine<Unit> { cont ->
     connect(socketAddress, cont, AsyncVoidIOHandler)
     closeOnCancel(cont)
@@ -104,9 +106,9 @@ suspend fun AsynchronousSocketChannel.aConnect(
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousSocketChannel.aRead(
-        buf: ByteBuffer,
-        timeout: Long = 0L,
-        timeUnit: TimeUnit = TimeUnit.MILLISECONDS
+    buf: ByteBuffer,
+    timeout: Long = 0L,
+    timeUnit: TimeUnit = TimeUnit.MILLISECONDS
 ) = suspendCancellableCoroutine<Int> { cont ->
     read(buf, timeout, timeUnit, cont, asyncIOHandler())
     closeOnCancel(cont)
@@ -119,9 +121,9 @@ suspend fun AsynchronousSocketChannel.aRead(
  * *closes the underlying channel* and immediately resumes with [CancellationException].
  */
 suspend fun AsynchronousSocketChannel.aWrite(
-        buf: ByteBuffer,
-        timeout: Long = 0L,
-        timeUnit: TimeUnit = TimeUnit.MILLISECONDS
+    buf: ByteBuffer,
+    timeout: Long = 0L,
+    timeUnit: TimeUnit = TimeUnit.MILLISECONDS
 ) = suspendCancellableCoroutine<Int> { cont ->
     write(buf, timeout, timeUnit, cont, asyncIOHandler())
     closeOnCancel(cont)
@@ -141,16 +143,21 @@ private fun Channel.closeOnCancel(cont: CancellableContinuation<*>) {
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <T> asyncIOHandler(): CompletionHandler<T, CancellableContinuation<T>> =
-        AsyncIOHandlerAny as CompletionHandler<T, CancellableContinuation<T>>
+private fun <T> asyncIOHandler(): CompletionHandler<T, CancellableContinuation<T>> = AsyncIOHandlerAny as CompletionHandler<T, CancellableContinuation<T>>
 
 private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuation<Any>> {
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun completed(result: Any, cont: CancellableContinuation<Any>) {
+    override fun completed(
+        result: Any,
+        cont: CancellableContinuation<Any>
+    ) {
         cont.resume(result) { _, _, _ -> }
     }
 
-    override fun failed(ex: Throwable, cont: CancellableContinuation<Any>) {
+    override fun failed(
+        ex: Throwable,
+        cont: CancellableContinuation<Any>
+    ) {
         // just return if already cancelled and got an expected exception for that case
         if (ex is AsynchronousCloseException && cont.isCancelled) return
         cont.resumeWithException(ex)
@@ -159,14 +166,19 @@ private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuatio
 
 private object AsyncVoidIOHandler : CompletionHandler<Void?, CancellableContinuation<Unit>> {
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun completed(result: Void?, cont: CancellableContinuation<Unit>) {
+    override fun completed(
+        result: Void?,
+        cont: CancellableContinuation<Unit>
+    ) {
         cont.resume(Unit) { _, _, _ -> }
     }
 
-    override fun failed(ex: Throwable, cont: CancellableContinuation<Unit>) {
+    override fun failed(
+        ex: Throwable,
+        cont: CancellableContinuation<Unit>
+    ) {
         // just return if already cancelled and got an expected exception for that case
         if (ex is AsynchronousCloseException && cont.isCancelled) return
         cont.resumeWithException(ex)
     }
 }
-

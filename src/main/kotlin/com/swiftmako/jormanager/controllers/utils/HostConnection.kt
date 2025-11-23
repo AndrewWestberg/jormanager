@@ -17,10 +17,11 @@ import java.util.concurrent.TimeUnit
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
-
-class HostConnection(private val host: Host, private val defaultNode: Node? = null) {
-
-    private val log by lazy {  LoggerFactory.getLogger("HostConnection") }
+class HostConnection(
+    private val host: Host,
+    private val defaultNode: Node? = null
+) {
+    private val log by lazy { LoggerFactory.getLogger("HostConnection") }
 
     private val sshClientPool by lazy {
         SSHClientPool.getInstance(host)
@@ -30,13 +31,12 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         command("ps --no-headers -o comm 1").trim() == "systemd"
     }
 
-    fun commandFileExists(filePath: String): Boolean {
-        return if (host.isRemote) {
+    fun commandFileExists(filePath: String): Boolean =
+        if (host.isRemote) {
             command("if test -f $filePath; then echo true; fi").trim().toBoolean()
         } else {
             File(filePath).exists()
         }
-    }
 
     fun command(command: String): String {
         val commandList = mutableListOf<String>()
@@ -47,33 +47,46 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return command(commandList)
     }
 
-    fun command(command: List<String>): String {
-        return if (host.isRemote) {
+    fun command(command: List<String>): String =
+        if (host.isRemote) {
             remoteCommand(command)
         } else {
             localCommand(command)
         }
-    }
 
-    fun bashCommand(command: String, timeoutSecs: Long = 5L): String {
-        return if (host.isRemote) {
+    fun bashCommand(
+        command: String,
+        timeoutSecs: Long = 5L
+    ): String =
+        if (host.isRemote) {
             remoteBashCommand(command, timeoutSecs)
         } else {
             localBashCommand(command, timeoutSecs)
         }
-    }
 
-    private fun localBashCommand(command: String, timeoutSecs: Long): String {
+    private fun localBashCommand(
+        command: String,
+        timeoutSecs: Long
+    ): String {
         lateinit var output: String
         lateinit var errorOutput: String
         try {
-            val process = ProcessBuilder(
+            val process =
+                ProcessBuilder(
                     "/bin/bash",
                     "-c",
                     command
-            ).start()
-            output = process.inputStream.source().buffer().use { it.readUtf8() }
-            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
+                ).start()
+            output =
+                process.inputStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
+            errorOutput =
+                process.errorStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
             process.waitFor(timeoutSecs, TimeUnit.SECONDS)
             if (process.exitValue() != 0) {
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
@@ -82,10 +95,12 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             throw RuntimeException("Local command failed!", e)
         }
         return output
-
     }
 
-    private fun remoteBashCommand(command: String, timeoutSecs: Long): String {
+    private fun remoteBashCommand(
+        command: String,
+        timeoutSecs: Long
+    ): String {
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var ssh: SSHClient
@@ -94,8 +109,16 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
                 session.exec(command).use { cmd ->
-                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
-                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
+                    output =
+                        cmd.inputStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
+                    errorOutput =
+                        cmd.errorStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
                     cmd.join(timeoutSecs, TimeUnit.SECONDS)
                     if (cmd.exitStatus != 0) {
                         throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
@@ -111,10 +134,12 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             ignoreExceptions { sshClientPool.recycle(ssh) }
         }
         return output
-
     }
 
-    fun sudoCommand(command: String, sudoPassword: String?): String {
+    fun sudoCommand(
+        command: String,
+        sudoPassword: String?
+    ): String {
         val commandList = mutableListOf<String>()
         val m: Matcher = Pattern.compile("([^']\\S*|'.+?')\\s*").matcher(command)
         while (m.find()) {
@@ -123,13 +148,15 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return sudoCommand(commandList, sudoPassword)
     }
 
-    fun sudoCommand(command: List<String>, sudoPassword: String?): String {
-        return if (host.isRemote) {
+    fun sudoCommand(
+        command: List<String>,
+        sudoPassword: String?
+    ): String =
+        if (host.isRemote) {
             remoteSudoCommand(command, sudoPassword)
         } else {
             localSudoCommand(command, sudoPassword)
         }
-    }
 
     private fun remoteCommand(c: List<String>): String {
         lateinit var output: String
@@ -141,8 +168,16 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
             ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
                 session.exec(command).use { cmd ->
-                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
-                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
+                    output =
+                        cmd.inputStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
+                    errorOutput =
+                        cmd.errorStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
                     cmd.join(5, TimeUnit.SECONDS)
                     if (cmd.exitStatus != 0) {
                         throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
@@ -160,22 +195,34 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return output
     }
 
-    private fun remoteSudoCommand(c: List<String>, sudoPassword: String?): String {
+    private fun remoteSudoCommand(
+        c: List<String>,
+        sudoPassword: String?
+    ): String {
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var ssh: SSHClient
 
-        val command = if (sudoPassword?.isNotBlank() == true) {
-            " sudo -S -k " + c.joinToString(" ").trim() + " <<< '${sudoPassword}'"
-        } else {
-            " sudo -S -k \" + c.joinToString(\" \").trim()"
-        }
+        val command =
+            if (sudoPassword?.isNotBlank() == true) {
+                " sudo -S -k " + c.joinToString(" ").trim() + " <<< '$sudoPassword'"
+            } else {
+                " sudo -S -k \" + c.joinToString(\" \").trim()"
+            }
         try {
             ssh = sshClientPool.borrow()
             ssh.startSession().use { session ->
                 session.exec(command).use { cmd ->
-                    output = cmd.inputStream.source().buffer().use { it.readUtf8() }
-                    errorOutput = cmd.errorStream.source().buffer().use { it.readUtf8() }
+                    output =
+                        cmd.inputStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
+                    errorOutput =
+                        cmd.errorStream
+                            .source()
+                            .buffer()
+                            .use { it.readUtf8() }
                     cmd.join(5, TimeUnit.SECONDS)
                     if (cmd.exitStatus != 0) {
                         throw SSHRuntimeException("Command '$command' exited with code ${cmd.exitStatus}: ${cmd.exitErrorMessage}, $errorOutput")
@@ -205,13 +252,23 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
         commandList = commandList.map { clause -> clause.trim('\'') }
         try {
-            val process = ProcessBuilder(commandList).also {
-                if (redirectAppendFile.isNotBlank()) {
-                    it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
-                }
-            }.start()
-            output = process.inputStream.source().buffer().use { it.readUtf8() }
-            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
+            val process =
+                ProcessBuilder(commandList)
+                    .also {
+                        if (redirectAppendFile.isNotBlank()) {
+                            it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
+                        }
+                    }.start()
+            output =
+                process.inputStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
+            errorOutput =
+                process.errorStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
             process.waitFor(5, TimeUnit.SECONDS)
             if (process.exitValue() != 0) {
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
@@ -222,7 +279,10 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return output
     }
 
-    private fun localSudoCommand(c: List<String>, sudoPassword: String?): String {
+    private fun localSudoCommand(
+        c: List<String>,
+        sudoPassword: String?
+    ): String {
         lateinit var output: String
         lateinit var errorOutput: String
         lateinit var commandList: MutableList<String>
@@ -238,17 +298,27 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         commandList = commandList.map { clause -> clause.trim('\'') }.toMutableList()
         commandList.addAll(0, listOf("sudo", "-S", "-k"))
         try {
-            val process = ProcessBuilder(commandList).also {
-                if (redirectAppendFile.isNotBlank()) {
-                    it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
-                }
-            }.start()
+            val process =
+                ProcessBuilder(commandList)
+                    .also {
+                        if (redirectAppendFile.isNotBlank()) {
+                            it.redirectOutput(ProcessBuilder.Redirect.appendTo(File(redirectAppendFile)))
+                        }
+                    }.start()
             if (sudoPassword?.isNotBlank() == true) {
                 PrintWriter(process.outputStream.bufferedWriter()).use { it.println(sudoPassword) }
             }
 
-            output = process.inputStream.source().buffer().use { it.readUtf8() }
-            errorOutput = process.errorStream.source().buffer().use { it.readUtf8() }
+            output =
+                process.inputStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
+            errorOutput =
+                process.errorStream
+                    .source()
+                    .buffer()
+                    .use { it.readUtf8() }
             process.waitFor(5, TimeUnit.SECONDS)
             if (process.exitValue() != 0) {
                 throw RuntimeException("Command '$command' exited with code ${process.exitValue()}: $errorOutput")
@@ -259,13 +329,12 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return output
     }
 
-    fun commandGetFileBufferedSource(fileName: String): BufferedSource {
-        return if (host.isRemote) {
+    fun commandGetFileBufferedSource(fileName: String): BufferedSource =
+        if (host.isRemote) {
             remoteCommandGetFileBufferedSource(fileName)
         } else {
             localCommandGetFileBufferedSource(fileName)
         }
-    }
 
     private fun remoteCommandGetFileBufferedSource(fileName: String): BufferedSource {
         lateinit var ssh: SSHClient
@@ -286,21 +355,16 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
     }
 
-    private fun localCommandGetFileBufferedSource(fileName: String): BufferedSource {
-        return File(fileName).source().buffer()
-    }
+    private fun localCommandGetFileBufferedSource(fileName: String): BufferedSource = File(fileName).source().buffer()
 
-    fun commandReadFile(fileName: String): String {
-        return if (host.isRemote) {
+    fun commandReadFile(fileName: String): String =
+        if (host.isRemote) {
             remoteCommandReadFile(fileName)
         } else {
             localCommandReadFile(fileName)
         }
-    }
 
-    private fun localCommandReadFile(fileName: String): String {
-        return File(fileName).source().buffer().use { it.readUtf8() }
-    }
+    private fun localCommandReadFile(fileName: String): String = File(fileName).source().buffer().use { it.readUtf8() }
 
     private fun remoteCommandReadFile(fileName: String): String {
         lateinit var ssh: SSHClient
@@ -321,7 +385,10 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
     }
 
-    fun commandWriteFile(fileName: String, content: String): String {
+    fun commandWriteFile(
+        fileName: String,
+        content: String
+    ): String {
         command("touch $fileName")
         command("chmod u+w $fileName")
         command("truncate -s 0 $fileName")
@@ -333,11 +400,17 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         return ""
     }
 
-    private fun localCommandWriteFile(fileName: String, content: String) {
+    private fun localCommandWriteFile(
+        fileName: String,
+        content: String
+    ) {
         File(fileName).sink().buffer().use { it.writeUtf8(content) }
     }
 
-    private fun remoteCommandWriteFile(fileName: String, content: String) {
+    private fun remoteCommandWriteFile(
+        fileName: String,
+        content: String
+    ) {
         lateinit var ssh: SSHClient
         try {
             ssh = sshClientPool.borrow()
@@ -356,7 +429,11 @@ class HostConnection(private val host: Host, private val defaultNode: Node? = nu
         }
     }
 
-    fun sudoCommandWriteFile(fileName: String, content: String, sudoPassword: String?): String {
+    fun sudoCommandWriteFile(
+        fileName: String,
+        content: String,
+        sudoPassword: String?
+    ): String {
         val tempFileName = "/tmp/jormanager.tmp"
         commandWriteFile(tempFileName, content)
         command("chmod 644 $tempFileName")

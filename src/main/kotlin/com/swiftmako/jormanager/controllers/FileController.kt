@@ -28,68 +28,73 @@ import java.util.zip.ZipOutputStream
 
 @Controller
 @Scope(SCOPE_SINGLETON)
-class FileController @Autowired constructor(
+class FileController
+    @Autowired
+    constructor(
         private val fileRepository: FileRepository,
         private val walletUtils: WalletUtils,
         private val argon2PasswordEncoder: Argon2PasswordEncoder,
         @param:Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
-) {
-    private val log by lazy {  LoggerFactory.getLogger("FileController") }
-    private val backupMap = mutableMapOf<String, String>()
+    ) {
+        private val log by lazy { LoggerFactory.getLogger("FileController") }
+        private val backupMap = mutableMapOf<String, String>()
 
-    @MessageMapping("/file_options")
-    @SendTo("/topic/messages")
-    fun getFiles(): SocketResponse<List<File>> {
-        val files = fileRepository.findAll().map { file -> File(value = file.id!!, text = file.name) }
-        return SocketResponse.Success(type = "file_options", data = files)
-    }
-
-    @MessageMapping("/backup")
-    @SendTo("/topic/messages")
-    fun postBackup(spendingPassword: String): SocketResponse<String> {
-        backupMap.clear()
-        return if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
-            SocketResponse.Error(type = "backup", exception = IllegalArgumentException("Invalid spending password!"))
-        } else {
-            val token = UUID.randomUUID().toString()
-            backupMap[token] = spendingPassword
-            SocketResponse.Success(type = "backup", data = token)
+        @MessageMapping("/file_options")
+        @SendTo("/topic/messages")
+        fun getFiles(): SocketResponse<List<File>> {
+            val files = fileRepository.findAll().map { file -> File(value = file.id!!, text = file.name) }
+            return SocketResponse.Success(type = "file_options", data = files)
         }
-    }
 
-    @GetMapping("/jormanager_backup.zip")
-    fun getBackup(@RequestParam token: String): ResponseEntity<Resource> {
-        val spendingPassword = backupMap[token]
-        backupMap.clear()
-        if (spendingPassword != null && argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
-            ByteArrayOutputStream().use { bos ->
-                ZipOutputStream(bos).use { zipOutputStream ->
-                    val files = fileRepository.findAll()
-                    files.forEach { file ->
-                        val fileZipEntry = ZipEntry(file.name)
-                        zipOutputStream.putNextEntry(fileZipEntry)
-                        val fileContent = if (file.name.matches(SKEY_REGEX)) {
-                            walletUtils.getSKeyContent(file, spendingPassword)
-                        } else {
-                            file.content
+        @MessageMapping("/backup")
+        @SendTo("/topic/messages")
+        fun postBackup(spendingPassword: String): SocketResponse<String> {
+            backupMap.clear()
+            return if (!argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+                SocketResponse.Error(type = "backup", exception = IllegalArgumentException("Invalid spending password!"))
+            } else {
+                val token = UUID.randomUUID().toString()
+                backupMap[token] = spendingPassword
+                SocketResponse.Success(type = "backup", data = token)
+            }
+        }
+
+        @GetMapping("/jormanager_backup.zip")
+        fun getBackup(
+            @RequestParam token: String
+        ): ResponseEntity<Resource> {
+            val spendingPassword = backupMap[token]
+            backupMap.clear()
+            if (spendingPassword != null && argon2PasswordEncoder.matches(spendingPassword, spendingPasswordHash)) {
+                ByteArrayOutputStream().use { bos ->
+                    ZipOutputStream(bos).use { zipOutputStream ->
+                        val files = fileRepository.findAll()
+                        files.forEach { file ->
+                            val fileZipEntry = ZipEntry(file.name)
+                            zipOutputStream.putNextEntry(fileZipEntry)
+                            val fileContent =
+                                if (file.name.matches(SKEY_REGEX)) {
+                                    walletUtils.getSKeyContent(file, spendingPassword)
+                                } else {
+                                    file.content
+                                }
+                            zipOutputStream.write(fileContent.toByteArray())
                         }
-                        zipOutputStream.write(fileContent.toByteArray())
                     }
-                }
-                bos.flush()
-                val zipBytes = bos.toByteArray()
-                return ResponseEntity
+                    bos.flush()
+                    val zipBytes = bos.toByteArray()
+                    return ResponseEntity
                         .ok()
                         .contentType(MediaType.APPLICATION_OCTET_STREAM)
                         .contentLength(zipBytes.size.toLong())
                         .body(ByteArrayResource(zipBytes))
+                }
+            } else {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
             }
-        } else {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        }
+
+        companion object {
+            private val SKEY_REGEX = Regex(".*\\.skey(-\\d+)?")
         }
     }
-
-    companion object {
-        private val SKEY_REGEX = Regex(".*\\.skey(-\\d+)?")
-    }
-}
