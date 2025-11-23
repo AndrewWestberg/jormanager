@@ -36,8 +36,4 @@ If you need support, the ask for help on this telegram channel -> https://t.me/j
 
 #### Project Support
 
-This project is designed to do nothing more than help out the Cardano community and ecosystem. It's offered without charge and **without warranty** of any kind. However, if you feel inclined to tip the developer, that can be done by sending MainNet ADA to the following address:
-  
-```
-addr1q8044ycsxth7gdfcp3uqus3r7y33agkqxy0gygq2xlarp08l27sthj42mfetdc7kmyzycssdr2xajau53pxnjqslr63sntagm2
-```
+This project is designed to do nothing more than help out the Cardano community and ecosystem. It's offered without charge and **without warranty** of any kind.
