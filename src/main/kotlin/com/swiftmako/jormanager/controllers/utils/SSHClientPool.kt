@@ -8,12 +8,13 @@ import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.slf4j.LoggerFactory
 import java.util.concurrent.TimeUnit
 
-class SSHClientPool(private val host: Host) : DefaultPool<SSHClient>(4) {
+class SSHClientPool(
+    private val host: Host
+) : DefaultPool<SSHClient>(4) {
+    private val log by lazy { LoggerFactory.getLogger("SSHClientPool") }
 
-    private val log by lazy {  LoggerFactory.getLogger("SSHClientPool") }
-
-    override fun produceInstance(): SSHClient {
-        return SSHClient().apply {
+    override fun produceInstance(): SSHClient =
+        SSHClient().apply {
             loadKnownHosts()
             addHostKeyVerifier(PromiscuousVerifier())
             useCompression()
@@ -21,7 +22,6 @@ class SSHClientPool(private val host: Host) : DefaultPool<SSHClient>(4) {
             authPublickey(host.sshUser, host.sshPemPath)
             connection.keepAlive.keepAliveInterval = 30
         }
-    }
 
     override fun validateInstance(instance: SSHClient) {
         try {
@@ -49,13 +49,13 @@ class SSHClientPool(private val host: Host) : DefaultPool<SSHClient>(4) {
 
     companion object {
         private val poolMap = mutableMapOf<Host, SSHClientPool>()
-        fun getInstance(host: Host): SSHClientPool {
-            return poolMap[host] ?: run {
+
+        fun getInstance(host: Host): SSHClientPool =
+            poolMap[host] ?: run {
                 val newPool = SSHClientPool(host)
                 poolMap[host] = newPool
                 newPool
             }
-        }
 
         fun shutdown() {
             poolMap.forEach { (_, sshClientPool) ->
@@ -64,5 +64,4 @@ class SSHClientPool(private val host: Host) : DefaultPool<SSHClient>(4) {
             poolMap.clear()
         }
     }
-
 }

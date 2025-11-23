@@ -3,12 +3,10 @@ package com.swiftmako.jormanager.model
 import com.fasterxml.jackson.annotation.JsonProperty
 
 data class EditRelaysRequest(
-    @JsonProperty("spendingPassword") val spendingPassword: String,
-    @JsonProperty("id") val nodeId: Long,
-    @JsonProperty("registrationFeesAccount") val registrationFeesAccount: Long,
-    @JsonProperty("relays") val relays: List<Relay>,
+    @param:JsonProperty("spendingPassword") val spendingPassword: String,
+    @param:JsonProperty("id") val nodeId: Long,
+    @param:JsonProperty("registrationFeesAccount") val registrationFeesAccount: Long,
+    @param:JsonProperty("relays") val relays: List<Relay>,
 ) {
-    override fun toString(): String {
-        return "EditRelaysRequest(spendingPassword='********', nodeId=$nodeId, registrationFeesAccount=$registrationFeesAccount, relays=$relays)"
-    }
+    override fun toString(): String = "EditRelaysRequest(spendingPassword='********', nodeId=$nodeId, registrationFeesAccount=$registrationFeesAccount, relays=$relays)"
 }

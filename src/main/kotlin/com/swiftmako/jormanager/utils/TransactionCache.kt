@@ -8,9 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Duration
 
-
 object TransactionCache {
-
     val cacheMutex = Mutex()
 
     /**
@@ -21,22 +19,26 @@ object TransactionCache {
     /**
      * Hold transactions in case we need to re-submit due to rollbacks
      */
-    private val submittedTransactionCache: Cache<String, String> = Caffeine.newBuilder()
-        .removalListener(
-            RemovalListener<String, String> { key, _, cause ->
-                if (cause == RemovalCause.REPLACED) {
-                    return@RemovalListener
+    private val submittedTransactionCache: Cache<String, String> =
+        Caffeine
+            .newBuilder()
+            .removalListener(
+                RemovalListener<String, String> { key, _, cause ->
+                    if (cause == RemovalCause.REPLACED) {
+                        return@RemovalListener
+                    }
+                    synchronized(orderedSubmittedTransactionMap) {
+                        orderedSubmittedTransactionMap.remove(key)
+                    }
                 }
-                synchronized(orderedSubmittedTransactionMap) {
-                    orderedSubmittedTransactionMap.remove(key)
-                }
-            }
-        )
-        .expireAfterWrite(Duration.ofHours(24))
-        .maximumSize(100)
-        .build()
+            ).expireAfterWrite(Duration.ofHours(24))
+            .maximumSize(100)
+            .build()
 
-    fun put(txId: String, txSigned: String) {
+    fun put(
+        txId: String,
+        txSigned: String
+    ) {
         synchronized(orderedSubmittedTransactionMap) {
             orderedSubmittedTransactionMap.put(txId, txSigned)
         }
@@ -54,7 +56,5 @@ object TransactionCache {
     val keys: Set<String>
         get() = orderedSubmittedTransactionMap.keys
 
-    suspend inline fun <T> withLock(action: () -> T): T {
-        return cacheMutex.withLock(null, action)
-    }
+    suspend inline fun <T> withLock(action: () -> T): T = cacheMutex.withLock(null, action)
 }

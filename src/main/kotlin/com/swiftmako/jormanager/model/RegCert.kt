@@ -5,11 +5,11 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class RegCert(
-    @Json(name = "type")
+    @param:Json(name = "type")
     val type: String,
-    @Json(name = "description")
+    @param:Json(name = "description")
     val description: String,
-    @Json(name = "cborHex")
+    @param:Json(name = "cborHex")
     val cborHex: String
 )
 // json:

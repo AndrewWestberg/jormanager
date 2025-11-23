@@ -4,12 +4,12 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class GenesisShelley(
-        val activeSlotsCoeff: Double,
-        val networkId: String,
-        val networkMagic: Long? = null,
-        val slotLength: Long,
-        val epochLength: Long,
-        val slotsPerKESPeriod: Long,
-        val systemStart: String,
-        val maxKESEvolutions: Long,
+    val activeSlotsCoeff: Double,
+    val networkId: String,
+    val networkMagic: Long? = null,
+    val slotLength: Long,
+    val epochLength: Long,
+    val slotsPerKESPeriod: Long,
+    val systemStart: String,
+    val maxKESEvolutions: Long,
 )

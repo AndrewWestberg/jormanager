@@ -1,13 +1,12 @@
 package com.swiftmako.jormanager.model
 
-
 import com.fasterxml.jackson.annotation.JsonProperty
 
 data class Company(
-        @JsonProperty("name") val name: String?,
-        @JsonProperty("addr") val addr: String?,
-        @JsonProperty("city") val city: String?,
-        @JsonProperty("country") val country: String?,
-        @JsonProperty("company_id") val companyId: String?,
-        @JsonProperty("vat_id") val vatId: String?
+    @param:JsonProperty("name") val name: String?,
+    @param:JsonProperty("addr") val addr: String?,
+    @param:JsonProperty("city") val city: String?,
+    @param:JsonProperty("country") val country: String?,
+    @param:JsonProperty("company_id") val companyId: String?,
+    @param:JsonProperty("vat_id") val vatId: String?
 )

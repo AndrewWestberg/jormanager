@@ -16,13 +16,10 @@ class MsgRollForward(
     val chainTip: ChainTip,
 ) : MiniProtocolMessage {
     override fun writeToBuffer(buffer: ByteBuffer) {
-        //noop
+        // noop
     }
 
-    override fun toString(): String {
-        return "MsgRollForward(blockNumber=$blockNumber, slotNumber=$slotNumber, hash='$hash', prevHash='$prevHash', nodeVKey='$nodeVKey', etaVrf='$etaVrf', leaderVrf='$leaderVrf', blockVrf='$blockVrf', blockVrfProof='$blockVrfProof', chainTip=$chainTip)"
-    }
-
+    override fun toString(): String = "MsgRollForward(blockNumber=$blockNumber, slotNumber=$slotNumber, hash='$hash', prevHash='$prevHash', nodeVKey='$nodeVKey', etaVrf='$etaVrf', leaderVrf='$leaderVrf', blockVrf='$blockVrf', blockVrfProof='$blockVrfProof', chainTip=$chainTip)"
 
     companion object {
         const val MESSAGE_ID = 2L

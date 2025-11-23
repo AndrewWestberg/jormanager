@@ -16,8 +16,14 @@ import java.util.*
 object MsgRollForwardAdapter {
     private val log by lazy { LoggerFactory.getLogger("MsgRollForwardAdapter") }
 
-    private val NONCE_VRF_HEADER = ByteArray(1) { 0x4E.toByte() /* 'N' */ }
-    val LEADER_VRF_HEADER = ByteArray(1) { 0x4C.toByte() /* 'L' */ }
+    private val NONCE_VRF_HEADER =
+        ByteArray(1) {
+            0x4E.toByte() // 'N'
+        }
+    val LEADER_VRF_HEADER =
+        ByteArray(1) {
+            0x4C.toByte() // 'L'
+        }
     private const val ERA_BABBAGE = 5L
 //    private var tipDone = false
 
@@ -42,11 +48,12 @@ object MsgRollForwardAdapter {
 
 //            log.error("block: $blockNumber, slot: $slotNumber, cbor: ${cborArray.toCborByteArray().toHexString()}")
 
-            val prevHash = when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
-                is CborByteString -> prevHashElement.byteArrayValue()[0].toHexString()
-                // might be cbor null if we launched without the byron era
-                else -> ""
-            }
+            val prevHash =
+                when (val prevHashElement = blockHeaderCborArrayInner.elementAt(2)) {
+                    is CborByteString -> prevHashElement.byteArrayValue()[0].toHexString()
+                    // might be cbor null if we launched without the byron era
+                    else -> ""
+                }
             val nodeVkey = blockHeaderCborArrayInner.elementToHexString(3) // issuer_vkey
 //        val nodeVrfVkey = blockHeaderCborArrayInner.elementToHexString(4)
             val blockVrf: String
@@ -107,8 +114,8 @@ object MsgRollForwardAdapter {
 }
 // msgRollForward         = [2, wrappedHeader, tip]
 
-//// my first bcsh block
-//[
+// // my first bcsh block
+// [
 //  2, // roll forward
 //  [
 //    1, // some number and then our embedded cbor innards
@@ -121,10 +128,10 @@ object MsgRollForwardAdapter {
 //    ],
 //    4741522 // tip block number
 //  ]
-//]
+// ]
 //
-//// the innards
-//[
+// // the innards
+// [
 //  [
 //    4567588, // block number
 //    6039969, // slot number
@@ -150,4 +157,4 @@ object MsgRollForwardAdapter {
 //  ],
 //  // body signature
 //  "b7f8858559bbb912a275ed3e9f5cc98f05eab377db9c626cc51ccde650702cd2e21648e549a68b8ad133b09608904d298be3a19b0910fee1e10c925ac0d99f0eec87fa21af4a49e6982672c68aed11fdb95d6320c9a64d82752e7c16d24f8a4a48ffe19f81b93714610ccab3b012b2530331898e8a6e537061e6404bb788582a73e41dbfe690b9913e9142ea063f5237f78059f3dbf5a34deccdb22f3323d90ecb7899fffb1683907846d85bf92947d79e5a4bade98dd966f7b3b7c2640a46fad49f12e7df4608f674043bb72da07230de5b01e7ea8845c327688a8e4bbd3a422c99e80c57ed618fc0251352c583692990ff27cf8edd005c70269c78c39f5ccdbed39cf2c7c88f77109efb25ccd698276364038a784e0ca3ba9c86cd3d6e10da7f4104f7f834f19655e574b5ebcba5bf73f3523bb3caa15bb85184db14227f888bf3c484ea8cdc933e25556e930758337e5019b087ba075ae8151990b5222671091db5eaa758c93c7fa5251c8fa87fa95399de93bf1f856e17565cd6aa4a465232bb5228888e3d338045578b7e0745dcd56517c5a07b4ef906cf3032f4bb984942e9120472d2e7712dee2d31d07fecc5127f6b216fc6d00951a4dea9045dd0e9"
-//]
+// ]

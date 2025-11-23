@@ -1,14 +1,13 @@
 package com.swiftmako.jormanager.model
 
-
 import com.fasterxml.jackson.annotation.JsonProperty
 
 data class Info(
-        @JsonProperty("icon64") val icon64: String?,
-        @JsonProperty("logo") val logo: String?,
-        @JsonProperty("location") val location: String?,
-        @JsonProperty("social") val social: Social?,
-        @JsonProperty("company") val company: Company?,
-        @JsonProperty("about") val about: About?,
-        @JsonProperty("rss") val rss: String?
+    @param:JsonProperty("icon64") val icon64: String?,
+    @param:JsonProperty("logo") val logo: String?,
+    @param:JsonProperty("location") val location: String?,
+    @param:JsonProperty("social") val social: Social?,
+    @param:JsonProperty("company") val company: Company?,
+    @param:JsonProperty("about") val about: About?,
+    @param:JsonProperty("rss") val rss: String?
 )

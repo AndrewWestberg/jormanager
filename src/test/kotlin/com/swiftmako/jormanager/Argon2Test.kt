@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 
 class Argon2Test {
-
     @Test
     fun testArgon2() {
         val hash =

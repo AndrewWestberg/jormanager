@@ -60,229 +60,246 @@ import org.springframework.stereotype.Component
 @Component("pooltoolMonitor")
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
-class PooltoolMonitor @Autowired constructor(
-    private val chainRepository: ChainRepository,
-    private val hostRepository: HostRepository,
-    private val fileRepository: FileRepository,
-    private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-    private val configAdapter: JsonAdapter<Config>,
-    @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
-    private val pooltoolService: PooltoolService,
-    @param:Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
-) : SmartLifecycle, CoroutineScope {
-    private val log by lazy { LoggerFactory.getLogger("PooltoolMonitor") }
+class PooltoolMonitor
+    @Autowired
+    constructor(
+        private val chainRepository: ChainRepository,
+        private val hostRepository: HostRepository,
+        private val fileRepository: FileRepository,
+        private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+        private val configAdapter: JsonAdapter<Config>,
+        @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
+        private val pooltoolService: PooltoolService,
+        @param:Value("\${pooltool.apikey}") private val pooltoolApiKey: String,
+    ) : SmartLifecycle,
+        CoroutineScope {
+        private val log by lazy { LoggerFactory.getLogger("PooltoolMonitor") }
 
-    private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext =
-        job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
-            if (throwable !is CancellationException) {
-                log.error("Uncaught coroutine exception!", throwable)
+        private val job = SupervisorJob()
+        override val coroutineContext: CoroutineContext =
+            job + Dispatchers.IO +
+                CoroutineExceptionHandler { _, throwable ->
+                    if (throwable !is CancellationException) {
+                        log.error("Uncaught coroutine exception!", throwable)
+                    }
+                }
+
+        private val mutex = Mutex()
+        private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
+        private var isShuttingDown = false
+
+        override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode") && pooltoolApiKey.isNotBlank()
+
+        override fun isRunning(): Boolean {
+            val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
+            log.info("PooltoolMonitor isRunning: $isRunning")
+            return isRunning
+        }
+
+        override fun start() {
+            log.info("Starting PooltoolMonitor...")
+
+            monitorCoreNodes()
+        }
+
+        private fun monitorCoreNodes() {
+            launch {
+                nodesChannel.collect { node ->
+                    mutex.withLock {
+                        if (node.type != "core") {
+                            // Don't monitor blocks unless it is a core node
+                            log.info("Skip pooltool monitoring for relay node: ${node.name}")
+                            return@collect
+                        }
+                        log.info("Start pooltool monitoring for core node: ${node.name}")
+
+                        val existingJob = monitorJobMap[node.id]
+                        if (existingJob?.isActive == true) {
+                            // Respawn the monitoring job in case something changed.
+                            existingJob.cancel()
+                            monitorJobMap.remove(node.id)
+                        }
+
+                        // Start a new monitoring job for this node
+                        hostRepository.findByIdOrNull(node.hostId)?.let { host ->
+                            val monitoringJob =
+                                launch {
+                                    when (host.type) {
+                                        "local" -> {
+                                            monitorBlocksLocal(host, node)
+                                        }
+
+                                        "remote" -> {
+                                            monitorBlocksRemote(host, node)
+                                        }
+                                    }
+                                }
+                            monitorJobMap[node.id!!] = monitoringJob
+                        } ?: log.error("Host not found for id ${node.hostId}")
+                    }
+                }
             }
         }
 
-    private val mutex = Mutex()
-    private val monitorJobMap: MutableMap<Long, Job> = mutableMapOf()
-    private var isShuttingDown = false
+        private lateinit var mux: Mux
 
-    override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode") && pooltoolApiKey.isNotBlank()
+        private suspend fun monitorBlocksLocal(
+            host: Host,
+            node: Node,
+            port: Int? = null
+        ) {
+            coroutineScope {
+                while (true) {
+                    try {
+                        val shelleyGenesisFile =
+                            fileRepository.findByIdOrNull(node.genesisShelleyFileId)
+                                ?: throw IOException("Unable to read shelley genesis file!")
+                        val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
+                        val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
+                        val configFile =
+                            fileRepository.findByIdOrNull(node.configFileId)
+                                ?: throw IOException("Unable to read config file")
+                        val shelleyGenesisHash =
+                            configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
 
-    override fun isRunning(): Boolean {
-        val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
-        log.info("PooltoolMonitor isRunning: $isRunning")
-        return isRunning
-    }
+                        val listen =
+                            if (host.isRemote || node.listen == "0.0.0.0") {
+                                "127.0.0.1"
+                            } else {
+                                node.listen
+                            }
 
-    override fun start() {
-        log.info("Starting PooltoolMonitor...")
-
-        monitorCoreNodes()
-    }
-
-    private fun monitorCoreNodes() {
-        launch {
-            nodesChannel.collect { node ->
-                mutex.withLock {
-                    if (node.type != "core") {
-                        // Don't monitor blocks unless it is a core node
-                        log.info("Skip pooltool monitoring for relay node: ${node.name}")
-                        return@collect
+                        aSocket(ActorSelectorManager(coroutineContext))
+                            .tcp()
+                            .connect(InetSocketAddress(listen, port ?: node.port)) {
+                                noDelay = true
+                                keepAlive = true
+                                lingerSeconds = 0
+                                typeOfService = TypeOfService.IPTOS_LOWDELAY
+                            }.use { socket ->
+                                log.debug("ChainMonitor Socket connected")
+                                val socketConnection = socket.connection()
+                                mux = Mux(socketConnection)
+                                mux.execute(HandshakeProtocol(networkMagic))
+                                mux.execute(
+                                    KeepAliveProtocol(),
+                                    ChainSyncProtocol(
+                                        host,
+                                        shelleyGenesisHash,
+                                        getChainBlocksForSyncStart(chainRepository),
+                                        chainRepository,
+                                        isPooltool = true,
+                                        pooltoolService = pooltoolService,
+                                        pooltoolApiKey = pooltoolApiKey,
+                                        poolId = node.poolId!!,
+                                    )
+                                )
+                            }
+                    } catch (e: Throwable) {
+                        log.error("Error monitoring chain for pooltool!", e)
+                        mux.shutdownGracefully()
+                    } finally {
+                        this@coroutineScope.coroutineContext.cancelChildren()
                     }
-                    log.info("Start pooltool monitoring for core node: ${node.name}")
 
-                    val existingJob = monitorJobMap[node.id]
-                    if (existingJob?.isActive == true) {
-                        // Respawn the monitoring job in case something changed.
-                        existingJob.cancel()
-                        monitorJobMap.remove(node.id)
-                    }
+                    delay(RECONNECT_DELAY_MS)
+                }
+            }
+        }
 
-                    // Start a new monitoring job for this node
-                    hostRepository.findByIdOrNull(node.hostId)?.let { host ->
-                        val monitoringJob = launch {
-                            when (host.type) {
-                                "local" -> {
-                                    monitorBlocksLocal(host, node)
-                                }
+        @Suppress("BlockingMethodInNonBlockingContext")
+        private suspend fun monitorBlocksRemote(
+            host: Host,
+            node: Node
+        ) {
+            coroutineScope {
+                val sshClientPool = SSHClientPool.getInstance(host)
+                var retry = true
+                while (retry) {
+                    retry = false
+                    var ssh: SSHClient? = null
+                    var localPortForwarder: LocalPortForwarder? = null
+                    try {
+                        ssh = sshClientPool.borrow()
+                        val localPort = availableLocalPort()
+                        val listen =
+                            if (node.listen == "0.0.0.0") {
+                                "127.0.0.1"
+                            } else {
+                                node.listen
+                            }
+                        val params = Parameters("127.0.0.1", localPort, listen, node.port)
+                        val serverSocket =
+                            ServerSocket().apply {
+                                reuseAddress = true
+                            }
+                        serverSocket.bind(java.net.InetSocketAddress(params.localHost, params.localPort))
+                        localPortForwarder = ssh.newLocalPortForwarder(params, serverSocket)
 
-                                "remote" -> {
-                                    monitorBlocksRemote(host, node)
-                                }
+                        object : Thread("port forward $localPort") {
+                            override fun run() {
+                                localPortForwarder.listen()
+                            }
+                        }.start()
+
+                        monitorBlocksLocal(host, node, localPort)
+                    } catch (e: IOException) {
+                        log.error("IOException communicating with ${node.name}")
+                        retry = true
+                    } catch (e: IllegalStateException) {
+                        log.error("IllegalStateException communicating with ${node.name}", e)
+                        retry = true
+                    } catch (e: CancellationException) {
+                        log.warn("Monitoring job canceled: ${node.name}")
+                    } catch (e: Throwable) {
+                        log.error("Fatal error communicating with ${node.name}!", e)
+                    } finally {
+                        ignoreExceptions {
+                            localPortForwarder?.close()
+                        }
+                        ignoreExceptions {
+                            ssh?.let {
+                                sshClientPool.recycle(ssh)
                             }
                         }
-                        monitorJobMap[node.id!!] = monitoringJob
-                    } ?: log.error("Host not found for id ${node.hostId}")
+                    }
                 }
             }
         }
-    }
 
-    private lateinit var mux: Mux
+        @OptIn(DelicateCoroutinesApi::class)
+        override fun stop(callback: java.lang.Runnable) {
+            isShuttingDown = true
+            GlobalScope.launch {
+                job.cancelChildren()
+                job.cancelAndJoin()
+                log.info("PooltoolMonitor stopped.")
+                callback.run()
+            }
+        }
 
-    private suspend fun monitorBlocksLocal(host: Host, node: Node, port: Int? = null) {
-        coroutineScope {
+        override fun stop() {
+        }
+
+        /**
+         * Find a local available port to bind to for port forwarding.
+         */
+        private fun availableLocalPort(): Int {
+            val random = Random(System.currentTimeMillis())
             while (true) {
+                val port = random.nextInt(23000, 65534)
                 try {
-                    val shelleyGenesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId)
-                        ?: throw IOException("Unable to read shelley genesis file!")
-                    val shelley = shelleyShelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
-                    val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
-                    val configFile = fileRepository.findByIdOrNull(node.configFileId)
-                        ?: throw IOException("Unable to read config file")
-                    val shelleyGenesisHash =
-                        configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
-
-                    val listen = if (host.isRemote || node.listen == "0.0.0.0") {
-                        "127.0.0.1"
-                    } else {
-                        node.listen
-                    }
-
-                    aSocket(ActorSelectorManager(coroutineContext)).tcp()
-                        .connect(InetSocketAddress(listen, port ?: node.port)) {
-                            noDelay = true
-                            keepAlive = true
-                            lingerSeconds = 0
-                            typeOfService = TypeOfService.IPTOS_LOWDELAY
-                        }
-                        .use { socket ->
-                            log.debug("ChainMonitor Socket connected")
-                            val socketConnection = socket.connection()
-                            mux = Mux(socketConnection)
-                            mux.execute(HandshakeProtocol(networkMagic))
-                            mux.execute(
-                                KeepAliveProtocol(),
-                                ChainSyncProtocol(
-                                    host,
-                                    shelleyGenesisHash,
-                                    getChainBlocksForSyncStart(chainRepository),
-                                    chainRepository,
-                                    isPooltool = true,
-                                    pooltoolService = pooltoolService,
-                                    pooltoolApiKey = pooltoolApiKey,
-                                    poolId = node.poolId!!,
-                                )
-                            )
-                        }
-                } catch (e: Throwable) {
-                    log.error("Error monitoring chain for pooltool!", e)
-                    mux.shutdownGracefully()
-                } finally {
-                    this@coroutineScope.coroutineContext.cancelChildren()
-                }
-
-                delay(RECONNECT_DELAY_MS)
-            }
-        }
-    }
-
-    @Suppress("BlockingMethodInNonBlockingContext")
-    private suspend fun monitorBlocksRemote(host: Host, node: Node) {
-        coroutineScope {
-            val sshClientPool = SSHClientPool.getInstance(host)
-            var retry = true
-            while (retry) {
-                retry = false
-                var ssh: SSHClient? = null
-                var localPortForwarder: LocalPortForwarder? = null
-                try {
-                    ssh = sshClientPool.borrow()
-                    val localPort = availableLocalPort()
-                    val listen = if (node.listen == "0.0.0.0") {
-                        "127.0.0.1"
-                    } else {
-                        node.listen
-                    }
-                    val params = Parameters("127.0.0.1", localPort, listen, node.port)
-                    val serverSocket = ServerSocket().apply {
-                        reuseAddress = true
-                    }
-                    serverSocket.bind(java.net.InetSocketAddress(params.localHost, params.localPort))
-                    localPortForwarder = ssh.newLocalPortForwarder(params, serverSocket)
-
-                    object : Thread("port forward $localPort") {
-                        override fun run() {
-                            localPortForwarder.listen()
-                        }
-                    }.start()
-
-                    monitorBlocksLocal(host, node, localPort)
-                } catch (e: IOException) {
-                    log.error("IOException communicating with ${node.name}")
-                    retry = true
-                } catch (e: IllegalStateException) {
-                    log.error("IllegalStateException communicating with ${node.name}", e)
-                    retry = true
-                } catch (e: CancellationException) {
-                    log.warn("Monitoring job canceled: ${node.name}")
-                } catch (e: Throwable) {
-                    log.error("Fatal error communicating with ${node.name}!", e)
-                } finally {
-                    ignoreExceptions {
-                        localPortForwarder?.close()
-                    }
-                    ignoreExceptions {
-                        ssh?.let {
-                            sshClientPool.recycle(ssh)
+                    ServerSocket(port).apply { reuseAddress = true }.use {
+                        DatagramSocket(port).apply { reuseAddress = true }.use {
+                            return port
                         }
                     }
+                } catch (_: IOException) {
                 }
             }
         }
-    }
 
-    @OptIn(DelicateCoroutinesApi::class)
-    override fun stop(callback: java.lang.Runnable) {
-        isShuttingDown = true
-        GlobalScope.launch {
-            job.cancelChildren()
-            job.cancelAndJoin()
-            log.info("PooltoolMonitor stopped.")
-            callback.run()
+        companion object {
+            const val RECONNECT_DELAY_MS = 5000L
         }
     }
-
-    override fun stop() {
-    }
-
-    /**
-     * Find a local available port to bind to for port forwarding.
-     */
-    private fun availableLocalPort(): Int {
-        val random = Random(System.currentTimeMillis())
-        while (true) {
-            val port = random.nextInt(23000, 65534)
-            try {
-                ServerSocket(port).apply { reuseAddress = true }.use {
-                    DatagramSocket(port).apply { reuseAddress = true }.use {
-                        return port
-                    }
-                }
-            } catch (_: IOException) {
-            }
-        }
-    }
-
-    companion object {
-        const val RECONNECT_DELAY_MS = 5000L
-    }
-}

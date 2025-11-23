@@ -9,10 +9,9 @@ import org.slf4j.LoggerFactory
 import java.nio.ByteBuffer
 
 class TxSubmission2Protocol : MiniProtocol(protocolId = 0x0004.toShort()) {
-
     private val log by lazy { LoggerFactory.getLogger("TxSubmission2Protocol") }
 
-    override val RX_BUFFER_SIZE: Int = 64 * 1024
+    override val rxBufferSize: Int = 64 * 1024
 
     private var state = State.Idle
         set(value) {
@@ -22,18 +21,20 @@ class TxSubmission2Protocol : MiniProtocol(protocolId = 0x0004.toShort()) {
             }
         }
 
-    private val _agencyFlow = MutableSharedFlow<Agency>(
-        replay = 1,
-        extraBufferCapacity = 4
-    ).apply { tryEmit(agency) }
+    private val _agencyFlow =
+        MutableSharedFlow<Agency>(
+            replay = 1,
+            extraBufferCapacity = 4
+        ).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
     override val agency: Agency
-        get() = when (state) {
-            State.Idle -> Agency.Server
-            State.Init, State.TxIdsNonBlocking, State.TxIdsBlocking, State.Txs -> Agency.Client
-            State.Done -> Agency.None
-        }
+        get() =
+            when (state) {
+                State.Idle -> Agency.Server
+                State.Init, State.TxIdsNonBlocking, State.TxIdsBlocking, State.Txs -> Agency.Client
+                State.Done -> Agency.None
+            }
 
     enum class State {
         Init,
@@ -49,7 +50,7 @@ class TxSubmission2Protocol : MiniProtocol(protocolId = 0x0004.toShort()) {
     }
 
     override suspend fun sendData(): ByteBuffer {
-        //log.info("sendData(): state = $state")
+        // log.info("sendData(): state = $state")
         val payload = muxByteBufferPool.borrow()
         return when (state) {
             State.Init -> {

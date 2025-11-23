@@ -49,18 +49,20 @@ class ChainSyncProtocol(
     private val pooltoolService: PooltoolService,
     private val pooltoolApiKey: String,
     private val poolId: String,
-) : MiniProtocol(protocolId = 0x0002.toShort()), CoroutineScope {
-
+) : MiniProtocol(protocolId = 0x0002.toShort()),
+    CoroutineScope {
     private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
 
     private val job = SupervisorJob()
-    override val coroutineContext: CoroutineContext = job + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
-        if (throwable !is CancellationException) {
-            log.error("Uncaught coroutine exception!", throwable)
-        }
-    }
+    override val coroutineContext: CoroutineContext =
+        job + Dispatchers.IO +
+            CoroutineExceptionHandler { _, throwable ->
+                if (throwable !is CancellationException) {
+                    log.error("Uncaught coroutine exception!", throwable)
+                }
+            }
 
-    override val RX_BUFFER_SIZE: Int = 64 * 1024
+    override val rxBufferSize: Int = 64 * 1024
 
     private var state = State.Idle
         set(value) {
@@ -72,32 +74,31 @@ class ChainSyncProtocol(
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
     override val agency: Agency
-        get() = when (state) {
-            State.Idle -> Agency.Client
-            State.Done -> Agency.None
-            else -> Agency.Server
-        }
+        get() =
+            when (state) {
+                State.Idle -> Agency.Client
+                State.Done -> Agency.None
+                else -> Agency.Server
+            }
 
     private var isIntersectFound = false
 
     // hardcode for now
-    private val lastByronBlocks: List<Pair<Long, ByteArray>> = listOf(
-        // testing bad block with huge token value
-        // Pair(18342080L, "9d9a97918b9b77bed4e72eabb43b64b34affc929846d528babcd1d2f90976c2f".hexToByteArray()),
+    private val lastByronBlocks: List<Pair<Long, ByteArray>> =
+        listOf(
+            // testing bad block with huge token value
+            // Pair(18342080L, "9d9a97918b9b77bed4e72eabb43b64b34affc929846d528babcd1d2f90976c2f".hexToByteArray()),
+            // testing bad block with null value
+            // Pair(23428799L, "fae8158c9fb6f53389d55ecb80b0538fde879a0b56dffc04904eb6d3359de4e3".hexToByteArray()),
+            // testing hanging
+            // Pair(25530527L, "cd02dd5f4e7a3198e94261d0a49335a0e0442a7dde794a161be175053781eabb".hexToByteArray()),
+            // Pair(25530581L, "d9a9004c29643ff43cfe217f0e59017be359c6b864e66e795c884c5d3a7bf470".hexToByteArray()),
+            Pair(4492799L, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457".hexToByteArray()), // mainnet
+            Pair(84242L, "45899e8002b27df291e09188bfe3aeb5397ac03546a7d0ead93aa2500860f1af".hexToByteArray()), // preprod
+            Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), // guild
+        )
 
-        // testing bad block with null value
-        // Pair(23428799L, "fae8158c9fb6f53389d55ecb80b0538fde879a0b56dffc04904eb6d3359de4e3".hexToByteArray()),
-
-        // testing hanging
-        //Pair(25530527L, "cd02dd5f4e7a3198e94261d0a49335a0e0442a7dde794a161be175053781eabb".hexToByteArray()),
-        // Pair(25530581L, "d9a9004c29643ff43cfe217f0e59017be359c6b864e66e795c884c5d3a7bf470".hexToByteArray()),
-
-        Pair(4492799L, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457".hexToByteArray()), //mainnet
-        Pair(84242L, "45899e8002b27df291e09188bfe3aeb5397ac03546a7d0ead93aa2500860f1af".hexToByteArray()), // preprod
-        Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), //guild
-    )
-
-    //private val blockSaveChannel = Channel<MsgRollForward>(Channel.RENDEZVOUS)
+    // private val blockSaveChannel = Channel<MsgRollForward>(Channel.RENDEZVOUS)
     private val blockSaveFlow = MutableSharedFlow<MsgRollForward>()
 
     private val chainBlocksPairs by lazy {
@@ -110,7 +111,7 @@ class ChainSyncProtocol(
     }
 
     private var _tipToIntersect: List<Pair<Long, ByteArray>>? = null
-    private val tipToIntersect: List<Pair<Long, ByteArray>>
+    val tipToIntersect: List<Pair<Long, ByteArray>>
         get() = _tipToIntersect ?: chainBlocksPairs
 
     init {
@@ -122,30 +123,30 @@ class ChainSyncProtocol(
         job.cancelChildren()
     }
 
-    override suspend fun sendData(): ByteBuffer {
-        return when (state) {
+    override suspend fun sendData(): ByteBuffer =
+        when (state) {
             State.Idle -> {
                 val payload = muxByteBufferPool.borrow()
-                state = if (isIntersectFound) {
-                    log.trace("MsgRequestNext")
-                    MsgRequestNext().writeToBuffer(payload)
-                    State.CanAwait
-                } else {
-                    log.trace("MsgFindIntersect")
-                    if (tipToIntersect.isNotEmpty()) {
-                        MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
+                state =
+                    if (isIntersectFound) {
+                        log.trace("MsgRequestNext")
+                        MsgRequestNext().writeToBuffer(payload)
+                        State.CanAwait
                     } else {
-                        MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
+                        log.trace("MsgFindIntersect")
+                        if (tipToIntersect.isNotEmpty()) {
+                            MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
+                        } else {
+                            MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
+                        }
+                        _tipToIntersect = null
+                        State.Intersect
                     }
-                    _tipToIntersect = null
-                    State.Intersect
-                }
                 payload.flip()
             }
 
             else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
         }
-    }
 
     override fun receiveData(payload: ByteBuffer) {
         when (state) {
@@ -153,12 +154,13 @@ class ChainSyncProtocol(
                 ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
                     CborReader.createFromInputStream(byteStream).apply {
                         while (byteStream.available() > 0) {
-                            val cborArray = try {
-                                readDataItem() as CborArray
-                            } catch (e: Throwable) {
-                                log.error("Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}")
-                                throw e
-                            }
+                            val cborArray =
+                                try {
+                                    readDataItem() as CborArray
+                                } catch (e: Throwable) {
+                                    log.error("Error parsing cbor (position: ${payload.position()}, limit: ${payload.limit()}, remaining: ${payload.remaining()}: ${payload.array()}")
+                                    throw e
+                                }
                             val messageId: Long = cborArray.elementToLong(0)
                             when (messageId) {
                                 MsgRollForward.MESSAGE_ID -> {
@@ -256,33 +258,34 @@ class ChainSyncProtocol(
                     // We're on tip! Send to pooltool
                     sendBlockToPooltool(msgRollForward)
                 } else {
-                    val savedChainBlock = transaction {
-                        // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
-                        chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
+                    val savedChainBlock =
+                        transaction {
+                            // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
+                            chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
 // LedgerRepository.doRollback(msgRollForward.blockNumber)
-                        val previousChainBlock = chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
+                            val previousChainBlock = chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
 
-                        // evolve the etaV nonce value
-                        val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
-                        if (previousEtaV.contentEquals(shelleyGenesisHash)) {
-                            log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
-                        }
-                        val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
-                        val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
+                            // evolve the etaV nonce value
+                            val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
+                            if (previousEtaV.contentEquals(shelleyGenesisHash)) {
+                                log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
+                            }
+                            val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
+                            val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
 
-                        // add this block to the database
-                        chainRepository.save(
-                            ChainBlock(
-                                blockNumber = msgRollForward.blockNumber,
-                                slotNumber = msgRollForward.slotNumber,
-                                hash = msgRollForward.hash,
-                                prevHash = msgRollForward.prevHash,
-                                etaV = etaV,
-                                poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
-                                leaderVrf = msgRollForward.leaderVrf,
+                            // add this block to the database
+                            chainRepository.save(
+                                ChainBlock(
+                                    blockNumber = msgRollForward.blockNumber,
+                                    slotNumber = msgRollForward.slotNumber,
+                                    hash = msgRollForward.hash,
+                                    prevHash = msgRollForward.prevHash,
+                                    etaV = etaV,
+                                    poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
+                                    leaderVrf = msgRollForward.leaderVrf,
+                                )
                             )
-                        )
-                    }
+                        }
 
                     isTip =
                         msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
@@ -297,10 +300,11 @@ class ChainSyncProtocol(
                                 savedChainBlock.poolId.substring(0..8)
                             }...".format(
                                 floor(
-                                    msgRollForward.blockNumber.toDouble() / max(
-                                        msgRollForward.blockNumber,
-                                        msgRollForward.chainTip.block
-                                    ) * 10000.0
+                                    msgRollForward.blockNumber.toDouble() /
+                                        max(
+                                            msgRollForward.blockNumber,
+                                            msgRollForward.chainTip.block
+                                        ) * 10000.0
                                 ) / 100.0
                             )
                         )
@@ -322,32 +326,34 @@ class ChainSyncProtocol(
         if (now - lastNodeVersionTime > 3600L) {
             val hostConnection = HostConnection(host)
             val versionString = hostConnection.command("${host.cardanoNodePath} --version").trim()
-            Regex("cardano-node (\\d+\\.\\d+\\.\\d+) .*\ngit rev ([a-f0-9]{5}).*").matchEntire(versionString)
+            Regex("cardano-node (\\d+\\.\\d+\\.\\d+) .*\ngit rev ([a-f0-9]{5}).*")
+                .matchEntire(versionString)
                 ?.let { matchResult ->
                     nodeVersion = "${matchResult.groupValues[1]}:${matchResult.groupValues[2]}"
                 }
             lastNodeVersionTime = now
         }
         try {
-
             val at = DateTime(now, DateTimeZone.UTC).toString(ISODateTimeFormat.dateTime())
-            val stats = PooltoolStats(
-                apiKey = pooltoolApiKey,
-                poolId = poolId,
-                data = Data(
-                    nodeId = "", // future use
-                    version = nodeVersion,
-                    at = at, // 2020-12-12T23:47:04.112Z
-                    blockNo = msgRollForward.blockNumber,
-                    slotNo = msgRollForward.slotNumber,
-                    blockHash = msgRollForward.hash,
-                    parentHash = msgRollForward.prevHash,
-                    leaderVrf = msgRollForward.leaderVrf,
-                    blockVrf = msgRollForward.blockVrf,
-                    blockVrfProof = msgRollForward.blockVrfProof,
-                    nodeVKey = msgRollForward.nodeVKey,
+            val stats =
+                PooltoolStats(
+                    apiKey = pooltoolApiKey,
+                    poolId = poolId,
+                    data =
+                        Data(
+                            nodeId = "", // future use
+                            version = nodeVersion,
+                            at = at, // 2020-12-12T23:47:04.112Z
+                            blockNo = msgRollForward.blockNumber,
+                            slotNo = msgRollForward.slotNumber,
+                            blockHash = msgRollForward.hash,
+                            parentHash = msgRollForward.prevHash,
+                            leaderVrf = msgRollForward.leaderVrf,
+                            blockVrf = msgRollForward.blockVrf,
+                            blockVrfProof = msgRollForward.blockVrfProof,
+                            nodeVKey = msgRollForward.nodeVKey,
+                        )
                 )
-            )
             log.info("Pooltool Request: $stats")
             val response = pooltoolService.sendStats(stats)
             log.debug("pooltool response: {}", response.body())
@@ -357,6 +363,7 @@ class ChainSyncProtocol(
     }
 
     private val blake2b224 = Blake2bDigest(224)
+
     private fun nodeVKeyToPoolId(nodeVKey: String): String {
         blake2b224.reset()
         val vKeyByteArray = nodeVKey.hexToByteArray()
@@ -367,6 +374,7 @@ class ChainSyncProtocol(
     }
 
     private var nextLogTimeDebug = System.currentTimeMillis()
+
     private fun canLogDebug(updateNext: Boolean = true): Boolean {
         val now = System.currentTimeMillis()
         return if (!isPooltool && now > nextLogTimeDebug) {
@@ -380,6 +388,7 @@ class ChainSyncProtocol(
     }
 
     private var nextLogTime = System.currentTimeMillis()
+
     private fun canLog(updateNext: Boolean = true): Boolean {
         val now = System.currentTimeMillis()
         return if (!isPooltool && now > nextLogTime) {
@@ -401,11 +410,12 @@ class ChainSyncProtocol(
     }
 
     companion object {
-        private val newBlockMutableSharedFlow = MutableSharedFlow<String>(
-            replay = 0,
-            extraBufferCapacity = 1,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST
-        )
+        private val newBlockMutableSharedFlow =
+            MutableSharedFlow<String>(
+                replay = 0,
+                extraBufferCapacity = 1,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST
+            )
         val newBlockFlow = newBlockMutableSharedFlow.distinctUntilChanged()
         var isTip = false
         var tipBlockNumber: Long = 0L

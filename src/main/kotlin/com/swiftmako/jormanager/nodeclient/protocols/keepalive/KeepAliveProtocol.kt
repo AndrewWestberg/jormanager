@@ -14,7 +14,9 @@ import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
 import java.time.Instant
 
-class KeepAliveProtocol(delaySeconds: Long = 10L) : MiniProtocol(protocolId = 0x0008.toShort()) {
+class KeepAliveProtocol(
+    delaySeconds: Long = 10L
+) : MiniProtocol(protocolId = 0x0008.toShort()) {
     private val log by lazy { LoggerFactory.getLogger("KeepAliveProtocol") }
 
     private var cookie: Short = 0
@@ -29,14 +31,15 @@ class KeepAliveProtocol(delaySeconds: Long = 10L) : MiniProtocol(protocolId = 0x
     private val _agencyFlow = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
 
-    override val RX_BUFFER_SIZE: Int = 64 * 1024
+    override val rxBufferSize: Int = 64 * 1024
 
     override val agency: Agency
-        get() = when (state) {
-            State.Client -> Agency.Client
-            State.Server -> Agency.Server
-            State.Done -> Agency.None
-        }
+        get() =
+            when (state) {
+                State.Client -> Agency.Client
+                State.Server -> Agency.Server
+                State.Done -> Agency.None
+            }
 
     enum class State {
         Client,
@@ -44,8 +47,8 @@ class KeepAliveProtocol(delaySeconds: Long = 10L) : MiniProtocol(protocolId = 0x
         Done,
     }
 
-    override suspend fun sendData(): ByteBuffer {
-        return when (state) {
+    override suspend fun sendData(): ByteBuffer =
+        when (state) {
             State.Client -> {
                 val delayTime = nextSendTime.toEpochMilli() - Instant.now().toEpochMilli()
                 if (delayTime > 0) {
@@ -62,8 +65,6 @@ class KeepAliveProtocol(delaySeconds: Long = 10L) : MiniProtocol(protocolId = 0x
 
             else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
         }
-
-    }
 
     override fun receiveData(payload: ByteBuffer) {
         when (state) {

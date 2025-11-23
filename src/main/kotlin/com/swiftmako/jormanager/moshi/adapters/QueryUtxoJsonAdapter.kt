@@ -9,7 +9,6 @@ import java.math.BigDecimal
 import java.math.BigInteger
 
 class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
-
     private val options = JsonReader.Options.of("value")
     private val policyNameOptions = JsonReader.Options.of("lovelace")
 
@@ -29,7 +28,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                         // value
                         var lovelace = BigInteger.ZERO
                         reader.beginObject()
-                        while(reader.hasNext()) {
+                        while (reader.hasNext()) {
                             when (reader.selectName(policyNameOptions)) {
                                 0 -> {
                                     // lovelace
@@ -39,7 +38,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
                                     // token asset
                                     val policy = reader.nextName()
                                     reader.beginObject()
-                                    while(reader.hasNext()) {
+                                    while (reader.hasNext()) {
                                         val name = reader.nextName()
                                         val amount = BigDecimal(reader.nextString()).toBigInteger()
                                         if (name != null && policy.isNotBlank() && amount > BigInteger.ZERO) {
@@ -66,9 +65,10 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
         return utxos
     }
 
-    override fun toJson(writer: JsonWriter, value: List<Utxo>?) {
-        throw NotImplementedError("Not allowed to convert QueryUtxo to json!")
-    }
+    override fun toJson(
+        writer: JsonWriter,
+        value: List<Utxo>?
+    ): Unit = throw NotImplementedError("Not allowed to convert QueryUtxo to json!")
 }
 // Shelley era
 // {
@@ -80,7 +80,7 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 //        "amount": 1973709508,
 //        "address": "6129fd280480232d72b2839fcf47275e790a1a3a45dafafd8f64180612"
 //    }
-//}
+// }
 
 // Mary era
 // {
@@ -135,10 +135,10 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 //        ],
 //        "address": "607e8c76538b4aa50a62e6fe015ddb58a97b2131c6bb15fc0b8eeffd3a"
 //    }
-//}
+// }
 
 // 1.26.0 era
-//{
+// {
 //    "55b0751876f5a846faa11b7aeaff979c00c42d21f1960d5610bbcf9a4fbd72ac#2": {
 //        "address": "60da0eb5ed7611482ec5089b69d870e0c56c1c45180256112398e0835b",
 //        "value": {
@@ -173,4 +173,4 @@ class QueryUtxoJsonAdapter : JsonAdapter<List<Utxo>>() {
 //            "lovelace": 4820683
 //        }
 //    }
-//}
+// }

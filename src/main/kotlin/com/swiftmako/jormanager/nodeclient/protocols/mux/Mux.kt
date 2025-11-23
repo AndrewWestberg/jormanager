@@ -126,7 +126,7 @@ class Mux(
                     val rxMuxBuffer =
                         rxMuxBufferMap[header.protocolId]
                             ?: MuxRxBuffer(
-                                ByteBuffer.allocate(rxProtocol.RX_BUFFER_SIZE).apply {
+                                ByteBuffer.allocate(rxProtocol.rxBufferSize).apply {
                                     clear()
                                     limit(0)
                                 }

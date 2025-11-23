@@ -6,6 +6,6 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class FileUpload(
-        @JsonProperty("name") @Json(name = "name") val name: String,
-        @JsonProperty("content") @Json(name = "content") val content: String
+    @param:JsonProperty("name") @param:Json(name = "name") val name: String,
+    @param:JsonProperty("content") @param:Json(name = "content") val content: String
 )

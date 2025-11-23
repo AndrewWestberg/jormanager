@@ -4,7 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 
 class JormanagerApplicationTests {
-
     @Test
     fun contextLoads() {
     }

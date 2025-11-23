@@ -1,21 +1,20 @@
 package com.swiftmako.jormanager.model.ekg
 
-
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class Metrics(
-    @Json(name = "blockNum")
+    @param:Json(name = "blockNum")
     val blockNum: BlockNum = BlockNum(),
-    @Json(name = "density")
+    @param:Json(name = "density")
     val density: Density = Density(),
-    @Json(name = "epoch")
+    @param:Json(name = "epoch")
     val epoch: Epoch = Epoch(),
-    @Json(name = "forksCreatedNum")
+    @param:Json(name = "forksCreatedNum")
     val forksCreatedNum: ForksCreatedNum = ForksCreatedNum(),
-    @Json(name = "slotInEpoch")
+    @param:Json(name = "slotInEpoch")
     val slotInEpoch: SlotInEpoch = SlotInEpoch(),
-    @Json(name = "slotNum")
+    @param:Json(name = "slotNum")
     val slotNum: SlotNum = SlotNum()
 )

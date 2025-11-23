@@ -43,5 +43,4 @@ data class WalletEntry(
     val stakingRegCert: File? = null,
     @Column(name = "deleted")
     val deleted: Boolean = false
-) {
-}
+)

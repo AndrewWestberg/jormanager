@@ -1,20 +1,19 @@
 package com.swiftmako.jormanager.model
 
-
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class CalculateFeeResponse(
-    @Json(name = "txFee")
+    @param:Json(name = "txFee")
     val txFee: BigInteger,
-    @Json(name = "tokenFees")
+    @param:Json(name = "tokenFees")
     val tokenFees: List<BigInteger>,
-    @Json(name = "tokenKeepFee")
+    @param:Json(name = "tokenKeepFee")
     val tokenKeepFee: BigInteger,
-    @Json(name = "tokenLocked")
+    @param:Json(name = "tokenLocked")
     val tokenLocked: BigInteger,
-    @Json(name = "uuid")
+    @param:Json(name = "uuid")
     val uuid: String,
 )

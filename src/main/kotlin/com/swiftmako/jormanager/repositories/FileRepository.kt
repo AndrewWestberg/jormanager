@@ -8,9 +8,12 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface FileRepository : JpaRepository<File, Long> {
-
     @Query("SELECT f FROM File f WHERE f.name = :name")
-    fun findByName(@Param("name") name: String): File?
+    fun findByName(
+        @Param("name") name: String
+    ): File?
 
-    fun findByNameLike(@Param("name") name: String): List<File>
+    fun findByNameLike(
+        @Param("name") name: String
+    ): List<File>
 }

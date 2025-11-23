@@ -8,7 +8,6 @@ import jakarta.persistence.Id
 import jakarta.persistence.SequenceGenerator
 import jakarta.persistence.Table
 
-
 @Entity
 @Table(name = "blocks")
 data class Block(

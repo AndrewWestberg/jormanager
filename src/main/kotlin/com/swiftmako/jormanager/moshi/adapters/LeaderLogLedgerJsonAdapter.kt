@@ -11,21 +11,24 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
 
-class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>) : JsonAdapter<LeaderLogLedger>() {
-
+class LeaderLogLedgerJsonAdapter(
+    moshi: Moshi,
+    private val poolIds: Set<String>
+) : JsonAdapter<LeaderLogLedger>() {
     private val doubleAdapter: JsonAdapter<Double> = moshi.adapter(Double::class.java, emptySet(), "decentralisationParam")
 
-    private val options: List<JsonReader.Options> = listOf(
+    private val options: List<JsonReader.Options> =
+        listOf(
             JsonReader.Options.of("stateBefore", "nesEs", "esPp", "esSnapshots", "esLState"),
             JsonReader.Options.of("decentralisationParam", "extraEntropy"),
-            JsonReader.Options.of("pstakeSet", "_pstakeSet", "pstakeMark", "_pstakeMark"), //pstakeSet is current epoch, pstakeMark is future epoch
+            JsonReader.Options.of("pstakeSet", "_pstakeSet", "pstakeMark", "_pstakeMark"), // pstakeSet is current epoch, pstakeMark is future epoch
             JsonReader.Options.of("stake", "_stake", "delegations", "_delegations"),
             JsonReader.Options.of("utxoState", "_utxoState"),
             JsonReader.Options.of("ppups", "_ppups"),
             JsonReader.Options.of("proposals"),
             JsonReader.Options.of("decentralisationParam", "extraEntropy", "_d", "_extraEntropy"),
             JsonReader.Options.of("contents", "tag")
-    )
+        )
 
     override fun fromJson(reader: JsonReader): LeaderLogLedger? {
         var decentralizationParameter = -1.0
@@ -43,7 +46,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         while (reader.hasNext()) {
             when (reader.selectName(options[0])) {
                 0 -> {
-                    //stateBefore
+                    // stateBefore
                     reader.beginObject()
                     isLedgerV3 = true
                     continue
@@ -62,7 +65,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                             0 -> {
                                 // decentralisationParam
                                 decentralizationParameter = doubleAdapter.fromJson(reader)
-                                        ?: throw Util.unexpectedNull("decentralisationParam", "decentralisationParam", reader)
+                                    ?: throw Util.unexpectedNull("decentralisationParam", "decentralisationParam", reader)
                             }
                             1 -> {
                                 // extraEntropy
@@ -100,11 +103,11 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                     while (reader.hasNext()) {
                         when (reader.selectName(options[2])) {
                             0, 1 -> {
-                                //pstakeSet
+                                // pstakeSet
                                 calculateSigmaValues(reader, poolIdToSigma)
                             }
                             2, 3 -> {
-                                //pstakeMark
+                                // pstakeMark
                                 calculateSigmaValues(reader, futurePoolIdToSigma)
                             }
                             -1 -> {
@@ -147,7 +150,7 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                                                                     reader.skipValue()
                                                                                 } else {
                                                                                     dProposalVotes++
-                                                                                    if (dProposalVotes == 1) { //changed from 5 -> 1 because only 1 for guild network
+                                                                                    if (dProposalVotes == 1) { // changed from 5 -> 1 because only 1 for guild network
                                                                                         futureDecentralizationParameter = reader.nextDouble()
                                                                                     } else {
                                                                                         reader.skipValue()
@@ -249,7 +252,6 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
                                                         reader.skipValue()
                                                     }
                                                 }
-
                                             }
                                             reader.endObject()
                                         }
@@ -294,16 +296,19 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         }
 
         return LeaderLogLedger(
-                decentralizationParameter = decentralizationParameter,
-                futureDecentralizationParameter = futureDecentralizationParameter,
-                poolIdToSigma = poolIdToSigma,
-                futurePoolIdToSigma = futurePoolIdToSigma,
-                extraPraosEntropy = extraPraosEntropy,
-                futureExtraPraosEntropy = futureExtraPraosEntropy,
+            decentralizationParameter = decentralizationParameter,
+            futureDecentralizationParameter = futureDecentralizationParameter,
+            poolIdToSigma = poolIdToSigma,
+            futurePoolIdToSigma = futurePoolIdToSigma,
+            extraPraosEntropy = extraPraosEntropy,
+            futureExtraPraosEntropy = futureExtraPraosEntropy,
         )
     }
 
-    private fun calculateSigmaValues(reader: JsonReader, poolIdToSigma: MutableMap<String, BigDecimal>) {
+    private fun calculateSigmaValues(
+        reader: JsonReader,
+        poolIdToSigma: MutableMap<String, BigDecimal>
+    ) {
         val stakeKeyToValue = mutableMapOf<String, BigInteger>()
         val stakeKeyToPoolId = mutableMapOf<String, String>()
         reader.beginObject()
@@ -351,16 +356,20 @@ class LeaderLogLedgerJsonAdapter(moshi: Moshi, private val poolIds: Set<String>)
         // calculate sigma for current epoch
         val totalDelegatedStake = stakeKeyToValue.values.sumByBigInteger { it }
         poolIds.forEach { poolId ->
-            val delegatedStake = stakeKeyToPoolId.filter {
-                it.value == poolId
-            }.keys.sumByBigInteger { stakeKey ->
-                stakeKeyToValue[stakeKey] ?: BigInteger.ZERO
-            }
+            val delegatedStake =
+                stakeKeyToPoolId
+                    .filter {
+                        it.value == poolId
+                    }.keys
+                    .sumByBigInteger { stakeKey ->
+                        stakeKeyToValue[stakeKey] ?: BigInteger.ZERO
+                    }
             poolIdToSigma[poolId] = BigDecimal(delegatedStake).divide(BigDecimal(totalDelegatedStake), 34, RoundingMode.HALF_UP)
         }
     }
 
-    override fun toJson(writer: JsonWriter, value: LeaderLogLedger?) {
-        throw NotImplementedError("Not allowed to convert LeaderLogLedger to json!")
-    }
+    override fun toJson(
+        writer: JsonWriter,
+        value: LeaderLogLedger?
+    ): Unit = throw NotImplementedError("Not allowed to convert LeaderLogLedger to json!")
 }

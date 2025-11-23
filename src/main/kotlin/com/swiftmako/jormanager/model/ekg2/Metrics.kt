@@ -1,43 +1,42 @@
 package com.swiftmako.jormanager.model.ekg2
 
-
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class Metrics(
-    @Json(name = "blockNum")
+    @param:Json(name = "blockNum")
     val blockNum: BlockNum = BlockNum(),
-    @Json(name = "connectionManager")
+    @param:Json(name = "connectionManager")
     val connectionManager: ConnectionManager = ConnectionManager(),
-    @Json(name = "currentKESPeriod")
+    @param:Json(name = "currentKESPeriod")
     val currentKESPeriod: CurrentKESPeriod = CurrentKESPeriod(),
-    @Json(name = "delegMapSize")
+    @param:Json(name = "delegMapSize")
     val delegMapSize: DelegMapSize = DelegMapSize(),
-    @Json(name = "density")
+    @param:Json(name = "density")
     val density: Density = Density(),
-    @Json(name = "epoch")
+    @param:Json(name = "epoch")
     val epoch: Epoch = Epoch(),
-    @Json(name = "Forge")
+    @param:Json(name = "Forge")
     val forge: Forge = Forge(),
-    @Json(name = "Mem")
+    @param:Json(name = "Mem")
     val mem: Mem = Mem(),
-    @Json(name = "nodeStartTime")
+    @param:Json(name = "nodeStartTime")
     val nodeStartTime: NodeStartTime = NodeStartTime(),
-    @Json(name = "operationalCertificateExpiryKESPeriod")
+    @param:Json(name = "operationalCertificateExpiryKESPeriod")
     val operationalCertificateExpiryKESPeriod: OperationalCertificateExpiryKESPeriod = OperationalCertificateExpiryKESPeriod(),
-    @Json(name = "operationalCertificateStartKESPeriod")
+    @param:Json(name = "operationalCertificateStartKESPeriod")
     val operationalCertificateStartKESPeriod: OperationalCertificateStartKESPeriod = OperationalCertificateStartKESPeriod(),
-    @Json(name = "remainingKESPeriods")
+    @param:Json(name = "remainingKESPeriods")
     val remainingKESPeriods: RemainingKESPeriods = RemainingKESPeriods(),
-    @Json(name = "slotInEpoch")
+    @param:Json(name = "slotInEpoch")
     val slotInEpoch: SlotInEpoch = SlotInEpoch(),
-    @Json(name = "slotNum")
+    @param:Json(name = "slotNum")
     val slotNum: SlotNum = SlotNum(),
-    @Json(name = "Stat")
+    @param:Json(name = "Stat")
     val stat: Stat = Stat(),
-    @Json(name = "utxoSize")
+    @param:Json(name = "utxoSize")
     val utxoSize: UtxoSize = UtxoSize(),
-    @Json(name = "txsProcessedNum")
+    @param:Json(name = "txsProcessedNum")
     val txsProcessedNum: TxsProcessedNum = TxsProcessedNum()
 )

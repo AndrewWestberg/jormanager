@@ -28,14 +28,19 @@ fun main(args: Array<String>) {
             "install" -> runInstallation()
             "repair" -> {
                 System.setProperty("jormanager.mode", "repair")
-                val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()
-                    .substringAfterLast(":").substringBeforeLast("/jormanager")
+                val uri =
+                    JormanagerApplication::class.java.protectionDomain.codeSource.location
+                        .toURI()
+                        .toString()
+                        .substringAfterLast(":")
+                        .substringBeforeLast("/jormanager")
                 val jormanagerFolderPath = File(uri).absolutePath
                 val applicationPropertiesPath = "$jormanagerFolderPath${File.separator}application.properties"
 
-                val app = SpringApplicationBuilder(JormanagerApplication::class.java)
-                    .web(WebApplicationType.NONE)
-                    .run(*args)
+                val app =
+                    SpringApplicationBuilder(JormanagerApplication::class.java)
+                        .web(WebApplicationType.NONE)
+                        .run(*args)
 
                 val fileRepository = app.getBean(FileRepository::class.java)
                 val walletUtils = app.getBean(WalletUtils::class.java)
@@ -136,7 +141,13 @@ private fun updateApplicationProperties(
     newSpendingPassword: String
 ) {
     val propertiesFile = File(applicationPropertiesPath)
-    val lines = propertiesFile.source().buffer().readUtf8().lines().toMutableList()
+    val lines =
+        propertiesFile
+            .source()
+            .buffer()
+            .readUtf8()
+            .lines()
+            .toMutableList()
     val newHash = passwordEncoder.encode(newSpendingPassword)
 
     val oldHashIndex = lines.indexOfFirst { it.startsWith("jormanager.spendingpassword=") }
@@ -156,8 +167,12 @@ private fun updateApplicationProperties(
 }
 
 fun runInstallation() {
-    val uri = JormanagerApplication::class.java.protectionDomain.codeSource.location.toURI().toString()
-        .substringAfterLast(":").substringBeforeLast("/jormanager")
+    val uri =
+        JormanagerApplication::class.java.protectionDomain.codeSource.location
+            .toURI()
+            .toString()
+            .substringAfterLast(":")
+            .substringBeforeLast("/jormanager")
     val jormanagerFolderPath = File(uri).absolutePath
 
     val applicationProperties = StringBuilder()
@@ -191,7 +206,9 @@ fun runInstallation() {
     val encodedPassword = passwordEncoder.encode(spendingPassword)
     applicationProperties.append("jormanager.spendingpassword=$encodedPassword")
 
-    File("$jormanagerFolderPath${File.separator}application.properties").sink().buffer()
+    File("$jormanagerFolderPath${File.separator}application.properties")
+        .sink()
+        .buffer()
         .use { it.writeUtf8(applicationProperties.toString()) }
     println("application.properties successfully created!")
     println()
@@ -213,7 +230,7 @@ fun runInstallation() {
                 |echo ${'$'}! > jormanager.pid
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Started with logfile jormanager.log"
-                """.trimMargin()
+            """.trimMargin()
         )
     }
     val stopScriptPath = "$jormanagerFolderPath${File.separator}stopJormanager.sh"
@@ -231,7 +248,7 @@ fun runInstallation() {
                 |rm -f jormanager.pid
                 |cd ${'$'}OLDPWD
                 |echo "JorManager Stopped"
-                """.trimMargin()
+            """.trimMargin()
         )
     }
     hostConnection.command("chmod 700 $startScriptPath")
@@ -249,7 +266,8 @@ fun runInstallation() {
         print("Enter your sudo password to allow installer to modify systemd scripts: ")
         val sudoPassword = String(console.readPassword())
         hostConnection.sudoCommandWriteFile(
-            "/etc/systemd/system/$systemdServiceName", """
+            "/etc/systemd/system/$systemdServiceName",
+            """
                 |[Unit]
                 |Description=JorManager - Manager for Cardano Nodes
                 |After=syslog.target
@@ -268,7 +286,7 @@ fun runInstallation() {
                 |                
                 |[Install]
                 |WantedBy=multi-user.target
-                """.trimMargin(),
+            """.trimMargin(),
             sudoPassword
         )
         hostConnection.sudoCommand("systemctl daemon-reload", sudoPassword)

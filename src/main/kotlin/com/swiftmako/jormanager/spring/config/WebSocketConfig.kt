@@ -9,18 +9,20 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 class WebSocketConfig : WebSocketMessageBrokerConfigurer {
-
     override fun configureMessageBroker(config: MessageBrokerRegistry) {
         config.enableSimpleBroker("/topic")
         config.setApplicationDestinationPrefixes("/jormanager")
     }
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
-        registry.addEndpoint("/jormanager-websocket")
-                .setAllowedOrigins("http://localhost:8082",
-                        "chrome-extension://ggnhohnkfcpcanfekomdkjffnfcjnjam")
+        registry
+            .addEndpoint("/jormanager-websocket")
+            .setAllowedOrigins(
+                "http://localhost:8082",
+                "chrome-extension://ggnhohnkfcpcanfekomdkjffnfcjnjam"
+            )
 //                .setAllowedOrigins("*")
-                .withSockJS()
+            .withSockJS()
 //                .setSupressCors(true)
     }
 }

@@ -7,10 +7,10 @@ import com.swiftmako.jormanager.model.StakeAddressInfo
 import org.junit.jupiter.api.Test
 
 class StakeAddressInfoTest {
-
     @Test
     fun testStakeAddressInfo() {
-        val json = """
+        val json =
+            """
             |[
             |    {
             |        "address": "stake1uyenhm5yptcaf4j4dkyel9epvr94g7h36dts6599t84ma0g2msety",
@@ -18,7 +18,7 @@ class StakeAddressInfoTest {
             |        "rewardAccountBalance": 0
             |    }
             |]
-        """.trimMargin()
+            """.trimMargin()
         val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
         val adapter = Moshi.Builder().build().adapter<List<StakeAddressInfo>>(type)
         val stakeAddressInfos = adapter.fromJson(json)

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 
 class PoolIdTest {
-
     @Test
     fun `test coreVrfVkey to poolId`() {
         val libraryPath = "/usr/local/lib/libsodium.so"
@@ -71,7 +70,6 @@ class PoolIdTest {
 
         println("private: ${keyPair.privateKey.sliceArray(0..31).toHexString()}")
         println(" public: ${keyPair.publicKey.toHexString()}")
-
     }
 
     @Test

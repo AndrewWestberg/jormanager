@@ -16,6 +16,8 @@ object Versions {
     const val KOTLIN = "2.2.21"
     const val KOTLIN_LOGGING = "7.0.13"
     const val KSP = "2.2.21-2.0.4"
+    const val KTLINT = "1.7.1"
+    const val KTLINT_PLUGIN = "12.1.1"
     const val KTOR = "3.3.2"
     const val LIBSODIUM_JNA = "1.2.0-NEWM"
     const val LIQUIBASE = "5.0.1"

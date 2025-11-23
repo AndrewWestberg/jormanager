@@ -19,7 +19,10 @@ class JodaDateTimeAdapter : JsonAdapter<DateTime>() {
     }
 
     @ToJson
-    override fun toJson(writer: JsonWriter, value: DateTime?) {
+    override fun toJson(
+        writer: JsonWriter,
+        value: DateTime?
+    ) {
         if (value == null) {
             writer.nullValue()
         } else {

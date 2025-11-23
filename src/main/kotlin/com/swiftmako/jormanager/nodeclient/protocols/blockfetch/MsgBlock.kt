@@ -9,6 +9,6 @@ class MsgBlock : MiniProtocolMessage {
     }
 
     override fun writeToBuffer(buffer: ByteBuffer) {
-        //no-op
+        // no-op
     }
 }

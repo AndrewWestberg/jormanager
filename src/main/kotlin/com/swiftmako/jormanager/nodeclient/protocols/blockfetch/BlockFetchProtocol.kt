@@ -64,7 +64,8 @@ class BlockFetchProtocol(
     private val cardanoUtils: CardanoUtils,
     private val chainRepository: ChainRepository,
     private val ledgerDao: LedgerDao,
-) : MiniProtocol(protocolId = 0x0003.toShort()), CoroutineScope {
+) : MiniProtocol(protocolId = 0x0003.toShort()),
+    CoroutineScope {
     companion object {
         var isTip = false
 
@@ -91,18 +92,18 @@ class BlockFetchProtocol(
 
     private val log by lazy { KotlinLogging.logger("BlockFetchProtocol") }
 
-    override val RX_BUFFER_SIZE: Int = 8_388_608 // 8mb
+    override val rxBufferSize: Int = 8_388_608 // 8mb
 
     private val blockBuffer = mutableListOf<LedgerBlock>()
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext =
         job + Executors.newSingleThreadScheduledExecutor().asCoroutineDispatcher() +
-                CoroutineExceptionHandler { _, throwable ->
-                    if (throwable !is CancellationException) {
-                        log.error(throwable) { "Uncaught coroutine exception!" }
-                    }
+            CoroutineExceptionHandler { _, throwable ->
+                if (throwable !is CancellationException) {
+                    log.error(throwable) { "Uncaught coroutine exception!" }
                 }
+            }
     private var commitBlocksJob: Job? = null
 
     private var state = State.Idle
@@ -166,10 +167,10 @@ class BlockFetchProtocol(
                     val endChainBlock =
                         chainRepository.findByBlockNumber(
                             startChainBlock.blockNumber +
-                                    min(
-                                        chainBlock.blockNumber - startChainBlock.blockNumber,
-                                        BLOCK_BUFFER_SIZE,
-                                    ),
+                                min(
+                                    chainBlock.blockNumber - startChainBlock.blockNumber,
+                                    BLOCK_BUFFER_SIZE,
+                                ),
                         )!!
                     val payload = muxByteBufferPool.borrow()
                     // log.warn("MsgRequestRange at beginning. from ${startChainBlock.blockNumber} to ${endChainBlock.blockNumber}")
@@ -453,8 +454,10 @@ class BlockFetchProtocol(
                                         val policyMap = nativeAssetMap[policyIdCborObject] as CborMap
                                         policyMap.entrySet().forEach { (assetNameCborObject, assetAmountCborObject) ->
                                             val assetName =
-                                                (assetNameCborObject as CborByteString).byteArrayValue()
-                                                    .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
+                                                (assetNameCborObject as CborByteString)
+                                                    .byteArrayValue()
+                                                    .ifEmpty { Array(1) { ByteArray(0) } }[0]
+                                                    .toHexString()
                                             val assetAmount = (assetAmountCborObject as CborInteger).bigIntegerValue()
                                             nativeAssets.add(NativeAsset(assetName, policyId, assetAmount))
                                         }
@@ -518,8 +521,10 @@ class BlockFetchProtocol(
                     val mintPolicyId = (policyEntry.key as CborByteString).byteArrayValue()[0].toHexString()
                     (policyEntry.value as CborMap).entrySet().forEach { nameEntry ->
                         val mintName =
-                            (nameEntry.key as CborByteString).byteArrayValue()
-                                .ifEmpty { Array(1) { ByteArray(0) } }[0].toHexString()
+                            (nameEntry.key as CborByteString)
+                                .byteArrayValue()
+                                .ifEmpty { Array(1) { ByteArray(0) } }[0]
+                                .toHexString()
                         val mintAmount = (nameEntry.value as CborInteger).bigIntegerValue()
                         if (mintAmount > BigInteger.ZERO) {
                             val tokenSet =
@@ -541,50 +546,49 @@ class BlockFetchProtocol(
                             // log.warn("nftMetadata: ${nftMetadata.toJavaObject()}")
                             nativeAssets.forEach { nativeAsset ->
                                 (
-                                        (nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
-                                            CborTextString.create(String(nativeAsset.name.hexToByteArray())),
-                                        ) as? CborMap
+                                    (nftMetadata.get(CborTextString.create(nativeAsset.policy)) as? CborMap)?.get(
+                                        CborTextString.create(String(nativeAsset.name.hexToByteArray())),
+                                    ) as? CborMap
+                                )?.let inner@{ tokenMetadataDetails ->
+                                    // log.warn("tokenMetadataDetails: ${tokenMetadataDetails.toJavaObject()}")
+                                    val tokenName =
+                                        (tokenMetadataDetails[NFT_METADATA_KEY_NAME] as? CborTextString)?.stringValue()
+                                            ?: return@inner
+                                    val tokenImage =
+                                        when (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE]) {
+                                            is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborTextString).stringValue()
+                                            is CborArray -> {
+                                                (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborArray).joinToString(
+                                                    separator = "",
+                                                ) {
+                                                    it.toJavaObject().toString()
+                                                }
+                                            }
+
+                                            else -> return@inner
+                                        }
+                                    val tokenDesc =
+                                        when (tokenMetadataDetails[NFT_METADATA_KEY_DESC]) {
+                                            is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborTextString).stringValue()
+                                            is CborArray -> {
+                                                (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborArray).joinToString(
+                                                    separator = " ",
+                                                ) { it.toJsonString().toString() }
+                                            }
+
+                                            else -> null
+                                        }
+
+                                    val nativeAssetMetadata =
+                                        NativeAssetMetadata(
+                                            assetName = nativeAsset.name,
+                                            assetPolicy = nativeAsset.policy,
+                                            metadataName = tokenName,
+                                            metadataImage = tokenImage,
+                                            metadataDescription = tokenDesc,
                                         )
-                                    ?.let inner@{ tokenMetadataDetails ->
-                                        // log.warn("tokenMetadataDetails: ${tokenMetadataDetails.toJavaObject()}")
-                                        val tokenName =
-                                            (tokenMetadataDetails[NFT_METADATA_KEY_NAME] as? CborTextString)?.stringValue()
-                                                ?: return@inner
-                                        val tokenImage =
-                                            when (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE]) {
-                                                is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborTextString).stringValue()
-                                                is CborArray -> {
-                                                    (tokenMetadataDetails[NFT_METADATA_KEY_IMAGE] as CborArray).joinToString(
-                                                        separator = "",
-                                                    ) {
-                                                        it.toJavaObject().toString()
-                                                    }
-                                                }
-
-                                                else -> return@inner
-                                            }
-                                        val tokenDesc =
-                                            when (tokenMetadataDetails[NFT_METADATA_KEY_DESC]) {
-                                                is CborTextString -> (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborTextString).stringValue()
-                                                is CborArray -> {
-                                                    (tokenMetadataDetails[NFT_METADATA_KEY_DESC] as CborArray).joinToString(
-                                                        separator = " ",
-                                                    ) { it.toJsonString().toString() }
-                                                }
-
-                                                else -> null
-                                            }
-
-                                        val nativeAssetMetadata =
-                                            NativeAssetMetadata(
-                                                assetName = nativeAsset.name,
-                                                assetPolicy = nativeAsset.policy,
-                                                metadataName = tokenName,
-                                                metadataImage = tokenImage,
-                                                metadataDescription = tokenDesc,
-                                            )
-                                        nativeAssetsMetadata.add(nativeAssetMetadata)
-                                    }
+                                    nativeAssetsMetadata.add(nativeAssetMetadata)
+                                }
                             }
                         }
                     }

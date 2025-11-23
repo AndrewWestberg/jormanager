@@ -6,9 +6,9 @@ import com.google.iot.cbor.CborWriter
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocolMessage
 import java.nio.ByteBuffer
 
-
-class MsgKeepAlive(val cookie: Short) : MiniProtocolMessage {
-
+class MsgKeepAlive(
+    val cookie: Short
+) : MiniProtocolMessage {
     companion object {
         const val MESSAGE_ID = 0L
     }

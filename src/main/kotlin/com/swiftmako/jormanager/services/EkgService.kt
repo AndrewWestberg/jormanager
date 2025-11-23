@@ -7,12 +7,15 @@ import retrofit2.http.Headers
 import retrofit2.http.Query
 
 interface EkgService {
+    @Headers("Accept: application/json")
+    @GET("/")
+    suspend fun getNodeMetrics(
+        @Query("_") time: Long = System.currentTimeMillis()
+    ): EkgMetrics
 
     @Headers("Accept: application/json")
     @GET("/")
-    suspend fun getNodeMetrics(@Query("_") time: Long = System.currentTimeMillis()): EkgMetrics
-
-    @Headers("Accept: application/json")
-    @GET("/")
-    suspend fun getNodeMetrics2(@Query("_") time: Long = System.currentTimeMillis()): EkgMetrics2
+    suspend fun getNodeMetrics2(
+        @Query("_") time: Long = System.currentTimeMillis()
+    ): EkgMetrics2
 }

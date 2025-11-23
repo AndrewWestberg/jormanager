@@ -1,46 +1,45 @@
 package com.swiftmako.jormanager.model
 
-
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
 data class ProtocolParameters(
-    @Json(name = "stakePoolDeposit")
+    @param:Json(name = "stakePoolDeposit")
     val stakePoolDeposit: BigInteger,
-    @Json(name = "protocolVersion")
+    @param:Json(name = "protocolVersion")
     val protocolVersion: ProtocolVersion,
-    @Json(name = "minUTxOValue")
+    @param:Json(name = "minUTxOValue")
     val minUTxOValue: Long? = null,
-    @Json(name = "utxoCostPerWord")
+    @param:Json(name = "utxoCostPerWord")
     val utxoCostPerWord: Long? = null,
-    @Json(name = "utxoCostPerByte")
+    @param:Json(name = "utxoCostPerByte")
     val utxoCostPerByte: Long? = null,
-    @Json(name = "decentralization")
+    @param:Json(name = "decentralization")
     val decentralisationParam: Double?,
-    @Json(name = "maxTxSize")
+    @param:Json(name = "maxTxSize")
     val maxTxSize: Long,
-    @Json(name = "minPoolCost")
+    @param:Json(name = "minPoolCost")
     val minPoolCost: Long,
-    @Json(name = "txFeePerByte")
+    @param:Json(name = "txFeePerByte")
     val txFeePerByte: Long,
-    @Json(name = "maxBlockBodySize")
+    @param:Json(name = "maxBlockBodySize")
     val maxBlockBodySize: Long,
-    @Json(name = "txFeeFixed")
+    @param:Json(name = "txFeeFixed")
     val txFeeFixed: Long,
-    @Json(name = "poolRetireMaxEpoch")
+    @param:Json(name = "poolRetireMaxEpoch")
     val poolRetireMaxEpoch: Long,
-    @Json(name = "maxBlockHeaderSize")
+    @param:Json(name = "maxBlockHeaderSize")
     val maxBlockHeaderSize: Long,
-    @Json(name = "stakeAddressDeposit")
+    @param:Json(name = "stakeAddressDeposit")
     val stakeAddressDeposit: BigInteger,
-    @Json(name = "stakePoolTargetNum")
+    @param:Json(name = "stakePoolTargetNum")
     val stakePoolTargetNum: Long,
-    @Json(name = "monetaryExpansion")
+    @param:Json(name = "monetaryExpansion")
     val monetaryExpansion: Double,
-    @Json(name = "treasuryCut")
+    @param:Json(name = "treasuryCut")
     val treasuryCut: Double,
-    @Json(name = "poolPledgeInfluence")
+    @param:Json(name = "poolPledgeInfluence")
     val poolPledgeInfluence: Double
 )
