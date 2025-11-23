@@ -31,7 +31,7 @@ import kotlin.math.ln
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 class BlockUtils @Autowired constructor(
-    @Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
+    @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
     @Value("\${libsodium.path}") libsodiumPath: String
 ) {
     final val log: Logger = LoggerFactory.getLogger("BlockUtils")

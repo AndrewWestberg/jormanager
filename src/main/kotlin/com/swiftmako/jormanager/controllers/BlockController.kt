@@ -85,8 +85,8 @@ class BlockController
         private val keyAdapter: JsonAdapter<Key>,
         private val stakeSnapshotAdapter: JsonAdapter<StakeSnapshot>,
         private val chainRepository: ChainRepository,
-        @Value("\${jormanager.mp:false}") private val mp: Boolean,
-        @Value("\${jormanager.blocks.pastEpochs:2}") private val pastEpochsToShow: Long,
+        @param:Value("\${jormanager.mp:false}") private val mp: Boolean,
+        @param:Value("\${jormanager.blocks.pastEpochs:2}") private val pastEpochsToShow: Long,
         private val nodeController: NodeController,
         private val cardanoRepository: CardanoRepository,
     ) : CoroutineScope {
@@ -154,7 +154,7 @@ class BlockController
                             type = "version",
                             data =
                                 JorManagerVersion(
-                                    version = "JorManager ${buildProperties.version.split('-')[0]}",
+                                    version = "JorManager ${buildProperties.version?.split('-')[0]}",
                                     mp = mp,
                                     minUTxOValue = minUTxOValue
                                 )

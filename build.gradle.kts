@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "10.2.0-SNAPSHOT"
+version = "10.3.0"
 java.sourceCompatibility = JavaVersion.VERSION_21
 java.targetCompatibility = JavaVersion.VERSION_21
 
@@ -106,25 +106,11 @@ fun isNonStable(version: String): Boolean {
 }
 
 tasks.withType<DependencyUpdatesTask> {
-    // Example 1: reject all non stable versions
-    rejectVersionIf {
-        isNonStable(candidate.version)
-    }
-
-    // Example 2: disallow release candidates as upgradable versions from stable versions
     rejectVersionIf {
         isNonStable(candidate.version) && !isNonStable(currentVersion)
     }
-
-    // Example 3: using the full syntax
-    resolutionStrategy {
-        componentSelection {
-            all {
-                if (isNonStable(candidate.version) && !isNonStable(currentVersion)) {
-                    reject("Release candidate")
-                }
-            }
-        }
+    filterConfigurations = Spec<Configuration> {
+        it.name.contains("ktlint", ignoreCase = true).not()
     }
 }
 
@@ -174,7 +160,6 @@ tasks {
         buildInfo()
     }
     bootJar {
-        launchScript()
         dependsOn("buildVue" /*, "jvmOptsConfFile"*/)
     }
 }

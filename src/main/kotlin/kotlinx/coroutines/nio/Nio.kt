@@ -147,7 +147,7 @@ private fun <T> asyncIOHandler(): CompletionHandler<T, CancellableContinuation<T
 private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuation<Any>> {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun completed(result: Any, cont: CancellableContinuation<Any>) {
-        cont.resume(result) {}
+        cont.resume(result) { _, _, _ -> }
     }
 
     override fun failed(ex: Throwable, cont: CancellableContinuation<Any>) {
@@ -160,7 +160,7 @@ private object AsyncIOHandlerAny : CompletionHandler<Any, CancellableContinuatio
 private object AsyncVoidIOHandler : CompletionHandler<Void?, CancellableContinuation<Unit>> {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun completed(result: Void?, cont: CancellableContinuation<Unit>) {
-        cont.resume(Unit) {}
+        cont.resume(Unit) { _, _, _ -> }
     }
 
     override fun failed(ex: Throwable, cont: CancellableContinuation<Unit>) {

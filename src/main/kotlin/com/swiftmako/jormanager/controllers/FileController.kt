@@ -32,7 +32,7 @@ class FileController @Autowired constructor(
         private val fileRepository: FileRepository,
         private val walletUtils: WalletUtils,
         private val argon2PasswordEncoder: Argon2PasswordEncoder,
-        @Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
+        @param:Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
 ) {
     private val log by lazy {  LoggerFactory.getLogger("FileController") }
     private val backupMap = mutableMapOf<String, String>()

@@ -81,7 +81,7 @@ class NodeController
         private val relayRepository: RelayRepository,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
-        @Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
+        @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         private val retrofit: Retrofit,
         private val okHttpClient: OkHttpClient,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
@@ -96,7 +96,7 @@ class NodeController
         private val ledgerDao: LedgerDao,
         private val cardanoUtils: CardanoUtils,
         private val cardanoRepository: CardanoRepository,
-        // @Value("\${jormanager.era}") private val eraString: String,
+        // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
 
