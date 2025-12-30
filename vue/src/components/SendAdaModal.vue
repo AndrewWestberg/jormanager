@@ -1,1004 +1,843 @@
 <template>
   <div>
-    <b-modal
+    <BModal
       id="modal-send-ada"
-      :title-html="modalTitle"
+      v-model="isVisible"
+      :title="modalTitle"
       size="xl"
-      scrollable
-      no-close-on-backdrop
-      ok-title="Send"
+      :no-close-on-backdrop="true"
       @ok="handleValidateAndSend"
     >
-      <template #modal-footer="{ ok, cancel }">
-        <b-button
-          style="margin-right: 4em"
-          variant="outline-primary"
-          @click="addPaymentEntry()"
-          v-b-tooltip.hover.v-primary.top="'Add a new payment entry.'"
-        >
-          <b-icon-plus />&nbsp;Add Entry
-        </b-button>
-
-        <b-button variant="secondary" @click="cancel()">Cancel</b-button>
-        <b-button
-          variant="primary"
-          @click="ok()"
-          :disabled="requestFeesUUID != responseFeesUUID"
-          >Send</b-button
-        >
+      <template #footer="{ ok, cancel }">
+        <div class="w-100 d-flex justify-content-between align-items-center">
+          <BButton
+            variant="outline-primary"
+            @click="addPaymentEntry"
+            v-b-tooltip.hover.top="'Add a new payment entry.'"
+          >
+            +&nbsp;Add Entry
+          </BButton>
+          <div>
+            <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
+            <BButton
+              variant="primary"
+              @click="ok()"
+              :disabled="requestFeesUUID !== responseFeesUUID"
+            >Send</BButton>
+          </div>
+        </div>
       </template>
-      <b-form ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
+      
+      <BForm ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
         <div class="accordion" role="tablist">
-          <b-card
-            border-variant="dark"
-            header-border-variant="dark"
+          <BCard
             no-body
-            class="mb-1"
+            class="mb-3 border-0"
             v-for="(toAccount, index) in formSendAda.toAccounts"
             :key="index"
           >
-            <b-card-header header-tag="header" class="p-1" role="tab">
-              <b-button
+            <BCardHeader header-tag="header" class="p-0" role="tab">
+              <BButton
                 block
-                v-b-toggle="'accordion-' + index"
-                :variant="headerVariant(index, toAccount)"
+                @click="toggleAccordion(index)"
+                :variant="(headerVariant(index, toAccount) as any)"
+                class="text-start d-flex align-items-center justify-content-between w-100 p-2 text-wrap"
               >
-                <div class="clearfix">
-                  <span
-                    class="float-left"
-                    v-show="toAccount.isFeePayer"
-                    style="margin: 0 1em 0 0"
-                  >
-                    <font-awesome-icon
-                      :icon="['fas', 'hand-holding-usd']"
-                      class="text-warning"
-                      v-b-tooltip.hover.v-warning.bottom="'Fee Payer'"
-                    />
-                  </span>
-                  <span class="float-left">
-                    {{ headerLabel(index, toAccount) }}
-                  </span>
-                  <b-icon-x
-                    class="float-right"
-                    v-show="index > 0"
-                    @click="formSendAda.toAccounts.splice(index, 1)"
+                <div class="d-flex align-items-center w-100 me-3">
+                  <font-awesome-icon
+                    v-if="toAccount.isFeePayer"
+                    :icon="['fas', 'hand-holding-usd']"
+                    class="text-warning me-2"
+                    v-b-tooltip.hover.bottom="'Fee Payer'"
                   />
-                  <b-icon-caret-up class="float-right when-open" />
-                  <b-icon-caret-down class="float-right when-closed" />
+                  <span>
+                     Available: {{ entryAvailableLabel(index, toAccount.currency) }} | 
+                     Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}
+                  </span>
                 </div>
-              </b-button>
-            </b-card-header>
-            <b-collapse
+                <div class="d-flex align-items-center">
+                  <span
+                    class="clickable me-3"
+                    v-show="index > 0"
+                    @click.stop="removePaymentEntry(index)"
+                    title="Remove Entry"
+                  >✕</span>
+                  <font-awesome-icon
+                    :icon="['fas', 'chevron-down']"
+                    class="transition-transform"
+                    :class="{ 'rotate-180': openIndex === index }" 
+                  />
+                </div>
+              </BButton>
+            </BCardHeader>
+            <BCollapse
               :id="'accordion-' + index"
-              visible
-              accordion="accounts-accordion"
+              :model-value="openIndex === index"
               role="tabpanel"
             >
-              <b-card-body>
-                <b-form-group label="Currency" label-cols-md="2">
-                  <b-form-select
+              <BCardBody>
+                <BFormGroup
+                  label="Currency"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
+                >
+                  <BFormSelect
                     v-model="toAccount.currency"
                     :state="currencyState(toAccount.currency)"
-                    :options="currencySelectOptions(fromWalletItem)"
-                    @input="
-                      toAccount.amount = null;
-                      toAccount.percent = 0;
-                      prepareCalculateSendAdaFees();
-                    "
-                  >
-                  </b-form-select>
-                </b-form-group>
-                <b-form-group label="Destination" label-cols-md="2">
-                  <b-form-radio-group
+                    :options="currencyOptions"
+                    @change="onCurrencyChange(toAccount)"
+                  />
+                </BFormGroup>
+                
+                <BFormGroup
+                  label="Destination"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
+                >
+                  <BFormRadioGroup
                     v-model="toAccount.destination"
                     :state="destinationState(toAccount.destination)"
-                    @input="
-                      if (toAccount.destination === 'account') {
-                        toAccount.address = '';
-                      } else {
-                        toAccount.account = -1;
-                      }
-                    "
+                    @change="onDestinationChange(toAccount)"
+                    class="pt-2"
                   >
-                    <b-form-radio value="account">Account</b-form-radio>
-                    <b-form-radio value="address">Address</b-form-radio>
-                  </b-form-radio-group>
-                </b-form-group>
-                <b-form-group
+                    <BFormRadio value="account" class="me-3">Account</BFormRadio>
+                    <BFormRadio value="address">Address</BFormRadio>
+                  </BFormRadioGroup>
+                </BFormGroup>
+
+                <BFormGroup
                   label="To Account"
-                  label-cols-md="2"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
                   v-show="toAccount.destination === 'account'"
                 >
-                  <b-form-select
+                  <BFormSelect
                     v-model="toAccount.account"
                     :state="accountState(toAccount)"
-                    :options="paymentSelectOptions($options.filters.currency)"
+                    :options="paymentOptions"
                   >
-                    <template v-slot:first>
-                      <b-form-select-option :value="null" disabled
-                        >-- Please select an option --</b-form-select-option
-                      >
+                    <template #first>
+                      <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
                     </template>
-                  </b-form-select>
-                </b-form-group>
-                <b-form-group
+                  </BFormSelect>
+                </BFormGroup>
+
+                <BFormGroup
                   label="To Address"
-                  label-cols-md="2"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
                   v-show="toAccount.destination === 'address'"
                 >
-                  <b-form-input
-                    id="to-address-input"
+                  <BFormInput
                     v-model="toAccount.address"
                     :state="addressState(toAccount)"
-                    aria-describedby="to-address-input-live-feedback"
                     placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
                     trim
-                  ></b-form-input>
-                  <b-form-invalid-feedback id="to-address-input-live-feedback"
-                    >Enter a valid wallet address.</b-form-invalid-feedback
-                  >
-                </b-form-group>
-                <b-form-group label="Entry Type" label-cols-md="2">
-                  <b-form-radio-group
+                  />
+                  <BFormInvalidFeedback>Enter a valid wallet address.</BFormInvalidFeedback>
+                </BFormGroup>
+
+                <BFormGroup
+                  label="Entry Type"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
+                >
+                  <BFormRadioGroup
                     v-model="toAccount.type"
-                    :state="typeState(index, toAccount.type)"
-                    @input="
-                      if (toAccount.type === 'amount') {
-                        toAccount.percent = 0;
-                      } else {
-                        toAccount.amount = null;
-                      }
-                    "
+                    :state="typeState(toAccount.type)"
+                    @change="onTypeChange(toAccount)"
+                    class="pt-2"
                   >
-                    <b-form-radio value="amount">
-                      <font-awesome-icon
-                        :icon="['fas', 'weight-hanging']"
-                      />&nbsp;Amount
-                    </b-form-radio>
-                    <b-form-radio value="percent">
-                      <font-awesome-icon
-                        :icon="['fas', 'balance-scale-right']"
-                      />&nbsp;Percent
-                    </b-form-radio>
-                  </b-form-radio-group>
-                </b-form-group>
-                <b-form-group
+                    <BFormRadio value="amount" class="me-3">
+                      <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
+                    </BFormRadio>
+                    <BFormRadio value="percent">
+                      <font-awesome-icon :icon="['fas', 'balance-scale-right']" />&nbsp;Percent
+                    </BFormRadio>
+                  </BFormRadioGroup>
+                </BFormGroup>
+
+                <BFormGroup
                   label="Amount"
-                  :label-for="'amount-input-' + index"
-                  label-cols-md="2"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
                   v-show="toAccount.type === 'amount'"
                 >
-                  <b-form-input
-                    :id="'amount-input-' + index"
-                    :state="
-                      amountState(index, toAccount.amount, toAccount.currency)
-                    "
-                    :aria-describedby="'amount-input-live-feedback-' + index"
+                  <BFormInput
                     v-model="toAccount.amount"
+                    :state="amountState(index, toAccount.amount, toAccount.currency)"
                     :placeholder="amountPlaceholder(toAccount.currency)"
                     trim
-                    v-currency="amountCurrencyOptions(toAccount.currency)"
-                    @input="prepareCalculateSendAdaFees()"
+                    @input="prepareCalculateSendAdaFees"
                   />
-                  <b-form-invalid-feedback
-                    :id="'amount-input-live-feedback-' + index"
-                    >Enter an amount between
-                    {{
-                      toAccount.currency === "ada"
-                        ? formatCurrency(minUTxOValue, toAccount.currency)
-                        : formatCurrency(1, toAccount.currency)
-                    }}
-                    and
-                    {{
-                      amountRemainingLabel(index, toAccount.currency)
-                    }}</b-form-invalid-feedback
-                  >
-                </b-form-group>
-                <b-form-group
+                  <BFormInvalidFeedback>
+                    Enter an amount between {{ minAmountLabel(toAccount.currency) }} and {{ amountRemainingLabel(index, toAccount.currency) }}
+                  </BFormInvalidFeedback>
+                </BFormGroup>
+
+                <BFormGroup
                   label="Percent"
-                  :label-for="'percent-input-' + index"
-                  label-cols-md="2"
+                  label-cols-md="3"
+                  label-align-md="right"
+                  class="mb-3"
                   v-show="toAccount.type === 'percent'"
                 >
-                  <b-form-input
-                    :id="'percent-input-' + index"
+                  <BFormInput
                     v-model="toAccount.percent"
-                    :state="
-                      percentState(index, toAccount.percent, toAccount.currency)
-                    "
-                    placeholder="e.g. 2"
                     type="range"
                     min="0"
                     max="100"
                     step="1"
-                    trim
-                    @input="prepareCalculateSendAdaFees()"
+                    :state="percentState(index, toAccount.percent, toAccount.currency)"
+                    @input="prepareCalculateSendAdaFees"
                   />
-                  <p class="text-center">
-                    {{
-                      percentLabel(index, toAccount.percent, toAccount.currency)
-                    }}
-                  </p>
-                </b-form-group>
-              </b-card-body>
-            </b-collapse>
-          </b-card>
-          <b-card
-            border-variant="dark"
-            header-border-variant="dark"
-            no-body
-            class="mb-1"
-          >
-            <b-card-header header-tag="header" class="p-1" role="tab">
-              <b-button
-                block
-                v-b-toggle="'accordion-metadata'"
-                :variant="headerVariantMetadata()"
+                  <p class="text-center mt-2">{{ percentLabel(index, toAccount.percent, toAccount.currency) }}</p>
+                </BFormGroup>
+              </BCardBody>
+            </BCollapse>
+          </BCard>
+          
+          <!-- Metadata Card -->
+          <BCard no-body class="mb-1 border-0">
+            <BCardHeader header-tag="header" class="p-1" role="tab">
+              <BButton 
+                block 
+                @click="toggleMetadata" 
+                :variant="metadataState ? 'outline-success' : 'outline-danger'"
+                class="text-start d-flex align-items-center justify-content-between w-100 p-2"
               >
-                <div class="clearfix">
-                  <span class="float-left"> Metadata </span>
-                  <b-icon-caret-up class="float-right when-open" />
-                  <b-icon-caret-down class="float-right when-closed" />
-                </div>
-              </b-button>
-            </b-card-header>
-            <b-collapse
-              id="accordion-metadata"
-              visible
-              accordion="accounts-accordion"
-              role="tabpanel"
-            >
-              <b-card-body>
-                <b-form-group label="Metadata" label-cols-md="2">
-                  <b-form-textarea
+                <span>Metadata</span>
+                <font-awesome-icon
+                  :icon="['fas', 'chevron-down']"
+                  class="transition-transform"
+                  :class="{ 'rotate-180': metadataOpen }" 
+                />
+              </BButton>
+            </BCardHeader>
+            <BCollapse id="accordion-metadata" v-model="metadataOpen" accordion="accounts-accordion" role="tabpanel">
+              <BCardBody>
+                <BFormGroup label="Metadata" label-cols-md="3" label-align-md="right" class="mb-3">
+                  <BFormTextarea
                     v-model="formSendAda.metadata"
-                    debounce="500"
-                    aria-describedby="metadata-input-live-feedback"
-                    :state="metadataState()"
-                    :placeholder="'{\n  &quot;411&quot;: [\n    &quot;Strings must be less than 64&quot;,\n    &quot;Characters in length&quot;\n  ],\n  &quot;500&quot;: {\n    &quot;The&quot;: &quot;first level must be a number&quot;,\n    &quot;and&quot;: &quot;the max size of metadata is&quot;,\n    &quot;sixteen&quot;: &quot;kilobytes.&quot;\n  }\n}'"
-                    rows="11"
+                    :state="metadataState"
+                    rows="5"
+                    :placeholder="metadataPlaceholder"
+                    @input="prepareCalculateSendAdaFees"
                   />
-                  <b-form-invalid-feedback id="metadata-input-live-feedback">{{
-                    formSendAda.metadataError
-                  }}</b-form-invalid-feedback>
-                </b-form-group>
-              </b-card-body>
-            </b-collapse>
-          </b-card>
+                  <BFormInvalidFeedback>{{ formSendAda.metadataError }}</BFormInvalidFeedback>
+                </BFormGroup>
+              </BCardBody>
+            </BCollapse>
+          </BCard>
         </div>
-      </b-form>
-    </b-modal>
+      </BForm>
+    </BModal>
   </div>
 </template>
 
-<script>
-import bs58 from "bs58";
-import _ from "lodash";
-import { mapActions, mapState, mapGetters, mapMutations } from "vuex";
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { find, map, clone, countBy } from 'lodash-es'
+import bs58 from 'bs58check'
+import {
+  BModal,
+  BButton,
+  BForm,
+  BFormGroup,
+  BFormInput,
+  BFormSelect,
+  BFormSelectOption,
+  BFormRadioGroup,
+  BFormRadio,
+  BFormTextarea,
+  BFormInvalidFeedback,
+  BCard,
+  BCardHeader,
+  BCardBody,
+  BCollapse
+} from 'bootstrap-vue-next'
+import { useJorManagerStore } from '@/stores/jormanager'
+import { useEventBus } from '@/composables/useEventBus'
+import { lovelaceToAda } from '@/utils/filters'
 
-export default {
-  name: "SendAdaModal",
-  data() {
-    return {
-      remainingLovelace: 1,
-      fromWalletItem: {
-        name: null,
-        paymentAddrLovelace: null,
-        stakingAddrLovelace: null,
-      },
-      formSendAda: {
-        spendingPassword: null,
-        fromId: null,
-        isClaim: false,
-        toAccounts: [
-          {
-            currency: "ada",
-            destination: "account",
-            account: null,
-            address: "",
-            type: null,
-            amount: null,
-            percent: 0,
-            tokenFee: 0,
-          },
-        ],
-        metadata: null,
-        metadataError: null,
-      },
-    };
-  },
-  watch: {
-    toastSuccess(toast) {
-      if (toast.title === "Ada Sent") {
-        this.$bvModal.hide("modal-send-ada");
-        this.clearFormSendAda();
-      }
-    },
-    remainingLovelace(newValue, oldValue) {
-      if (
-        (oldValue == 0 && newValue != 0) ||
-        (oldValue != 0 && newValue == 0)
-      ) {
-        // Recalculate fees anytime we have no change to return or
-        // if we previously had no change to return.
-        this.prepareCalculateSendAdaFees();
-      }
-    },
-    metadata() {
-      if (this.metadataState()) {
-        this.prepareCalculateSendAdaFees();
-      }
-    },
-    tokenFees() {
-      for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
-        let toAccount = this.formSendAda.toAccounts[i];
-        toAccount.tokenFee = this.tokenFees[i];
-      }
-    },
-  },
-  computed: {
-    ...mapState([
-      "walletItems",
-      "txFee",
-      "tokenKeepFee",
-      "tokenFees",
-      "tokenLocked",
-      "toastSuccess",
-      "minUTxOValue",
-      "requestFeesUUID",
-      "responseFeesUUID",
-    ]),
-    ...mapGetters([
-      "currencySelectOptions",
-      "paymentSelectOptions",
-      "walletItemById",
-      "hex2ascii",
-    ]),
-    metadata() {
-      return this.formSendAda.metadata;
-    },
-    modalTitle() {
-      let tokenKeepFee = this.tokenKeepFee;
-      let tokenLocked = this.tokenLocked;
-      let remaining = this.remainingLovelace + tokenKeepFee + tokenLocked;
-      let title =
-        (this.formSendAda.isClaim ? "Claiming: " : "Sending: ") +
-        this.formatCurrency(
-          this.formSendAda.isClaim
-            ? this.fromWalletItem.stakingAddrLovelace
-            : this.fromWalletItem.paymentAddrLovelace,
-          "ada"
-        ) +
-        ", TxFee: " +
-        this.formatCurrency(this.txFee, "ada") +
-        (tokenLocked > 0
-          ? ", TokenLocked: " + this.formatCurrency(tokenLocked, "ada")
-          : "") +
-        (tokenKeepFee > 0
-          ? ", TokenKeep: " + this.formatCurrency(tokenKeepFee, "ada")
-          : "") +
-        ", Remaining: ";
+interface ToAccount {
+  currency: string
+  destination: 'account' | 'address'
+  account: number | null
+  address: string
+  type: 'amount' | 'percent' | null
+  amount: string | null
+  percent: number
+  tokenFee: number
+  isFeePayer?: boolean
+}
 
-      if (
-        (tokenKeepFee + tokenLocked > 0 &&
-          remaining < tokenKeepFee + tokenLocked) ||
-        remaining < 0 ||
-        (remaining > 0 && remaining < this.minUTxOValue)
-      ) {
-        title +=
-          '<span class="text-danger">' +
-          this.formatCurrency(
-            this.remainingLovelace + tokenKeepFee + tokenLocked,
-            "ada"
-          ) +
-          "</span>";
-      } else {
-        title += this.formatCurrency(
-          this.remainingLovelace + tokenKeepFee + tokenLocked,
-          "ada"
-        );
-      }
+interface WalletItemRef {
+  id: number
+  name: string
+  paymentAddrLovelace: number
+  stakingAddrLovelace: number
+  nativeAssetMap: Record<string, number>
+}
 
-      return title;
-    },
-  },
-  methods: {
-    ...mapActions(["calculateSendAdaFees", "submitTransaction"]),
-    ...mapMutations(["toastError"]),
-    currencyState(currency) {
-      this.remainingLovelace = this.calculateSpent(
-        this.formSendAda.toAccounts.length
-      ).remaining["ada"];
-      return currency != null;
-    },
-    destinationState(destination) {
-      return destination != null;
-    },
-    accountState(toAccount) {
-      this.remainingLovelace = this.calculateSpent(
-        this.formSendAda.toAccounts.length
-      ).remaining["ada"];
-      if (toAccount.destination === "address") {
-        return true;
-      } else if (toAccount.destination === "account") {
-        return toAccount.account != null;
-      }
-      return false;
-    },
-    addressState(toAccount) {
-      if (toAccount.destination === "account") {
-        return true;
-      } else if (
-        toAccount.destination === "address" &&
-        toAccount.address != null
-      ) {
-        if (
-          toAccount.address.match(
-            /^.*1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53}|.{98})$/
-          ) != null
-        ) {
-          return true;
-        }
-        try {
-          // check for a valid byron address
-          bs58.decode(toAccount.address);
-          return true;
-        } catch (e) {
-          return false;
-        }
-      }
+const store = useJorManagerStore()
+const { walletItems, txFee, tokenKeepFee, tokenFees, tokenLocked, minUTxOValue, requestFeesUUID, responseFeesUUID, toastSuccess } = storeToRefs(store)
+const emitter = useEventBus()
 
-      return false;
-    },
-    typeState(index, type) {
-      this.remainingLovelace = this.calculateSpent(
-        this.formSendAda.toAccounts.length
-      ).remaining["ada"];
-      return type != null;
-    },
-    amountState(index, amount, currency) {
-      let spent = this.calculateSpent(this.formSendAda.toAccounts.length);
-      this.remainingLovelace = spent.remaining["ada"];
-      if (amount != null) {
-        let tokens = this.$ci.parse(
-          amount,
-          this.amountCurrencyOptions(currency)
-        );
-        let spent = this.calculateSpent(index + 1);
-        let remainingTokens = spent.remaining[currency];
-        return (
-          tokens >= (currency === "ada" ? this.minUTxOValue : 1) &&
-          remainingTokens >= 0
-        );
-      }
-      return false;
-    },
-    percentState(index, percent, currency) {
-      this.remainingLovelace = this.calculateSpent(
-        this.formSendAda.toAccounts.length
-      ).remaining["ada"];
-      if (percent != null && percent > 0) {
-        let spent = this.calculateSpent(index + 1);
-        let tokens = spent.amount[currency];
-        let remainingTokens = spent.remaining[currency];
-        return (
-          tokens >= (currency === "ada" ? this.minUTxOValue : 1) &&
-          remainingTokens >= 0
-        );
-      }
-      return false;
-    },
-    validateMetadataItem(field) {
-      if (Array.isArray(field)) {
-        // Check all items in the array recursively
-        for (let i = 0; i < field.length; i++) {
-          let errorMessage = this.validateMetadataItem(field[i]);
-          if (errorMessage !== null) {
-            return errorMessage;
-          }
-        }
-      } else if (typeof field === "string" || field instanceof String) {
-        if (field.length >= 64) {
-          return "Metadata strings must be less than 64 characters.";
-        }
-      } else if (field === Object(field)) {
-        // Check all items in the object recursively
-        for (let propertyName in field) {
-          let errorMessage = this.validateMetadataItem(field[propertyName]);
-          if (errorMessage !== null) {
-            return errorMessage;
-          }
-        }
-      }
+const isVisible = ref(false)
+const remainingLovelace = ref(0)
+const fromWalletItem = ref<WalletItemRef>({
+  id: 0,
+  name: '',
+  paymentAddrLovelace: 0,
+  stakingAddrLovelace: 0,
+  nativeAssetMap: {}
+})
 
-      // no validation errors
-      return null;
-    },
-    metadataState() {
-      if (
-        this.formSendAda.metadata === null ||
-        this.formSendAda.metadata.trim().length === 0
-      ) {
-        return true;
-      }
+const formSendAda = ref({
+  spendingPassword: null as string | null,
+  fromId: null as number | null,
+  isClaim: false,
+  toAccounts: [] as ToAccount[],
+  metadata: null as string | null,
+  metadataError: null as string | null,
+  valid: false
+})
+
+const metadataPlaceholder = `{
+  "411": [
+    "Strings must be less than 64",
+    "Characters in length"
+  ],
+  "500": {
+    "The": "first level must be a number",
+    "and": "the max size of metadata is",
+    "sixteen": "kilobytes."
+  }
+}`
+
+// Computed
+const currencyOptions = computed(() => {
+  const options = [{ value: 'ada', text: '₳ - Ada' }]
+  if (fromWalletItem.value?.nativeAssetMap) {
+    Object.keys(fromWalletItem.value.nativeAssetMap).forEach(key => {
+      const assetName = key.substring(key.indexOf('.') + 1)
+      let decoded = assetName
       try {
-        let metadata = JSON.parse(this.formSendAda.metadata);
-        if (typeof metadata !== "object" || Array.isArray(metadata)) {
-          this.formSendAda.metadataError =
-            "Top level metadata must be a map and start with {";
-          return false;
-        }
-        for (let propertyName in metadata) {
-          if (isNaN(parseInt(propertyName))) {
-            this.formSendAda.metadataError =
-              "Metadata first level fields must be integer: '" +
-              propertyName +
-              "'";
-            return false;
-          }
-          let errorMessage = this.validateMetadataItem(metadata[propertyName]);
-          if (errorMessage !== null) {
-            this.formSendAda.metadataError = errorMessage;
-            return false;
-          }
-        }
+        decoded = store.hex2ascii(assetName)
+      } catch { /* use original */ }
+      options.push({ value: key, text: decoded })
+    })
+  }
+  return options
+})
 
-        return true;
-      } catch (e) {
-        this.formSendAda.metadataError = e.message;
-        return false;
+const paymentOptions = computed(() => {
+  const formatter = (val: number, _sym: string, dec: number) => lovelaceToAda(val * 1000000, dec)
+  return store.paymentSelectOptions(formatter)
+})
+
+const sendingAmount = computed(() => {
+  return formSendAda.value.isClaim
+    ? fromWalletItem.value.stakingAddrLovelace
+    : fromWalletItem.value.paymentAddrLovelace
+})
+
+const modalTitle = computed(() => {
+  const tkFee = tokenKeepFee.value || 0
+  const tkLocked = tokenLocked.value || 0
+  const remaining = remainingLovelace.value + tkFee + tkLocked
+  const sending = sendingAmount.value
+  
+  let title = (formSendAda.value.isClaim ? 'Claiming: ' : 'Sending: ') +
+    lovelaceToAda(sending) +
+    ', TxFee: ' + lovelaceToAda(txFee.value || 0)
+  
+  if (tkLocked > 0) title += ', TokenLocked: ' + lovelaceToAda(tkLocked)
+  if (tkFee > 0) title += ', TokenKeep: ' + lovelaceToAda(tkFee)
+  
+  title += ', Remaining: ' + lovelaceToAda(remaining)
+  return title
+})
+
+const metadataState = computed(() => {
+  if (!formSendAda.value.metadata) return true
+  try {
+    const parsed = JSON.parse(formSendAda.value.metadata)
+    const error = validateMetadataItem(parsed)
+    if (error) {
+      formSendAda.value.metadataError = error
+      return false
+    }
+    formSendAda.value.metadataError = null
+    return true
+  } catch {
+    formSendAda.value.metadataError = 'Invalid JSON'
+    return false
+  }
+})
+
+// Reactive state
+const openIndex = ref<number>(0)
+const metadataOpen = ref(false)
+
+// Methods
+function clearFormSendAda() {
+  formSendAda.value = {
+    spendingPassword: null,
+    fromId: null,
+    isClaim: false,
+    toAccounts: [createEmptyToAccount()],
+    metadata: null,
+    metadataError: null,
+    valid: false,
+  }
+  openIndex.value = 0
+  metadataOpen.value = false
+  store.invalidateSendAdaFees()
+}
+
+function createEmptyToAccount(): ToAccount {
+  return {
+    currency: 'ada',
+    destination: 'account',
+    account: null,
+    address: '',
+    type: null,
+    amount: null,
+    percent: 0,
+    tokenFee: 0
+  }
+}
+
+function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
+  clearFormSendAda()
+  fromWalletItem.value = walletItem
+  formSendAda.value.fromId = walletItem.id
+  formSendAda.value.isClaim = isClaim
+  isVisible.value = true
+  prepareCalculateSendAdaFees()
+}
+
+function addPaymentEntry() {
+  formSendAda.value.toAccounts.push(createEmptyToAccount())
+  openIndex.value = formSendAda.value.toAccounts.length - 1
+  metadataOpen.value = false // Ensure metadata is closed when adding new payment (focus shifts)
+}
+
+function toggleAccordion(index: number) {
+  openIndex.value = openIndex.value === index ? -1 : index
+  if (openIndex.value !== -1) {
+    metadataOpen.value = false // Close metadata if opening an entry
+  }
+}
+
+function toggleMetadata() {
+  metadataOpen.value = !metadataOpen.value
+  if (metadataOpen.value) {
+    openIndex.value = -1 // Close account entries if opening metadata
+  }
+}
+
+function removePaymentEntry(index: number) {
+  formSendAda.value.toAccounts.splice(index, 1)
+  // If we closed the current one or one before it, we might need to adjust openIndex
+  // But defaulting to -1 (all closed) or keeping previous is fine.
+  // Let's ensure if we remove the open one, we close.
+  if (openIndex.value === index) {
+      openIndex.value = -1 // Close
+  } else if (openIndex.value > index) {
+      openIndex.value-- // Shift up
+  }
+}
+
+function currencyState(currency: string): boolean {
+  recalculateRemaining()
+  return currency != null
+}
+
+function destinationState(destination: string): boolean {
+  return destination != null
+}
+
+function accountState(toAccount: ToAccount): boolean {
+  recalculateRemaining()
+  if (toAccount.destination === 'address') return true
+  if (toAccount.destination === 'account') return toAccount.account != null
+  return false
+}
+
+function addressState(toAccount: ToAccount): boolean | null {
+  if (toAccount.destination === 'account') return true
+  if (toAccount.destination === 'address' && toAccount.address) {
+    const bech32Regex = /^.*1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)(?:.{53}|.{98})$/
+    if (bech32Regex.test(toAccount.address)) return true
+    try {
+      bs58.decode(toAccount.address)
+      return true
+    } catch {
+      return false
+    }
+  }
+  return null
+}
+
+function typeState(type: string | null): boolean {
+  recalculateRemaining()
+  return type != null
+}
+
+function amountState(index: number, amount: string | null, currency: string): boolean | null {
+  recalculateRemaining()
+  if (amount != null && amount !== '') {
+    const tokens = parseAmount(amount, currency)
+    const spent = calculateSpent(index + 1)
+    const remaining = spent.remaining[currency] || 0
+    return tokens >= (currency === 'ada' ? minUTxOValue.value : 1) && remaining >= 0
+  }
+  return null
+}
+
+function percentState(index: number, percent: number, currency: string): boolean | null {
+  recalculateRemaining()
+  if (percent != null && percent > 0) {
+    const spent = calculateSpent(index + 1)
+    const tokens = spent.amount[currency] || 0
+    const remaining = spent.remaining[currency] || 0
+    return tokens >= (currency === 'ada' ? minUTxOValue.value : 1) && remaining >= 0
+  }
+  return null
+}
+
+function parseAmount(amount: string | null, currency: string): number {
+  if (!amount) return 0
+  const numStr = amount.replace(/[^0-9.-]/g, '')
+  const val = parseFloat(numStr) || 0
+  return currency === 'ada' ? Math.round(val * 1000000) : Math.round(val)
+}
+
+function headerVariant(_index: number, toAccount: ToAccount): string {
+  const isValid = currencyState(toAccount.currency) &&
+    destinationState(toAccount.destination) &&
+    (toAccount.destination === 'account' ? accountState(toAccount) : true) &&
+    (toAccount.destination === 'address' ? addressState(toAccount) : true) &&
+    typeState(toAccount.type) &&
+    (toAccount.type === 'amount' ? amountState(_index, toAccount.amount, toAccount.currency) : true) &&
+    (toAccount.type === 'percent' ? percentState(_index, toAccount.percent, toAccount.currency) : true)
+  return isValid ? 'success' : 'danger'
+}
+
+// Add methods to help with template display for Accordion
+function entryAvailableLabel(index: number, currency: string): string {
+  const spent = calculateSpent(index, true)
+  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
+}
+
+function entryRemainingLabel(index: number, currency: string): string {
+  const spent = calculateSpent(index + 1, false) // Include fees in remaining
+  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
+}
+
+function amountPlaceholder(currency: string): string {
+  return currency === 'ada' ? 'e.g. ₳10.000000' : 'e.g. 100'
+}
+
+function minAmountLabel(currency: string): string {
+  return currency === 'ada' ? lovelaceToAda(minUTxOValue.value) : '1'
+}
+
+function amountRemainingLabel(index: number, currency: string): string {
+  const spent = calculateSpent(index, true)
+  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
+}
+
+function percentLabel(index: number, percent: number, currency: string): string {
+  const amount = calculateSpent(index + 1).amount[currency] || 0
+  const formatted = currency === 'ada' ? lovelaceToAda(amount) : String(amount)
+  return `${percent}% - ${formatted}`
+}
+
+function onCurrencyChange(toAccount: ToAccount) {
+  toAccount.amount = null
+  toAccount.percent = 0
+  prepareCalculateSendAdaFees()
+}
+
+function onDestinationChange(toAccount: ToAccount) {
+  if (toAccount.destination === 'account') {
+    toAccount.address = ''
+  } else {
+    toAccount.account = null
+  }
+}
+
+function onTypeChange(toAccount: ToAccount) {
+  if (toAccount.type === 'amount') {
+    toAccount.percent = 0
+  } else {
+    toAccount.amount = null
+  }
+}
+
+function recalculateRemaining() {
+  remainingLovelace.value = calculateSpent(formSendAda.value.toAccounts.length).remaining['ada'] || 0
+}
+
+function calculateClaimRewardsFeePayer(): number {
+  for (const account of formSendAda.value.toAccounts) {
+    const walletItem = find(walletItems.value, ['id', account.account])
+    if (walletItem && (walletItem as any).type !== 'address' && (walletItem as any).type !== 'pledge' &&
+        walletItem.paymentAddrLovelace >= 1000000 + (txFee.value || 0)) {
+      return walletItem.id
+    }
+  }
+  return -1
+}
+
+function calculateSpent(index: number, skipTokenFees = false): { remaining: Record<string, number>, amount: Record<string, number> } {
+  let feePayerAccountId = formSendAda.value.isClaim ? calculateClaimRewardsFeePayer() : fromWalletItem.value.id
+  const tkKeepFee = skipTokenFees ? 0 : (tokenKeepFee.value || 0)
+  const tkLocked = skipTokenFees ? 0 : (tokenLocked.value || 0)
+  
+  const baseAmount: Record<string, number> = fromWalletItem.value.nativeAssetMap
+    ? clone(fromWalletItem.value.nativeAssetMap)
+    : {}
+  
+  baseAmount['ada'] = formSendAda.value.isClaim
+    ? fromWalletItem.value.stakingAddrLovelace
+    : fromWalletItem.value.paymentAddrLovelace - (txFee.value || 0) - tkKeepFee - tkLocked
+  
+  const alreadySpentPercentages: Record<string, number> = {}
+  const amount: Record<string, number> = {}
+  
+  for (let i = 0; i < index; i++) {
+    const account = formSendAda.value.toAccounts[i]
+    amount[account.currency] = 0
+    account.isFeePayer = feePayerAccountId === account.account
+    
+    if (account.type === 'amount' && account.amount != null) {
+      amount[account.currency] = parseAmount(account.amount, account.currency)
+      baseAmount[account.currency] = (baseAmount[account.currency] || 0) - amount[account.currency]
+      
+      if (formSendAda.value.isClaim && account.account === feePayerAccountId && account.currency === 'ada') {
+        baseAmount[account.currency] -= (txFee.value || 0)
       }
-    },
-    headerLabel(index, toAccount) {
-      let label = "";
-      if (toAccount.account) {
-        label += this.walletItemById(toAccount.account).name;
-        label += " - ";
+      alreadySpentPercentages[account.currency] = 0
+    } else if (account.type === 'percent' && account.percent > 0) {
+      if (alreadySpentPercentages[account.currency] === undefined) {
+        alreadySpentPercentages[account.currency] = 0
       }
-      let spent = this.calculateSpent(index);
-      label += "Available: ";
-      label += this.formatCurrency(
-        spent.remaining[toAccount.currency],
-        toAccount.currency
-      );
-
-      if (toAccount.type === "amount" && toAccount.amount != null) {
-        label +=
-          ", Amount: " +
-          this.formatCurrency(toAccount.amount, toAccount.currency);
-      } else if (toAccount.type === "percent") {
-        label +=
-          ", Amount: " +
-          this.percentLabel(index, toAccount.percent, toAccount.currency);
-      }
-
-      if (toAccount.currency !== "ada") {
-        label +=
-          ", TokenFee: " + this.formatCurrency(toAccount.tokenFee, "ada");
-      }
-
-      label += ", Remaining: ";
-      label += this.formatCurrency(
-        this.calculateSpent(index + 1).remaining[toAccount.currency],
-        toAccount.currency
-      );
-
-      return label;
-    },
-    headerVariant(index, toAccount) {
-      return this.currencyState(toAccount.currency) &&
-        this.destinationState(toAccount.destination) &&
-        this.accountState(toAccount) &&
-        this.addressState(toAccount) &&
-        this.typeState(index, toAccount.type) &&
-        (this.amountState(index, toAccount.amount, toAccount.currency) ||
-          this.percentState(index, toAccount.percent, toAccount.currency))
-        ? "outline-success"
-        : "danger";
-    },
-    headerVariantMetadata() {
-      return this.metadataState() ? "outline-success" : "danger";
-    },
-    formatCurrency(amount, currency) {
-      let tokens = 0;
-      if (isNaN(amount)) {
-        tokens = this.$ci.parse(amount, this.amountCurrencyOptions(currency));
+      const percent = account.percent
+      if (alreadySpentPercentages[account.currency] >= 100) {
+        amount[account.currency] = 0
       } else {
-        tokens = amount;
+        amount[account.currency] = Math.round(
+          (baseAmount[account.currency] || 0) * (percent / (100 - alreadySpentPercentages[account.currency]))
+        )
+        alreadySpentPercentages[account.currency] += percent
       }
-
-      if (currency === "ada") {
-        return this.$options.filters.currency(tokens / 1000000, "₳", 6);
-      }
-
-      return this.$options.filters.currency(
-        tokens,
-        "(" + this.hex2ascii(currency.split(".")[1]) + ") ",
-        0
-      );
-    },
-    amountCurrencyOptions(currency) {
-      if (currency === "ada") {
-        return {
-          currency: {
-            prefix: "₳",
-          },
-          precision: 6,
-          valueAsInteger: true,
-          allowNegative: false,
-          distractionFree: {
-            hideNegligibleDecimalDigits: true,
-            hideCurrencySymbol: false,
-            hideGroupingSymbol: true,
-          },
-        };
-      }
-      return {
-        currency: {
-          prefix: "(" + this.hex2ascii(currency.split(".")[1]) + ") ",
-          suffix: null,
-        },
-        allowNegative: false,
-        precision: 0,
-        distractionFree: {
-          hideNegligibleDecimalDigits: true,
-          hideCurrencySymbol: false,
-          hideGroupingSymbol: true,
-        },
-      };
-    },
-    amountPlaceholder(currency) {
-      if (currency === "ada") return "e.g. ₳1,230.987000";
-      return "e.g. (" + this.hex2ascii(currency.split(".")[1]) + ") 1,230";
-    },
-    amountRemainingLabel(index, currency) {
-      return this.formatCurrency(
-        this.calculateSpent(index).remaining[currency],
-        currency
-      );
-    },
-    addPaymentEntry() {
-      this.formSendAda.toAccounts.push({
-        currency: "ada",
-        destination: "account",
-        account: null,
-        address: "",
-        type: null,
-        amount: null,
-        percent: 0,
-        tokenFee: 0,
-      });
-
-      this.prepareCalculateSendAdaFees();
-    },
-    clearFormSendAda() {
-      this.fromWalletItem = {
-        name: null,
-        paymentAddrLovelace: null,
-        stakingAddrLovelace: null,
-      };
-      this.formSendAda = null;
-      this.formSendAda = {
-        fromId: null,
-        isClaim: false,
-        toAccounts: [
-          {
-            currency: "ada",
-            destination: "account",
-            account: null,
-            address: "",
-            type: null,
-            amount: null,
-            percent: 0,
-            tokenFee: 0,
-          },
-        ],
-        metadata: null,
-        metadataError: null,
-      };
-    },
-    showSendAdaModal(walletItem, isClaim) {
-      this.clearFormSendAda();
-      this.formSendAda.fromId = walletItem.id;
-      this.formSendAda.isClaim = isClaim;
-      this.fromWalletItem = _.cloneDeep(walletItem);
-      if (isClaim) {
-        // for claims, we ignore native assets
-        this.fromWalletItem.nativeAssetMap = undefined;
-      }
-      if (isClaim) {
-        // Fully claim to same account by default
-        (this.formSendAda.toAccounts[0].account = walletItem.id),
-          (this.formSendAda.toAccounts[0].type = "percent"),
-          (this.formSendAda.toAccounts[0].percent = 100);
-        this.prepareCalculateSendAdaFees();
-      }
-      this.$bvModal.show("modal-send-ada");
-    },
-    handleValidateAndSend(bvModalEvt) {
-      bvModalEvt.preventDefault();
-      if (this.txFee <= 0) {
-        this.toastError({
-          title: "Calculate Fee Error",
-          message:
-            "No Account found capable of covering the fee or fee calculation error!",
-        });
-        return;
-      }
-      let isValidForm = true;
-      for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
-        let toAccount = this.formSendAda.toAccounts[i];
-        if (
-          !this.currencyState(toAccount.currency) ||
-          !this.destinationState(toAccount.destination) ||
-          !this.accountState(toAccount) ||
-          !this.addressState(toAccount) ||
-          !this.typeState(i, toAccount.type) ||
-          (toAccount.type === "amount" &&
-            !this.amountState(i, toAccount.amount, toAccount.currency)) ||
-          (toAccount.type === "percent" &&
-            !this.percentState(i, toAccount.percent, toAccount.currency)) ||
-          !this.metadataState()
-        ) {
-          isValidForm = false;
-          break;
-        }
-      }
-
-      if (!isValidForm) {
-        this.toastError({
-          title: "Invalid Form",
-          message: "Check your transaction for completeness.",
-        });
-        return;
-      }
-
-      if (this.formSendAda.isClaim && this.remainingLovelace !== 0) {
-        this.toastError({
-          title: "Invalid Form",
-          message:
-            "You must claim 100% of rewards Ada. Your remaining balance needs to be ₳0.000000",
-        });
-        return;
-      }
-
-      if (this.remainingLovelace < 0) {
-        this.toastError({
-          title: "Invalid Form",
-          message:
-            "Negative remaining balance or not enough left to keep tokens!",
-        });
-        return;
-      }
-
-      this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
-        (spendingPassword) => {
-          this.passwordConfirmed(spendingPassword);
-        }
-      );
-    },
-    passwordConfirmed(spendingPassword) {
-      this.submitTransaction({
-        spendingPassword: spendingPassword,
-        fromId: this.formSendAda.fromId,
-        isClaim: this.formSendAda.isClaim,
-        txFee: this.txFee,
-        tokenKeepFee: this.tokenKeepFee,
-        toAccounts: _.map(this.formSendAda.toAccounts, (toAccount, index) => {
-          return {
-            currency: toAccount.currency,
-            account: toAccount.account,
-            address: toAccount.address,
-            type: toAccount.type,
-            amount:
-              toAccount.amount == null
-                ? this.calculateSpent(index + 1).amount[toAccount.currency]
-                : this.$ci.parse(
-                    toAccount.amount,
-                    this.amountCurrencyOptions(toAccount.currency)
-                  ),
-            percent: toAccount.percent,
-            tokenFee: toAccount.tokenFee,
-          };
-        }),
-        metadata: this.formSendAda.metadata,
-      });
-    },
-    prepareCalculateSendAdaFees() {
-      this.remainingLovelace = this.calculateSpent(
-        this.formSendAda.toAccounts.length
-      ).remaining["ada"];
-
-      let uniqueToAccounts = Object.keys(
-        _.countBy(this.formSendAda.toAccounts, (toAccount) => {
-          if (toAccount.account < 0) {
-            return toAccount.address;
-          }
-          return toAccount.account;
-        })
-      ).length;
-      let returnChangeTxOut =
-        this.remainingLovelace + this.tokenKeepFee > 0 ? 1 : 0;
-      let toAccounts = _.map(
-        this.formSendAda.toAccounts,
-        (toAccount, index) => {
-          return {
-            currency: toAccount.currency,
-            account: toAccount.account,
-            address: toAccount.address,
-            type: toAccount.type,
-            amount:
-              toAccount.amount == null
-                ? this.calculateSpent(index + 1).amount[toAccount.currency]
-                : this.$ci.parse(
-                    toAccount.amount,
-                    this.amountCurrencyOptions(toAccount.currency)
-                  ),
-            percent: toAccount.percent,
-            tokenFee: toAccount.tokenFee,
-          };
-        }
-      );
-      let request = {
-        fromId: this.fromWalletItem.id,
-        toAccounts: toAccounts,
-        txOut: uniqueToAccounts + returnChangeTxOut,
-        isClaim: this.formSendAda.isClaim,
-        metadata: this.formSendAda.metadata,
-        uuid: this.$uuid.v4(),
-      };
-      if (request.fromId) {
-        this.calculateSendAdaFees(request);
-      }
-    },
-    calculateClaimRewardsFeePayer() {
-      for (let i = 0; i < this.formSendAda.toAccounts.length; i++) {
-        let account = this.formSendAda.toAccounts[i];
-        let walletItem = _.find(this.walletItems, (walletItem) => {
-          return walletItem.id === account.account;
-        });
-        if (
-          walletItem &&
-          walletItem.type !== "address" &&
-          walletItem.type !== "pledge" &&
-          walletItem.paymentAddrLovelace >= 1000000 + this.txFee
-        ) {
-          return walletItem.id;
-        }
-      }
-      return -1;
-    },
-    hexEncode(value) {
-      var hex, i;
-
-      var result = "";
-      for (i = 0; i < value.length; i++) {
-        hex = value.charCodeAt(i).toString(16);
-        if (hex.length > 2) {
-          result += ("000" + hex).slice(-4);
+      baseAmount[account.currency] = (baseAmount[account.currency] || 0) - amount[account.currency]
+      
+      if (formSendAda.value.isClaim && account.account === feePayerAccountId && account.currency === 'ada') {
+        if (baseAmount[account.currency] >= (txFee.value || 0)) {
+          baseAmount[account.currency] -= (txFee.value || 0)
         } else {
-          result += ("0" + hex).slice(-2);
+          amount[account.currency] -= (txFee.value || 0)
         }
       }
+    }
+    
+    if (!skipTokenFees && account.currency !== 'ada') {
+      account.tokenFee = (tokenFees.value as number[])?.[i] || 0
+      baseAmount['ada'] = (baseAmount['ada'] || 0) - account.tokenFee
+    }
+  }
+  
+  return { remaining: baseAmount, amount }
+}
 
-      return result;
-    },
-    calculateSpent(index, skipTokenFees) {
-      let feePayerAccountId = -1;
-      if (this.formSendAda.isClaim) {
-        feePayerAccountId = this.calculateClaimRewardsFeePayer();
-      } else {
-        feePayerAccountId = this.fromWalletItem.id;
-      }
-      let tokenKeepFee = skipTokenFees ? 0 : this.tokenKeepFee;
-      let tokenLocked = skipTokenFees ? 0 : this.tokenLocked;
-      let baseAmount = this.fromWalletItem.nativeAssetMap
-        ? _.clone(this.fromWalletItem.nativeAssetMap)
-        : {};
-      baseAmount["ada"] = this.formSendAda.isClaim
-        ? this.fromWalletItem.stakingAddrLovelace
-        : this.fromWalletItem.paymentAddrLovelace -
-          this.txFee -
-          tokenKeepFee -
-          tokenLocked;
-      let alreadySpentPercentages = {};
-      let amount = {};
+function validateMetadataItem(field: unknown): string | null {
+  if (Array.isArray(field)) {
+    for (const item of field) {
+      const error = validateMetadataItem(item)
+      if (error) return error
+    }
+  } else if (typeof field === 'string') {
+    if (field.length >= 64) return 'Metadata strings must be less than 64 characters.'
+  } else if (field && typeof field === 'object') {
+    for (const key in field as Record<string, unknown>) {
+      const error = validateMetadataItem((field as Record<string, unknown>)[key])
+      if (error) return error
+    }
+  }
+  return null
+}
 
-      for (let i = 0; i < index; i++) {
-        let account = this.formSendAda.toAccounts[i];
-        amount[account.currency] = 0;
-        if (feePayerAccountId === account.account) {
-          account.isFeePayer = true;
-        } else {
-          account.isFeePayer = false;
-        }
-        if (account.type === "amount" && account.amount != null) {
-          amount[account.currency] = this.$ci.parse(
-            account.amount,
-            this.amountCurrencyOptions(account.currency)
-          );
-          baseAmount[account.currency] -= amount[account.currency];
-          if (
-            this.formSendAda.isClaim &&
-            account.account === feePayerAccountId &&
-            account.currency === "ada"
-          ) {
-            // We'll reimburse the payer for the txFee when claiming rewards
-            // so take it out of the base amount now
-            baseAmount[account.currency] -= this.txFee;
-          }
-          // reset percentages since this is an amount
-          alreadySpentPercentages[account.currency] = 0;
-        } else if (
-          account.type === "percent" &&
-          account.percent != null &&
-          account.percent > 0
-        ) {
-          if (alreadySpentPercentages[account.currency] === undefined) {
-            alreadySpentPercentages[account.currency] = 0;
-          }
-          let percent = parseInt(account.percent);
-          if (alreadySpentPercentages[account.currency] == 100) {
-            amount[account.currency] = 0;
-          } else {
-            amount[account.currency] = Math.round(
-              baseAmount[account.currency] *
-                (percent / (100.0 - alreadySpentPercentages[account.currency]))
-            );
-            alreadySpentPercentages[account.currency] += percent;
-          }
-          baseAmount[account.currency] -= amount[account.currency];
-          if (
-            this.formSendAda.isClaim &&
-            account.account === feePayerAccountId &&
-            account.currency === "ada"
-          ) {
-            if (baseAmount[account.currency] >= this.txFee) {
-              // Only reimburse the fee payer if we have some left. If they are sending 100%, there won't be any left
-              baseAmount[account.currency] -= this.txFee;
-            } else {
-              // Show that this account will be paying the txFee
-              amount[account.currency] -= this.txFee;
-            }
-          }
-        }
+function prepareCalculateSendAdaFees() {
+  recalculateRemaining()
+  const uniqueToAccounts = Object.keys(countBy(formSendAda.value.toAccounts, (ta) => 
+    ta.account && ta.account > 0 ? ta.account : ta.address
+  )).length
+  const returnChangeTxOut = remainingLovelace.value + (tokenKeepFee.value || 0) > 0 ? 1 : 0
+  
+  const toAccounts = map(formSendAda.value.toAccounts, (toAccount, index) => ({
+    currency: toAccount.currency,
+    account: toAccount.account || -1,
+    address: toAccount.address,
+    type: toAccount.type,
+    amount: toAccount.amount == null
+      ? calculateSpent(index + 1).amount[toAccount.currency]
+      : parseAmount(toAccount.amount, toAccount.currency),
+    percent: toAccount.percent,
+    tokenFee: toAccount.tokenFee
+  }))
+  
+  const request = {
+    fromId: fromWalletItem.value.id,
+    toAccounts,
+    txOut: uniqueToAccounts + returnChangeTxOut,
+    isClaim: formSendAda.value.isClaim,
+    metadata: formSendAda.value.metadata,
+    uuid: crypto.randomUUID()
+  }
+  
+  validateForm()
 
-        if (!skipTokenFees && account.currency !== "ada") {
-          // subtract any token fees from our total available ada
-          account.tokenFee = this.tokenFees[i];
-          baseAmount["ada"] -= account.tokenFee;
-        }
-      }
-      return { remaining: baseAmount, amount: amount };
-    },
-    percentLabel(index, percent, currency) {
-      let amount = this.calculateSpent(index + 1).amount[currency] || 0;
-      return percent + "% - " + this.formatCurrency(amount, currency);
-    },
-  },
-  beforeCreate() {
-    this.$root.$on("send-ada", (walletItem) => {
-      // received send-ada message from parent component
-      this.showSendAdaModal(walletItem, false);
-    });
-    this.$root.$on("claim-ada", (walletItem) => {
-      // received claim-ada message from parent component
-      this.showSendAdaModal(walletItem, true);
-    });
-  },
-  mounted() {
-    this.clearFormSendAda();
-  },
-  beforeDestroy() {
-    this.$root.$off("send-ada");
-    this.$root.$off("claim-ada");
-  },
-};
+  if (request.fromId && formSendAda.value.valid) {
+    store.calculateSendAdaFees(request)
+  } else {
+    store.invalidateSendAdaFees()
+  }
+}
+
+function validateForm() {
+  formSendAda.value.valid = true
+  for (const toAccount of formSendAda.value.toAccounts) {
+    if (!currencyState(toAccount.currency) || !destinationState(toAccount.destination) ||
+        !accountState(toAccount) || !addressState(toAccount) || !typeState(toAccount.type)) {
+      formSendAda.value.valid = false
+      break
+    }
+    if (toAccount.type === 'amount' && !amountState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.amount, toAccount.currency)) {
+      formSendAda.value.valid = false
+      break
+    }
+    if (toAccount.type === 'percent' && !percentState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.percent, toAccount.currency)) {
+      formSendAda.value.valid = false
+      break
+    }
+  }
+  if (formSendAda.value.valid && !metadataState.value) {
+    formSendAda.value.valid = false
+  }
+}
+
+function handleValidateAndSend() {
+  // Validate all entries
+  for (const toAccount of formSendAda.value.toAccounts) {
+    if (!currencyState(toAccount.currency) || !destinationState(toAccount.destination) ||
+        !accountState(toAccount) || !addressState(toAccount) || !typeState(toAccount.type)) {
+      store.toastError = { title: 'Invalid Form', message: 'Please fill out all required fields.' }
+      return
+    }
+    if (toAccount.type === 'amount' && !amountState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.amount, toAccount.currency)) {
+      store.toastError = { title: 'Invalid Form', message: 'Invalid amount specified.' }
+      return
+    }
+  }
+  
+  if (remainingLovelace.value < 0) {
+    store.toastError = { title: 'Invalid Form', message: 'Negative remaining balance or not enough left to keep tokens!' }
+    return
+  }
+  
+  emitter.emit('show-spending-password-modal', { action: 'send-ada' })
+}
+
+function passwordConfirmed(spendingPassword: string) {
+  const toAccounts = map(formSendAda.value.toAccounts, (toAccount, index) => ({
+    currency: toAccount.currency,
+    account: toAccount.account,
+    address: toAccount.address,
+    type: toAccount.type,
+    amount: toAccount.amount == null
+      ? calculateSpent(index + 1).amount[toAccount.currency]
+      : parseAmount(toAccount.amount, toAccount.currency),
+    percent: toAccount.percent,
+    tokenFee: toAccount.tokenFee
+  }))
+  
+  store.submitTransaction({
+    spendingPassword,
+    fromId: formSendAda.value.fromId!,
+    isClaim: formSendAda.value.isClaim,
+    txFee: txFee.value || 0,
+    tokenKeepFee: tokenKeepFee.value || 0,
+    toAccounts,
+    metadata: formSendAda.value.metadata
+  })
+}
+
+function onSpendingPasswordConfirmed(password: string) {
+  passwordConfirmed(password)
+}
+
+function onShowSendAdaModal(data: { walletItem: WalletItemRef; isClaim: boolean }) {
+  showSendAdaModal(data.walletItem, data.isClaim)
+}
+
+// Watch for successful send
+watch(toastSuccess, (toast) => {
+  if (toast?.title === 'Ada Sent') {
+    isVisible.value = false
+    clearFormSendAda()
+  }
+})
+
+// Watch token fees updates
+watch(tokenFees, (fees) => {
+  if (fees) {
+    for (let i = 0; i < formSendAda.value.toAccounts.length; i++) {
+      formSendAda.value.toAccounts[i].tokenFee = (fees as number[])[i] || 0
+    }
+  }
+})
+
+onMounted(() => {
+  clearFormSendAda()
+  emitter.on('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+})
+
+onUnmounted(() => {
+  emitter.off('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+})
 </script>
+
+<style scoped>
+.transition-transform {
+  transition: transform 0.3s ease;
+}
+
+.rotate-180 {
+  transform: rotate(180deg);
+}
+</style>
 
 <style scoped>
 .collapsed .when-open,
 .not-collapsed .when-closed {
   display: none;
+}
+.clickable:hover {
+  cursor: pointer;
 }
 </style>

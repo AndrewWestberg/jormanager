@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.swiftmako.jormanager.model.StakeAddressInfo
+import com.swiftmako.jormanager.spring.config.Configuration
 import org.junit.jupiter.api.Test
 
 class StakeAddressInfoTest {
@@ -20,7 +21,7 @@ class StakeAddressInfoTest {
             |]
             """.trimMargin()
         val type = Types.newParameterizedType(List::class.java, StakeAddressInfo::class.java)
-        val adapter = Moshi.Builder().build().adapter<List<StakeAddressInfo>>(type)
+        val adapter = Configuration().getMoshi().adapter<List<StakeAddressInfo>>(type)
         val stakeAddressInfos = adapter.fromJson(json)
 
         assertThat(stakeAddressInfos?.size).isEqualTo(1)

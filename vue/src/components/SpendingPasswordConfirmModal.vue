@@ -1,50 +1,70 @@
 <template>
   <div>
-    <b-modal
+    <BModal
       id="modal-spending-password-confirm"
+      v-model="isVisible"
       title="Confirm spending password to continue"
-      size="xs"
-      no-close-on-backdrop
+      size="sm"
+      :no-close-on-backdrop="true"
       ok-title="Confirm"
       ok-variant="danger"
-      @ok="confirmClicked()"
-      @hidden="spendingPassword = null"
+      @ok="confirmClicked"
+      @hidden="onHidden"
     >
-      <b-form-input
+      <BFormInput
         id="spending-password-input"
         type="password"
         v-model="spendingPassword"
-        @keydown.native="handleKeydown"
+        @keydown="handleKeydown"
       />
-    </b-modal>
+    </BModal>
   </div>
 </template>
 
-<script>
-export default {
-  name: "SpendingPasswordConfirm",
-  data() {
-    return {
-      callback: null,
-      spendingPassword: null,
-    };
-  },
-  methods: {
-    show(callback) {
-      this.spendingPassword = null;
-      this.callback = callback;
-      this.$bvModal.show("modal-spending-password-confirm");
-    },
-    confirmClicked() {
-      this.callback(this.spendingPassword);
-      this.spendingPassword = null;
-    },
-    handleKeydown(event) {
-      if (event.which === 13) {
-        this.$bvModal.hide("modal-spending-password-confirm");
-        this.confirmClicked();
-      }
-    },
-  },
-};
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import { BModal, BFormInput } from 'bootstrap-vue-next'
+import { useEventBus } from '@/composables/useEventBus'
+
+const emitter = useEventBus()
+
+const isVisible = ref(false)
+const spendingPassword = ref<string | null>(null)
+const pendingAction = ref<string>('')
+const pendingData = ref<unknown>(null)
+
+function show(action: string, data?: unknown) {
+  spendingPassword.value = null
+  pendingAction.value = action
+  pendingData.value = data
+  isVisible.value = true
+}
+
+function confirmClicked() {
+  if (spendingPassword.value) {
+    emitter.emit('confirm-spending-password', spendingPassword.value)
+  }
+  spendingPassword.value = null
+  isVisible.value = false
+}
+
+function onHidden() {
+  spendingPassword.value = null
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter') {
+    confirmClicked()
+  }
+}
+
+onMounted(() => {
+  emitter.on('show-spending-password-modal', (payload: { action: string; data?: unknown }) => {
+    show(payload.action, payload.data)
+  })
+})
+
+onUnmounted(() => {
+  emitter.off('show-spending-password-modal')
+})
 </script>

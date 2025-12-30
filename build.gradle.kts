@@ -16,7 +16,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "10.3.0"
+version = "11.0.0"
 java.sourceCompatibility = JavaVersion.VERSION_21
 java.targetCompatibility = JavaVersion.VERSION_21
 
@@ -151,19 +151,19 @@ abstract class TestVueTask
         @TaskAction
         fun testVue() {
             execOperations.exec {
-                workingDir("vue")
-                commandLine("npm", "run", "test")
+                commandLine("/bin/bash", "./vue/test.sh")
             }
         }
     }
 tasks.register<TestVueTask>("testVue")
 
+tasks.named("processResources") {
+    dependsOn("testVue")
+    dependsOn("buildVue")
+}
+
 tasks {
     springBoot {
         buildInfo()
-    }
-    bootJar {
-        dependsOn("testVue")
-        dependsOn("buildVue")
     }
 }
