@@ -17,8 +17,9 @@ This workflow guides running tests across JorManager components.
 
 ### Frontend Tests
 
+// turbo
 ```bash
-cd vue && npm run lint
+cd vue && npm run test
 ```
 
 ---
@@ -54,6 +55,19 @@ Tests use the same configuration as application with:
 
 ## Frontend Testing
 
+### Run Unit Tests
+
+// turbo
+```bash
+cd vue && npm run test
+```
+
+### Run Tests in Watch Mode
+
+```bash
+cd vue && npm run test:watch
+```
+
 ### Linting
 
 // turbo
@@ -70,6 +84,13 @@ cd vue && npm run lint
 ```bash
 ./gradlew jacocoTestReport
 # Report: build/reports/jacoco/
+```
+
+### Frontend Coverage
+
+```bash
+cd vue && npm run test:coverage
+# Report: vue/coverage/
 ```
 
 ---

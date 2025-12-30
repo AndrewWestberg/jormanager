@@ -138,11 +138,32 @@ abstract class BuildVueTask
     }
 tasks.register<BuildVueTask>("buildVue")
 
+abstract class TestVueTask
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations
+    ) : DefaultTask() {
+        init {
+            group = "verification"
+            description = "Runs Vue.js frontend unit tests"
+        }
+
+        @TaskAction
+        fun testVue() {
+            execOperations.exec {
+                workingDir("vue")
+                commandLine("npm", "run", "test")
+            }
+        }
+    }
+tasks.register<TestVueTask>("testVue")
+
 tasks {
     springBoot {
         buildInfo()
     }
     bootJar {
+        dependsOn("testVue")
         dependsOn("buildVue")
     }
 }
