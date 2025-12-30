@@ -1,14 +1,17 @@
 package com.swiftmako.jormanager
 
+import com.bloxbean.cardano.client.crypto.MnemonicUtil
+import com.bloxbean.cardano.client.crypto.bip39.MnemonicCode
+import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
-import org.apache.commons.codec.digest.MessageDigestAlgorithms
-import org.junit.jupiter.api.Test
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.security.spec.InvalidKeySpecException
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
+import org.apache.commons.codec.digest.MessageDigestAlgorithms
+import org.junit.jupiter.api.Test
 
 class KeyDerivationTest {
     private val words =
@@ -2097,11 +2100,18 @@ class KeyDerivationTest {
                     .trimStart('0')
                     .padStart(264, '0')
 //            println("entropy_and_checksum_bits: $entropy_and_checksum_bits")
-            entropyAndChecksumBits.chunked(11).forEach { wordBits ->
-                val index = wordBits.toInt(2)
-                print("${words[index]} ")
+            val wordIndices = entropyAndChecksumBits.chunked(11).map { it.toInt(2) }
+            val allSameWord = wordIndices.all { it == word }
+
+            if (allSameWord) {
+                print("* ")
             }
-            println()
+
+            val mnemonic = wordIndices.joinToString(separator = " ") { words[it] }
+            MnemonicUtil.validateMnemonic(mnemonic)
+            val validatedHex = MnemonicCode.INSTANCE.toEntropy(mnemonic).toHexString()
+            assertThat(validatedHex).isEqualTo(hex)
+            println("$mnemonic - $hex")
         }
     }
 

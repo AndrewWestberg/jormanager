@@ -1,6 +1,7 @@
 object Versions {
     const val BOUNCY_CASTLE = "1.70"
     const val CAFFEINE = "3.2.3"
+    const val CARDANO_CLIENT_LIB = "0.7.1"
     const val CBOR = "0.4.1-NEWM"
     const val CHECKER_FRAMEWORK = "3.52.0"
     const val COROUTINES = "1.10.2"
