@@ -84,6 +84,7 @@ dependencies {
     testImplementation("io.mockk:mockk:${Versions.MOCKK}")
     testImplementation("com.google.truth:truth:${Versions.GOOGLE_TRUTH}")
     testImplementation("org.junit.jupiter:junit-jupiter:${Versions.JUNIT}")
+    testImplementation("com.bloxbean.cardano:cardano-client-lib:${Versions.CARDANO_CLIENT_LIB}")
 }
 
 fun isNonStable(version: String): Boolean {
