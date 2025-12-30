@@ -1,6 +1,66 @@
 @import url('https://fonts.googleapis.com/css2?family=Inconsolata&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css');
 
 html, body {
     font-family: 'Inconsolata', monospace;
     /*background-color: #261B11;*/
+}
+
+/* Global Modal Styling */
+.modal-content {
+    background-color: #343a40; /* Dark background matching the theme */
+    color: #f8f9fa; /* White text */
+}
+
+/* Ensure close button is visible on dark background */
+.modal-header .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* Ensure input fields in modals look good */
+.modal-body .form-control, 
+.modal-body .form-select {
+    background-color: #495057;
+    color: #fff;
+    border-color: transparent;
+}
+
+.modal-body .form-control:focus, 
+.modal-body .form-select:focus {
+    background-color: #495057;
+    color: #fff;
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Fix for input placeholders */
+.modal-body .form-control::placeholder {
+    color: #ced4da;
+    opacity: 0.7;
+}
+
+/* Fix for disabled inputs */
+.modal-body .form-control:disabled, 
+.modal-body .form-select:disabled {
+    background-color: #2c3034;
+}
+
+/* Global Card Styling for Dashboard Tiles */
+.card {
+    background-color: #343a40; /* Ensure cards have dark background */
+    color: #f8f9fa; /* White text for card body content */
+}
+
+.card-header {
+    color: #f8f9fa !important; /* Force white text for card titles */
+    border-bottom-color: #6c757d !important;
+}
+
+/* Utility classes */
+.transition-transform {
+    transition: transform 0.3s ease;
+}
+
+.rotate-180 {
+    transform: rotate(180deg);
 }

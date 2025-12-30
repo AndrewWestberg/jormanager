@@ -73,6 +73,7 @@ Available workflows:
 | [`database.md`](./workflows/database.md) | Database migrations (Liquibase) | `/database` |
 | [`kotlin_migration.md`](./workflows/kotlin_migration.md) | Java to Kotlin migration | `/kotlin_migration` |
 | [`update-doc.md`](./workflows/update-doc.md) | Update documentation | `/update-doc` |
+| [`version.md`](./workflows/version.md) | Update project version and ASCII banner | `/version` |
 
 ---
 

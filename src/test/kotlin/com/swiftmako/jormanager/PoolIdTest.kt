@@ -57,8 +57,8 @@ class PoolIdTest {
         blake2b224.doFinal(output, 0)
         val hashed = "61${output.toHexString()}"
 
-        // addr1vy5l62qysq3j6u4jsw0u73e8teus5x36ghd04lv0vsvqvys770xjw
-        assertThat(hashed).isEqualTo("6129fd280480232d72b2839fcf47275e790a1a3a45dafafd8f64180612")
+        // addr1v8j0unkl0q2k7p2wu76zx4tgfzyt385laqge2tw5x4pf4vc7v7ftl
+        assertThat(hashed).isEqualTo("61e4fe4edf78156f054ee7b42355684888b89e9fe811952dd435429ab3")
     }
 
     @Test

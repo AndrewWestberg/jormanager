@@ -1,17 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
-import { shallowMount } from '@vue/test-utils'
+import { describe, it, expect } from 'vitest'
 
 // Test the Dashboard methods directly without full component mount
-// since we want to avoid mocking the entire Vuex store
+// since we want to avoid mocking the entire Pinia store
 describe('Dashboard component methods', () => {
   describe('epochTimeRemaining logic', () => {
     // Test the calculation logic directly
-    const calculateEpochTimeRemaining = (epochLength, slot) => {
-      let time = epochLength - slot
-      let days = Math.floor(time / 60 / 60 / 24)
-      let hours = Math.floor(time / 60 / 60) % 24
-      let minutes = Math.floor(time / 60) % 60
-      let seconds = Math.floor(time % 60)
+    const calculateEpochTimeRemaining = (epochLength: number, slot: number): string => {
+      const time = epochLength - slot
+      const days = Math.floor(time / 60 / 60 / 24)
+      const hours = Math.floor(time / 60 / 60) % 24
+      const minutes = Math.floor(time / 60) % 60
+      const seconds = Math.floor(time % 60)
       return days + 'd ' + hours + 'h ' + minutes + 'm ' + seconds + 's '
     }
 
@@ -46,8 +45,8 @@ describe('Dashboard component methods', () => {
 
   describe('epochRemainingClass logic', () => {
     // Test the calculation logic directly
-    const calculateEpochRemainingClass = (epochLength, slot) => {
-      let epochTimeRemainingSecs = epochLength - slot
+    const calculateEpochRemainingClass = (epochLength: number, slot: number): string => {
+      const epochTimeRemainingSecs = epochLength - slot
       if ((epochTimeRemainingSecs * 1.0) / epochLength > 0.4) {
         return 'text-success'
       }

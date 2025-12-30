@@ -1,168 +1,212 @@
 <template>
   <div>
-    <b-modal
+  <BModal
       id="modal-edit-host"
+      v-model="isVisible"
       title="Add/Edit Host"
-      scrollable
-      no-close-on-backdrop
+      :no-close-on-backdrop="true"
       ok-title="Validate &amp; Save"
-      @ok="handleValidateAndSave"
+      @ok="handleSubmitAddHost"
     >
-      <b-form ref="editHostForm" @submit.stop.prevent="handleValidateAndSave">
-        <b-form-group label="Type" label-for="type-radio">
-          <b-form-radio-group id="type-radio" v-model="formHost.type" required>
-            <b-form-radio value="local">Local</b-form-radio>
-            <b-form-radio value="remote">Remote</b-form-radio>
-          </b-form-radio-group>
-        </b-form-group>
-        <b-form-group label="Hostname" label-for="hostname-input">
-          <b-form-input
+      <BForm ref="editHostFormRef" @submit.stop.prevent="handleValidateAndSave">
+        <!-- Form Fields -->
+        <BFormGroup label="Type" label-for="type-radio">
+          <BFormRadioGroup id="type-radio" v-model="formHost.type" required>
+            <BFormRadio value="local">Local</BFormRadio>
+            <BFormRadio value="remote">Remote</BFormRadio>
+          </BFormRadioGroup>
+        </BFormGroup>
+        <BFormGroup label="Hostname" label-for="hostname-input">
+          <BFormInput
             id="hostname-input"
             placeholder="e.g. 'server.mystakepool.io' or '192.168.0.77'"
             v-model="formHost.hostname"
             required
           />
-        </b-form-group>
-        <b-form-group label="SSH Port" label-for="ssh-port-input" v-if="isFormRemote">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup v-if="isFormRemote" label="SSH Port" label-for="ssh-port-input">
+          <BFormInput
             id="ssh-port-input"
             type="number"
             placeholder="e.g. 22"
             v-model="formHost.sshPort"
             :required="isFormRemote"
           />
-        </b-form-group>
-        <b-form-group :label="userFormLabel" label-for="ssh-user-input">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup :label="userFormLabel" label-for="ssh-user-input">
+          <BFormInput
             id="ssh-user-input"
             placeholder="e.g. ec2-user"
             v-model="formHost.sshUser"
             :required="isFormRemote"
           />
-        </b-form-group>
-        <b-form-group label="SSH Key" label-for="ssh-key-input" v-if="isFormRemote">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup v-if="isFormRemote" label="SSH Key" label-for="ssh-key-input">
+          <BFormInput
             id="ssh-key-input"
             placeholder="e.g. /home/<username>/.ssh/id_rsa"
             v-model="formHost.sshPemPath"
             :required="isFormRemote"
           />
-        </b-form-group>
-        <b-form-group label="cardano-cli Path" label-for="cardano-cli-input">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup label="cardano-cli Path" label-for="cardano-cli-input">
+          <BFormInput
             id="cardano-cli-input"
             placeholder="e.g. /home/<username>/.local/bin/cardano-cli"
             v-model="formHost.cardanoCliPath"
             required
           />
-        </b-form-group>
-        <b-form-group label="cardano-node Path" label-for="cardano-node-input">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup label="cardano-node Path" label-for="cardano-node-input">
+          <BFormInput
             id="cardano-node-input"
             placeholder="e.g. /home/<username>/.local/bin/cardano-node"
             v-model="formHost.cardanoNodePath"
             required
           />
-        </b-form-group>
-        <b-form-group label="Home Folder for Nodes" label-for="node-home-path-input">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup label="Home Folder for Nodes" label-for="node-home-path-input">
+          <BFormInput
             id="node-home-path-input"
             placeholder="e.g. /home/<username>/haskell"
             v-model="formHost.nodeHomePath"
             required
           />
-        </b-form-group>
-        <b-form-group label="ITN JCLI Path (Optional)" label-for="jcli-input">
-          <b-form-input
+        </BFormGroup>
+        <BFormGroup label="ITN JCLI Path (Optional)" label-for="jcli-input">
+          <BFormInput
             id="jcli-input"
             placeholder="e.g. /home/<username>/.cargo/bin/jcli"
             v-model="formHost.jcliPath"
           />
-        </b-form-group>
-      </b-form>
-    </b-modal>
+        </BFormGroup>
+      </BForm>
+    </BModal>
   </div>
 </template>
 
-<script>
-import _ from "lodash";
-import { mapActions, mapState } from "vuex";
-export default {
-  name: "AddEditHostModal",
-  data() {
-    return {
-      formHost: {},
-    };
-  },
-  methods: {
-    ...mapActions(["addHost", "requestHosts"]),
-    clearFormHost() {
-      this.formState = null;
-      this.formHost = {
-        type: "remote",
-        hostname: "",
-        sshUser: "",
-        sshPort: 22,
-        sshPemPath: "",
-        cardanoCliPath: "",
-        cardanoNodePath: "",
-        nodeHomePath: "",
-        jcliPath: null,
-      };
-    },
-    checkFormValidity() {
-      const valid = this.$refs.editHostForm.checkValidity();
-      return valid;
-    },
-    clickAddHost() {
-      this.clearFormHost();
-      this.$bvModal.show("modal-edit-host");
-    },
-    clickEditHost(host) {
-      this.clearFormHost();
-      this.formHost = _.cloneDeep(host);
-      this.$bvModal.show("modal-edit-host");
-    },
-    handleValidateAndSave(bvModalEvt) {
-      bvModalEvt.preventDefault();
-      this.handleSubmitAddHost();
-    },
-    handleSubmitAddHost() {
-      if (!this.checkFormValidity()) {
-        return;
-      }
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { cloneDeep } from 'lodash-es'
+import {
+  BModal,
+  BForm,
+  BFormGroup,
+  BFormInput,
+  BFormRadioGroup,
+  BFormRadio
+} from 'bootstrap-vue-next'
+import { useJorManagerStore } from '@/stores/jormanager'
+import { useEventBus } from '@/composables/useEventBus'
+import type { Host } from '@/types'
 
-      this.addHost(this.formHost);
-    },
-  },
-  computed: {
-    ...mapState(["toastSuccess"]),
-    isFormRemote() {
-      return this.formHost.type === "remote";
-    },
-    userFormLabel() {
-      return this.isFormRemote ? "SSH User" : "User";
-    },
-  },
-  watch: {
-    toastSuccess(toast) {
-      if (toast.title === "Host Saved") {
-        this.$bvModal.hide("modal-edit-host");
-        this.clearFormHost();
-        this.requestHosts();
-      }
-    },
-  },
-  mounted() {
-    this.clearFormHost();
-    this.$root.$on("edit-host", (host) => {
-      // received edit host message from parent component
-      this.clickEditHost(host);
-    });
-    this.$root.$on("add-host", () => {
-      // received add host message from parent component
-      this.clickAddHost();
-    });
-  },
-};
+const store = useJorManagerStore()
+const { toastSuccess } = storeToRefs(store)
+const emitter = useEventBus()
+
+const editHostFormRef = ref<InstanceType<typeof BForm> | null>(null)
+const isVisible = ref(false)
+
+interface HostForm {
+  type: 'local' | 'remote'
+  hostname: string
+  sshUser: string
+  sshPort: number
+  sshPemPath: string
+  cardanoCliPath: string
+  cardanoNodePath: string
+  nodeHomePath: string
+  jcliPath: string | null
+}
+
+const defaultFormHost: HostForm = {
+  type: 'remote',
+  hostname: '',
+  sshUser: '',
+  sshPort: 22,
+  sshPemPath: '',
+  cardanoCliPath: '',
+  cardanoNodePath: '',
+  nodeHomePath: '',
+  jcliPath: null
+}
+
+const formHost = ref<HostForm>({ ...defaultFormHost })
+
+const isFormRemote = computed(() => formHost.value.type === 'remote')
+const userFormLabel = computed(() => isFormRemote.value ? 'SSH User' : 'User')
+
+function clearFormHost() {
+  formHost.value = { ...defaultFormHost }
+}
+
+function checkFormValidity(): boolean {
+  if (!editHostFormRef.value) return false
+  const formEl = (editHostFormRef.value as any).element || editHostFormRef.value
+  if (formEl.checkValidity) {
+    return formEl.checkValidity()
+  }
+  return true
+}
+
+function reportFormValidity() {
+  if (!editHostFormRef.value) return
+  const formEl = (editHostFormRef.value as any).element || editHostFormRef.value
+  if (formEl.reportValidity) {
+    formEl.reportValidity()
+  }
+}
+
+function clickAddHost() {
+  clearFormHost()
+  isVisible.value = true
+}
+
+function clickEditHost(host: Host) {
+  clearFormHost()
+  formHost.value = cloneDeep(host) as HostForm
+  isVisible.value = true
+}
+
+function handleValidateAndSave(event?: Event) {
+  if (event) event.preventDefault()
+  
+  // validation logic
+  if (!checkFormValidity()) {
+    reportFormValidity()
+    return
+  }
+  store.addHost(formHost.value as Host)
+}
+
+function handleSubmitAddHost(event: any) {
+  // Prevent modal from closing automatically
+  event.preventDefault()
+  handleValidateAndSave()
+}
+
+// Watch for successful save to close modal
+watch(toastSuccess, (toast) => {
+  if (toast?.title === 'Host Saved') {
+    isVisible.value = false
+    clearFormHost()
+    store.requestHosts()
+  }
+})
+
+onMounted(() => {
+  clearFormHost()
+  emitter.on('edit-host', (host) => {
+    clickEditHost(host as Host)
+  })
+  emitter.on('add-host', () => {
+    clickAddHost()
+  })
+})
+
+onUnmounted(() => {
+  emitter.off('edit-host')
+  emitter.off('add-host')
+})
 </script>

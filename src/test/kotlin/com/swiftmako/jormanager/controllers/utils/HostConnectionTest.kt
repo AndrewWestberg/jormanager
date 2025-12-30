@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.controllers.utils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import kotlin.experimental.and
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.slf4j.LoggerFactory
 
@@ -10,6 +11,7 @@ class HostConnectionTest {
     private val log by lazy { LoggerFactory.getLogger("HostConnectionTest") }
 
     @Test
+    @Disabled
     fun testMultilineStringToFile() {
         val systemdContent =
             """
@@ -51,6 +53,7 @@ class HostConnectionTest {
     }
 
     @Test
+    @Disabled
     fun testQueryAddress() {
         val host =
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")

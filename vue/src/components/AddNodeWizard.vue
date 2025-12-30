@@ -1,1635 +1,1056 @@
 <template>
   <div id="add_node">
-    <h2>Add Node</h2>
-    <vue-good-wizard :steps="steps" :onNext="nextClicked" :onBack="backClicked">
-      <div slot="page1">
+    <FormWizard
+      ref="wizard"
+      :key="wizardKey"
+      step-size="sm"
+      color="#28a745"
+      title=""
+      subtitle=""
+      finish-button-text="Create Node"
+      back-button-text="Back"
+      next-button-text="Next"
+      @on-complete="onComplete"
+    >
+      <!-- Step 1: Node Basics (Always shown) -->
+      <TabContent title="Node Basics" icon="fas fa-dice-d20" :before-change="validateStep1">
         <h4>Node Basics</h4>
-        <b-form-group
-          label="Other Node Colors"
-          label-cols-md="2"
-          v-if="nodeColors.length > 0"
-        >
+        
+        <BFormGroup label="Other Node Colors" label-cols-md="2" v-if="nodeColors.length > 0">
           <span v-for="(nodeColor, index) in nodeColors" :key="index">
-            <font-awesome-icon
-              :style="{ color: nodeColor }"
-              :icon="['fas', 'circle']"
-            />
+            <font-awesome-icon :style="{ color: nodeColor }" :icon="['fas', 'circle']" />
           </span>
-        </b-form-group>
-        <b-form-group label="Color" label-for="color-input" label-cols-md="2">
-          <b-form-input v-model="formNode.color" type="color"></b-form-input>
-        </b-form-group>
-        <b-form-group label="Host" label-for="host-select" label-cols-md="2">
-          <b-form-select
-            id="host-select"
+        </BFormGroup>
+        
+        <BFormGroup label="Color" label-cols-md="2">
+          <BFormInput v-model="formNode.color" type="color" />
+        </BFormGroup>
+        
+        <BFormGroup label="Host" label-cols-md="2">
+          <BFormSelect
             v-model="formNode.host"
             :state="hostState"
             :options="hostSelectOptions"
             :disabled="parentId != null"
           >
-            <template v-slot:first>
-              <b-form-select-option :value="null" disabled
-                >-- Please select an option --</b-form-select-option
-              >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
             </template>
-          </b-form-select>
-        </b-form-group>
-        <b-form-group
-          label="Name (TICKER)"
-          label-for="name-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="name-input"
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Name (TICKER)" label-cols-md="2">
+          <BFormInput
             v-model="formNode.name"
-            :state="nameState()"
+            :state="nameState"
             maxlength="6"
-            aria-describedby="name-input-live-feedback"
             placeholder="e.g. tickr, relay2, etc..."
             trim
-          ></b-form-input>
-          <b-form-invalid-feedback id="name-input-live-feedback">{{
-            nameError
-          }}</b-form-invalid-feedback>
-        </b-form-group>
-        <b-form-group
-          label="Node Type"
-          label-for="type-radio"
-          label-cols-md="2"
-        >
-          <b-form-radio-group
-            id="type-radio"
-            v-model="formNode.type"
-            :state="typeState"
-            :disabled="parentId != null"
-          >
-            <b-form-radio value="relay">
-              <font-awesome-icon
-                :icon="['fas', 'dice-d20']"
-                class="text-danger text-center"
-              />&nbsp;Relay
-            </b-form-radio>
-            <b-form-radio value="core">
-              <font-awesome-icon
-                :icon="['fas', 'dice-d20']"
-                class="text-success"
-              />&nbsp;Core
-            </b-form-radio>
-            <b-form-radio value="pool" v-show="parentId != null">
-              <font-awesome-icon
-                :icon="['fas', 'dice-d20']"
-                class="text-primary"
-              />&nbsp;Pool
-            </b-form-radio>
-          </b-form-radio-group>
-        </b-form-group>
-        <b-form-group label-cols-md="2" v-if="formNode.type == 'relay'">
-          <b-form-checkbox id="default-checkbox" v-model="formNode.isDefault"
-            >Make this node the default for sending
-            transactions</b-form-checkbox
-          >
-        </b-form-group>
-        <b-form-group
-          label="Processor Threads"
-          label-for="threads-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="threads-input"
-            v-model="formNode.processorThreads"
-            :state="processorThreadsState"
-            :disabled="parentId != null"
-            placeholder="e.g. 2"
-            type="range"
-            min="0"
-            max="8"
-            step="1"
-            trim
           />
-          <p class="text-center">{{ formNode.processorThreads }} Threads</p>
-        </b-form-group>
-        <b-form-group
-          label="Listen Address"
-          label-for="listen-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="listen-input"
+          <BFormInvalidFeedback>{{ nameError }}</BFormInvalidFeedback>
+        </BFormGroup>
+        
+        <BFormGroup label="Node Type" label-cols-md="2">
+          <BFormRadioGroup v-model="formNode.type" :state="typeState" :disabled="parentId != null">
+            <BFormRadio value="relay">
+              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-danger" />&nbsp;Relay
+            </BFormRadio>
+            <BFormRadio value="core">
+              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success" />&nbsp;Core
+            </BFormRadio>
+            <BFormRadio value="pool" v-show="parentId != null">
+              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-primary" />&nbsp;Pool
+            </BFormRadio>
+          </BFormRadioGroup>
+        </BFormGroup>
+        
+        <BFormGroup label-cols-md="2" v-if="formNode.type === 'relay'">
+          <BFormCheckbox v-model="formNode.isDefault">
+            Make this node the default for sending transactions
+          </BFormCheckbox>
+        </BFormGroup>
+        
+        <BFormGroup label="Listen Address" label-cols-md="2">
+          <BFormInput
             v-model="formNode.listen"
             :disabled="parentId != null"
             :state="listenState"
-            aria-describedby="listen-input-live-feedback"
             placeholder="e.g. 0.0.0.0, 127.0.0.1, 192.168.16.12"
             trim
-          ></b-form-input>
-          <b-form-invalid-feedback id="listen-input-live-feedback"
-            >Listen ip address for incoming connections</b-form-invalid-feedback
-          >
-        </b-form-group>
-        <b-form-group
-          label="Node Port"
-          label-for="port-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="port-input"
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Node Port" label-cols-md="2">
+          <BFormInput
             type="number"
             step="1"
             min="1024"
             max="65535"
             :state="portState"
             placeholder="e.g. 3001"
-            aria-describedby="port-input-live-feedback"
             v-model="formNode.port"
-            trim
             :disabled="parentId != null"
           />
-          <b-form-invalid-feedback id="port-input-live-feedback"
-            >The port number the node will listen for connections
-            on</b-form-invalid-feedback
-          >
-        </b-form-group>
-        <b-form-group
-          label="EKG Port"
-          label-for="ekg-port-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="ekg-port-input"
+        </BFormGroup>
+        
+        <BFormGroup label="Processor Threads" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.processorThreads"
+            :state="processorThreadsState"
+            :disabled="parentId != null"
+            type="range"
+            min="0"
+            max="8"
+            step="1"
+          />
+          <p class="text-center">{{ formNode.processorThreads }} Threads</p>
+        </BFormGroup>
+        
+        <BFormGroup label="EKG Port" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.ekgPort"
             type="number"
             step="1"
-            min="1024"
+            min="-1"
             max="65535"
             :state="ekgPortState"
-            placeholder="e.g. 12788"
-            aria-describedby="ekg-port-input-live-feedback"
-            v-model="formNode.ekgPort"
-            trim
+            placeholder="e.g. 12788 (-1 for auto)"
             :disabled="parentId != null"
           />
-          <b-form-invalid-feedback id="ekg-port-input-live-feedback"
-            >The port number the node will run EKG monitoring on. -1 to
-            auto-generate it.</b-form-invalid-feedback
-          >
-        </b-form-group>
-        <b-form-group
-          label="Prometheus Port"
-          label-for="prom-port-input"
-          label-cols-md="2"
-        >
-          <b-form-input
-            id="prom-port-input"
+        </BFormGroup>
+        
+        <BFormGroup label="Prometheus Port" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.promPort"
             type="number"
             step="1"
-            min="1024"
+            min="-1"
             max="65535"
             :state="promPortState"
-            placeholder="e.g. 12789"
-            aria-describedby="prom-port-input-live-feedback"
-            v-model="formNode.promPort"
-            trim
+            placeholder="e.g. 12798 (-1 for auto)"
             :disabled="parentId != null"
           />
-          <b-form-invalid-feedback id="ekg-port-input-live-feedback"
-            >The port number the node will run Prometheus monitoring on. -1 to
-            auto-generate it.</b-form-invalid-feedback
-          >
-        </b-form-group>
-        <b-form-group
-          label="Genesis Byron"
-          label-for="genesis-byron-select"
-          label-cols-md="2"
-        >
-          <b-form-select
-            id="genesis-byron-select"
+        </BFormGroup>
+        
+        <BFormGroup label="Genesis Byron" label-cols-md="2">
+          <BFormSelect
             v-model="formNode.genesisByron"
             :state="genesisByronState"
-            :options="genesisFiles"
+            :options="genesisFileOptions"
             :disabled="parentId != null"
           >
-            <template v-slot:first>
-              <b-form-select-option :value="null" disabled
-                >-- Please select an option --</b-form-select-option
-              >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
             </template>
-          </b-form-select>
-        </b-form-group>
-        <b-form-group
-          label="Genesis Shelley"
-          label-for="genesis-shelley-select"
-          label-cols-md="2"
-        >
-          <b-form-select
-            id="genesis-shelley-select"
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Genesis Shelley" label-cols-md="2">
+          <BFormSelect
             v-model="formNode.genesisShelley"
             :state="genesisShelleyState"
-            :options="genesisFiles"
+            :options="genesisFileOptions"
             :disabled="parentId != null"
           >
-            <template v-slot:first>
-              <b-form-select-option :value="null" disabled
-                >-- Please select an option --</b-form-select-option
-              >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
             </template>
-          </b-form-select>
-        </b-form-group>
-        <b-form-group
-          label="Genesis Alonzo"
-          label-for="genesis-alonzo-select"
-          label-cols-md="2"
-        >
-          <b-form-select
-            id="genesis-alonzo-select"
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Genesis Alonzo" label-cols-md="2">
+          <BFormSelect
             v-model="formNode.genesisAlonzo"
             :state="genesisAlonzoState"
-            :options="genesisFiles"
+            :options="genesisFileOptions"
             :disabled="parentId != null"
           >
-            <template v-slot:first>
-              <b-form-select-option :value="null" disabled
-                >-- Please select an option --</b-form-select-option
-              >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
             </template>
-          </b-form-select>
-        </b-form-group>
-        <b-form-group
-          label="Genesis Conway"
-          label-for="genesis-conway-select"
-          label-cols-md="2"
-        >
-          <b-form-select
-            id="genesis-conway-select"
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Genesis Conway" label-cols-md="2">
+          <BFormSelect
             v-model="formNode.genesisConway"
             :state="genesisConwayState"
-            :options="genesisFiles"
+            :options="genesisFileOptions"
             :disabled="parentId != null"
           >
-            <template v-slot:first>
-              <b-form-select-option :value="null" disabled
-                >-- Please select an option --</b-form-select-option
-              >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
             </template>
-          </b-form-select>
-        </b-form-group>
-      </div>
-      <div slot="page2">
-        <h4>Core Node Keys</h4>
-        <b-form-group label="Pool COLD Keys">
-          <b-form-checkbox
-            id="cold-skey-generate-checkbox"
-            v-model="formNode.generateColdKeys"
-            >Generate</b-form-checkbox
-          >
-          <b-form-group
-            label="skey"
-            label-for="cold-skey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="cold-skey-file"
+          </BFormSelect>
+        </BFormGroup>
+      </TabContent>
+      
+      <!-- Step 2: Pool Keys (Core/Pool only) -->
+      <TabContent 
+        v-if="formNode.type !== 'relay'" 
+        title="Pool Keys" 
+        icon="fas fa-key"
+        :before-change="validateStep2"
+      >
+        <h4>Pool Keys</h4>
+        
+        <!-- COLD Keys Group -->
+        <BFormGroup label="Pool COLD Keys">
+          <BFormCheckbox v-model="formNode.generateColdKeys">Generate</BFormCheckbox>
+          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateColdKeys"
-              :placeholder="
-                formNode.generateColdKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.coldSKey"
-              :state="coldSKeyState"
-              trim
+              @change="handleFileUpload($event, 'coldSKey')" 
             />
-          </b-form-group>
-          <b-form-group
-            label="vkey"
-            label-for="cold-vkey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="cold-vkey-file"
+          </BFormGroup>
+          <BFormGroup label="vkey" label-cols-md="1">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateColdKeys"
-              :placeholder="
-                formNode.generateColdKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.coldVKey"
-              :state="coldVKeyState"
-              trim
+              @change="handleFileUpload($event, 'coldVKey')" 
             />
-          </b-form-group>
-          <b-form-group
-            label="counter"
-            label-for="cold-counter-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="cold-counter-file"
+          </BFormGroup>
+          <BFormGroup label="counter" label-cols-md="1">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateColdKeys"
-              :placeholder="
-                formNode.generateColdKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.coldCounter"
-              :state="coldCounterState"
-              trim
+              @change="handleFileUpload($event, 'coldCounter')" 
             />
-          </b-form-group>
-        </b-form-group>
-        <b-form-group label="Pool VRF Keys">
-          <b-form-checkbox
-            id="vrf-skey-generate-checkbox"
-            v-model="formNode.generateVRFKeys"
-            >Generate</b-form-checkbox
-          >
-          <b-form-group
-            label="skey"
-            label-for="vrf-skey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="vrf-skey-file"
+          </BFormGroup>
+        </BFormGroup>
+        
+        <!-- VRF Keys Group -->
+        <BFormGroup label="Pool VRF Keys">
+          <BFormCheckbox v-model="formNode.generateVRFKeys">Generate</BFormCheckbox>
+          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateVRFKeys"
-              :placeholder="
-                formNode.generateVRFKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.vrfSKey"
-              :state="vrfSKeyState"
-              trim
+              @change="handleFileUpload($event, 'vrfSKey')" 
             />
-          </b-form-group>
-          <b-form-group
-            label="vkey"
-            label-for="vrf-vkey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="vrf-vkey-file"
+          </BFormGroup>
+          <BFormGroup label="vkey" label-cols-md="1">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateVRFKeys"
-              :placeholder="
-                formNode.generateVRFKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.vrfVKey"
-              :state="vrfVKeyState"
-              trim
+              @change="handleFileUpload($event, 'vrfVKey')" 
             />
-          </b-form-group>
-        </b-form-group>
-        <b-form-group label="Pool KES Keys">
-          <b-form-checkbox
-            id="kes-skey-generate-checkbox"
-            v-model="formNode.generateKESKeys"
-            >Generate</b-form-checkbox
-          >
-          <b-form-group
-            label="skey"
-            label-for="kes-skey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="kes-skey-file"
+          </BFormGroup>
+        </BFormGroup>
+        
+        <!-- KES Keys Group -->
+        <BFormGroup label="Pool KES Keys">
+          <BFormCheckbox v-model="formNode.generateKESKeys">Generate</BFormCheckbox>
+          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateKESKeys"
-              :placeholder="
-                formNode.generateKESKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.kesSKey"
-              :state="kesSKeyState"
-              trim
+              @change="handleFileUpload($event, 'kesSKey')" 
             />
-          </b-form-group>
-          <b-form-group
-            label="vkey"
-            label-for="kes-vkey-file"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-file
-              id="kes-vkey-file"
+          </BFormGroup>
+          <BFormGroup label="vkey" label-cols-md="1">
+            <input 
+              type="file" 
+              class="form-control" 
               :disabled="formNode.generateKESKeys"
-              :placeholder="
-                formNode.generateKESKeys
-                  ? '---'
-                  : 'Choose file or drop it here...'
-              "
-              drop-placeholder="Drop file here..."
-              v-model="formNode.kesVKey"
-              :state="kesVKeyState"
-              trim
+              @change="handleFileUpload($event, 'kesVKey')" 
             />
-          </b-form-group>
-        </b-form-group>
-      </div>
-      <div slot="page3">
-        <h4>Pool Config</h4>
-        <b-form-group label="Account Config">
-          <b-form-group
-            label="Fees Account"
-            label-for="registration-fees-account-select"
-            label-cols-md="1"
-            label-align="right"
+          </BFormGroup>
+        </BFormGroup>
+      </TabContent>
+      
+      <!-- Step 3: Pool Config (Core/Pool only) -->
+      <TabContent 
+        v-if="formNode.type !== 'relay'" 
+        title="Pool Config" 
+        icon="fas fa-percent"
+        :before-change="validateStep3"
+      >
+        <h4>Pool Configuration</h4>
+        
+        <BFormGroup label="Fees Account" label-cols-md="2">
+          <BFormSelect
+            v-model="formNode.registrationFeesAccount"
+            :state="registrationFeesAccountState"
+            :options="feeAccountOptions"
           >
-            <b-form-select
-              id="registration-fees-account-select"
-              aria-describedby="registration-fees-account-live-feedback"
-              v-model="formNode.registrationFeesAccount"
-              :options="
-                registrationFeesSelectOptions($options.filters.currency)
-              "
-              :state="registrationFeesAccountState"
-            >
-              <template v-slot:first>
-                <b-form-select-option :value="null" disabled
-                  >-- Please select an option --</b-form-select-option
-                >
-              </template>
-            </b-form-select>
-            <b-form-invalid-feedback
-              id="registration-fees-account-live-feedback"
-              >Account must hold enough to pay pool registration and delegation
-              fees.</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Owner (Pledge) Account"
-            label-for="owner-staking-account-select"
-            label-cols-md="1"
-            label-align="right"
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Owner (Pledge) Account" label-cols-md="2">
+          <BFormSelect
+            v-model="formNode.ownerStakingAccount"
+            :state="ownerStakingAccountState"
+            :options="stakingAccountOptions"
           >
-            <b-form-select
-              id="owner-staking-account-select"
-              v-model="formNode.ownerStakingAccount"
-              :options="stakingSelectOptions($options.filters.currency)"
-              :state="ownerStakingAccountState"
-            >
-              <template v-slot:first>
-                <b-form-select-option :value="null" disabled
-                  >-- Please select an option --</b-form-select-option
-                >
-              </template>
-            </b-form-select>
-          </b-form-group>
-          <b-form-group
-            label="Rewards Account"
-            label-for="rewards-staking-account-select"
-            label-cols-md="1"
-            label-align="right"
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Rewards Account" label-cols-md="2">
+          <BFormSelect
+            v-model="formNode.rewardsStakingAccount"
+            :state="rewardsStakingAccountState"
+            :options="rewardsAccountOptions"
           >
-            <b-form-select
-              id="rewards-staking-account-select"
-              aria-describedby="rewards-staking-account-live-feedback"
-              v-model="formNode.rewardsStakingAccount"
-              :options="rewardsSelectOptions($options.filters.currency)"
-              :state="rewardsStakingAccountState"
-            >
-              <template v-slot:first>
-                <b-form-select-option :value="null" disabled
-                  >-- Please select an option --</b-form-select-option
-                >
-              </template>
-            </b-form-select>
-            <b-form-invalid-feedback id="rewards-staking-account-live-feedback"
-              >May be the same as owner account.</b-form-invalid-feedback
-            >
-          </b-form-group>
-        </b-form-group>
-        <b-form-group label="Pledge &amp; Fees">
-          <b-form-group
-            label="Pledge"
-            label-for="pledge-input"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-input
-              id="pledge-input"
-              v-model="formNode.poolPledge"
-              placeholder="e.g. ₳250,000.000000"
-              :state="poolPledgeState"
-              trim
-              v-currency
-            />
-          </b-form-group>
-          <b-form-group
-            label="Cost"
-            label-for="cost-input"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-input
-              id="cost-input"
-              v-model="formNode.poolCost"
-              :state="poolCostState"
-              placeholder="e.g. ₳340.000000"
-              trim
-              v-currency
-            />
-          </b-form-group>
-          <b-form-group
-            label="Margin"
-            label-for="margin-input"
-            label-cols-md="1"
-            label-align="right"
-          >
-            <b-form-input
-              id="margin-input"
-              v-model="formNode.poolMargin"
-              :state="poolMarginState"
-              placeholder="e.g. 0.06"
-              type="number"
-              min="0.00"
-              max="1.00"
-              step="0.001"
-              trim
-            />
-            <p class="text-center">
-              {{ (formNode.poolMargin * 100).toFixed(2) }}%
-            </p>
-          </b-form-group>
-        </b-form-group>
-      </div>
-      <div slot="page4">
-        <h4>Relays</h4>
-        <div v-for="(relay, index) in formNode.relays" :key="index">
-          <b-card border-variant="secondary">
-            <b-form-group
-              label="Address"
-              label-for="relay-address-input"
-              label-cols-md="1"
-            >
-              <b-form-input
-                id="relay-address-input"
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        
+        <BFormGroup label="Pledge" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.poolPledge"
+            :state="poolPledgeState"
+            placeholder="e.g. 250000"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Cost" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.poolCost"
+            :state="poolCostState"
+            placeholder="e.g. 340"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Margin" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.poolMargin"
+            :state="poolMarginState"
+            placeholder="e.g. 0.06"
+            type="number"
+            min="0.00"
+            max="1.00"
+            step="0.001"
+          />
+          <p class="text-center">{{ (formNode.poolMargin * 100).toFixed(2) }}%</p>
+        </BFormGroup>
+      </TabContent>
+      
+      <!-- Step 4: Relays (Core/Pool only) -->
+      <TabContent 
+        v-if="formNode.type !== 'relay'" 
+        title="Relays" 
+        icon="fas fa-project-diagram"
+        :before-change="validateStep4"
+      >
+        <h4>Relay Configuration</h4>
+        
+        <div v-for="(relay, index) in formNode.relays" :key="index" class="mb-3">
+          <BCard class="bg-dark">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5>Relay {{ index + 1 }}</h5>
+              <BButton variant="outline-danger" size="sm" @click="formNode.relays.splice(index, 1)">✕</BButton>
+            </div>
+            <BFormGroup label="Address" label-cols-md="2">
+              <BFormInput
                 v-model="relay.addr"
                 :state="relayAddrState(relay.addr)"
-                aria-describedby="relay-address-input-live-feedback"
                 placeholder="e.g. 240.116.25.34, relay1.mystakepool.com"
                 trim
-              ></b-form-input>
-              <b-form-invalid-feedback id="relay-address-input-live-feedback"
-                >Enter a valid dns name or ip address for your relay
-                server.</b-form-invalid-feedback
-              >
-            </b-form-group>
-            <b-form-group
-              label="Port"
-              label-for="relay-port-input"
-              label-cols-md="1"
-            >
-              <b-form-input
-                id="relay-port-input"
+              />
+            </BFormGroup>
+            <BFormGroup label="Port" label-cols-md="2">
+              <BFormInput
+                v-model="relay.port"
                 type="number"
                 step="1"
                 min="1024"
                 max="65535"
                 :state="relayPortState(relay.port)"
                 placeholder="e.g. 3001"
-                aria-describedby="relay-port-input-live-feedback"
-                v-model="relay.port"
-                trim
               />
-              <b-form-invalid-feedback id="relay-port-input-live-feedback"
-                >The port number of the relay node.</b-form-invalid-feedback
-              >
-            </b-form-group>
-          </b-card>
-          <hr />
+            </BFormGroup>
+          </BCard>
         </div>
-        <b-button variant="primary" @click="addRelay()">
-          <b-icon-plus />&nbsp;Add Relay
-        </b-button>
-      </div>
-      <div slot="page5">
+        
+        <BButton variant="primary" @click="addRelay">+&nbsp;Add Relay</BButton>
+      </TabContent>
+      
+      <!-- Step 5: Metadata (Core/Pool only) -->
+      <TabContent 
+        v-if="formNode.type !== 'relay'" 
+        title="Metadata" 
+        icon="fas fa-info-circle"
+        :before-change="validateStep5"
+      >
         <h4>Metadata</h4>
-        <b-form-group>
-          <h5>Primary (Required)</h5>
-          <b-form-group
-            label="Ticker"
-            label-for="metadata-ticker-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-ticker-input"
-              v-model="formNode.metadata.ticker"
-              :state="tickerState"
-              aria-describedby="metadata-ticker-input-live-feedback"
-              placeholder="e.g. TICKR, ABC1, etc..."
-              :formatter="formatTicker"
-              trim
-            />
-            <b-form-invalid-feedback id="metadata-ticker-input-live-feedback"
-              >Ticker must only contain 'A-Z', '0-9' and be 3 to 5 characters in
-              length</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Name"
-            label-for="metadata-name-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-name-input"
-              v-model="formNode.metadata.name"
-              :state="metadataNameState"
-              aria-describedby="metadata-name-input-live-feedback"
-              placeholder="e.g. My Awesome Stakepool"
-              :formatter="formatMetadataName"
-              trim
-            />
-            <b-form-invalid-feedback id="metadata-name-input-live-feedback"
-              >Name must be between 1 and 50 characters in
-              length</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Description"
-            label-for="metadata-description-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-description-input"
-              v-model="formNode.metadata.description"
-              :state="metadataDescriptionState"
-              aria-describedby="metadata-description-input-live-feedback"
-              placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
-              :formatter="formatMetadataDescription"
-              trim
-            />
-            <b-form-invalid-feedback
-              id="metadata-description-input-live-feedback"
-              >Description must be between 1 and 255 characters in
-              length</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Homepage"
-            label-for="metadata-homepage-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-homepage-input"
-              v-model="formNode.metadata.homepage"
-              :state="metadataHomepageState"
-              aria-describedby="metadata-homepage-input-live-feedback"
-              placeholder="e.g. https://flippin-stakes.com"
-              trim
-            />
-            <b-form-invalid-feedback id="metadata-homepage-input-live-feedback"
-              >Homepage must be https and 64 characters or less in
-              length</b-form-invalid-feedback
-            >
-          </b-form-group>
-        </b-form-group>
-        <b-form-group>
-          <h5>ITN Ticker Validation (Optional)</h5>
-          <b-form-group
-            label="ITN Pool prv"
-            label-for="itn-prv-file"
-            label-cols-md="2"
-          >
-            <b-form-file
-              id="itn-prv-file"
-              placeholder="Choose file or drop it here..."
-              drop-placeholder="Drop file here..."
-              v-model="formNode.metadata.extended.itn.privateKey"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="ITN Pool pub"
-            label-for="itn-pub-file"
-            label-cols-md="2"
-          >
-            <b-form-file
-              id="itn-pub-file"
-              placeholder="Choose file or drop it here..."
-              drop-placeholder="Drop file here..."
-              v-model="formNode.metadata.extended.itn.publicKey"
-              trim
-            />
-          </b-form-group>
-        </b-form-group>
-        <b-form-group>
-          <h5>Extended (Optional)</h5>
-          <b-form-group
-            label="Icon 64x64 URL"
-            label-for="metadata-icon64-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-icon64-input"
-              v-model="formNode.metadata.extended.info.icon64"
-              :state="metadataIcon64State"
-              aria-describedby="metadata-icon64-input-live-feedback"
-              placeholder="e.g. https://flippin-stakes.com/icon64.png"
-              trim
-            />
-            <b-form-invalid-feedback id="metadata-icon64-input-live-feedback"
-              >Icon url must be a url</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Logo URL"
-            label-for="metadata-logo-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-logo-input"
-              v-model="formNode.metadata.extended.info.logo"
-              :state="metadataLogoState"
-              aria-describedby="metadata-logo-input-live-feedback"
-              placeholder="e.g. https://flippin-stakes.com/logo512.png"
-              trim
-            />
-            <b-form-invalid-feedback id="metadata-logo-input-live-feedback"
-              >Logo url must be a url</b-form-invalid-feedback
-            >
-          </b-form-group>
-          <b-form-group
-            label="Location"
-            label-for="metadata-location-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-location-input"
-              v-model="formNode.metadata.extended.info.location"
-              placeholder="e.g. United States, North America"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Twitter"
-            label-for="metadata-twitter-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-twitter-input"
-              v-model="formNode.metadata.extended.info.social.twitter"
-              placeholder="e.g. IOHK_Charles"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Telegram"
-            label-for="metadata-telegram-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-telegram-input"
-              v-model="formNode.metadata.extended.info.social.telegram"
-              placeholder="e.g. flippin_stakes_group"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Facebook"
-            label-for="metadata-facebook-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-facebook-input"
-              v-model="formNode.metadata.extended.info.social.facebook"
-              placeholder="e.g. flippin_stakes"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="YouTube"
-            label-for="metadata-youtube-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-youtube-input"
-              v-model="formNode.metadata.extended.info.social.youtube"
-              placeholder="e.g. flippin_stakes"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Twitch"
-            label-for="metadata-twitch-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-twitch-input"
-              v-model="formNode.metadata.extended.info.social.twitch"
-              placeholder="e.g. flippin_stakes"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Discord"
-            label-for="metadata-discord-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-discord-input"
-              v-model="formNode.metadata.extended.info.social.discord"
-              placeholder="e.g. FlippinStakes"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Github"
-            label-for="metadata-github-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-github-input"
-              v-model="formNode.metadata.extended.info.social.github"
-              placeholder="e.g. FlippinStakes"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="RSS"
-            label-for="metadata-rss-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-rss-input"
-              v-model="formNode.metadata.extended.info.rss"
-              placeholder="e.g. https://flippin-stakes/feed.atom"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Company Name"
-            label-for="metadata-companyname-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-companyname-input"
-              v-model="formNode.metadata.extended.info.company.name"
-              placeholder="e.g. Flippin Stakes, LLC."
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Company Address"
-            label-for="metadata-companyaddress-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-companyaddress-input"
-              v-model="formNode.metadata.extended.info.company.addr"
-              placeholder="e.g. 123 Backflip Lane"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Company City"
-            label-for="metadata-companycity-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-companycity-input"
-              v-model="formNode.metadata.extended.info.company.city"
-              placeholder="e.g. Flippin, AK"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Company Country"
-            label-for="metadata-companycountry-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-companycountry-input"
-              v-model="formNode.metadata.extended.info.company.country"
-              placeholder="e.g. United States"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Company ID"
-            label-for="metadata-companyid-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-companyid-input"
-              v-model="formNode.metadata.extended.info.company.company_id"
-              placeholder="e.g. 27-0641272"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="VAT ID"
-            label-for="metadata-vatid-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-vatid-input"
-              v-model="formNode.metadata.extended.info.company.vat_id"
-              placeholder="e.g. J-30595991-8"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="About Me"
-            label-for="metadata-aboutme-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-aboutme-input"
-              v-model="formNode.metadata.extended.info.about.me"
-              placeholder="e.g. 10-year veteran as a DevOps Engineer"
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="About Server"
-            label-for="metadata-aboutserver-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-aboutserver-input"
-              v-model="formNode.metadata.extended.info.about.server"
-              placeholder="e.g. Cloud Hosted at AWS around the world."
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="About Company"
-            label-for="metadata-aboutcompany-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-aboutcompany-input"
-              v-model="formNode.metadata.extended.info.about.company"
-              placeholder="e.g. Founded in 2020 for stakepool operations, Flippin Stakes, LLC has grown to 3 people."
-              trim
-            />
-          </b-form-group>
-          <b-form-group
-            label="Telegram Admin"
-            label-for="metadata-telegramadmin-input"
-            label-cols-md="2"
-          >
-            <b-form-input
-              id="metadata-telegramadmin-input"
-              v-model="formNode.metadata.extended.telegramAdminHandle"
-              placeholder="e.g. CottonEyedJoe"
-              trim
-            />
-          </b-form-group>
-        </b-form-group>
-      </div>
-      <div slot="page6">
+        
+        <h5>Primary (Required)</h5>
+        <BFormGroup label="Ticker" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.ticker"
+            :state="tickerState"
+            placeholder="e.g. TICKR, ABC1, etc..."
+            maxlength="5"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Name" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.name"
+            :state="metadataNameState"
+            placeholder="e.g. My Awesome Stakepool"
+            maxlength="50"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Description" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.description"
+            :state="metadataDescriptionState"
+            placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
+            maxlength="255"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Homepage" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.homepage"
+            :state="metadataHomepageState"
+            placeholder="e.g. https://flippin-stakes.com"
+            trim
+          />
+        </BFormGroup>
+        
+        <h5 class="mt-4">ITN Ticker Validation (Optional)</h5>
+        <BFormGroup label="ITN Pool prv" label-cols-md="2">
+          <input 
+            type="file" 
+            class="form-control" 
+            @change="handleFileUpload($event, 'itnPrivateKey')" 
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="ITN Pool pub" label-cols-md="2">
+          <input 
+            type="file" 
+            class="form-control" 
+            @change="handleFileUpload($event, 'itnPublicKey')" 
+          />
+        </BFormGroup>
+        
+        <h5 class="mt-4">Extended (Optional)</h5>
+        <BFormGroup label="Icon 64x64 URL" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.icon64"
+            :state="metadataIcon64State"
+            placeholder="e.g. https://flippin-stakes.com/icon64.png"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Logo URL" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.logo"
+            :state="metadataLogoState"
+            placeholder="e.g. https://flippin-stakes.com/logo512.png"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Location" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.location"
+            placeholder="e.g. United States, North America"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Twitter" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.twitter"
+            placeholder="e.g. IOHK_Charles"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Telegram" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.telegram"
+            placeholder="e.g. flippin_stakes_group"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Facebook" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.facebook"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="YouTube" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.youtube"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Twitch" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.twitch"
+            placeholder="e.g. flippin_stakes"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Discord" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.discord"
+            placeholder="e.g. FlippinStakes"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="GitHub" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.social.github"
+            placeholder="e.g. FlippinStakes"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="RSS" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.rss"
+            placeholder="e.g. https://flippin-stakes/feed.atom"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Company Name" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.name"
+            placeholder="e.g. Flippin Stakes, LLC."
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Company Address" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.addr"
+            placeholder="e.g. 123 Backflip Lane"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Company City" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.city"
+            placeholder="e.g. Flippin, AK"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Company Country" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.country"
+            placeholder="e.g. United States"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Company ID" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.company_id"
+            placeholder="e.g. 27-0641272"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="VAT ID" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.company.vat_id"
+            placeholder="e.g. J-30595991-8"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="About Me" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.about.me"
+            placeholder="e.g. 10-year veteran as a DevOps Engineer"
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="About Server" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.about.server"
+            placeholder="e.g. Cloud Hosted at AWS around the world."
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="About Company" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.info.about.company"
+            placeholder="e.g. Founded in 2020 for stakepool operations..."
+            trim
+          />
+        </BFormGroup>
+        
+        <BFormGroup label="Telegram Admin" label-cols-md="2">
+          <BFormInput
+            v-model="formNode.metadata.extended.telegramAdminHandle"
+            placeholder="e.g. CottonEyedJoe"
+            trim
+          />
+        </BFormGroup>
+      </TabContent>
+      
+      <!-- Step 6: Confirmation (All node types) -->
+      <TabContent 
+        title="Confirmation" 
+        icon="fas fa-check-circle"
+      >
         <h4>Confirmation</h4>
         <p>
-          Creating a node requires
-          <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
+          Creating a node requires <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
           Leave empty if your host does not require a sudo password.
         </p>
-        <b-form-group label="SUDO Password" label-for="sudo-input">
-          <b-form-input
-            id="sudo-input"
+        <BFormGroup label="SUDO Password" label-cols-md="2">
+          <BFormInput
             type="password"
             v-model="formNode.sudoPassword"
+            placeholder="Enter sudo password (optional)"
           />
-        </b-form-group>
-      </div>
-    </vue-good-wizard>
+        </BFormGroup>
+      </TabContent>
+      
+      <!-- Custom cancel button -->
+      <template #custom-buttons-left>
+        <BButton variant="outline-secondary" @click="handleCancel">Cancel</BButton>
+      </template>
+    </FormWizard>
   </div>
 </template>
 
-<script>
-import { GoodWizard } from "vue-good-wizard";
-import { mapMutations, mapGetters, mapActions, mapState } from "vuex";
-import _ from "lodash";
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { find } from 'lodash-es'
+import { FormWizard, TabContent } from 'vue3-form-wizard'
+import 'vue3-form-wizard/dist/style.css'
+import {
+  BButton,
+  BFormGroup,
+  BFormInput,
+  BFormSelect,
+  BFormSelectOption,
+  BFormRadioGroup,
+  BFormRadio,
+  BFormCheckbox,
+  BFormInvalidFeedback,
+  BCard
+} from 'bootstrap-vue-next'
+import { useJorManagerStore } from '@/stores/jormanager'
+import { useEventBus } from '@/composables/useEventBus'
+import { lovelaceToAda } from '@/utils/filters'
 
-export default {
-  name: "AddNodeWizard",
-  props: ["parentId"],
-  components: {
-    "vue-good-wizard": GoodWizard,
-  },
-  data() {
-    return {
-      nameError: "asdfasdf",
-      formNode: {
-        spendingPassword: null,
-        color: "#4A412A",
-        host: null,
-        parentId: null,
-        name: "",
-        isDefault: false,
-        type: null,
-        processorThreads: 0,
-        listen: "",
-        port: "",
-        ekgPort: "",
-        promPort: "",
-        genesisByron: null,
-        genesisShelley: null,
-        genesisAlonzo: null,
-        genesisConway: null,
-        generateColdKeys: false,
-        coldSKey: null,
-        coldVKey: null,
-        coldCounter: null,
-        generateVRFKeys: false,
-        vrfSKey: null,
-        vrfVKey: null,
-        generateKESKeys: false,
-        kesSKey: null,
-        kesVKey: null,
-        registrationFeesAccount: null,
-        ownerStakingAccount: null,
-        rewardsStakingAccount: null,
-        poolPledge: null,
-        poolCost: null,
-        poolMargin: 0.05,
-        relays: [],
-        metadata: {
-          ticker: null,
-          name: null,
-          description: null,
-          homepage: null,
-          extended: {
-            itn: {
-              publicKey: null,
-              privateKey: null,
-            },
-            info: {
-              icon64: null,
-              logo: null,
-              location: null,
-              social: {
-                twitter: null,
-                telegram: null,
-                facebook: null,
-                youtube: null,
-                discord: null,
-                github: null,
-              },
-              company: {
-                name: null,
-                addr: null,
-                city: null,
-                country: null,
-                company_id: null,
-                vat_id: null,
-              },
-              about: {
-                me: null,
-                server: null,
-                company: null,
-              },
-              rss: null,
-            },
-            telegramAdminHandle: null,
-          },
-        },
-        sudoPassword: null,
-      },
-    };
-  },
-  watch: {
-    toastSuccess(toast) {
-      if (toast.title === "Node Created") {
-        this.$emit("hideAddNodeWizard");
-      }
-    },
-    editorMetadata(data) {
-      this.formNode.metadata.ticker = data.metadata.ticker;
-      this.formNode.metadata.name = data.metadata.name;
-      this.formNode.metadata.description = data.metadata.description;
-      this.formNode.metadata.homepage = data.metadata.homepage;
-      this.formNode.metadata.extended.info.icon64 =
-        data.extendedMetadata.info.urlPngIcon64x64;
-      this.formNode.metadata.extended.info.logo =
-        data.extendedMetadata.info.urlPngLogo;
-      this.formNode.metadata.extended.info.location =
-        data.extendedMetadata.info.location;
-      this.formNode.metadata.extended.info.social.twitter =
-        data.extendedMetadata.info.social.twitterHandle;
-      this.formNode.metadata.extended.info.social.telegram =
-        data.extendedMetadata.info.social.telegramHandle;
-      this.formNode.metadata.extended.info.social.facebook =
-        data.extendedMetadata.info.social.facebookHandle;
-      this.formNode.metadata.extended.info.social.youtube =
-        data.extendedMetadata.info.social.youtubeHandle;
-      this.formNode.metadata.extended.info.social.discord =
-        data.extendedMetadata.info.social.discordHandle;
-      this.formNode.metadata.extended.info.social.github =
-        data.extendedMetadata.info.social.githubHandle;
-      this.formNode.metadata.extended.info.company.name =
-        data.extendedMetadata.info.company.name;
-      this.formNode.metadata.extended.info.company.addr =
-        data.extendedMetadata.info.company.addr;
-      this.formNode.metadata.extended.info.company.city =
-        data.extendedMetadata.info.company.city;
-      this.formNode.metadata.extended.info.company.country =
-        data.extendedMetadata.info.company.country;
-      this.formNode.metadata.extended.info.company.company_id =
-        data.extendedMetadata.info.company.companyId;
-      this.formNode.metadata.extended.info.company.vat_id =
-        data.extendedMetadata.info.company.vatId;
-      this.formNode.metadata.extended.info.about.me =
-        data.extendedMetadata.info.about.me;
-      this.formNode.metadata.extended.info.about.server =
-        data.extendedMetadata.info.about.server;
-      this.formNode.metadata.extended.info.about.company =
-        data.extendedMetadata.info.about.company;
-      this.formNode.metadata.extended.info.rss = data.extendedMetadata.info.rss;
-      if (
-        data.extendedMetadata.telegramAdminHandle != null &&
-        data.extendedMetadata.telegramAdminHandle.length > 0
-      ) {
-        this.formNode.metadata.extended.telegramAdminHandle =
-          data.extendedMetadata.telegramAdminHandle[0];
-      }
-      this.formNode.metadata.extended.adapoolsVerify =
-        data.extendedMetadata.adapoolsVerify;
-    },
-  },
-  computed: {
-    ...mapGetters([
-      "hostSelectOptions",
-      "registrationFeesSelectOptions",
-      "stakingSelectOptions",
-      "rewardsSelectOptions",
-      "genesisFiles",
-    ]),
-    ...mapState(["toastSuccess", "nodeColors", "nodes", "editorMetadata"]),
-    steps() {
-      if (this.formNode.type === "relay") {
-        return [
-          {
-            label: "Node Basics",
-            slot: "page1",
-            options: {
-              backEnabled: true,
-            },
-          },
-          {
-            label: "Confirmation",
-            slot: "page6",
-          },
-        ];
-      }
+interface Relay {
+  addr: string | null
+  port: number
+}
 
-      return [
-        {
-          label: "Node Basics",
-          slot: "page1",
-          options: {
-            backEnabled: true,
-          },
-        },
-        {
-          label: "Core Node Keys",
-          slot: "page2",
-        },
-        {
-          label: "Pool Config",
-          slot: "page3",
-        },
-        {
-          label: "Relays",
-          slot: "page4",
-        },
-        {
-          label: "Metadata",
-          slot: "page5",
-        },
-        {
-          label: "Confirmation",
-          slot: "page6",
-        },
-      ];
-    },
-    hostState() {
-      return this.formNode.host != null;
-    },
-    typeState() {
-      return this.formNode.type != null;
-    },
-    processorThreadsState() {
-      return this.formNode.processorThreads > 1;
-    },
-    listenState() {
-      // matches an ip address
-      return (
-        this.formNode.listen.match(
-          /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
-        ) != null
-      );
-    },
-    portState() {
-      return this.formNode.port > 1023;
-    },
-    ekgPortState() {
-      return this.formNode.ekgPort > 1023 || this.formNode.ekgPort == -1;
-    },
-    promPortState() {
-      return this.formNode.promPort > 1023 || this.formNode.promPort == -1;
-    },
-    genesisByronState() {
-      return this.formNode.genesisByron != null;
-    },
-    genesisShelleyState() {
-      return this.formNode.genesisShelley != null;
-    },
-    genesisAlonzoState() {
-      return this.formNode.genesisAlonzo != null;
-    },
-    genesisConwayState() {
-      return this.formNode.genesisConway != null;
-    },
-    coldSKeyState() {
-      return this.formNode.generateColdKeys || this.formNode.coldSKey != null;
-    },
-    coldVKeyState() {
-      return this.formNode.generateColdKeys || this.formNode.coldVKey != null;
-    },
-    coldCounterState() {
-      return (
-        this.formNode.generateColdKeys || this.formNode.coldCounter != null
-      );
-    },
-    vrfSKeyState() {
-      return this.formNode.generateVRFKeys || this.formNode.vrfSKey != null;
-    },
-    vrfVKeyState() {
-      return this.formNode.generateVRFKeys || this.formNode.vrfVKey != null;
-    },
-    kesSKeyState() {
-      return this.formNode.generateKESKeys || this.formNode.kesSKey != null;
-    },
-    kesVKeyState() {
-      return this.formNode.generateKESKeys || this.formNode.kesVKey != null;
-    },
-    registrationFeesAccountState() {
-      return this.formNode.registrationFeesAccount != null;
-    },
-    ownerStakingAccountState() {
-      return this.formNode.ownerStakingAccount != null;
-    },
-    rewardsStakingAccountState() {
-      return this.formNode.rewardsStakingAccount != null;
-    },
-    poolPledgeState() {
-      if (this.formNode.poolPledge == null) {
-        return false;
-      }
-      if (isNaN(this.formNode.poolPledge)) {
-        return this.$ci.parse(this.formNode.poolPledge) > 0;
-      } else {
-        return this.formNode.poolPledge > 0;
-      }
-    },
-    poolCostState() {
-      if (this.formNode.poolCost == null) {
-        return false;
-      }
-      if (isNaN(this.formNode.poolCost)) {
-        return this.$ci.parse(this.formNode.poolCost) > 0;
-      } else {
-        return this.formNode.poolCost > 0;
-      }
-    },
-    poolMarginState() {
-      return this.formNode.poolMargin >= 0.0 && this.formNode.poolMargin <= 1.0;
-    },
-    tickerState() {
-      return (
-        this.formNode.metadata.ticker != null &&
-        this.formNode.metadata.ticker.match(/^[A-Z0-9]{3,5}$/) != null
-      );
-    },
-    metadataNameState() {
-      return (
-        this.formNode.metadata.name != null &&
-        this.formNode.metadata.name.length > 0
-      );
-    },
-    metadataDescriptionState() {
-      return (
-        this.formNode.metadata.description != null &&
-        this.formNode.metadata.name.length > 0
-      );
-    },
-    metadataHomepageState() {
-      return (
-        this.formNode.metadata.homepage != null &&
-        this.formNode.metadata.homepage.length < 65 &&
-        this.formNode.metadata.homepage.match(/^https:\/\/.*/) != null
-      );
-    },
-    metadataIcon64State() {
-      return (
-        this.formNode.metadata.extended.info.icon64 == null ||
-        this.formNode.metadata.extended.info.icon64.length == 0 ||
-        this.formNode.metadata.extended.info.icon64.match(/^https?:\/\/.*/) !=
-          null
-      );
-    },
-    metadataLogoState() {
-      return (
-        this.formNode.metadata.extended.info.logo == null ||
-        this.formNode.metadata.extended.info.logo.length == 0 ||
-        this.formNode.metadata.extended.info.logo.match(/^https?:\/\/.*/) !=
-          null
-      );
-    },
-  },
-  methods: {
-    ...mapActions([
-      "requestHosts",
-      "requestFileOptions",
-      "createNode",
-      "requestMetadata",
-    ]),
-    ...mapMutations(["toastError"]),
-    nameState() {
-      if (this.formNode.name.length < 2) {
-        this.nameError = "Enter at least 3 letters";
-        return false;
-      }
-
-      for (const node of this.nodes) {
-        if (node.name === this.formNode.name) {
-          this.nameError = "Node name must be unique!";
-          return false;
-        }
-      }
-
-      return true;
-    },
-    nextClicked(currentPage) {
-      if (currentPage === 0) {
-        if (
-          this.hostState &&
-          this.nameState() &&
-          this.typeState &&
-          this.listenState &&
-          this.portState &&
-          this.ekgPortState &&
-          this.promPortState &&
-          this.genesisByronState &&
-          this.genesisShelleyState &&
-          this.genesisAlonzoState &&
-          this.genesisConwayState
-        ) {
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields.",
-          });
-          return false;
-        }
-      } else if (currentPage === 1) {
-        if (this.formNode.type !== "relay") {
-          if (
-            this.coldSKeyState &&
-            this.coldVKeyState &&
-            this.coldCounterState &&
-            this.vrfSKeyState &&
-            this.vrfVKeyState &&
-            this.kesSKeyState &&
-            this.kesVKeyState
-          ) {
-            return true;
-          } else {
-            this.toastError({
-              title: "Error",
-              message: "You must fill out all fields.",
-            });
-            return false;
-          }
-        } else {
-          // relay node save!
-          this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
-            (spendingPassword) => {
-              this.formNode.spendingPassword = spendingPassword;
-              this.createNode(this.formNode);
-              this.formNode.spendingPassword = null;
-              this.formNode.sudoPassword = null;
-            }
-          );
-        }
-      } else if (currentPage === 2) {
-        if (
-          this.registrationFeesAccountState &&
-          this.ownerStakingAccountState &&
-          this.rewardsStakingAccountState &&
-          this.poolPledgeState &&
-          this.poolCostState &&
-          this.poolMarginState
-        ) {
-          if (isNaN(this.formNode.poolPledge)) {
-            this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
-          }
-          if (isNaN(this.formNode.poolCost)) {
-            this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-          }
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields.",
-          });
-          return false;
-        }
-      } else if (currentPage === 3) {
-        if (this.formNode.relays.length === 0) {
-          return true;
-        } else {
-          for (let i = 0; i < this.formNode.relays.length; i++) {
-            let relay = this.formNode.relays[i];
-            if (
-              !this.relayAddrState(relay.addr) ||
-              !this.relayPortState(relay.port)
-            ) {
-              this.toastError({
-                title: "Error",
-                message: "You must fill out all fields.",
-              });
-              return false;
-            }
-          }
-          return true;
-        }
-      } else if (currentPage === 4) {
-        if (
-          this.tickerState &&
-          this.metadataNameState &&
-          this.metadataDescriptionState &&
-          this.metadataHomepageState &&
-          this.metadataIcon64State &&
-          this.metadataLogoState
-        ) {
-          return true;
-        } else {
-          this.toastError({
-            title: "Error",
-            message: "You must fill out all fields.",
-          });
-          return false;
-        }
-      } else if (currentPage === 5) {
-        // core node save!
-        if (isNaN(this.formNode.poolPledge)) {
-          this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
-        }
-        if (isNaN(this.formNode.poolCost)) {
-          this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-        }
-        this.formNode.isDefault = false;
-
-        this.$root.$children[0].$refs.SpendingPasswordConfirmModal.show(
-          async (spendingPassword) => {
-            this.formNode.spendingPassword = spendingPassword;
-
-            if (this.formNode.coldSKey != null) {
-              this.formNode.coldSKey = await this.formNode.coldSKey.text();
-            }
-            if (this.formNode.coldVKey != null) {
-              this.formNode.coldVKey = await this.formNode.coldVKey.text();
-            }
-            if (this.formNode.coldCounter != null) {
-              this.formNode.coldCounter =
-                await this.formNode.coldCounter.text();
-            }
-            if (this.formNode.vrfSKey != null) {
-              this.formNode.vrfSKey = await this.formNode.vrfSKey.text();
-            }
-            if (this.formNode.vrfVKey != null) {
-              this.formNode.vrfVKey = await this.formNode.vrfVKey.text();
-            }
-            if (this.formNode.kesSKey != null) {
-              this.formNode.kesSKey = await this.formNode.kesSKey.text();
-            }
-            if (this.formNode.kesVKey != null) {
-              this.formNode.kesVKey = await this.formNode.kesVKey.text();
-            }
-            if (this.formNode.metadata.extended.itn.privateKey != null) {
-              this.formNode.metadata.extended.itn.privateKey =
-                await this.formNode.metadata.extended.itn.privateKey.text();
-            }
-            if (this.formNode.metadata.extended.itn.publicKey != null) {
-              this.formNode.metadata.extended.itn.publicKey =
-                await this.formNode.metadata.extended.itn.publicKey.text();
-            }
-
-            this.createNode(this.formNode);
-            this.formNode.spendingPassword = null;
-            this.formNode.sudoPassword = null;
-          }
-        );
-      }
-
-      // console.log("next clicked", currentPage);
-      return true; //return false if you want to prevent moving to next page
-    },
-    backClicked(currentPage) {
-      // console.log("back clicked", currentPage);
-      if (currentPage === 2) {
-        if (this.poolPledgeState && isNaN(this.formNode.poolPledge)) {
-          this.formNode.poolPledge = this.$ci.parse(this.formNode.poolPledge);
-        }
-        if (this.poolCostState && isNaN(this.formNode.poolCost)) {
-          this.formNode.poolCost = this.$ci.parse(this.formNode.poolCost);
-        }
-      }
-      return true; //return false if you want to prevent moving to previous page
-    },
-    addRelay() {
-      this.formNode.relays.push({
-        addr: null,
-        port: 3000,
-      });
-    },
-    relayAddrState(relayAddr) {
-      return (
-        relayAddr != null &&
-        (relayAddr.match(
-          /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
-        ) != null ||
-          relayAddr.match(
-            /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])$/
-          ) != null)
-      );
-    },
-    relayPortState(port) {
-      return port > 1023;
-    },
-    formatTicker(value) {
-      return value.substring(0, 5).toUpperCase();
-    },
-    formatMetadataName(value) {
-      return value.substring(0, 50);
-    },
-    formatMetadataDescription(value) {
-      return value.substring(0, 255);
-    },
-  },
-  mounted() {
-    this.requestHosts();
-    this.requestFileOptions();
-    if (this.parentId) {
-      this.requestMetadata(this.parentId);
-      this.formNode.parentId = this.parentId;
-      let parent = _.find(this.nodes, { id: this.parentId });
-      this.formNode.color = parent.color;
-      this.formNode.type = "pool";
-      this.formNode.host = parent.hostId;
-      this.formNode.processorThreads = parent.processorThreads;
-      this.formNode.listen = parent.listen;
-      this.formNode.port = parent.port;
-      this.formNode.ekgPort = parent.ekgPort;
-      this.formNode.promPort = parent.promPort;
-      this.formNode.genesisByron = parent.genesisByronFileId;
-      this.formNode.genesisShelley = parent.genesisShelleyFileId;
-      this.formNode.genesisAlonzo = parent.genesisAlonzoFileId;
-      this.formNode.genesisConway = parent.genesisConwayFileId;
-      this.formNode.poolPledge = parent.poolPledge;
-      this.formNode.poolCost = parent.poolCost;
-      this.formNode.poolMargin = parent.poolMargin;
+interface Metadata {
+  ticker: string | null
+  name: string | null
+  description: string | null
+  homepage: string | null
+  extended: {
+    itn: {
+      publicKey: string | null
+      privateKey: string | null
     }
-  },
-};
+    info: {
+      icon64: string | null
+      logo: string | null
+      location: string | null
+      social: {
+        twitter: string | null
+        telegram: string | null
+        facebook: string | null
+        youtube: string | null
+        twitch: string | null
+        discord: string | null
+        github: string | null
+      }
+      company: {
+        name: string | null
+        addr: string | null
+        city: string | null
+        country: string | null
+        company_id: string | null
+        vat_id: string | null
+      }
+      about: {
+        me: string | null
+        server: string | null
+        company: string | null
+      }
+      rss: string | null
+    }
+    telegramAdminHandle: string | null
+  }
+}
+
+const props = defineProps<{
+  parentId?: number | null
+}>()
+
+const emit = defineEmits<{
+  (e: 'hide-add-node-wizard'): void
+}>()
+
+const store = useJorManagerStore()
+const { hostSelectOptions, nodes } = storeToRefs(store)
+const emitter = useEventBus()
+
+const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
+const fileContents = ref<Record<string, File | null>>({})
+
+const formNode = ref({
+  spendingPassword: null as string | null,
+  sudoPassword: null as string | null,
+  parentId: null as number | null,
+  color: '#4A412A',
+  host: null as number | null,
+  name: '',
+  type: null as 'relay' | 'core' | 'pool' | null,
+  isDefault: false,
+  processorThreads: 0,
+  listen: '',
+  port: '' as string | number,
+  ekgPort: '' as string | number,
+  promPort: '' as string | number,
+  genesisByron: null as number | null,
+  genesisShelley: null as number | null,
+  genesisAlonzo: null as number | null,
+  genesisConway: null as number | null,
+  generateColdKeys: false,
+  coldSKey: null as string | null,
+  coldVKey: null as string | null,
+  coldCounter: null as string | null,
+  generateVRFKeys: false,
+  vrfSKey: null as string | null,
+  vrfVKey: null as string | null,
+  generateKESKeys: false,
+  kesSKey: null as string | null,
+  kesVKey: null as string | null,
+  registrationFeesAccount: null as number | null,
+  ownerStakingAccount: null as number | null,
+  rewardsStakingAccount: null as number | null,
+  poolPledge: null as number | null,
+  poolCost: null as number | null,
+  poolMargin: 0.05,
+  relays: [] as Relay[],
+  metadata: {
+    ticker: null,
+    name: null,
+    description: null,
+    homepage: null,
+    extended: {
+      itn: { publicKey: null, privateKey: null },
+      info: {
+        icon64: null,
+        logo: null,
+        location: null,
+        social: {
+          twitter: null, telegram: null, facebook: null,
+          youtube: null, twitch: null, discord: null, github: null
+        },
+        company: {
+          name: null, addr: null, city: null,
+          country: null, company_id: null, vat_id: null
+        },
+        about: { me: null, server: null, company: null },
+        rss: null
+      },
+      telegramAdminHandle: null
+    }
+  } as Metadata
+})
+
+const nodeColors = computed(() => nodes.value.map(n => n.color))
+
+// Key for FormWizard - changes when type changes to force re-render with correct tabs
+const wizardKey = computed(() => `wizard-${formNode.value.type || 'none'}`)
+
+const feeAccountOptions = computed(() => {
+  const formatter = (val: number) => lovelaceToAda(val * 1000000)
+  return store.registrationFeesSelectOptions(formatter)
+})
+
+const stakingAccountOptions = computed(() => {
+  const formatter = (val: number) => lovelaceToAda(val * 1000000)
+  return store.stakingSelectOptions(formatter)
+})
+
+const rewardsAccountOptions = computed(() => {
+  const formatter = (val: number) => lovelaceToAda(val * 1000000)
+  return store.rewardsSelectOptions(formatter)
+})
+
+const genesisFileOptions = computed(() => store.genesisFiles || [])
+
+const nameError = ref('Name must be 1-6 characters, letters and numbers only')
+
+// Validation computed properties
+const hostState = computed(() => formNode.value.host != null)
+const nameState = computed(() => formNode.value.name.length >= 1 && formNode.value.name.length <= 6)
+const typeState = computed(() => formNode.value.type != null)
+const listenState = computed(() => formNode.value.listen?.length > 0 || null)
+const portState = computed(() => {
+  const port = Number(formNode.value.port)
+  return !isNaN(port) && port >= 1024 && port <= 65535
+})
+const processorThreadsState = computed(() => formNode.value.processorThreads >= 2)
+const ekgPortState = computed(() => {
+  const port = Number(formNode.value.ekgPort)
+  return !isNaN(port) && port >= -1 && port <= 65535
+})
+const promPortState = computed(() => {
+  const port = Number(formNode.value.promPort)
+  return !isNaN(port) && port >= -1 && port <= 65535
+})
+const genesisByronState = computed(() => formNode.value.genesisByron != null)
+const genesisShelleyState = computed(() => formNode.value.genesisShelley != null)
+const genesisAlonzoState = computed(() => formNode.value.genesisAlonzo != null)
+const genesisConwayState = computed(() => formNode.value.genesisConway != null)
+const registrationFeesAccountState = computed(() => formNode.value.registrationFeesAccount != null)
+const ownerStakingAccountState = computed(() => formNode.value.ownerStakingAccount != null)
+const rewardsStakingAccountState = computed(() => formNode.value.rewardsStakingAccount != null)
+const poolPledgeState = computed(() => formNode.value.poolPledge != null && formNode.value.poolPledge >= 0)
+const poolCostState = computed(() => formNode.value.poolCost != null && formNode.value.poolCost >= 0)
+const poolMarginState = computed(() => formNode.value.poolMargin >= 0 && formNode.value.poolMargin <= 1)
+const tickerState = computed(() => {
+  const ticker = formNode.value.metadata.ticker
+  return ticker != null && /^[A-Z0-9]{3,5}$/.test(ticker.toUpperCase())
+})
+const metadataNameState = computed(() => {
+  const name = formNode.value.metadata.name
+  return name != null && name.length >= 1 && name.length <= 50
+})
+const metadataDescriptionState = computed(() => {
+  const desc = formNode.value.metadata.description
+  return desc != null && desc.length >= 1 && desc.length <= 255
+})
+const metadataHomepageState = computed(() => {
+  const hp = formNode.value.metadata.homepage
+  return hp != null && hp.startsWith('https://') && hp.length <= 64
+})
+const metadataIcon64State = computed(() => {
+  const icon = formNode.value.metadata.extended.info.icon64
+  return icon != null && icon.length > 0 && icon.startsWith('https://')
+})
+const metadataLogoState = computed(() => {
+  const logo = formNode.value.metadata.extended.info.logo
+  return logo != null && logo.length > 0 && logo.startsWith('https://')
+})
+
+function handleFileUpload(event: Event, field: string) {
+  const target = event.target as HTMLInputElement
+  fileContents.value[field] = target.files?.[0] || null
+}
+
+function relayAddrState(addr: string | null): boolean | null {
+  if (!addr) return null
+  const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+  const dnsRegex = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])$/
+  return ipRegex.test(addr) || dnsRegex.test(addr)
+}
+
+function relayPortState(port: number): boolean {
+  return port >= 1024
+}
+
+function addRelay() {
+  formNode.value.relays.push({ addr: null, port: 3000 })
+}
+
+// Validation functions for beforeChange
+function validateStep1(): boolean {
+  if (!hostState.value || !nameState.value || !typeState.value ||
+      !processorThreadsState.value || !ekgPortState.value || !promPortState.value ||
+      !genesisByronState.value || !genesisShelleyState.value ||
+      !genesisAlonzoState.value || !genesisConwayState.value) {
+    store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
+    return false
+  }
+  return true
+}
+
+function validateStep2(): boolean {
+  // Pool keys step - no strict validation, files are optional if generating
+  return true
+}
+
+function validateStep3(): boolean {
+  if (!registrationFeesAccountState.value || !ownerStakingAccountState.value ||
+      !rewardsStakingAccountState.value || !poolPledgeState.value ||
+      !poolCostState.value || !poolMarginState.value) {
+    store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
+    return false
+  }
+  return true
+}
+
+function validateStep4(): boolean {
+  for (const relay of formNode.value.relays) {
+    if (!relayAddrState(relay.addr) || !relayPortState(relay.port)) {
+      store.toastError = { title: 'Error', message: 'Invalid relay configuration.' }
+      return false
+    }
+  }
+  return true
+}
+
+function validateStep5(): boolean {
+  if (!tickerState.value || !metadataNameState.value ||
+      !metadataDescriptionState.value || !metadataHomepageState.value ||
+      !metadataIcon64State.value || !metadataLogoState.value) {
+    store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
+    return false
+  }
+  return true
+}
+
+function handleCancel() {
+  emit('hide-add-node-wizard')
+}
+
+async function onComplete() {
+  // For relay nodes, this is called from Step 1. For core/pool, from Step 6.
+  emitter.emit('show-spending-password-modal', { action: 'create-node' })
+}
+
+async function onSpendingPasswordConfirmed(spendingPassword: string) {
+  formNode.value.spendingPassword = spendingPassword
+  
+  // Read file contents for core/pool nodes
+  for (const field of ['coldSKey', 'coldVKey', 'coldCounter', 'vrfSKey', 'vrfVKey', 'kesSKey', 'kesVKey']) {
+    if (fileContents.value[field]) {
+      (formNode.value as any)[field] = await fileContents.value[field]!.text()
+    }
+  }
+  
+  // Read ITN key files for extended metadata
+  if (fileContents.value['itnPrivateKey']) {
+    formNode.value.metadata.extended.itn.privateKey = await fileContents.value['itnPrivateKey']!.text()
+  }
+  if (fileContents.value['itnPublicKey']) {
+    formNode.value.metadata.extended.itn.publicKey = await fileContents.value['itnPublicKey']!.text()
+  }
+  
+  store.createNode(formNode.value)
+  formNode.value.spendingPassword = null
+  emit('hide-add-node-wizard')
+}
+
+onMounted(() => {
+  store.requestHosts()
+  store.requestFileOptions()
+  
+  if (props.parentId) {
+    store.requestMetadata(props.parentId)
+    formNode.value.parentId = props.parentId
+    const parent = find(nodes.value, { id: props.parentId })
+    if (parent) {
+      formNode.value.color = parent.color
+      formNode.value.type = 'pool'
+      formNode.value.host = (parent as any).hostId as number
+      formNode.value.processorThreads = (parent as any).processorThreads || 2
+      formNode.value.listen = (parent as any).listen || '0.0.0.0'
+      formNode.value.port = (parent as any).port || 3001
+      formNode.value.ekgPort = (parent as any).ekgPort || 12788
+      formNode.value.promPort = (parent as any).promPort || 12798
+      formNode.value.genesisByron = (parent as any).genesisByronFileId
+      formNode.value.genesisShelley = (parent as any).genesisShelleyFileId
+      formNode.value.genesisAlonzo = (parent as any).genesisAlonzoFileId
+      formNode.value.genesisConway = (parent as any).genesisConwayFileId
+      formNode.value.poolPledge = (parent as any).poolPledge || 0
+      formNode.value.poolCost = (parent as any).poolCost || 340
+      formNode.value.poolMargin = (parent as any).poolMargin || 0.03
+    }
+  }
+  
+  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+})
+
+onUnmounted(() => {
+  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+})
 </script>
 
-<style>
-#add_node > div > div.wizard__body {
-  background-color: #333;
+<style scoped>
+#add_node {
+  padding: 1rem;
 }
-#add_node > div > span.wizard__arrow {
-  background-color: #333;
+
+/* Override vue3-form-wizard styles for dark theme */
+:deep(.wizard-header) {
+  display: none;
 }
-#add_node > div > div > div.wizard__body__actions > .wizard__next {
-  background-color: #007bff;
-  border-bottom-right-radius: 5px;
-  border-top-left-radius: 5px;
+
+:deep(.wizard-nav-pills) {
+  background: transparent;
 }
-#add_node > div > div > div.wizard__body__actions > .wizard__back {
-  background-color: #555;
-  border-bottom-left-radius: 5px;
-  border-top-right-radius: 5px;
+
+:deep(.wizard-icon-circle) {
+  background: #333 !important;
+  border-color: #28a745 !important;
 }
-#add_node > div > div > div.wizard__body__actions {
-  background-color: #333;
-  border-radius: 5px;
-  border-top-style: hidden;
-  border-bottom-style: hidden;
+
+:deep(.wizard-icon-circle .wizard-icon) {
+  color: #fff !important;
+}
+
+:deep(.stepTitle) {
+  color: #ccc !important;
+}
+
+:deep(.wizard-tab-content) {
+  background: #333;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  margin-top: 1rem;
+}
+
+:deep(.wizard-footer-left),
+:deep(.wizard-footer-right) {
+  margin-top: 1rem;
+}
+
+:deep(.wizard-btn) {
+  background-color: #28a745 !important;
+  border-color: #28a745 !important;
+}
+
+:deep(.wizard-btn:hover) {
+  background-color: #218838 !important;
+  border-color: #1e7e34 !important;
 }
 </style>

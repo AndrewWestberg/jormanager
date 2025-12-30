@@ -1,29 +1,29 @@
 <template>
   <div>
-    <b-container>
-      <b-card-group deck>
-        <b-card
+    <BContainer>
+      <BCardGroup deck>
+        <BCard
           no-body
           border-variant="secondary"
           header="Epoch Time Remaining"
           header-border-variant="secondary"
           align="center"
         >
-          <b-card-text style="padding: 25% 0">
-            <h1 :class="epochRemainingClass()">
+          <BCardText style="padding: 25% 0">
+            <h1 :class="epochRemainingClass">
               <div>Epoch: {{ epoch }}</div>
-              <div>{{ epochTimeRemaining() }}</div>
+              <div>{{ epochTimeRemaining }}</div>
             </h1>
-          </b-card-text>
-        </b-card>
+          </BCardText>
+        </BCard>
         <NodeChart
           title="Block Height"
           :series="blockHeightSeries"
           :colors="nodeColors"
         />
-      </b-card-group>
+      </BCardGroup>
       <br />
-      <b-card-group deck>
+      <BCardGroup deck>
         <NodeChart
           title="Outgoing Peers"
           :series="peersSeries"
@@ -35,9 +35,9 @@
           :series="remainingKESSeries"
           :categories="remainingKESSeriesCategoryLabels"
         />
-      </b-card-group>
+      </BCardGroup>
       <br />
-      <b-card-group deck>
+      <BCardGroup deck>
         <NodeChart
           title="Incoming Peers"
           :series="incomingPeersSeries"
@@ -49,63 +49,47 @@
           :series="txsProcessedSeries"
           :colors="nodeColors"
         />
-      </b-card-group>
-    </b-container>
+      </BCardGroup>
+    </BContainer>
   </div>
 </template>
 
-<script>
-import { mapState } from "vuex";
-import NodeChart from "@/components/NodeChart";
-import StackedBarChart from "@/components/StackedBarChart";
+<script setup lang="ts">
+import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
+import { BContainer, BCardGroup, BCard, BCardText } from 'bootstrap-vue-next'
+import { useJorManagerStore } from '@/stores/jormanager'
+import NodeChart from '@/components/NodeChart.vue'
+import StackedBarChart from '@/components/StackedBarChart.vue'
 
-export default {
-  data() {
-    return {};
-  },
-  computed: {
-    ...mapState([
-      "peersSeries",
-      "incomingPeersSeries",
-      "blockHeightSeries",
-      "remainingKESSeries",
-      "remainingKESSeriesCategoryLabels",
-      "nodeColors",
-      "txsProcessedSeries",
-      "epoch",
-      "slot",
-      "epochLength",
-    ]),
-  },
-  components: {
-    NodeChart,
-    StackedBarChart,
-  },
-  methods: {
-    epochRemainingClass() {
-      let epochTimeRemainingSecs = this.epochLength - this.slot;
-      if ((epochTimeRemainingSecs * 1.0) / this.epochLength > 0.4) {
-        return "text-success";
-      }
-      if ((epochTimeRemainingSecs * 1.0) / this.epochLength > 0.2) {
-        return "text-warning";
-      }
-      return "text-danger";
-    },
-    epochTimeRemaining() {
-      let time = this.epochLength - this.slot;
-      // console.log("time: " + time);
-      let days = Math.floor(time / 60 / 60 / 24);
-      // console.log("days: " + days);
-      let hours = Math.floor(time / 60 / 60) % 24;
-      // console.log("hours: " + hours);
-      let minutes = Math.floor(time / 60) % 60;
-      // console.log("minutes: " + minutes);
-      let seconds = Math.floor(time % 60);
-      // console.log("seconds: " + seconds);
+const store = useJorManagerStore()
+const {
+  peersSeries,
+  incomingPeersSeries,
+  blockHeightSeries,
+  remainingKESSeries,
+  remainingKESSeriesCategoryLabels,
+  nodeColors,
+  txsProcessedSeries,
+  epoch,
+  slot,
+  epochLength
+} = storeToRefs(store)
 
-      return days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
-    },
-  },
-};
+const epochRemainingClass = computed(() => {
+  const epochTimeRemainingSecs = epochLength.value - slot.value
+  const ratio = epochTimeRemainingSecs / epochLength.value
+  if (ratio > 0.4) return 'text-success'
+  if (ratio > 0.2) return 'text-warning'
+  return 'text-danger'
+})
+
+const epochTimeRemaining = computed(() => {
+  const time = epochLength.value - slot.value
+  const days = Math.floor(time / 60 / 60 / 24)
+  const hours = Math.floor(time / 60 / 60) % 24
+  const minutes = Math.floor(time / 60) % 60
+  const seconds = Math.floor(time % 60)
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`
+})
 </script>

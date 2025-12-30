@@ -72,7 +72,7 @@ class SmashTest {
         }
 
     @Test
-    fun testSmashTestnetSuccess() =
+    fun testSmashPreprodSuccess() =
         runBlocking {
             val client =
                 OkHttpClient
@@ -87,22 +87,22 @@ class SmashTest {
                     .Builder()
                     .client(client)
                     .addConverterFactory(MoshiConverterFactory.create(moshi))
-                    .baseUrl("https://smash.cardano-testnet.iohkdev.io")
+                    .baseUrl("https://preprod-smash.world.dev.cardano.org")
                     .build()
             val service = retrofit.create(SmashService::class.java)
 
-            val response = service.exists("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d") // prfit
+            val response = service.exists("fa1a5e1e70bc2fa7f60080b214f7bf5ab14c51da4b307a1a792c1714") // ppp
 
             assertThat(response).isNotNull()
             assertThat(response?.code).isEmpty()
-            assertThat(response?.poolId).isEqualTo("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d")
+            assertThat(response?.poolId).isEqualTo("fa1a5e1e70bc2fa7f60080b214f7bf5ab14c51da4b307a1a792c1714")
             assertThat(response?.poolExists()).isTrue()
 
             Unit
         }
 
     @Test
-    fun testSmashTestnetFailure() =
+    fun testSmashPreprodFailure() =
         runBlocking {
             val client =
                 OkHttpClient
@@ -117,7 +117,7 @@ class SmashTest {
                     .Builder()
                     .client(client)
                     .addConverterFactory(MoshiConverterFactory.create(moshi))
-                    .baseUrl("https://smash.cardano-testnet.iohkdev.io")
+                    .baseUrl("https://preprod-smash.world.dev.cardano.org")
                     .build()
             val service = retrofit.create(SmashService::class.java)
 

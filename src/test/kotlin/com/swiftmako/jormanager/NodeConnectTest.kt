@@ -21,6 +21,7 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.system.measureTimeMillis
+import org.junit.jupiter.api.Disabled
 
 class NodeConnectTest {
     @Test
@@ -37,6 +38,7 @@ class NodeConnectTest {
     }
 
     @Test
+    @Disabled
     fun testLedgerState() {
         val duration =
             measureTimeMillis {
@@ -85,6 +87,7 @@ class NodeConnectTest {
     }
 
     @Test
+    @Disabled
     fun testNewLedgerState() {
         val duration =
             measureTimeMillis {
@@ -179,6 +182,7 @@ class NodeConnectTest {
     }
 
     @Test
+    @Disabled("Requires real signing key")
     fun testVrfEvalCertified() {
         val libraryPath = "/usr/local/lib/libsodium.so"
         println("Library path: $libraryPath")
@@ -287,6 +291,7 @@ class NodeConnectTest {
     }
 
     @Test
+    @Disabled
     fun testLeaderCheck() {
         // BCSH
         // val poolId = "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"

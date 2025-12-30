@@ -1,17 +1,20 @@
 <template>
   <div>
     <div>
-      <b-button
+      <BButton
         variant="outline-primary"
-        @click="$root.$emit('add-host')"
+        @click="addHostClick"
         v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
       >
-        <b-icon-plus />&nbsp;Host
-      </b-button>
+        +&nbsp;Host
+      </BButton>
     </div>
     <hr />
     <div>
-      <b-table
+      <BTable
+        small
+        hover
+        dark
         bordered
         striped
         head-variant="light"
@@ -19,60 +22,61 @@
         :fields="fields"
         v-if="hosts.length > 0"
       >
-        <template v-slot:cell(sshPort)="data">
-          <div v-if="data.item.type==='remote'">{{data.value}}</div>
-          <div v-if="data.item.type!=='remote'">---</div>
+        <template #cell(sshPort)="data">
+          <div v-if="data.item.type === 'remote'">{{ data.value }}</div>
+          <div v-else>---</div>
         </template>
-        <!-- A custom formatted column -->
-        <template v-slot:cell(edit)="data">
-          <font-awesome-icon
-            :icon="['fas','edit']"
-            class="text-warning"
-            v-b-tooltip.hover.v-warning.right="'Edit this Host'"
-            @click="$root.$emit('edit-host', hosts[data.index])"
-          />
+        <template #cell(edit)="data">
+          <div
+            class="text-warning edit-icon d-inline-block"
+            v-b-tooltip.hover.right="{ title: 'Edit this Host', variant: 'warning' }"
+            @click="editHostClick(data.index)"
+          >
+            <font-awesome-icon :icon="['fas', 'edit']" />
+          </div>
         </template>
-      </b-table>
+      </BTable>
     </div>
 
     <AddEditHostModal />
   </div>
 </template>
 
-<script>
-import { mapState, mapActions } from "vuex";
-import AddEditHostModal from "@/components/AddEditHostModal";
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { BButton, BTable } from 'bootstrap-vue-next'
+import { useJorManagerStore } from '@/stores/jormanager'
+import { useEventBus } from '@/composables/useEventBus'
+import AddEditHostModal from '@/components/AddEditHostModal.vue'
 
-export default {
-  name: "Hosts",
-  components: {
-    AddEditHostModal
-  },
-  data() {
-    return {
-      fields: [
-        { key: "hostname", sortable: true },
-        { key: "type", sortable: true },
-        { key: "sshUser", label: "User" },
-        { key: "sshPort" },
-        { key: "edit", label: "" }
-      ]
-    };
-  },
-  methods: {
-    ...mapActions(["requestHosts"])
-  },
-  computed: {
-    ...mapState(["hosts"])
-  },
-  mounted() {
-    this.requestHosts();
-  }
-};
+const store = useJorManagerStore()
+const { hosts } = storeToRefs(store)
+const emitter = useEventBus()
+
+const fields = [
+  { key: 'hostname', sortable: true },
+  { key: 'type', sortable: true },
+  { key: 'sshUser', label: 'User' },
+  { key: 'sshPort' },
+  { key: 'edit', label: '' }
+]
+
+function addHostClick() {
+  emitter.emit('add-host')
+}
+
+function editHostClick(index: number) {
+  emitter.emit('edit-host', hosts.value[index])
+}
+
+onMounted(() => {
+  store.requestHosts()
+})
 </script>
 
 <style scoped>
-.fa-edit:hover {
+.edit-icon:hover {
   cursor: pointer;
 }
 </style>
