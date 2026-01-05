@@ -4,7 +4,7 @@ import mitt from 'mitt'
 type Events = {
   'edit-host': unknown
   'add-host': void
-  'show-send-ada-modal': { walletItem: unknown; isClaim: boolean }
+  'show-send-ada-modal': { walletItem?: unknown; walletItems?: unknown[]; isClaim: boolean; isMultiClaim?: boolean }
   'hide-send-ada-modal': void
   'show-add-node-wizard': void
   'hide-add-node-wizard': void

@@ -731,6 +731,7 @@ const emitter = useEventBus()
 
 const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
 const fileContents = ref<Record<string, File | null>>({})
+const pendingAction = ref<string | null>(null)
 
 const formNode = ref({
   spendingPassword: null as string | null,
@@ -944,10 +945,14 @@ function handleCancel() {
 
 async function onComplete() {
   // For relay nodes, this is called from Step 1. For core/pool, from Step 6.
+  pendingAction.value = 'create-node'
   emitter.emit('show-spending-password-modal', { action: 'create-node' })
 }
 
-async function onSpendingPasswordConfirmed(spendingPassword: string) {
+async function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'create-node') return
+  const spendingPassword = data.password
+  
   formNode.value.spendingPassword = spendingPassword
   
   // Read file contents for core/pool nodes
@@ -997,11 +1002,11 @@ onMounted(() => {
     }
   }
   
-  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
-  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
 

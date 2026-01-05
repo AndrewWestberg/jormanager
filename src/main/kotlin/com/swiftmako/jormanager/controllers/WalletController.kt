@@ -149,9 +149,13 @@ class WalletController
                     protocolParams
                 )
 
-                val fromWalletEntry =
-                    walletRepository.findByIdOrNull(request.fromId)
-                        ?: throw IOException("Wallet entry id ${request.fromId} not found!")
+                // Load all wallet entries for multi-claim support
+                val effectiveFromIds = request.getEffectiveFromIds()
+                val fromWalletEntries = effectiveFromIds.map { id ->
+                    walletRepository.findByIdOrNull(id)
+                        ?: throw IOException("Wallet entry id $id not found!")
+                }
+                val fromWalletEntry = fromWalletEntries.first()
 
                 val feePayerWalletEntry =
                     if (request.isClaim) {
@@ -241,9 +245,27 @@ class WalletController
                 val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
                 // amount of ada locked keeping tokens on utxos that won't be spent. Don't allow the gui to spend this ada.
                 val tokenLocked = utxos.sumByBigInteger { it.lovelace } - paymentAddressLovelace
+
+                // For multi-claim, get wallet items for all stake addresses and sum their rewards
+                val fromWalletItems = if (request.isClaim && fromWalletEntries.size > 1) {
+                    fromWalletEntries.map { entry ->
+                        walletUtils.getWalletItem(
+                            defaultHost,
+                            defaultHostConnection,
+                            magicString,
+                            socketPath,
+                            era,
+                            entry
+                        )
+                    }
+                } else {
+                    listOf(walletItem)
+                }
+                val totalStakingRewards = fromWalletItems.sumByBigInteger { it.stakingAddrLovelace ?: BigInteger.ZERO }
+
                 baseAmount["ada"] =
                     if (request.isClaim) {
-                        walletItem.stakingAddrLovelace!!
+                        totalStakingRewards
                     } else {
                         paymentAddressLovelace - dummyTxFee - dummyTokenKeepFee
                     }
@@ -366,7 +388,11 @@ class WalletController
                 transaction.append(metadataFileParameter)
 
                 if (request.isClaim) {
-                    transaction.append("--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} ")
+                    // Build withdrawal clauses for all stake addresses
+                    fromWalletItems.forEachIndexed { index, item ->
+                        val entry = fromWalletEntries[index]
+                        transaction.append("--withdrawal ${entry.stakingAddr}+${item.stakingAddrLovelace} ")
+                    }
                 }
                 transaction.append("--out-file /tmp/dummy-${genesis.networkMagic}.txbody")
 
@@ -393,9 +419,11 @@ class WalletController
 
                 val fee =
                     if (request.isClaim) {
+                        // Witness count: 1 for payment key + 1 for each staking key
+                        val witnessCount = 1 + fromWalletEntries.size
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count 2 --byron-witness-count 0 --output-text"
+                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
                             ).trim()
                     } else {
                         defaultHostConnection
@@ -1106,9 +1134,13 @@ class WalletController
                         protocolParams
                     )
 
-                    val fromWalletEntry =
-                        walletRepository.findByIdOrNull(request.fromId)
-                            ?: throw IOException("Wallet entry id ${request.fromId} not found!")
+                    // Load all wallet entries for multi-claim support
+                    val effectiveFromIds = request.getEffectiveFromIds()
+                    val fromWalletEntries = effectiveFromIds.map { id ->
+                        walletRepository.findByIdOrNull(id)
+                            ?: throw IOException("Wallet entry id $id not found!")
+                    }
+                    val fromWalletEntry = fromWalletEntries.first()
                     val feePayerWalletEntry =
                         if (request.isClaim) {
                             calculateClaimRewardsFeePayer(
@@ -1193,9 +1225,27 @@ class WalletController
                         )
 
                     val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
+
+                    // For multi-claim, get wallet items for all stake addresses and sum their rewards
+                    val fromWalletItems = if (request.isClaim && fromWalletEntries.size > 1) {
+                        fromWalletEntries.map { entry ->
+                            walletUtils.getWalletItem(
+                                defaultHost,
+                                defaultHostConnection,
+                                magicString,
+                                socketPath,
+                                era,
+                                entry
+                            )
+                        }
+                    } else {
+                        listOf(walletItem)
+                    }
+                    val totalStakingRewards = fromWalletItems.sumByBigInteger { it.stakingAddrLovelace ?: BigInteger.ZERO }
+
                     baseAmount["ada"] =
                         if (request.isClaim) {
-                            walletItem.stakingAddrLovelace!!
+                            totalStakingRewards
                         } else {
                             paymentAddressLovelace - request.txFee - request.tokenKeepFee
                         }
@@ -1319,7 +1369,11 @@ class WalletController
                     }
 
                     if (request.isClaim) {
-                        transaction.append("--withdrawal ${fromWalletEntry.stakingAddr}+${walletItem.stakingAddrLovelace} ")
+                        // Build withdrawal clauses for all stake addresses
+                        fromWalletItems.forEachIndexed { index, item ->
+                            val entry = fromWalletEntries[index]
+                            transaction.append("--withdrawal ${entry.stakingAddr}+${item.stakingAddrLovelace} ")
+                        }
                     }
                     transaction.append("--out-file /tmp/transaction.txbody")
 
@@ -1332,13 +1386,23 @@ class WalletController
                         val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
                         defaultHostConnection.commandWriteFile("/tmp/signing.skey", skeyContent)
                     } ?: throw IllegalArgumentException("Couldn't find payment skey for transaction")
+
                     if (request.isClaim) {
-                        fromWalletEntry.stakingSkey?.let { skey ->
-                            val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
-                            defaultHostConnection.commandWriteFile("/tmp/staking_signing.skey", skeyContent)
-                        } ?: throw IllegalArgumentException("Couldn't find staking skey for transaction")
+                        // Write all staking signing keys
+                        val stakingKeyFiles = mutableListOf<String>()
+                        fromWalletEntries.forEachIndexed { index, entry ->
+                            entry.stakingSkey?.let { skey ->
+                                val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
+                                val keyFile = "/tmp/staking_signing_$index.skey"
+                                defaultHostConnection.commandWriteFile(keyFile, skeyContent)
+                                stakingKeyFiles.add(keyFile)
+                            } ?: throw IllegalArgumentException("Couldn't find staking skey for wallet entry ${entry.name}")
+                        }
+
+                        // Build signing command with all staking keys
+                        val stakingKeyParams = stakingKeyFiles.joinToString(" ") { "--signing-key-file $it" }
                         defaultHostConnection.command(
-                            "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey --signing-key-file /tmp/staking_signing.skey $magicString --out-file /tmp/transaction.txsigned"
+                            "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $stakingKeyParams $magicString --out-file /tmp/transaction.txsigned"
                         )
                     } else {
                         defaultHostConnection.command(
