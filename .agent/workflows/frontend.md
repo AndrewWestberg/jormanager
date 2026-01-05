@@ -9,11 +9,12 @@ This workflow guides development on the Vue.js frontend (`vue/`).
 ## Overview
 
 The frontend is built with:
-- **Vue.js 2** — Progressive JavaScript framework
-- **Bootstrap-Vue** — Bootstrap components for Vue
-- **Vuex** — State management
+- **Vue.js 3** — Progressive JavaScript framework (Composition API)
+- **Bootstrap-Vue-Next** — Bootstrap 5 components for Vue 3
+- **Pinia** — State management (replaces Vuex)
 - **Vue Router** — Client-side routing
 - **Font Awesome** — Icons
+- **Vite** — Build tool with hot module replacement
 
 ---
 
@@ -21,7 +22,7 @@ The frontend is built with:
 
 ### Prerequisites
 
-- Node.js 16.17.0 (use nvm: `nvm use v16.17.0`)
+- Node.js 16.17.0 or higher (use nvm: `nvm use v16.17.0`)
 - npm
 
 ### Installation
@@ -36,15 +37,34 @@ npm install
 
 ## Development Server
 
+### Standalone Mode (Frontend Only)
+
 // turbo
 ```bash
 cd vue
-npm run serve
+npm run dev
 ```
 
-Opens at [http://localhost:8080](http://localhost:8080)
+Opens at [http://localhost:5173](http://localhost:5173)
 
-Uses Vue CLI service with hot reload.
+### Testing with Backend
+
+To test the frontend against a running backend, use port 8082 which is configured to proxy to the backend:
+
+// turbo
+```bash
+cd vue
+npm run dev -- --port 8082
+```
+
+Opens at [http://localhost:8082](http://localhost:8082)
+
+This allows:
+- Hot module replacement (changes reflect immediately)
+- API calls proxy to backend server
+- Full integration testing of frontend changes
+
+> **Note**: Ensure the backend is running before testing features that require API calls.
 
 ---
 
@@ -53,8 +73,8 @@ Uses Vue CLI service with hot reload.
 ```
 vue/src/
 ├── App.vue                 # Root component
-├── main.js                 # Application entry point
-├── router.js               # Vue Router configuration
+├── main.ts                 # Application entry point
+├── router/index.ts         # Vue Router configuration
 ├── views/                  # Page-level components
 │   ├── Dashboard.vue       # Main dashboard
 │   ├── Hosts.vue           # SSH host management
@@ -66,8 +86,10 @@ vue/src/
 │   ├── AddNodeWizard.vue
 │   ├── AddWalletEntryWizard.vue
 │   ├── SendAdaModal.vue
+│   ├── SpendingPasswordConfirmModal.vue
 │   └── ...
-├── store/                  # Vuex state modules
+├── stores/                 # Pinia state stores
+├── composables/            # Vue 3 composables
 └── assets/                 # Static assets
 ```
 
@@ -75,7 +97,7 @@ vue/src/
 
 ## Component Guidelines
 
-### Single File Components
+### Single File Components (Vue 3 Composition API)
 
 ```vue
 <template>
@@ -85,16 +107,15 @@ vue/src/
   </div>
 </template>
 
-<script>
-export default {
-  name: 'NodeCard',
-  props: {
-    node: {
-      type: Object,
-      required: true
-    }
+<script setup lang="ts">
+interface NodeProps {
+  node: {
+    name: string
+    status: string
   }
 }
+
+defineProps<NodeProps>()
 </script>
 
 <style scoped>
@@ -105,53 +126,89 @@ export default {
 </style>
 ```
 
-### Bootstrap-Vue Usage
+### Bootstrap-Vue-Next Usage
 
 ```vue
 <template>
-  <b-card title="Node Status">
-    <b-table :items="nodes" :fields="fields">
-      <template #cell(actions)="data">
-        <b-button size="sm" variant="primary" @click="restart(data.item)">
+  <BCard title="Node Status">
+    <BTable :items="nodes" :fields="fields">
+      <template #cell(actions)="{ item }">
+        <BButton size="sm" variant="primary" @click="restart(item)">
           Restart
-        </b-button>
+        </BButton>
       </template>
-    </b-table>
-  </b-card>
+    </BTable>
+  </BCard>
 </template>
 ```
 
-### Vuex State Management
+### Pinia State Management
 
-```javascript
-// store/modules/nodes.js
-export default {
-  namespaced: true,
-  state: {
-    nodes: [],
-    loading: false
-  },
-  mutations: {
-    SET_NODES(state, nodes) {
-      state.nodes = nodes
-    },
-    SET_LOADING(state, loading) {
-      state.loading = loading
-    }
-  },
-  actions: {
-    async fetchNodes({ commit }) {
-      commit('SET_LOADING', true)
-      try {
-        const response = await fetch('/api/nodes')
-        const nodes = await response.json()
-        commit('SET_NODES', nodes)
-      } finally {
-        commit('SET_LOADING', false)
-      }
+```typescript
+// stores/nodes.ts
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+export const useNodesStore = defineStore('nodes', () => {
+  const nodes = ref([])
+  const loading = ref(false)
+
+  async function fetchNodes() {
+    loading.value = true
+    try {
+      const response = await fetch('/api/nodes')
+      nodes.value = await response.json()
+    } finally {
+      loading.value = false
     }
   }
-}
+
+  return { nodes, loading, fetchNodes }
+})
+```
+
+### Event Bus Pattern
+
+For cross-component communication:
+
+```typescript
+import { useEventBus } from '@/composables/useEventBus'
+
+const emitter = useEventBus()
+
+// Emit event
+emitter.emit('show-spending-password-modal', { action: 'send-ada' })
+
+// Listen for event
+emitter.on('confirm-spending-password-with-action', (data) => {
+  if (data.action === 'send-ada') {
+    // Handle password confirmation
+  }
+})
+```
+
+### Modal Best Practices
+
+When using modals that trigger password confirmation:
+
+1. **Don't use `ok()` from slot** - it auto-closes the modal
+2. **Use `@ok.prevent`** - prevents auto-close while still handling the event
+3. **Call handler directly** - bypass modal auto-close behavior
+
+```vue
+<!-- Wrong: Modal closes when clicking ok() -->
+<template #footer="{ ok }">
+  <BButton @click="ok()">Send</BButton>
+</template>
+
+<!-- Right: Modal stays open during password confirmation -->
+<template #footer>
+  <BButton @click="handleSend">Send</BButton>
+</template>
+
+<!-- Or use .prevent modifier -->
+<BModal @ok.prevent="handleOk">
+```
 ```
 
 ### Vue Router

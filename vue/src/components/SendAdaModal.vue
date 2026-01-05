@@ -8,7 +8,7 @@
       :no-close-on-backdrop="true"
       @ok="handleValidateAndSend"
     >
-      <template #footer="{ ok, cancel }">
+      <template #footer="{ cancel }">
         <div class="w-100 d-flex justify-content-between align-items-center">
           <BButton
             variant="outline-primary"
@@ -21,7 +21,7 @@
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
             <BButton
               variant="primary"
-              @click="ok()"
+              @click="handleValidateAndSend"
               :disabled="requestFeesUUID !== responseFeesUUID"
             >Send</BButton>
           </div>
@@ -304,12 +304,17 @@ const fromWalletItem = ref<WalletItemRef>({
 const formSendAda = ref({
   spendingPassword: null as string | null,
   fromId: null as number | null,
+  fromIds: [] as number[],
   isClaim: false,
+  isMultiClaim: false,
   toAccounts: [] as ToAccount[],
   metadata: null as string | null,
   metadataError: null as string | null,
   valid: false
 })
+
+// Multi-claim state
+const fromWalletItems = ref<WalletItemRef[]>([])
 
 const metadataPlaceholder = `{
   "411": [
@@ -345,6 +350,9 @@ const paymentOptions = computed(() => {
 })
 
 const sendingAmount = computed(() => {
+  if (formSendAda.value.isMultiClaim) {
+    return fromWalletItems.value.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
+  }
   return formSendAda.value.isClaim
     ? fromWalletItem.value.stakingAddrLovelace
     : fromWalletItem.value.paymentAddrLovelace
@@ -356,9 +364,13 @@ const modalTitle = computed(() => {
   const remaining = remainingLovelace.value + tkFee + tkLocked
   const sending = sendingAmount.value
   
-  let title = (formSendAda.value.isClaim ? 'Claiming: ' : 'Sending: ') +
-    lovelaceToAda(sending) +
-    ', TxFee: ' + lovelaceToAda(txFee.value || 0)
+  let title = ''
+  if (formSendAda.value.isMultiClaim) {
+    title = `Claiming from ${fromWalletItems.value.length} addresses: `
+  } else {
+    title = (formSendAda.value.isClaim ? 'Claiming: ' : 'Sending: ')
+  }
+  title += lovelaceToAda(sending) + ', TxFee: ' + lovelaceToAda(txFee.value || 0)
   
   if (tkLocked > 0) title += ', TokenLocked: ' + lovelaceToAda(tkLocked)
   if (tkFee > 0) title += ', TokenKeep: ' + lovelaceToAda(tkFee)
@@ -393,12 +405,15 @@ function clearFormSendAda() {
   formSendAda.value = {
     spendingPassword: null,
     fromId: null,
+    fromIds: [],
     isClaim: false,
+    isMultiClaim: false,
     toAccounts: [createEmptyToAccount()],
     metadata: null,
     metadataError: null,
     valid: false,
   }
+  fromWalletItems.value = []
   openIndex.value = 0
   metadataOpen.value = false
   store.invalidateSendAdaFees()
@@ -421,7 +436,22 @@ function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
   clearFormSendAda()
   fromWalletItem.value = walletItem
   formSendAda.value.fromId = walletItem.id
+  formSendAda.value.fromIds = [walletItem.id]
   formSendAda.value.isClaim = isClaim
+  formSendAda.value.isMultiClaim = false
+  isVisible.value = true
+  prepareCalculateSendAdaFees()
+}
+
+function showMultiClaimModal(items: WalletItemRef[]) {
+  clearFormSendAda()
+  fromWalletItems.value = items
+  // Use the first item as the primary for compatibility
+  fromWalletItem.value = items[0]
+  formSendAda.value.fromId = items[0].id
+  formSendAda.value.fromIds = items.map(item => item.id)
+  formSendAda.value.isClaim = true
+  formSendAda.value.isMultiClaim = true
   isVisible.value = true
   prepareCalculateSendAdaFees()
 }
@@ -610,8 +640,13 @@ function calculateSpent(index: number, skipTokenFees = false): { remaining: Reco
     ? clone(fromWalletItem.value.nativeAssetMap)
     : {}
   
+  // For multi-claim, sum staking rewards from all wallet items
+  const totalStakingRewards = formSendAda.value.isMultiClaim
+    ? fromWalletItems.value.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
+    : fromWalletItem.value.stakingAddrLovelace
+
   baseAmount['ada'] = formSendAda.value.isClaim
-    ? fromWalletItem.value.stakingAddrLovelace
+    ? totalStakingRewards
     : fromWalletItem.value.paymentAddrLovelace - (txFee.value || 0) - tkKeepFee - tkLocked
   
   const alreadySpentPercentages: Record<string, number> = {}
@@ -701,6 +736,7 @@ function prepareCalculateSendAdaFees() {
   
   const request = {
     fromId: fromWalletItem.value.id,
+    fromIds: formSendAda.value.fromIds,
     toAccounts,
     txOut: uniqueToAccounts + returnChangeTxOut,
     isClaim: formSendAda.value.isClaim,
@@ -710,7 +746,7 @@ function prepareCalculateSendAdaFees() {
   
   validateForm()
 
-  if (request.fromId && formSendAda.value.valid) {
+  if (request.fromIds.length > 0 && formSendAda.value.valid) {
     store.calculateSendAdaFees(request)
   } else {
     store.invalidateSendAdaFees()
@@ -777,6 +813,7 @@ function passwordConfirmed(spendingPassword: string) {
   store.submitTransaction({
     spendingPassword,
     fromId: formSendAda.value.fromId!,
+    fromIds: formSendAda.value.fromIds,
     isClaim: formSendAda.value.isClaim,
     txFee: txFee.value || 0,
     tokenKeepFee: tokenKeepFee.value || 0,
@@ -785,12 +822,17 @@ function passwordConfirmed(spendingPassword: string) {
   })
 }
 
-function onSpendingPasswordConfirmed(password: string) {
-  passwordConfirmed(password)
+function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'send-ada') return
+  passwordConfirmed(data.password)
 }
 
-function onShowSendAdaModal(data: { walletItem: WalletItemRef; isClaim: boolean }) {
-  showSendAdaModal(data.walletItem, data.isClaim)
+function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
+  if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {
+    showMultiClaimModal(data.walletItems)
+  } else if (data.walletItem) {
+    showSendAdaModal(data.walletItem, data.isClaim)
+  }
 }
 
 // Watch for successful send
@@ -813,12 +855,12 @@ watch(tokenFees, (fees) => {
 onMounted(() => {
   clearFormSendAda()
   emitter.on('show-send-ada-modal', onShowSendAdaModal as any)
-  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
   emitter.off('show-send-ada-modal', onShowSendAdaModal as any)
-  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
 

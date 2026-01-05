@@ -146,7 +146,7 @@
       v-model="showColorModal"
       title="Edit Color"
       :no-close-on-backdrop="true"
-      @ok="handleSaveColor"
+      @ok.prevent="handleSaveColor"
     >
       <BFormGroup label="Color" label-cols-md="2">
         <BFormInput v-model="editColorForm.color" type="color" />
@@ -160,7 +160,7 @@
       size="xl"
       scrollable
       :no-close-on-backdrop="true"
-      @ok="handleSavePoolConfig"
+      @ok.prevent="handleSavePoolConfig"
     >
       <h5>Account Config</h5>
       <BFormGroup label="Fees Account" label-cols-md="2">
@@ -223,7 +223,7 @@
       size="xl"
       scrollable
       :no-close-on-backdrop="true"
-      @ok="handleSaveMetadata"
+      @ok.prevent="handleSaveMetadata"
     >
       <h5>Primary (Required)</h5>
       <BFormGroup label="Ticker" label-cols-md="2">
@@ -255,7 +255,7 @@
       size="lg"
       scrollable
       :no-close-on-backdrop="true"
-      @ok="handleSaveRelays"
+      @ok.prevent="handleSaveRelays"
     >
       <div v-for="(relay, index) in editRelaysForm.relays" :key="index" class="mb-3">
         <BCard class="bg-dark">
@@ -281,7 +281,7 @@
       v-model="showRetireModal"
       title="Retire Pool"
       :no-close-on-backdrop="true"
-      @ok="handleRetirePool"
+      @ok.prevent="handleRetirePool"
     >
       <p class="text-danger">
         <font-awesome-icon :icon="['fas', 'exclamation-triangle']" />

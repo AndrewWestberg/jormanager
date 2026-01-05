@@ -23,6 +23,7 @@ interface ToAccount {
 interface MockContext {
   formSendAda: {
     isClaim: boolean
+    isMultiClaim: boolean
     toAccounts: ToAccount[]
   }
   fromWalletItem: {
@@ -31,6 +32,10 @@ interface MockContext {
     stakingAddrLovelace: number
     nativeAssetMap: Record<string, number>
   }
+  fromWalletItems: Array<{
+    id: number
+    stakingAddrLovelace: number
+  }>
   txFee: number
   tokenKeepFee: number
   tokenLocked: number
@@ -52,6 +57,7 @@ describe('SendAdaModal component methods', () => {
   const createMockContext = (overrides: Partial<MockContext> = {}): MockContext => ({
     formSendAda: {
       isClaim: false,
+      isMultiClaim: false,
       toAccounts: [],
       ...overrides.formSendAda
     },
@@ -62,6 +68,7 @@ describe('SendAdaModal component methods', () => {
       nativeAssetMap: {},
       ...overrides.fromWalletItem
     },
+    fromWalletItems: overrides.fromWalletItems || [],
     txFee: 200000, // 0.2 ADA
     tokenKeepFee: 0,
     tokenLocked: 0,
@@ -223,8 +230,13 @@ describe('SendAdaModal component methods', () => {
         ? { ...ctx.fromWalletItem.nativeAssetMap }
         : {}
       
+      // For multi-claim, sum staking rewards from all wallet items
+      const totalStakingRewards = ctx.formSendAda.isMultiClaim
+        ? ctx.fromWalletItems.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
+        : ctx.fromWalletItem.stakingAddrLovelace
+
       baseAmount['ada'] = ctx.formSendAda.isClaim
-        ? ctx.fromWalletItem.stakingAddrLovelace
+        ? totalStakingRewards
         : ctx.fromWalletItem.paymentAddrLovelace -
           ctx.txFee -
           tokenKeepFee -
@@ -311,6 +323,7 @@ describe('SendAdaModal component methods', () => {
       const ctx = createMockContext({
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: [
             {
               currency: 'ada',
@@ -334,6 +347,7 @@ describe('SendAdaModal component methods', () => {
       const ctx = createMockContext({
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: [
             {
               currency: 'ada',
@@ -359,6 +373,7 @@ describe('SendAdaModal component methods', () => {
       const ctx = createMockContext({
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: [
             {
               currency: 'ada',
@@ -383,6 +398,7 @@ describe('SendAdaModal component methods', () => {
       const ctx = createMockContext({
         formSendAda: {
           isClaim: true,
+          isMultiClaim: false,
           toAccounts: []
         }
       })
@@ -391,6 +407,93 @@ describe('SendAdaModal component methods', () => {
       
       // For claims, uses stakingAddrLovelace (5 ADA) without subtracting fee
       expect(result.remaining['ada']).toBe(5000000)
+    })
+
+    it('sums staking rewards from multiple addresses for multi-claim', () => {
+      const ctx = createMockContext({
+        formSendAda: {
+          isClaim: true,
+          isMultiClaim: true,
+          toAccounts: []
+        },
+        fromWalletItem: {
+          id: 1,
+          paymentAddrLovelace: 10000000,
+          stakingAddrLovelace: 5000000,  // 5 ADA (first address)
+          nativeAssetMap: {}
+        },
+        fromWalletItems: [
+          { id: 1, stakingAddrLovelace: 5000000 },   // 5 ADA
+          { id: 2, stakingAddrLovelace: 3000000 },   // 3 ADA
+          { id: 3, stakingAddrLovelace: 2000000 }    // 2 ADA
+        ]
+      })
+      
+      const result = calculateSpent(ctx, 0)
+      
+      // Multi-claim should sum all staking rewards: 5 + 3 + 2 = 10 ADA
+      expect(result.remaining['ada']).toBe(10000000)
+    })
+
+    it('uses single address staking balance when isMultiClaim is false', () => {
+      const ctx = createMockContext({
+        formSendAda: {
+          isClaim: true,
+          isMultiClaim: false,
+          toAccounts: []
+        },
+        fromWalletItem: {
+          id: 1,
+          paymentAddrLovelace: 10000000,
+          stakingAddrLovelace: 5000000,  // 5 ADA
+          nativeAssetMap: {}
+        },
+        fromWalletItems: [
+          { id: 1, stakingAddrLovelace: 5000000 },
+          { id: 2, stakingAddrLovelace: 3000000 }
+        ]
+      })
+      
+      const result = calculateSpent(ctx, 0)
+      
+      // Should use single stakingAddrLovelace, not sum
+      expect(result.remaining['ada']).toBe(5000000)
+    })
+
+    it('calculates 100% distribution correctly for multi-claim', () => {
+      const ctx = createMockContext({
+        formSendAda: {
+          isClaim: true,
+          isMultiClaim: true,
+          toAccounts: [
+            {
+              currency: 'ada',
+              type: 'percent',
+              percent: 100,
+              amount: null,
+              account: 99, // This becomes fee payer for claims
+              tokenFee: 0
+            }
+          ]
+        },
+        fromWalletItem: {
+          id: 1,
+          paymentAddrLovelace: 10000000,
+          stakingAddrLovelace: 18000000,  // 18 ADA
+          nativeAssetMap: {}
+        },
+        fromWalletItems: [
+          { id: 1, stakingAddrLovelace: 18000000 },  // 18 ADA
+          { id: 2, stakingAddrLovelace: 2000000 }    // 2 ADA
+        ]
+      })
+      
+      const result = calculateSpent(ctx, 1)
+      
+      // Multi-claim sums to 20 ADA, but fee payer with 100% has txFee (0.2 ADA) deducted from amount
+      // 20 ADA - 0.2 ADA fee = 19.8 ADA = 19800000 lovelace
+      expect(result.amount['ada']).toBe(19800000)
+      expect(result.remaining['ada']).toBe(0)
     })
 
     it('handles native tokens', () => {
@@ -405,6 +508,7 @@ describe('SendAdaModal component methods', () => {
         },
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: []
         }
       })
@@ -420,6 +524,7 @@ describe('SendAdaModal component methods', () => {
         tokenKeepFee: 1000000, // 1 ADA keep fee
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: []
         }
       })
@@ -436,6 +541,7 @@ describe('SendAdaModal component methods', () => {
         tokenLocked: 500000,
         formSendAda: {
           isClaim: false,
+          isMultiClaim: false,
           toAccounts: []
         }
       })

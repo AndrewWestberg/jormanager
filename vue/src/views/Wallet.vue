@@ -15,6 +15,14 @@
           v-b-tooltip.hover.bottom="'Download all of your wallet and pool keys.'"
         >
           <font-awesome-icon :icon="['fas', 'file-archive']" />&nbsp;Save Backup
+        </BButton>&nbsp;
+        <BButton
+          v-if="hasSelectedClaims"
+          variant="success"
+          @click="claimMultipleClick"
+          v-b-tooltip.hover.bottom="'Claim rewards from selected stake addresses'"
+        >
+          <font-awesome-icon :icon="['fas', 'cash-register']" />&nbsp;Claim Selected ({{ visibleSelectedCount }})
         </BButton>
       </div>
       <hr />
@@ -115,16 +123,23 @@
             <div v-else class="text-center">---</div>
           </template>
           <template #cell(stakingAddrLovelace)="{ item, value }">
-            <div class="text-right" v-if="(item as any).type === 'stake'">
-              {{ lovelaceToAda(Number(value)) }}
+            <div class="text-right d-flex align-items-center justify-content-end gap-2" v-if="(item as any).type === 'stake'">
+              <span>{{ lovelaceToAda(Number(value)) }}</span>
               <span
                 v-if="Number(value) > 0"
-                class="clickable text-success d-inline-block"
+                class="clickable text-success flex-shrink-0"
                 v-b-tooltip.hover.bottom="{ title: 'Claim Rewards', variant: 'success' }"
                 @click="claimAdaClick((item as any).name)"
               >
                 <font-awesome-icon :icon="['fas', 'cash-register']" />
               </span>
+              <BFormCheckbox
+                v-if="Number(value) > 0"
+                :model-value="selectedClaimIds.has((item as any).id)"
+                @change="toggleClaimSelection((item as any).id)"
+                class="rewards-checkbox"
+                v-b-tooltip.hover.bottom="{ title: 'Select for multi-claim', variant: 'info' }"
+              />
             </div>
             <div class="text-center" v-else>---</div>
           </template>
@@ -151,7 +166,7 @@
       :title="stakingAddressModalTitle"
       :no-close-on-backdrop="true"
       size="lg"
-      @ok="handleStakingAddress"
+      @ok.prevent="handleStakingAddress"
     >
       <BFormGroup
         label="Fees Account"
@@ -178,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
 import {
@@ -193,7 +208,8 @@ import {
   BModal,
   BFormSelect,
   BFormSelectOption,
-  BFormInvalidFeedback
+  BFormInvalidFeedback,
+  BFormCheckbox
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
@@ -210,7 +226,9 @@ const showAddWalletEntryWizard = ref(false)
 const showStakingModal = ref(false)
 const stakingAddressModalTitle = ref('')
 const filter = ref<string>('')
-const filterOn = ref<string[]>([])
+const filterOn = ref<string[]>(['name', 'type', 'paymentAddr', 'stakingAddr'])
+const selectedClaimIds = ref<Set<number>>(new Set())
+const pendingAction = ref<string | null>(null)
 
 const stakingAddressForm = ref({
   id: -1,
@@ -233,6 +251,35 @@ const stakingFeesAccountState = computed(() => stakingAddressForm.value.stakingF
 const stakingFeesOptions = computed(() => {
   const formatter = (val: number, _sym: string, dec: number) => lovelaceToAda(val * 1000000, dec)
   return store.stakingFeesSelectOptions(formatter)
+})
+
+// Compute filtered wallet items based on current filter
+const filteredWalletItems = computed(() => {
+  if (!filter.value) return walletItems.value
+  const searchLower = filter.value.toLowerCase()
+  return walletItems.value.filter(item => {
+    const searchableFields = filterOn.value.length > 0 ? filterOn.value : Object.keys(item)
+    return searchableFields.some(field => {
+      const val = (item as any)[field]
+      return val && String(val).toLowerCase().includes(searchLower)
+    })
+  })
+})
+
+// Count only visible selected items for button label
+const visibleSelectedCount = computed(() => {
+  return filteredWalletItems.value.filter(item =>
+    selectedClaimIds.value.has(item.id) &&
+    (item as any).type === 'stake' &&
+    item.stakingAddrLovelace > 0
+  ).length
+})
+
+const hasSelectedClaims = computed(() => visibleSelectedCount.value > 0)
+
+// Clear selections when filter changes
+watch(filter, () => {
+  selectedClaimIds.value = new Set()
 })
 
 function findWalletItemByName(name: string): WalletItem | undefined {
@@ -279,6 +326,28 @@ function claimAdaClick(name: string) {
   }
 }
 
+function toggleClaimSelection(id: number) {
+  const newSet = new Set(selectedClaimIds.value)
+  if (newSet.has(id)) {
+    newSet.delete(id)
+  } else {
+    newSet.add(id)
+  }
+  selectedClaimIds.value = newSet
+}
+
+function claimMultipleClick() {
+  const items = filteredWalletItems.value.filter(item =>
+    selectedClaimIds.value.has(item.id) &&
+    (item as any).type === 'stake' &&
+    item.stakingAddrLovelace > 0
+  )
+  if (items.length > 0) {
+    emitter.emit('show-send-ada-modal', { walletItems: items, isClaim: true, isMultiClaim: true })
+    selectedClaimIds.value = new Set()
+  }
+}
+
 function deleteItem(name: string) {
   const item = findWalletItemByName(name)
   if (!item) return
@@ -286,6 +355,7 @@ function deleteItem(name: string) {
 }
 
 function backupClicked() {
+  pendingAction.value = 'backup'
   emitter.emit('show-spending-password-modal', { action: 'backup' })
 }
 
@@ -315,22 +385,47 @@ function handleStakingAddress() {
   emitter.emit('show-spending-password-modal', { action: 'staking-address' })
 }
 
-function onSpendingPasswordConfirmed(password: string) {
-  store.downloadBackup(password)
+function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action === 'backup') {
+    store.downloadBackup(data.password)
+  } else if (data.action === 'delete-wallet-item') {
+    store.deleteWalletItem({
+      id: data.originalData as number,
+      spendingPassword: data.password
+    })
+  } else if (data.action === 'staking-address') {
+    stakingAddressForm.value.spendingPassword = data.password
+    store.updateStakingAddress(stakingAddressForm.value)
+    stakingAddressForm.value.spendingPassword = null
+    showStakingModal.value = false
+  }
 }
 
 onMounted(() => {
   store.fetchWalletItems()
-  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
-  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
 
 <style scoped>
 .clickable:hover {
   cursor: pointer;
+}
+
+/* Fix checkbox positioning in rewards column */
+.rewards-checkbox {
+  position: relative !important;
+  display: inline-flex !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.rewards-checkbox :deep(.form-check-input) {
+  position: relative !important;
+  margin: 0 !important;
 }
 </style>

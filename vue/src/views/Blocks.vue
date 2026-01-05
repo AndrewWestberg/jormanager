@@ -138,6 +138,7 @@ const emitter = useEventBus()
 const selectedEpoch = ref<number | null>(null)
 const selectedPool = ref<string | null>(null)
 const showLeaderLogs = ref(false)
+const pendingAction = ref<string | null>(null)
 const formLeaderLogs = ref({
   spendingPassword: null as string | null,
   requestType: 'currentEpoch'
@@ -184,11 +185,13 @@ function showLeaderLogsModal() {
 }
 
 function handleLeaderLogs() {
+  pendingAction.value = 'leader-logs'
   emitter.emit('show-spending-password-modal', { action: 'leader-logs' })
 }
 
-function onSpendingPasswordConfirmed(password: string) {
-  formLeaderLogs.value.spendingPassword = password
+function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'leader-logs') return
+  formLeaderLogs.value.spendingPassword = data.password
   store.requestLeaderLogs(formLeaderLogs.value)
   formLeaderLogs.value.spendingPassword = null
 }
@@ -223,10 +226,10 @@ function blockTooltip(value: string) {
 onMounted(() => {
   store.requestBlocks()
   store.requestNodes()
-  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
-  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>

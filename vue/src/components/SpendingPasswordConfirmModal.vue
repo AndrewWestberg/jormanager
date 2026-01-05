@@ -41,8 +41,12 @@ function show(action: string, data?: unknown) {
 }
 
 function confirmClicked() {
-  if (spendingPassword.value) {
-    emitter.emit('confirm-spending-password', spendingPassword.value)
+  if (spendingPassword.value && pendingAction.value) {
+    emitter.emit('confirm-spending-password-with-action', {
+      action: pendingAction.value,
+      password: spendingPassword.value,
+      originalData: pendingData.value
+    })
   }
   spendingPassword.value = null
   isVisible.value = false

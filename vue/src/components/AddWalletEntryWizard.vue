@@ -162,6 +162,7 @@ const store = useJorManagerStore()
 const emitter = useEventBus()
 
 const currentStep = ref(0)
+const pendingAction = ref<string | null>(null)
 const formWallet = ref({
   spendingPassword: null as string | null,
   name: '',
@@ -277,6 +278,7 @@ async function handleNext() {
     }
     
     // Request spending password
+    pendingAction.value = 'create-wallet'
     emitter.emit('show-spending-password-modal', { action: 'create-wallet' })
   }
 }
@@ -285,8 +287,9 @@ function handleBack() {
   emit('hide-wallet-entry-wizard')
 }
 
-function onSpendingPasswordConfirmed(spendingPassword: string) {
-  formWallet.value.spendingPassword = spendingPassword
+function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'create-wallet') return
+  formWallet.value.spendingPassword = data.password
   store.createWalletEntry(formWallet.value)
   formWallet.value.spendingPassword = null
   emit('hide-wallet-entry-wizard')
@@ -300,11 +303,11 @@ watch(() => formWallet.value.type, (type) => {
 })
 
 onMounted(() => {
-  emitter.on('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
-  emitter.off('confirm-spending-password', onSpendingPasswordConfirmed)
+  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
 

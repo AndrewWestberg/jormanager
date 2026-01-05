@@ -10,6 +10,8 @@ data class SubmitTransactionRequest(
     val spendingPassword: String,
     @param:Json(name = "fromId")
     val fromId: Long,
+    @param:Json(name = "fromIds")
+    val fromIds: List<Long> = emptyList(),
     @param:Json(name = "txFee")
     val txFee: BigInteger,
     @param:Json(name = "tokenKeepFee")
@@ -21,5 +23,9 @@ data class SubmitTransactionRequest(
     @param:Json(name = "metadata")
     val metadata: String?,
 ) {
-    override fun toString(): String = "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata)"
+    // Get all from IDs, preferring fromIds list if not empty, otherwise falling back to single fromId
+    fun getEffectiveFromIds(): List<Long> = fromIds.ifEmpty { listOf(fromId) }
+
+    override fun toString(): String = "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata)"
 }
+
