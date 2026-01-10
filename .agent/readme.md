@@ -91,9 +91,10 @@ Available workflows:
 | Layer | Technology | Key Components |
 |-------|------------|----------------|
 | **Backend** | Kotlin (Java 21), Spring Boot | `controllers/`, `services/`, `entities/` |
-| **Frontend** | Vue.js 2, Bootstrap-Vue, Vuex | `vue/src/views/`, `vue/src/components/` |
+| **Frontend** | Vue.js 3, TypeScript, Pinia, Vite, Bootstrap 5 | `vue/src/views/`, `vue/src/components/` |
 | **Database** | PostgreSQL, Liquibase | `src/main/resources/db/` |
 | **SSH** | SSHJ | Remote host connections |
+| **Testing** | Vitest (Frontend), JUnit 5 (Backend) | `vue/tests/unit/`, `src/test/kotlin/` |
 
 ### Project Structure
 
@@ -106,10 +107,13 @@ jormanager/
 │   ├── services/             # Business logic
 │   ├── model/                # Data models
 │   └── nodeclient/           # Cardano node client
-├── vue/                      # Vue.js frontend
+├── vue/                      # Vue.js 3 frontend
 │   ├── src/views/            # Dashboard, Hosts, Nodes, Blocks, Wallet
 │   ├── src/components/       # Reusable components
-│   └── src/store/            # Vuex state management
+│   ├── src/stores/           # Pinia state management
+│   ├── src/types/            # TypeScript type definitions
+│   ├── src/composables/      # Vue 3 composition API utilities
+│   └── tests/unit/           # Vitest unit tests
 └── src/main/resources/db/    # Liquibase migrations
 ```
 
@@ -136,8 +140,9 @@ jormanager/
 ```bash
 cd vue
 npm install
-npm run serve      # Development server
+npm run dev        # Development server (Vite)
 npm run build      # Production build
+npm run test       # Run unit tests (Vitest)
 ./deploy.sh        # Build and sync to backend resources
 ```
 

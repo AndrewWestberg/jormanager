@@ -55,6 +55,8 @@ Tests use the same configuration as application with:
 
 ## Frontend Testing
 
+The frontend uses **Vitest** with **Vue Test Utils** for unit testing.
+
 ### Run Unit Tests
 
 // turbo
@@ -66,6 +68,32 @@ cd vue && npm run test
 
 ```bash
 cd vue && npm run test:watch
+```
+
+### Test Structure
+
+```
+vue/tests/unit/
+├── components/
+│   └── SendAdaModal.spec.ts      # Component method tests
+├── store/
+│   └── jormanager.spec.ts        # Store unit tests
+└── views/
+    └── Dashboard.spec.ts         # View component tests
+```
+
+### Example Component Test (Vitest)
+
+```typescript
+import { describe, it, expect } from 'vitest'
+
+describe('calculateSpent', () => {
+  it('calculates remaining after fee', () => {
+    const ctx = createMockContext()
+    const result = calculateSpent(ctx, 0)
+    expect(result.remaining['ada']).toBe(9800000)
+  })
+})
 ```
 
 ### Linting

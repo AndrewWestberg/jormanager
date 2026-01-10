@@ -22,7 +22,7 @@ The frontend is built with:
 
 ### Prerequisites
 
-- Node.js 16.17.0 or higher (use nvm: `nvm use v16.17.0`)
+- Node.js 24+ (use nvm: `nvm use v24`)
 - npm
 
 ### Installation
@@ -90,7 +90,16 @@ vue/src/
 │   └── ...
 ├── stores/                 # Pinia state stores
 ├── composables/            # Vue 3 composables
+├── types/                  # TypeScript type definitions
+├── utils/                  # Utility functions and filters
 └── assets/                 # Static assets
+```
+
+```
+vue/tests/unit/
+├── components/             # Component unit tests
+├── store/                  # Store unit tests
+└── views/                  # View unit tests
 ```
 
 ---
@@ -211,12 +220,14 @@ When using modals that trigger password confirmation:
 ```
 ```
 
-### Vue Router
+### Vue Router 4
 
-```javascript
-// router.js
-export default new Router({
-  mode: 'history',
+```typescript
+// router.ts
+import { createRouter, createWebHistory } from 'vue-router'
+
+export default createRouter({
+  history: createWebHistory(),
   routes: [
     { path: '/', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
     { path: '/hosts', name: 'hosts', component: () => import('./views/Hosts.vue') },
@@ -307,11 +318,55 @@ stompClient.connect({}, () => {
 **Problem:** Changes don't reflect automatically  
 **Solution:** Restart dev server or check file watcher limits
 
-### Bootstrap-Vue Component Not Rendering
+### Bootstrap-Vue-Next Component Not Rendering
 
 **Problem:** Component shows as plain HTML  
-**Solution:** Ensure component is imported in `main.js`:
-```javascript
-import { BCard, BTable, BButton } from 'bootstrap-vue'
-Vue.component('b-card', BCard)
+**Solution:** Ensure components are imported from `bootstrap-vue-next`:
+```typescript
+import { BCard, BTable, BButton } from 'bootstrap-vue-next'
+```
+
+---
+
+## Testing
+
+### Running Tests
+
+// turbo
+```bash
+cd vue
+npm run test
+```
+
+### Watch Mode
+
+// turbo
+```bash
+npm run test:watch
+```
+
+### Coverage
+
+// turbo
+```bash
+npm run test:coverage
+```
+
+### Test Structure
+
+Tests use Vitest with Vue Test Utils:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { mount } from '@vue/test-utils'
+import MyComponent from '@/components/MyComponent.vue'
+
+describe('MyComponent', () => {
+  it('renders correctly', () => {
+    const wrapper = mount(MyComponent, {
+      props: { title: 'Test' }
+    })
+    expect(wrapper.text()).toContain('Test')
+  })
+})
 ```

@@ -61,10 +61,14 @@ JorManager is a GUI-based Cardano stakepool management system that connects to r
 
 | Directory | Purpose |
 |-----------|---------|
-| `vue/src/views/` | Page-level Vue components |
+| `vue/src/views/` | Page-level Vue 3 components (Composition API) |
 | `vue/src/components/` | Reusable UI components |
-| `vue/src/store/` | Vuex state modules |
-| `vue/src/router.js` | Vue Router configuration |
+| `vue/src/stores/` | Pinia state management stores |
+| `vue/src/composables/` | Vue 3 composition API utilities |
+| `vue/src/types/` | TypeScript type definitions |
+| `vue/src/utils/` | Utility functions and filters |
+| `vue/src/router.ts` | Vue Router 4 configuration |
+| `vue/tests/unit/` | Vitest unit tests |
 
 ---
 
@@ -102,27 +106,48 @@ class NodeController(private val nodeService: NodeService) {
 
 ### Frontend Patterns
 
-**1. Single File Components**
+**1. Composition API with TypeScript**
 ```vue
 <template>
   <div>{{ nodeName }}</div>
 </template>
 
-<script>
-export default {
-  props: ['nodeName']
-}
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useJorManagerStore } from '@/stores/jormanager'
+
+const props = defineProps<{ nodeName: string }>()
+const store = useJorManagerStore()
 </script>
 ```
 
-**2. Vuex State Management**
-```javascript
-// Centralized state in store modules
-export default {
-  state: { hosts: [] },
-  mutations: { SET_HOSTS(state, hosts) { state.hosts = hosts } },
-  actions: { async fetchHosts({ commit }) { ... } }
-}
+**2. Pinia State Management**
+```typescript
+import { defineStore } from 'pinia'
+
+export const useJorManagerStore = defineStore('jormanager', {
+  state: () => ({ hosts: [], nodes: [] }),
+  getters: {
+    hostsCount: (state) => state.hosts.length
+  },
+  actions: {
+    async fetchHosts() { ... }
+  }
+})
+```
+
+**3. Event Bus (Mitt)**
+```typescript
+import { useEventBus } from '@/composables/useEventBus'
+
+const emitter = useEventBus()
+emitter.emit('show-modal', data)
+emitter.on('confirm', handler)
+```
+
+**4. Bootstrap-Vue-Next Components**
+```vue
+import { BTable, BModal, BButton } from 'bootstrap-vue-next'
 ```
 
 ---
