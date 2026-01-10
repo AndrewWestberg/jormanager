@@ -110,7 +110,24 @@ Get wallet balance.
 Send ADA transaction.
 
 ### POST `/api/wallet/claim-rewards`
-Claim staking rewards.
+Claim staking rewards from a single address.
+
+### POST `/api/wallet/claim-rewards` (Multi-Claim)
+Claim staking rewards from multiple addresses in a single transaction.
+
+**Request Body:**
+```json
+{
+  "fromIds": [1, 2, 3],
+  "toAccounts": [{"account": 1, "currency": "ada", ...}],
+  "isClaim": true
+}
+```
+
+**Notes:**
+- Uses `fromIds` array instead of single `fromId` for multi-claim
+- Backend builds withdrawal clauses for all stake addresses
+- Witness count adjusted: 1 payment key + N staking keys
 
 ---
 
