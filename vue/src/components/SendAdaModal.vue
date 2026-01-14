@@ -800,7 +800,7 @@ function handleValidateAndSend() {
 function passwordConfirmed(spendingPassword: string) {
   const toAccounts = map(formSendAda.value.toAccounts, (toAccount, index) => ({
     currency: toAccount.currency,
-    account: toAccount.account,
+    account: toAccount.account ?? -1,
     address: toAccount.address,
     type: toAccount.type,
     amount: toAccount.amount == null
