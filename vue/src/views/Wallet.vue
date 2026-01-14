@@ -136,7 +136,7 @@
               <BFormCheckbox
                 v-if="Number(value) > 0"
                 :model-value="selectedClaimIds.has((item as any).id)"
-                @change="toggleClaimSelection((item as any).id)"
+                @update:model-value="toggleClaimSelection((item as any).id)"
                 class="rewards-checkbox"
                 v-b-tooltip.hover.bottom="{ title: 'Select for multi-claim', variant: 'info' }"
               />
