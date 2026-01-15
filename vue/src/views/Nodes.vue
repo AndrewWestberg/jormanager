@@ -9,6 +9,15 @@
         >
           +&nbsp;Node
         </BButton>
+        <BButton
+          v-if="hasCoreNodes"
+          variant="outline-success"
+          class="ms-2"
+          @click="showGovernanceVoteModal = true"
+          v-b-tooltip.hover.bottom="'Submit governance vote for all core nodes'"
+        >
+          🗳️ Vote
+        </BButton>
       </div>
       <hr />
       <div>
@@ -158,7 +167,6 @@
       v-model="showPoolConfigModal"
       title="Edit Pool Config"
       size="xl"
-      scrollable
       :no-close-on-backdrop="true"
       @ok.prevent="handleSavePoolConfig"
     >
@@ -221,7 +229,6 @@
       v-model="showMetadataModal"
       title="Edit Metadata"
       size="xl"
-      scrollable
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveMetadata"
     >
@@ -253,7 +260,6 @@
       v-model="showRelaysModal"
       title="Edit Relays"
       size="lg"
-      scrollable
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveRelays"
     >
@@ -296,6 +302,9 @@
       </BFormGroup>
       <p class="text-muted">Pool will be retired after the specified epoch.</p>
     </BModal>
+    
+    <!-- Governance Vote Modal -->
+    <GovernanceVoteModal v-model="showGovernanceVoteModal" />
   </div>
 </template>
 
@@ -318,6 +327,7 @@ import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { lovelaceToAda } from '@/utils/filters'
 import AddNodeWizard from '@/components/AddNodeWizard.vue'
+import GovernanceVoteModal from '@/components/GovernanceVoteModal.vue'
 
 interface Relay {
   addr: string
@@ -337,6 +347,7 @@ const showPoolConfigModal = ref(false)
 const showMetadataModal = ref(false)
 const showRelaysModal = ref(false)
 const showRetireModal = ref(false)
+const showGovernanceVoteModal = ref(false)
 
 // Form data
 const editColorForm = ref({ nodeId: 0, color: '#000000' })
@@ -381,6 +392,11 @@ const stakingAccountOptions = computed(() => {
 const rewardsAccountOptions = computed(() => {
   const formatter = (val: number) => lovelaceToAda(val * 1000000)
   return store.rewardsSelectOptions(formatter)
+})
+
+// Check if there are any core/pool nodes (non-relay)
+const hasCoreNodes = computed(() => {
+  return nodes.value.some((node) => (node as any).type !== 'relay')
 })
 
 const fields = [

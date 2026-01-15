@@ -533,6 +533,13 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.toastError = { title: 'Retire Pool Error', message: message.exception!.message }
           }
           break
+        case 'governancevote':
+          if (message.data) {
+            this.toastSuccess = { title: 'Governance Vote', message: message.data as string }
+          } else {
+            this.toastError = { title: 'Governance Vote Error', message: message.exception!.message }
+          }
+          break
       }
     },
 
@@ -784,6 +791,10 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     sendRetirePool(retirePoolForm: unknown) {
       this.sendMessage('/jormanager/retirepool', retirePoolForm)
+    },
+
+    submitGovernanceVote(voteRequest: unknown) {
+      this.sendMessage('/jormanager/governancevote', voteRequest)
     }
   }
 })

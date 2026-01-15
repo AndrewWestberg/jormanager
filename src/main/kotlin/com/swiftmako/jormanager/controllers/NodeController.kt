@@ -18,6 +18,7 @@ import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.RetirePoolRequest
+import com.swiftmako.jormanager.model.GovernanceVoteRequest
 import com.swiftmako.jormanager.model.RotateKesRequest
 import com.swiftmako.jormanager.model.UpdateColorRequest
 import com.swiftmako.jormanager.model.UpdateMetadataRequest
@@ -3433,6 +3434,252 @@ class NodeController
             hostConnection: HostConnection,
             port: Int
         ): Boolean = hostConnection.command("ss -tulw").trim().contains(":$port")
+
+        @MessageMapping("/governancevote")
+        @Transactional
+        fun submitGovernanceVote(request: GovernanceVoteRequest) {
+            try {
+                if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
+                    throw IllegalArgumentException("Invalid spending password!")
+                }
+
+                // Validate governance action ID format (must be bech32 gov_action1...)
+                if (!request.govActionId.startsWith("gov_action1")) {
+                    throw IllegalArgumentException("Invalid governance action ID format. Must be bech32 format starting with 'gov_action1'")
+                }
+
+                val defaultNode = nodeRepository.findDefault() ?: throw IOException("Default node not found!")
+                val defaultHost =
+                    hostRepository.findByIdOrNull(defaultNode.hostId)
+                        ?: throw IOException("Default Host not found!")
+                val defaultHostConnection = HostConnection(defaultHost, defaultNode)
+                val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+
+                val genesisFile =
+                    fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                        ?: throw IOException("Shelley genesis file not found!")
+                val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
+                val magicString =
+                    if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                        "--testnet-magic ${genesis.networkMagic}"
+                    } else {
+                        "--mainnet"
+                    }
+
+                val tempFiles = mutableListOf<String>()
+                tempFiles.add("/tmp/protocol-parameters.json")
+                tempFiles.add("/tmp/governance-vote.txbody")
+                tempFiles.add("/tmp/governance-vote.txsigned")
+
+                try {
+                    val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                    val protocolParamsJson =
+                        defaultHostConnection
+                            .command(
+                                "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
+                            ).trim()
+                    defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+
+                    // Build the transaction
+                    var witnessCount = 0
+                    val transaction = StringBuilder()
+                    val voteFiles = StringBuilder()
+                    val signingKeys = StringBuilder()
+
+                    transaction.append("${defaultHost.cardanoCliPath} conway transaction build-raw ")
+
+                    // Get fee payer account
+                    val feePayerAccount =
+                        walletRepository.findByIdOrNull(request.feesAccountId)
+                            ?: throw IOException("Fees account not found!")
+                    val utxos =
+                        walletUtils.getUtxos(
+                            defaultHost,
+                            defaultHostConnection,
+                            magicString,
+                            socketPath,
+                            era,
+                            feePayerAccount.paymentAddr
+                        )
+                    utxos.forEach { utxo ->
+                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                    }
+                    val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
+                    log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
+
+                    witnessCount++ // fee payer is a witness
+                    defaultHostConnection.commandWriteFile(
+                        "/tmp/feepayer.payment.skey",
+                        walletUtils.getSKeyContent(requireNotNull(feePayerAccount.paymentSkey), request.spendingPassword)
+                    )
+                    signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
+                    tempFiles.add("/tmp/feepayer.payment.skey")
+
+                    // initial dummy value to return change to the fee payer account
+                    transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
+
+                    // Get TTL
+                    val queryTipJson =
+                        defaultHostConnection
+                            .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
+                            .trim()
+                    val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
+                    transaction.append("--invalid-hereafter $ttl ")
+                    transaction.append("--fee 200000 ")
+
+                    // Generate vote files for each node
+                    for (nodeVote in request.votes) {
+                        val node = nodeRepository.findByIdOrNull(nodeVote.nodeId)
+                            ?: throw IOException("Node ${nodeVote.nodeId} not found!")
+
+                        if (node.type == NODE_TYPE_RELAY) {
+                            throw IOException("Cannot vote with relay node ${node.name}!")
+                        }
+
+                        val coldVKeyFile =
+                            fileRepository.findByIdOrNull(node.coreVKeyId)
+                                ?: throw IOException("Cold vkey not found for node ${node.name}!")
+                        val coldSKeyFile =
+                            fileRepository.findByIdOrNull(node.coreSKeyId)
+                                ?: throw IOException("Cold skey not found for node ${node.name}!")
+
+                        // Write the vkey file
+                        val vkeyPath = "/tmp/node_${node.id}.node.vkey"
+                        val skeyPath = "/tmp/node_${node.id}.node.skey"
+                        val votePath = "/tmp/node_${node.id}.vote"
+                        defaultHostConnection.commandWriteFile(vkeyPath, coldVKeyFile.content)
+                        defaultHostConnection.commandWriteFile(
+                            skeyPath,
+                            walletUtils.getSKeyContent(coldSKeyFile, request.spendingPassword).trim()
+                        )
+                        tempFiles.add(vkeyPath)
+                        tempFiles.add(skeyPath)
+                        tempFiles.add(votePath)
+
+                        // Determine vote choice flag
+                        val voteFlag = when (nodeVote.vote.uppercase()) {
+                            "YES" -> "--yes"
+                            "NO" -> "--no"
+                            "ABSTAIN" -> "--abstain"
+                            else -> throw IOException("Invalid vote choice: ${nodeVote.vote}")
+                        }
+
+                        // Generate the vote file using bech32 governance action ID
+                        val decodedGovAction = Bech32.decode(request.govActionId)
+                        val govActionBytes = decodedGovAction.bytes
+                        
+                        // The final byte is the index
+                        val indexByte = govActionBytes.last()
+                        val govActionIndex = (indexByte.toInt() and 0xFF).toString()
+                        
+                        // The entire beginning is the transaction id bytes
+                        val govActionTxIdBytes = govActionBytes.sliceArray(0 until govActionBytes.size - 1)
+                        val govActionTxId = govActionTxIdBytes.joinToString("") { "%02x".format(it) }
+
+                        val voteCreateCommand = StringBuilder()
+                        voteCreateCommand.append("${defaultHost.cardanoCliPath} conway governance vote create ")
+                        voteCreateCommand.append("$voteFlag ")
+                        voteCreateCommand.append("--governance-action-tx-id $govActionTxId ")
+                        voteCreateCommand.append("--governance-action-index $govActionIndex ")
+                        voteCreateCommand.append("--cold-verification-key-file $vkeyPath ")
+                        voteCreateCommand.append("--out-file $votePath")
+
+                        log.debug("Creating vote file for node ${node.name}: $voteCreateCommand")
+                        defaultHostConnection.command(voteCreateCommand.toString())
+
+                        voteFiles.append("--vote-file $votePath ")
+                        signingKeys.append("--signing-key-file $skeyPath ")
+                        witnessCount++
+                    }
+
+                    // Build dummy transaction for fee calculation
+                    transaction.append(voteFiles)
+                    transaction.append("--out-file /tmp/governance-vote.txbody")
+                    log.debug("Building dummy transaction: $transaction")
+                    defaultHostConnection.command(transaction.toString())
+
+                    // Calculate fees
+                    val feesString =
+                        defaultHostConnection
+                            .command(
+                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                            ).trim()
+                    val fees = feesString.split(" ")[0].toBigInteger()
+                    log.debug("Calculated fees: $fees")
+
+                    // Calculate change
+                    val change = feePayerAccountBalance - fees
+                    if (change < BigInteger.ONE) {
+                        throw IOException("Not enough funds to pay fees of $fees lovelace!")
+                    }
+
+                    // Handle token change
+                    val tokenChange = StringBuilder()
+                    utxos.toNativeAssetMap().forEach { (currency, amount) ->
+                        if (amount > BigInteger.ZERO) {
+                            tokenChange.append("+$amount $currency")
+                        }
+                    }
+
+                    // Rebuild transaction with correct fee
+                    val realTransaction =
+                        transaction
+                            .toString()
+                            .replace("--fee 200000 ", "--fee $fees ")
+                            .replace(
+                                "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
+                                "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
+                            )
+                    log.debug("Final transaction command: $realTransaction")
+                    defaultHostConnection.command(realTransaction)
+
+                    // Sign the transaction
+                    defaultHostConnection.command(
+                        "${defaultHost.cardanoCliPath} conway transaction sign --tx-body-file /tmp/governance-vote.txbody $signingKeys $magicString --out-file /tmp/governance-vote.txsigned"
+                    )
+
+                    val txid = runBlocking {
+                        TransactionCache.withLock {
+                            // Submit the transaction
+                            defaultHostConnection.command(
+                                "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/governance-vote.txsigned $magicString $socketPath"
+                            )
+                            val txid =
+                                defaultHostConnection
+                                    .command(
+                                        "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/governance-vote.txbody --output-text"
+                                    ).trim()
+                            val txSigned = defaultHostConnection.commandReadFile("/tmp/governance-vote.txsigned")
+                            TransactionCache.put(txid, txSigned)
+
+                            val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
+                            ledgerDao.updateLiveLedgerState(txid, cborBytes)
+                            transactionRepository.save(Transaction(txid = txid))
+                            txid
+                        }
+                    }
+
+                    webSocketTemplate.convertAndSend(
+                        "/topic/messages",
+                        SocketResponse.Success(
+                            type = "governancevote",
+                            data = "Governance vote submitted successfully. TxId: $txid"
+                        )
+                    )
+                } finally {
+                    // Cleanup all temp files
+                    defaultHostConnection.command("rm -f ${tempFiles.joinToString(" ")}")
+                }
+            } catch (e: Throwable) {
+                log.error("Error submitting governance vote!", e)
+                webSocketTemplate.convertAndSend(
+                    "/topic/messages",
+                    SocketResponse.Error(type = "governancevote", exception = e)
+                )
+                // rethrow so db transaction is rolled back
+                throw RuntimeException(e)
+            }
+        }
 
         private fun createTopologyFile(
             byronGenesisFileName: String,
