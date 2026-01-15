@@ -73,6 +73,19 @@ Restart a node via SSH.
 ### POST `/api/nodes/{id}/rotate-kes`
 Rotate KES keys for a node.
 
+### POST `/api/nodes/governancevote`
+Submit a governance vote for core nodes.
+
+**Request Body:**
+```json
+{
+  "govActionId": "gov_action1...",
+  "votes": [{"nodeId": 1, "vote": "YES"}],
+  "feesAccountId": 123,
+  "spendingPassword": "***"
+}
+```
+
 ### GET `/api/nodes/{id}/status`
 Get current node synchronization status.
 
