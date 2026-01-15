@@ -28,4 +28,3 @@ data class SubmitTransactionRequest(
 
     override fun toString(): String = "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata)"
 }
-
