@@ -3567,11 +3567,11 @@ class NodeController
                         // Generate the vote file using bech32 governance action ID
                         val decodedGovAction = Bech32.decode(request.govActionId)
                         val govActionBytes = decodedGovAction.bytes
-                        
+
                         // The final byte is the index
                         val indexByte = govActionBytes.last()
                         val govActionIndex = (indexByte.toInt() and 0xFF).toString()
-                        
+
                         // The entire beginning is the transaction id bytes
                         val govActionTxIdBytes = govActionBytes.sliceArray(0 until govActionBytes.size - 1)
                         val govActionTxId = govActionTxIdBytes.joinToString("") { "%02x".format(it) }

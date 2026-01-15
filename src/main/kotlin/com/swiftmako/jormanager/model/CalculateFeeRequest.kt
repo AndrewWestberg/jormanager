@@ -23,4 +23,3 @@ data class CalculateFeeRequest(
     // Get all from IDs, preferring fromIds list if not empty, otherwise falling back to single fromId
     fun getEffectiveFromIds(): List<Long> = fromIds.ifEmpty { listOf(fromId) }
 }
-
