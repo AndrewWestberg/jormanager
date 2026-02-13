@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.tables
 
-import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.v1.core.Column
 
 object LedgerAssetsTable : JmLongIdTable(name = "ledger_assets") {
     // CREATE TABLE IF NOT EXISTS "ledger_assets" ("id" BIGSERIAL PRIMARY KEY, "policy" TEXT NOT NULL, "name" TEXT NOT NULL, "image" TEXT, "description" TEXT)

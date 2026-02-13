@@ -16,16 +16,12 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "11.0.0"
+version = "11.0.1"
 java.sourceCompatibility = JavaVersion.VERSION_21
 java.targetCompatibility = JavaVersion.VERSION_21
 
 repositories {
     mavenLocal()
-    maven {
-        name = "jitpack.io"
-        url = uri("https://jitpack.io")
-    }
     mavenCentral()
 }
 
