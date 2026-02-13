@@ -4,13 +4,25 @@ import com.github.benmanes.caffeine.cache.Caffeine
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.tables.*
-import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
-import org.jetbrains.exposed.sql.transactions.transaction
-import org.slf4j.LoggerFactory
 import java.math.BigInteger
 import java.time.Duration
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.jdbc.batchInsert
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
+import org.slf4j.LoggerFactory
 
 object LedgerRepository {
     private val log by lazy { LoggerFactory.getLogger("LedgerRepository") }
@@ -18,19 +30,26 @@ object LedgerRepository {
     fun queryUtxos(address: String): List<Utxo> =
         transaction {
             LedgerUtxosTable
-                .innerJoin(LedgerTable, { ledgerId }, { LedgerTable.id }, { LedgerTable.address eq address })
-                .selectAll()
-                .where { LedgerUtxosTable.blockSpent.isNull() and LedgerUtxosTable.slotSpent.isNull() }
-                .map { row ->
+                .join(
+                    LedgerTable,
+                    JoinType.INNER,
+                    LedgerUtxosTable.ledgerId,
+                    LedgerTable.id,
+                    additionalConstraint = { LedgerTable.address eq address },
+                ).selectAll()
+                .where {
+                    LedgerUtxosTable.blockSpent.isNull() and
+                        LedgerUtxosTable.slotSpent.isNull()
+                }.map { row ->
                     val ledgerUtxoId = row[LedgerUtxosTable.id].value
-
                     val nativeAssets =
                         LedgerUtxoAssetsTable
-                            .innerJoin(
+                            .join(
                                 LedgerAssetsTable,
-                                { ledgerAssetId },
-                                { LedgerAssetsTable.id },
-                                { LedgerUtxoAssetsTable.ledgerUtxoId eq ledgerUtxoId },
+                                JoinType.INNER,
+                                LedgerUtxoAssetsTable.ledgerAssetId,
+                                LedgerAssetsTable.id,
+                                additionalConstraint = { LedgerUtxoAssetsTable.ledgerUtxoId eq ledgerUtxoId },
                             ).selectAll()
                             .map { naRow ->
                                 NativeAsset(
@@ -268,24 +287,28 @@ object LedgerRepository {
     fun queryAdaHandle(adaHandleName: String): String? =
         transaction {
             LedgerTable
-                .innerJoin(
-                    otherTable = LedgerUtxosTable,
-                    onColumn = { LedgerTable.id },
-                    otherColumn = { ledgerId },
-                ).innerJoin(
-                    otherTable = LedgerUtxoAssetsTable,
-                    onColumn = { LedgerUtxosTable.id },
-                    otherColumn = { ledgerUtxoId },
-                ).innerJoin(
-                    otherTable = LedgerAssetsTable,
-                    onColumn = { LedgerUtxoAssetsTable.ledgerAssetId },
-                    otherColumn = { LedgerAssetsTable.id },
+                .join(
+                    LedgerUtxosTable,
+                    JoinType.INNER,
+                    LedgerTable.id,
+                    LedgerUtxosTable.ledgerId,
+                    additionalConstraint = { LedgerUtxosTable.blockSpent.isNull() },
+                ).join(
+                    LedgerUtxoAssetsTable,
+                    JoinType.INNER,
+                    LedgerUtxosTable.id,
+                    LedgerUtxoAssetsTable.ledgerUtxoId,
+                ).join(
+                    LedgerAssetsTable,
+                    JoinType.INNER,
+                    LedgerUtxoAssetsTable.ledgerAssetId,
+                    LedgerAssetsTable.id,
+                    additionalConstraint = {
+                        (LedgerAssetsTable.policy eq ADA_HANDLES_POLICY) and
+                            (LedgerAssetsTable.name eq adaHandleName.toByteArray().toHexString())
+                    },
                 ).select(LedgerTable.address)
-                .where {
-                    (LedgerAssetsTable.policy eq ADA_HANDLES_POLICY) and
-                        (LedgerAssetsTable.name eq adaHandleName.toByteArray().toHexString()) and
-                        LedgerUtxosTable.blockSpent.isNull()
-                }.firstOrNull()
+                .firstOrNull()
                 ?.let { row -> row[LedgerTable.address] }
         }
 

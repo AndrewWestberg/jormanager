@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.tables
 
-import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.v1.core.Column
 
 object BlockFetchTable : JmLongIdTable(name = "blockfetch") {
     val blockNumber: Column<Long> = long("block_number")

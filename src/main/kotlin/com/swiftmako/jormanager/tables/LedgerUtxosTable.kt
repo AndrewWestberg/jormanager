@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.tables
 
-import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.v1.core.Column
 
 object LedgerUtxosTable : JmLongIdTable(name = "ledger_utxos") {
     // CREATE TABLE IF NOT EXISTS "ledger_utxos" ("id" BIGSERIAL PRIMARY KEY, "ledger_id" BIGINT NOT NULL, "tx_id" TEXT NOT NULL, "tx_ix" INTEGER NOT NULL, "lovelace" BIGINT NOT NULL, "block_created" BIGINT NOT NULL, "slot_created" BIGINT NOT NULL, "block_spent" BIGINT, "slot_spent" BIGINT, "rolled_back" BOOL NOT NULL DEFAULT false, CONSTRAINT fk_ledger_utxos_ledger_id_id FOREIGN KEY ("ledger_id") REFERENCES "ledger"(id) ON DELETE CASCADE)
