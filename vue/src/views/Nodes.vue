@@ -289,15 +289,35 @@
       :no-close-on-backdrop="true"
       @ok.prevent="handleRetirePool"
     >
+      <BFormGroup label="Fees Account" label-cols-md="4">
+        <BFormSelect
+          v-model="retirePoolForm.retireFeesAccount"
+          :options="retireFeeAccountOptions"
+          :state="retirePoolForm.retireFeesAccount !== null"
+        >
+          <template #first>
+            <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+          </template>
+        </BFormSelect>
+      </BFormGroup>
+      <BFormGroup label="SUDO Password" label-cols-md="4">
+        <BFormInput
+          v-model="retirePoolForm.sudoPassword"
+          type="password"
+          placeholder="Enter host sudo password"
+          :state="retirePoolForm.sudoPassword.trim().length > 0"
+        />
+      </BFormGroup>
       <p class="text-danger">
         <font-awesome-icon :icon="['fas', 'exclamation-triangle']" />
         Warning: This action will retire your pool!
       </p>
       <BFormGroup label="Retire in Epoch" label-cols-md="4">
         <BFormInput
-          v-model="retirePoolForm.epoch"
+          v-model="retirePoolForm.retireEpoch"
           type="number"
           placeholder="e.g. Current epoch + 2"
+          :state="retirePoolForm.retireEpoch > 0"
         />
       </BFormGroup>
       <p class="text-muted">Pool will be retired after the specified epoch.</p>
@@ -374,14 +394,21 @@ const editRelaysForm = ref({
   relays: [] as Relay[]
 })
 const retirePoolForm = ref({
-  nodeId: 0,
-  epoch: 0
+  id: 0,
+  sudoPassword: '',
+  retireFeesAccount: null as number | null,
+  retireEpoch: 0
 })
 
 // Select options
 const feeAccountOptions = computed(() => {
   const formatter = (val: number) => lovelaceToAda(val * 1000000)
   return store.registrationFeesSelectOptions(formatter)
+})
+
+const retireFeeAccountOptions = computed(() => {
+  const formatter = (val: number) => lovelaceToAda(val * 1000000)
+  return store.reregistrationFeesSelectOptions(formatter)
 })
 
 const stakingAccountOptions = computed(() => {
@@ -474,11 +501,20 @@ function handleSaveRelays() {
 }
 
 function openRetireModal(nodeId: number) {
-  retirePoolForm.value = { nodeId, epoch: 0 }
+  retirePoolForm.value = {
+    id: nodeId,
+    sudoPassword: '',
+    retireFeesAccount: null,
+    retireEpoch: 0
+  }
   showRetireModal.value = true
 }
 
 function handleRetirePool() {
+  if (retirePoolForm.value.retireFeesAccount === null || retirePoolForm.value.retireEpoch <= 0 || retirePoolForm.value.sudoPassword.trim().length === 0) {
+    store.toastError = { title: 'Error', message: 'You must provide a fee wallet, sudo password, and retirement epoch.' }
+    return
+  }
   emitter.emit('show-spending-password-modal', { action: 'retire-pool', data: retirePoolForm.value })
 }
 
@@ -524,6 +560,12 @@ function onSpendingPasswordConfirmed(data: { action: string; password: string; o
     case 'retire-pool':
       store.sendRetirePool({ ...data.originalData, spendingPassword: data.password })
       showRetireModal.value = false
+      retirePoolForm.value = {
+        id: 0,
+        sudoPassword: '',
+        retireFeesAccount: null,
+        retireEpoch: 0
+      }
       break
     case 'rotate-kes':
       store.rotateKesByName({ name: data.originalData as string, spendingPassword: data.password })
@@ -534,6 +576,7 @@ function onSpendingPasswordConfirmed(data: { action: string; password: string; o
 onMounted(() => {
   store.requestNodes()
   store.requestHosts()
+  store.fetchWalletItems()
   emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
