@@ -1,0 +1,53 @@
+Planner: Iteration 1
+Timestamp: 2026-05-12T21:42:57Z
+
+I completed the required planning pass for `task-100` and created the canonical task plan at `.agent/plans/cardano-node-jormanager-tracing/task-plans/task-100.md`. I first read `.agent/readme.md`, `.agent/system/architecture.md`, `.agent/workflows/backend.md`, `.agent/workflows/test.md`, `.agent/workflows/update-doc.md`, the tracing PRD/tasks JSON, existing `task-001` and `task-002` task-plan docs, and the tracing research files `config-markus.json`, `config-new.json`, and `hermod-protocol-reference-note.md`. I used code-index first, then verified the key findings against live files, especially `src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt`, `src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt`, `src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt`, `src/test/kotlin/com/swiftmako/jormanager/controllers/NodeControllerTest.kt`, and `/home/westbam/bcsh/jormanager/mainnet-config.json`. The current live truth is that `createConfigFile()` is still a legacy regex/string-mutation path that rewrites `defaultScribes`, `hasEkg`/`hasEKG`, and a hardcoded Prometheus port, while startup/listener wiring is still separate and unverified, so this task should stay strictly app-side config-generation work.
+
+Approved plan direction: keep `task-100` autonomous and minimal, centered in `NodeController.kt`, with no `cardano-cli-doctor` load because listener/startup compatibility is a later `task-101` concern. Replace the tracing part of `createConfigFile()` with one focused structured JSON-tree helper that starts from the Markus tracing baseline, forces `UseTraceDispatcher: true`, preserves stdout machine-format logging, adds `Forwarder` and `TraceOptionForwarder` only for `core`, removes all EKG/Prometheus HTTP and legacy file-scribe keys, and leaves request/UI cleanup plus deployed-template edits to later tasks. Expected code changes are `NodeController.kt`, focused `NodeControllerTest.kt` coverage, and this plan doc only. Verification must be automated via a new helper seam that returns generated config content for assertions covering core vs non-core dispatcher shape, absence of `defaultScribes`/`rotation`/`hasEKG`/`hasPrometheus`/`EKGBackend`/`PrometheusSimple`, and preservation of existing non-tracing mutations like genesis filename normalization, `PeerSharing`, and `MaxConcurrencyDeadline`. Risks/open questions are limited to the exact 11.0.1 compatibility-era key set and legacy-shaped DB templates, both recorded without widening scope. Self-review passed: no scope creep into startup wiring, request/UI cleanup, template rollout, or protocol work; verification is concrete; and the chosen approach avoids both more regex patching and an unnecessary large typed-config model layer.
+
+Outcome: Plan drafted and ready for critique
+
+Critiquer: Iteration 1
+Timestamp: 2026-05-12T21:45:15Z
+
+I reviewed the required docs, PRD/tasks, `task-100` plan/review, the Markus/new tracing research configs, the live `mainnet-config.json`, and verified the important implementation claims against the repo. The core plan direction is close, but it is not approval-ready yet because it currently hides a rollout regression, asserts a non-existent pool config path, and leaves the concrete dispatcher-era key set too subjective for implementation and tests.
+
+Blocking findings:
+1. The sequencing is unsafe for newly created nodes: `task-100` and especially `task-104` remove file-log and EKG/Prometheus config before the consumers are migrated, which would regress both block discovery and node stats for any node created in that window. Live repo confirmation:
+`BlockMonitor.kt` still depends on `logs/node.json`, rotated log files, and `TraceAdoptedBlock` grep/tail paths.
+`NodeMonitor.kt` still polls `node.ekgPort` through `EkgService`.
+That makes the current phase split a hidden manual checkpoint: “do not actually create/roll out new nodes until later phases land.” The plan needs to either:
+re-sequence so direct consumers land before config/request cleanup, or
+state explicitly that `task-100`/`task-104` are not independently releasable and must not be rolled out or used for new-node creation until the monitor migration tasks are complete.
+Refs: `task-100.md:17-21, 136-142`; `cardano-node-jormanager-tracing-tasks.json:110-222, 379-458`; `NodeController.kt:3372-3437`; `BlockMonitor.kt` log-scrape matches; `NodeMonitor.kt` EKG matches.
+
+2. The task boundary is wrong about pool nodes. The plan says `task-100` generates dispatcher config for relay, core, and pool nodes, and its verification/acceptance discuss pool output, but the live code does not generate a pool config at all. `createConfigFile()` is called for relay/core only; pool creation reuses the parent core config and ports instead of generating its own config.
+That means part of the current scope, tests, and acceptance criteria target a path that does not exist. Narrow `task-100` to relay/core config generation and describe pool behavior truthfully as inherited parent-core config behavior that this task affects only indirectly.
+Refs: `task-100.md:19, 130-132, 158-163`; `NodeController.kt:193-203, 1005-1015, 1037-1120`.
+
+3. The plan does not pin the actual dispatcher-era top-level key whitelist strongly enough. `config-markus.json` is only a tracing baseline and still contains a Prometheus backend in `TraceOptions[""]`; it does not define the full accepted top-level dispatcher/compatibility shape. `config-new.json` contains candidate top-level keys like `UseTraceDispatcher`, `TraceOptionForwarder`, `TurnOnLogging`, `TurnOnLogMetrics`, and others. The current plan says to “retain only compatibility-era non-HTTP top-level tracing keys still needed” but does not enumerate them, so implementation and tests can drift or churn.
+Before approval, the plan should pin the exact retained keys, dropped keys, and per-node mutations in one place, or add the missing research note first.
+Refs: `task-100.md:109-117, 149-163, 184`; `cardano-node-jormanager-tracing-tasks.json:125-133`; `research/config-markus.json:3-91`; `research/config-new.json:31-124`.
+
+Non-blocking observations:
+1. The plan is right to keep listener/startup wiring out of scope for `task-100`; live `createSystemdFile()` and `createEnvFile()` still do not carry tracing-listener wiring, so keeping that in `task-101/102` is the correct boundary.
+2. Prefer structural JSON assertions over substring-only assertions in `NodeControllerTest.kt`; this change is exactly the kind of config work that becomes brittle if tests depend on formatting/order.
+3. The proposed “small structured helper” is the right simplification direction. Keep it local to `NodeController` and avoid broad typed config models. Also avoid introducing unnecessary JSON-stack sprawl if existing repo parsing tools can cover the needed tree edits cleanly.
+4. The plan correctly notes that `/home/westbam/bcsh/jormanager/*.json` remains legacy-shaped today. That later template sync is fine as a separate task, but rollout language should continue to say that environment-facing alignment is still required before feature completion.
+
+Approval bar:
+1. Fix the sequencing/gating language so `task-100` and `task-104` cannot be mistaken as safely releasable before direct tracing/node-state consumers replace `BlockMonitor` and `NodeMonitor`.
+2. Narrow the task scope, acceptance, and tests from relay/core/pool to the live relay/core config-generation path, with pool inheritance called out explicitly.
+3. Pin the exact dispatcher-era retained key set and mutation rules from the Markus baseline plus compatibility keys, so implementation and tests are deterministic.
+
+Decision: requires_changes
+
+Planner: Iteration 2
+Timestamp: 2026-05-12T21:47:23Z
+
+I completed the final revision pass on `.agent/plans/cardano-node-jormanager-tracing/task-plans/task-100.md` after re-reading the required docs, PRD/tasks, the canonical `task-100` plan, the critique log, `config-markus.json`, `config-new.json`, and the live repo files needed to resolve the blockers truthfully. I re-verified the critique against live code before editing: `NodeController.createConfigFile()` is still only called for relay/core creation, pool creation still reuses the parent core `configFileId`/ports instead of generating its own config, `BlockMonitor` still depends on `logs/node.json` and rotated `logs/node-*.json` via `grep`/`tail`, and `NodeMonitor` still depends on `EkgService` and `node.ekgPort`. Based on that, I revised the canonical plan so `task-100` is explicitly documented as a prerequisite code change rather than an independently releasable rollout unit.
+
+The canonical plan now resolves all three blockers. First, it adds an explicit release gate: `task-100` and downstream `task-104` must not be rolled out for real new-node provisioning until the later listener, monitor-migration, HTTP-plumbing retirement, and deployed-template tasks land, because otherwise newly created nodes would regress block discovery and node stats. Second, it narrows scope, acceptance, and verification from relay/core/pool to the live relay/core config-generation path only, while documenting pool behavior truthfully as inherited parent-core config reuse that is affected only indirectly. Third, it pins the dispatcher-era mutation rules deterministically enough for implementation and tests without requiring a new research note first: generated relay/core configs must retain only the top-level tracing-key whitelist `UseTraceDispatcher`, `TraceOptions`, `TurnOnLogging`, `TurnOnLogMetrics`, `minSeverity`, plus `TraceOptionForwarder` for core only; Markus remains the `TraceOptions` baseline; the root `TraceOptions[""]` backends are normalized exactly to `["Stdout MachineFormat"]` for relay and `["Stdout MachineFormat", "Forwarder"]` for core; `TraceOptionForwarder` uses the exact `config-new.json` defaults `64/128/30`; and the dropped-key list now explicitly includes `defaultBackends`, `defaultScribes`, `setupBackends`, `setupScribes`, `rotation`, `TracingVerbosity`, `hasEkg`, `hasEKG`, `hasPrometheus`, `EKGBackend`, `PrometheusSimple`, `TraceOptionMetricsPrefix`, `TraceOptionResourceFrequency`, and legacy trace-boolean families. Verification was tightened to require structural JSON assertions for relay/core output and a static truth check for pool inheritance. Self-review passed: the plan is smaller, more deterministic, no longer claims a non-existent pool generation path, and no longer leaves rollout safety ambiguous.
+
+Outcome: Plan revised and approved for implementation handoff
+
