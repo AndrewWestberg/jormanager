@@ -2,15 +2,18 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T18:05:00Z",
-    "version": "1.1.0",
-    "totalTasks": 10,
+    "updated": "2026-05-12T21:35:00Z",
+    "version": "1.3.0",
+    "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
-    "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and replace BlockMonitor SSH log scraping with a direct forwarded tracing consumer.",
+    "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
     "sourceFiles": [
       "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
       "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/monitors/NodeMonitor.kt",
       "src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/NodeStats.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/services/EkgService.kt",
       "src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt",
       "vue/src/components/AddNodeWizard.vue",
       "src/main/resources/db/",
@@ -19,19 +22,30 @@
       "/home/westbam/bcsh/jormanager/preprod-config.json",
       "/home/westbam/bcsh/jormanager/preview-config.json"
     ],
-    "importantNote": "The block-discovery event for cardano-node 11.0.1 is forwarded namespace Forge.AdoptedBlock with machine payload kind TraceAdoptedBlock carried inside a TraceObject wrapper."
+    "referenceLinks": [
+      "https://github.com/IntersectMBO/cardano-node/tree/master/cardano-tracer",
+      "https://github.com/IntersectMBO/cardano-node/tree/master/trace-forward",
+      "https://github.com/IntersectMBO/hermod-tracing",
+      "https://github.com/nixedge/hermod-rust",
+      "https://github.com/nixedge/hermod-rust/blob/master/config/hermod-tracer.yaml",
+      "https://github.com/nixedge/hermod-rust/blob/master/src/server/mod.rs"
+    ],
+    "researchNotes": [
+      ".agent/plans/cardano-node-jormanager-tracing/research/hermod-protocol-reference-note.md"
+    ],
+    "importantNote": "Direct JorManager <-> node Hermod-compatible protocols are the only accepted integration boundary in this plan. Remove all EKG and Prometheus HTTP polling and all generated EKG or Prometheus HTTP node config."
   },
   "phases": [
     {
       "id": "phase-0",
       "name": "Schema And Provisioning Foundation",
-      "description": "Add the persistent tracing metadata needed to provision core nodes and carry tracing configuration through node creation.",
+      "description": "Add the persistent tracing metadata needed to provision core nodes and carry direct protocol configuration through node creation.",
       "riskLevel": "medium",
       "tasks": [
         {
           "id": "task-001",
           "title": "Add tracing port persistence for nodes",
-          "description": "Add database and entity support for a per-node tracing port so core nodes can expose a dedicated tracing listener without overloading existing metrics ports.",
+          "description": "Add database and entity support for a per-node tracing port so core nodes can expose a dedicated tracing listener without relying on EKG or Prometheus HTTP ports.",
           "status": "completed",
           "priority": "high",
           "estimatedHours": 1.5,
@@ -67,7 +81,7 @@
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
           "implementationNotes": [
-            "Start from promPort + 1 for core nodes and scan upward until a free port is found.",
+            "Use a tracing-port allocation strategy that does not depend on EKG or Prometheus HTTP ports.",
             "Persist tracingPort only for core nodes.",
             "Avoid adding a user-facing tracing port field in the first version unless backend flow proves it is required."
           ],
@@ -82,20 +96,20 @@
             "No tracing port is requested from the user in phase 1."
           ],
           "completedAt": "2026-05-12T18:05:00Z",
-          "completionNotes": "Added a minimal NodeController tracing-port allocation helper that starts from promPort + 1 for core nodes, scans upward with the existing host-local port probe, persists null for relay/pool nodes, and adds focused helper tests. Focused Gradle verification was attempted but backend Kotlin compilation remains blocked by unrelated pre-existing NodeController extension import/call-site failures in the workspace."
+          "completionNotes": "Added a minimal NodeController tracing-port allocation helper for core nodes that scans upward with the existing host-local port probe, persists null for relay/pool nodes, and adds focused helper tests. Focused Gradle verification was attempted but backend Kotlin compilation remains blocked by unrelated pre-existing NodeController extension import/call-site failures in the workspace."
         }
       ]
     },
     {
       "id": "phase-1",
       "name": "Node Config And Startup Migration",
-      "description": "Replace legacy file-tracing generation with dispatcher-era tracing config, update deployed node template configs, and wire core-node trace forwarding into startup generation.",
+      "description": "Replace legacy file-tracing generation with dispatcher-era tracing config, remove generated EKG and Prometheus HTTP config, pin the listener mechanism for automated implementation, and wire core-node trace forwarding into startup generation.",
       "riskLevel": "high",
       "tasks": [
         {
           "id": "task-100",
           "title": "Build dispatcher tracing config logic from Markus baseline",
-          "description": "Replace the legacy regex-driven config mutation path with app-side config generation logic that starts from the Markus tracing baseline and applies only the required 11.0.1 dispatcher-era mutations.",
+          "description": "Replace the legacy regex-driven config mutation path with app-side config generation logic that starts from the Markus tracing baseline and applies only the required 11.0.1 dispatcher-era mutations, without generating EKG or Prometheus HTTP config.",
           "status": "pending",
           "priority": "high",
           "estimatedHours": 3.0,
@@ -106,18 +120,21 @@
           "implementationNotes": [
             "Preserve Markus as the tracing baseline.",
             "Set UseTraceDispatcher true for all generated node configs.",
-            "Preserve Stdout MachineFormat and Prometheus wiring.",
+            "Preserve Stdout MachineFormat.",
             "Add Forwarder only for core nodes.",
-            "Retain only the compatibility-era top-level tracing keys still needed by cardano-node 11.0.1."
+            "Remove EKGBackend, PrometheusSimple, hasEkg, hasEKG, and any HTTP metrics bindings from generated configs.",
+            "Retain only the compatibility-era top-level non-HTTP tracing keys still needed by cardano-node 11.0.1."
           ],
           "testCases": [
             "Core config includes dispatcher tracing and forwarder backend.",
             "Relay and pool config include dispatcher tracing without forwarder backend.",
+            "Generated config does not include EKG or Prometheus HTTP configuration.",
             "Generated config does not emit file-log scribes or rotation config.",
             "Generated config carries required compatibility-era top-level keys."
           ],
           "acceptance": [
             "Config generation no longer depends on legacy file-log assumptions.",
+            "Config generation no longer emits EKG or Prometheus HTTP config.",
             "Generated tracing config is based on Markus plus minimal JorManager-owned mutations.",
             "Core and non-core node tracing shapes differ only where the PRD allows."
           ],
@@ -125,31 +142,27 @@
         },
         {
           "id": "task-101",
-          "title": "Update deployed node template configs",
-          "description": "Update the deployed node template configs under /home/westbam/bcsh/jormanager so new node creation for guild, mainnet, preprod, and preview inherits the dispatcher-era tracing setup.",
+          "title": "Pin the automated tracing listener mechanism",
+          "description": "Verify and codify the exact cardano-node 11.0.1 tracing listener/startup mechanism so the agentic implementation can rely on fixtures and tests instead of manual runtime discovery.",
           "status": "pending",
           "priority": "high",
           "estimatedHours": 1.5,
-          "dependencies": [
-            "task-100"
-          ],
-          "targetPath": "/home/westbam/bcsh/jormanager/mainnet-config.json",
+          "dependencies": [],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
           "implementationNotes": [
-            "Update only guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json.",
-            "Keep db-sync config files explicitly out of scope.",
-            "Apply the same dispatcher-era tracing rules used by the JorManager config-generation design.",
-            "Remove legacy file-log assumptions from the deployed templates."
+            "Turn the accepted listener shape into a reproducible fixture or documented config/startup artifact under the tracing plan research area or test resources.",
+            "Avoid leaving listener verification as an implicit manual coding-time activity.",
+            "Capture enough detail that prompt.md can implement startup wiring without operator intervention."
           ],
           "testCases": [
-            "All four deployed node template configs use dispatcher tracing.",
-            "All four deployed node template configs preserve machine-formatted stdout logging.",
-            "No updated template carries legacy file-log scribes or rotation assumptions.",
-            "No *-db-sync-config.json file is modified."
+            "A fixture or focused test pins the accepted listener/startup shape for cardano-node 11.0.1.",
+            "The verified listener mechanism is expressible through JorManager-generated artifacts.",
+            "The implementation path no longer depends on interactive runtime experimentation."
           ],
           "acceptance": [
-            "guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json are updated for the tracing migration.",
-            "The deployed template configs align with the PRD's dispatcher-era tracing model.",
-            "db-sync config templates remain untouched."
+            "The tracing listener mechanism is explicitly verified and documented in code-adjacent artifacts.",
+            "Subsequent startup-generation work can be implemented in an automated fashion.",
+            "No user interaction is required to choose between config-only and CLI-only wiring during implementation."
           ]
         },
         {
@@ -160,7 +173,8 @@
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
-            "task-101"
+            "task-101",
+            "task-100"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
           "implementationNotes": [
@@ -178,40 +192,95 @@
             "Generated startup artifacts remain consistent with JorManager's existing deployment style.",
             "No runtime dependency on cardano-tracer is introduced."
           ]
+        },
+        {
+          "id": "task-104",
+          "title": "Remove EKG and Prometheus HTTP request plumbing",
+          "description": "Remove EKG and Prometheus HTTP port fields from backend request models and new-node UI plumbing so the new direct-protocol design is reflected before monitor migration completes.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 1.5,
+          "dependencies": [
+            "task-100"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt",
+          "implementationNotes": [
+            "Remove EKG and Prometheus HTTP port fields from CreateNodeRequest and AddNodeWizard for new-node creation.",
+            "Keep frontend changes internal-only and do not add tracing controls.",
+            "Do this early so downstream implementation and tests no longer carry obsolete request assumptions."
+          ],
+          "testCases": [
+            "New-node request models no longer require EKG or Prometheus HTTP ports.",
+            "New-node UI plumbing no longer exposes EKG or Prometheus HTTP port inputs.",
+            "No tracing-specific user interaction is introduced."
+          ],
+          "acceptance": [
+            "No new-node UI or API surface remains for EKG or Prometheus HTTP ports.",
+            "Request and UI plumbing align with the direct-protocol design before monitor migration completes.",
+            "No user interaction is required for tracing-related new-node inputs."
+          ]
         }
       ]
     },
     {
       "id": "phase-2",
-      "name": "Tracing Consumer Subsystem",
-      "description": "Introduce the direct tracing client stack that can connect to core nodes, decode forwarded trace objects, and normalize adopted-block events for JorManager.",
+      "name": "Direct Protocol Consumer Subsystem",
+      "description": "Introduce the direct Hermod-compatible client stack that can connect to core nodes, using automated fixtures first, then decode forwarded trace objects and normalize the block data JorManager needs in the first implementation wave.",
       "riskLevel": "high",
       "tasks": [
         {
           "id": "task-200",
           "title": "Add core tracing connection lifecycle management",
-          "description": "Create the first pass of a dedicated tracing subsystem that manages one direct trace-forward connection per core node and handles reconnects without depending on SSH or cardano-tracer.",
+          "description": "Create the first pass of a dedicated Hermod-compatible subsystem that manages the required long-lived node protocol session(s) per core node and handles reconnects without depending on SSH, cardano-tracer, or a Hermod sidecar.",
           "status": "pending",
           "priority": "high",
           "estimatedHours": 4.0,
           "dependencies": [
-            "task-102"
+            "task-102",
+            "task-203"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
           "implementationNotes": [
             "Keep the tracing subsystem separate from the existing node-to-client mini-protocol code even if lifecycle patterns are reused.",
-            "Manage one connection per forwarded core node.",
+            "Manage the required long-lived Hermod-compatible session or sessions per forwarded core node without overcommitting to a single-session topology.",
             "Make reconnect and shutdown behavior explicit and testable."
           ],
           "testCases": [
-            "Subsystem opens a tracing connection per eligible core node.",
+            "Subsystem opens the required tracing session or sessions per eligible core node.",
             "Connection loss triggers reconnect behavior.",
             "Deleting or disabling a node tears down its tracing session cleanly."
           ],
           "acceptance": [
             "JorManager has a dedicated tracing connection manager or equivalent service.",
             "The subsystem is independent from SSH log scraping.",
-            "The subsystem can be extended to more trace event families later."
+            "The subsystem can be extended to more Hermod-compatible event or state families later."
+          ]
+        },
+        {
+          "id": "task-203",
+          "title": "Add automated protocol fixtures for tracing implementation",
+          "description": "Create synthetic protocol fixtures or a lightweight simulated server so Hermod-compatible lifecycle, decode, and reconnect behavior can be implemented and tested without depending on live node experimentation.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": [
+            "task-102"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
+          "implementationNotes": [
+            "Prefer committed fixtures or a lightweight fake server under test resources over manual integration-only validation.",
+            "Make the artifacts reusable by both the block-event and node-state workstreams.",
+            "Optimize for prompt.md-driven implementation and regression coverage."
+          ],
+          "testCases": [
+            "Tracing client tests can run against synthetic protocol fixtures or a simulated server.",
+            "Reconnect behavior is testable without live remote nodes.",
+            "Decoder behavior can be exercised with reproducible payload fixtures."
+          ],
+          "acceptance": [
+            "The implementation path no longer depends primarily on live-node manual testing.",
+            "Automated fixtures exist for the direct Hermod-compatible protocol work.",
+            "The same fixtures can be reused in later node-state migration work."
           ]
         },
         {
@@ -222,7 +291,7 @@
           "priority": "high",
           "estimatedHours": 3.0,
           "dependencies": [
-            "task-200"
+            "task-203"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
           "implementationNotes": [
@@ -268,14 +337,43 @@
             "Current downstream validation semantics remain intact.",
             "No new historical replay behavior is introduced."
           ]
+        },
+        {
+          "id": "task-204",
+          "title": "Pin the node-state protocol family and mapping",
+          "description": "Pin the exact direct Hermod-compatible node-state protocol family used in this version and verify how its payloads normalize into the current NodeStats contract.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": [
+            "task-203"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/model/NodeStats.kt",
+          "implementationNotes": [
+            "Make an explicit design decision for this version between forwarded trace objects, data-point style exchanges, or another Hermod-compatible node-state family.",
+            "Create the equivalent of the block-event decoder task for node-state data before refactoring NodeMonitor.",
+            "Pin the mapping for peers, incomingPeers, blockHeight, remainingKESPeriods, epoch, slot, slotInEpoch, and txsProcessed.",
+            "Use automated fixtures instead of relying on manual node inspection."
+          ],
+          "testCases": [
+            "Node-state payload fixtures map cleanly into the current NodeStats shape.",
+            "Missing or malformed node-state fields fail safely.",
+            "The mapping can be reused by the later NodeMonitor refactor."
+          ],
+          "acceptance": [
+            "The node-state protocol family is explicitly pinned for the first migration version.",
+            "A concrete node-state mapping exists before NodeMonitor is refactored.",
+            "Node-state migration is no longer under-specified compared with block-event migration.",
+            "The mapping is covered by automated tests."
+          ]
         }
       ]
     },
     {
       "id": "phase-3",
-      "name": "Monitor Migration And Final Alignment",
-      "description": "Remove the old SSH or file-scraping discovery path, align minimal UI or API plumbing, and add focused coverage so the new tracing model is the only supported path for new nodes.",
-      "riskLevel": "medium",
+      "name": "Monitor Migration",
+      "description": "Replace the old discovery and polling paths with direct Hermod-compatible consumers once the protocol foundation is automated and testable.",
+      "riskLevel": "high",
       "tasks": [
         {
           "id": "task-300",
@@ -306,55 +404,151 @@
         },
         {
           "id": "task-301",
-          "title": "Finish minimal plumbing tests and docs",
-          "description": "Complete the small backend or frontend plumbing needed for tracing metadata exposure, add focused automated coverage, and update plan docs to reflect implementation reality.",
+          "title": "Replace NodeMonitor HTTP metrics polling with direct node protocol consumption",
+          "description": "Refactor NodeMonitor so the current NodeStats data comes from direct Hermod-compatible node protocol consumption rather than EKG or Prometheus HTTP polling or SSH port-forwarding.",
           "status": "pending",
-          "priority": "medium",
-          "estimatedHours": 3.0,
+          "priority": "high",
+          "estimatedHours": 4.0,
           "dependencies": [
-            "task-300"
+            "task-204"
           ],
-          "targetPath": "vue/src/components/AddNodeWizard.vue",
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/monitors/NodeMonitor.kt",
           "implementationNotes": [
-            "Only add frontend or API shape changes that are required for internal plumbing.",
-            "Prefer backend tests around config generation, port allocation, decoder behavior, and block flow.",
-            "Update PRD, prompt, and research if implementation truths differ from planning assumptions."
+            "Preserve the NodeStats contract where practical while changing the underlying source.",
+            "Remove dependency on EkgService and on node HTTP endpoint polling.",
+            "Remove SSH port-forwarding used only to reach node HTTP metrics surfaces.",
+            "Use the same direct protocol boundary as the tracing subsystem rather than introducing a sidecar."
           ],
           "testCases": [
-            "Config generation tests cover core and non-core tracing differences.",
-            "Port allocation tests cover collision scanning.",
-            "Tracing decoder tests cover Forge.AdoptedBlock and malformed payloads.",
-            "Plan docs are synchronized with the implemented system."
+            "NodeMonitor no longer polls EKG HTTP endpoints.",
+            "NodeMonitor no longer polls Prometheus HTTP endpoints.",
+            "NodeMonitor no longer uses SSH port-forwarding for HTTP metrics collection.",
+            "Decoded node-state data still produces the current NodeStats fields."
           ],
           "acceptance": [
-            "Only minimal internal plumbing changes are made outside the backend core.",
-            "Focused automated coverage exists for the highest-risk migration areas.",
-            "Plan artifacts are updated to reflect the implemented result."
+            "NodeMonitor is no longer coupled to HTTP EKG or Prometheus endpoints.",
+            "Dashboard node stats are fed by direct node protocol consumption.",
+            "The direct protocol subsystem covers both block flow and node-state flow."
+          ]
+        },
+        {
+          "id": "task-302",
+          "title": "Retire HTTP-only metrics plumbing",
+          "description": "Retire EkgService and any remaining HTTP-only metrics plumbing once BlockMonitor and NodeMonitor have both moved to the direct Hermod-compatible boundary.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 1.5,
+          "dependencies": [
+            "task-300",
+            "task-301"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/EkgService.kt",
+          "implementationNotes": [
+            "Retire EkgService or any equivalent HTTP-only client once no call sites remain.",
+            "Do not remove HTTP-only plumbing until direct replacements are already in place.",
+            "Keep this cleanup separate from docs synchronization."
+          ],
+          "testCases": [
+            "No production call site remains for EkgService or equivalent HTTP-only metrics clients.",
+            "NodeMonitor behavior remains intact after HTTP-only client retirement."
+          ],
+          "acceptance": [
+            "HTTP-only metrics plumbing is retired only after direct replacements are live.",
+            "The codebase no longer carries an active EKG or Prometheus HTTP metrics path."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Release Alignment And Docs",
+      "description": "Apply environment-facing template updates and synchronize planning artifacts after the automated code path is already implemented.",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-103",
+          "title": "Update deployed node template configs",
+          "description": "Update the deployed node template configs under /home/westbam/bcsh/jormanager so new node creation for guild, mainnet, preprod, and preview inherits the dispatcher-era tracing setup without EKG or Prometheus HTTP config.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 1.5,
+          "dependencies": [
+            "task-302"
+          ],
+          "targetPath": "/home/westbam/bcsh/jormanager/mainnet-config.json",
+          "implementationNotes": [
+            "Update only guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json.",
+            "Keep db-sync config files explicitly out of scope.",
+            "Apply the same dispatcher-era tracing rules used by the JorManager config-generation design after the app-side implementation is already proven.",
+            "Remove legacy file-log assumptions and all EKG or Prometheus HTTP config from the deployed templates."
+          ],
+          "testCases": [
+            "All four deployed node template configs use dispatcher tracing.",
+            "All four deployed node template configs preserve machine-formatted stdout logging.",
+            "No updated template carries legacy file-log scribes, rotation assumptions, or EKG or Prometheus HTTP config.",
+            "No *-db-sync-config.json file is modified."
+          ],
+          "acceptance": [
+            "guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json are updated for the tracing migration.",
+            "The deployed template configs align with the PRD's dispatcher-era direct-protocol model.",
+            "db-sync config templates remain untouched."
+          ]
+        },
+        {
+          "id": "task-400",
+          "title": "Sync plan docs and prompt artifacts",
+          "description": "Update PRD, tasks, research notes, and prompt-driven implementation guidance after the direct-protocol implementation is stable.",
+          "status": "pending",
+          "priority": "low",
+          "estimatedHours": 1.5,
+          "dependencies": [
+            "task-103"
+          ],
+          "targetPath": ".agent/plans/cardano-node-jormanager-tracing/",
+          "implementationNotes": [
+            "Keep doc synchronization separate from core implementation tasks.",
+            "Ensure prompt.md guidance reflects the final automated implementation path.",
+            "Only do this after the implementation truth is known."
+          ],
+          "testCases": [
+            "PRD and tasks reflect the implemented sequencing and design.",
+            "Research notes still point to the correct implementation references.",
+            "Prompt-oriented guidance matches the final architecture."
+          ],
+          "acceptance": [
+            "Plan artifacts are synchronized with the implemented result.",
+            "Prompt-driven implementation guidance no longer depends on stale assumptions.",
+            "Documentation work does not block core implementation."
           ]
         }
       ]
     }
   ],
   "summary": {
-    "totalPhases": 4,
-    "totalTasks": 10,
-    "estimatedTotalHours": 26.0,
+    "totalPhases": 5,
+    "totalTasks": 16,
+    "estimatedTotalHours": 37.5,
     "criticalPath": [
       "task-001",
       "task-002",
       "task-100",
-      "task-101",
       "task-102",
+      "task-203",
       "task-200",
       "task-201",
       "task-202",
       "task-300",
-      "task-301"
+      "task-302",
+      "task-103",
+      "task-400"
     ],
     "keyFiles": [
       "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
       "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/monitors/NodeMonitor.kt",
       "src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/NodeStats.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/services/EkgService.kt",
       "src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt",
       "src/main/resources/db/",
       "vue/src/components/AddNodeWizard.vue",
@@ -365,12 +559,14 @@
     ],
     "riskAreas": [
       "Verifying the exact cardano-node 11.0.1 tracing listener startup mechanism.",
-      "Implementing the trace-forward wire client without overfitting to cardano-tracer internals.",
+      "Implementing the Hermod-compatible wire client without overfitting to cardano-tracer or Hermod sidecar internals.",
       "Keeping the deployed node template configs in /home/westbam/bcsh/jormanager aligned with the app-side tracing model.",
       "Replacing BlockMonitor discovery without regressing forged or missed or orphaned classification semantics.",
+      "Preserving NodeMonitor dashboard semantics while removing EKG and Prometheus HTTP polling.",
+      "Keeping the implementation path fully automatable through fixtures instead of manual runtime experimentation.",
       "Migrating config generation away from legacy regex mutation safely."
     ],
-    "testingNotes": "Prioritize focused backend coverage for config generation, tracing port allocation, trace object decoding, tracing connection lifecycle, and end-to-end candidate block persistence. Frontend checks should stay limited to any internal payload plumbing that proves necessary.",
+    "testingNotes": "Prioritize focused backend coverage for config generation, tracing port allocation, listener/startup fixtures, Hermod-compatible trace object decoding, tracing connection lifecycle, reusable protocol fixtures, NodeMonitor node-state decoding, and end-to-end candidate block persistence. Frontend checks should stay limited to removing obsolete EKG and Prometheus HTTP inputs from new-node creation.",
     "rollbackPlan": "Disable or revert the tracing migration as a unit by restoring the previous node config generation and BlockMonitor discovery path from git if implementation verification fails before release. Newly created nodes should not be partially rolled out with mixed tracing models."
   }
 }
