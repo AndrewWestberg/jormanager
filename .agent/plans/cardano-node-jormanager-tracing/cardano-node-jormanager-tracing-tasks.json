@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T22:30:07Z",
-    "version": "1.5.0",
+    "updated": "2026-05-12T22:43:25Z",
+    "version": "1.6.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -203,7 +203,7 @@
           "id": "task-104",
           "title": "Remove EKG and Prometheus HTTP request plumbing",
           "description": "Remove EKG and Prometheus HTTP port fields from backend request models and new-node UI plumbing so the new direct-protocol design is reflected before monitor migration completes.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -224,7 +224,9 @@
             "No new-node UI or API surface remains for EKG or Prometheus HTTP ports.",
             "Request and UI plumbing align with the direct-protocol design before monitor migration completes.",
             "No user interaction is required for tracing-related new-node inputs."
-          ]
+          ],
+          "completedAt": "2026-05-12T22:43:25Z",
+          "completionNotes": "Removed request and wizard exposure of EKG/Prometheus ports, replaced request-fed controller usage with an internal metrics-port allocation seam that preserves persisted `Node.ekgPort`/`Node.promPort` and core tracing-port sequencing, and verified the change with focused NodeController tests plus a required Vue production build. Runtime HTTP metrics behavior for newly created nodes remains intentionally gated behind later monitor migration tasks."
         }
       ]
     },

@@ -201,11 +201,9 @@ class NodeController
                         createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
                         val (configFileId, ekgPort, promPort) =
                             createConfigFile(
-                                hostId = request.hostId,
                                 genesisByronFileName = genesisByronFile.name,
                                 nodeType = request.type,
-                                requestEkgPort = request.ekgPort,
-                                requestPromPort = request.promPort,
+                                metricsPorts = allocateMetricsPorts(request.hostId, hostConnection),
                                 hostConnection = hostConnection,
                                 nodeFolder = nodeFolder,
                                 maxConcurrencyDeadline = "4",
@@ -1027,13 +1025,12 @@ class NodeController
                                     createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
                                     createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
                                     createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
+                                    val metricsPorts = allocateMetricsPorts(request.hostId, hostConnection)
                                     val (configFileId, ekgPort, promPort) =
                                         createConfigFile(
-                                            hostId = request.hostId,
                                             genesisByronFileName = genesisByronFile.name,
                                             nodeType = request.type,
-                                            requestEkgPort = request.ekgPort,
-                                            requestPromPort = request.promPort,
+                                            metricsPorts = metricsPorts,
                                             hostConnection = hostConnection,
                                             nodeFolder = nodeFolder,
                                             maxConcurrencyDeadline = "2",
@@ -3285,32 +3282,34 @@ class NodeController
             hostConnection.command("chmod 400 $nodeFolder/$nodeName.node.opcert")
         }
 
-        private fun createConfigFile(
+        internal fun allocateMetricsPorts(
             hostId: Long,
+            hostConnection: HostConnection,
+            isPortUsed: (Int) -> Boolean = { port -> isPortUsed(hostConnection, port) },
+        ): Pair<Int, Int> {
+            var ekgPort = 12788 + (2 * nodeRepository.countForHost(hostId))
+            while (isPortUsed(ekgPort)) {
+                ekgPort++
+            }
+
+            var promPort = ekgPort + 1
+            while (isPortUsed(promPort)) {
+                promPort++
+            }
+
+            return ekgPort to promPort
+        }
+
+        private fun createConfigFile(
             genesisByronFileName: String,
             nodeType: String,
-            requestEkgPort: Int,
-            requestPromPort: Int,
+            metricsPorts: Pair<Int, Int>,
             hostConnection: HostConnection,
             nodeFolder: String,
             maxConcurrencyDeadline: String,
             peerSharing: Boolean,
         ): Triple<Long, Int, Int> {
-            var ekgPort = requestEkgPort
-
-            if (ekgPort == -1) {
-                ekgPort = 12788 + (2 * nodeRepository.countForHost(hostId))
-                while (isPortUsed(hostConnection, ekgPort)) {
-                    ekgPort++
-                }
-            }
-            var promPort = requestPromPort
-            if (promPort == -1) {
-                promPort = ekgPort + 1
-                while (isPortUsed(hostConnection, promPort)) {
-                    promPort++
-                }
-            }
+            val (ekgPort, promPort) = metricsPorts
             val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
             val configFileContent =
                 configFile?.content?.let {
