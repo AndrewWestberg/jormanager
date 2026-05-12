@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T23:21:36Z",
-    "version": "1.7.0",
+    "updated": "2026-05-12T23:44:12Z",
+    "version": "1.8.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -240,7 +240,7 @@
           "id": "task-200",
           "title": "Add core tracing connection lifecycle management",
           "description": "Create the first pass of a dedicated Hermod-compatible subsystem that manages the required long-lived node protocol session(s) per core node and handles reconnects without depending on SSH, cardano-tracer, or a Hermod sidecar.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 4.0,
           "dependencies": [
@@ -262,7 +262,9 @@
             "JorManager has a dedicated tracing connection manager or equivalent service.",
             "The subsystem is independent from SSH log scraping.",
             "The subsystem can be extended to more Hermod-compatible event or state families later."
-          ]
+          ],
+          "completedAt": "2026-05-12T23:44:12Z",
+          "completionNotes": "Added a new production tracing lifecycle package with a dedicated `TracingConnectionManager`, a minimal direct TCP trace-forward session client, and a single raw-message sink seam for later decoder work. Focused lifecycle tests now cover seeded startup, reconnect on disconnect, idempotent duplicate node refreshes, ineligibility teardown, idle-session stability, and both Spring stop paths; the final Gradle verification passed, though current repo wiring also runs Vue unit tests and frontend build during the backend target."
         },
         {
           "id": "task-203",
