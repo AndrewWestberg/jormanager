@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T22:43:25Z",
-    "version": "1.6.0",
+    "updated": "2026-05-12T23:21:36Z",
+    "version": "1.7.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -268,7 +268,7 @@
           "id": "task-203",
           "title": "Add automated protocol fixtures for tracing implementation",
           "description": "Create synthetic protocol fixtures or a lightweight simulated server so Hermod-compatible lifecycle, decode, and reconnect behavior can be implemented and tested without depending on live node experimentation.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -289,7 +289,9 @@
             "The implementation path no longer depends primarily on live-node manual testing.",
             "Automated fixtures exist for the direct Hermod-compatible protocol work.",
             "The same fixtures can be reused in later node-state migration work."
-          ]
+          ],
+          "completedAt": "2026-05-12T23:21:36Z",
+          "completionNotes": "Added a test-only tracing fixture package with independent CBOR byte anchors for the minimum request/reply/done session contract, a scripted fake server for repeated-session reconnect scenarios, and forwarded adopted-block wrapper fixtures that preserve the PRD-pinned `toNamespace`/`toMachine` boundary without guessing node-state payload families. Focused Gradle verification passed, though the repo's current build wiring also ran Vue tests and production build during the backend test target."
         },
         {
           "id": "task-201",
