@@ -90,4 +90,6 @@ data class Node(
     val extendedMetadataUrl: String? = null,
     @Column(name = "deleted")
     val isDeleted: Boolean = false,
+    @Column(name = "tracing_port")
+    val tracingPort: Int? = null,
 )

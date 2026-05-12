@@ -2,7 +2,7 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12",
+    "updated": "2026-05-12T17:51:00Z",
     "version": "1.1.0",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
@@ -32,7 +32,7 @@
           "id": "task-001",
           "title": "Add tracing port persistence for nodes",
           "description": "Add database and entity support for a per-node tracing port so core nodes can expose a dedicated tracing listener without overloading existing metrics ports.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 1.5,
           "dependencies": [],
@@ -51,7 +51,9 @@
             "Database schema includes nodes.tracing_port.",
             "Backend model can persist and read tracingPort values.",
             "No tracing-specific UI controls are added."
-          ]
+          ],
+          "completedAt": "2026-05-12T17:51:00Z",
+          "completionNotes": "Added nullable Node.tracingPort persistence and Liquibase changeset 039 without widening into controller, request-model, UI, or live Liquibase execution. Manual schema application is deferred to later end-to-end validation."
         },
         {
           "id": "task-002",
