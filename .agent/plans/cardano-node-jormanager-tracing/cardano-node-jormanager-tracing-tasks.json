@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T21:35:00Z",
-    "version": "1.3.0",
+    "updated": "2026-05-12T22:01:36Z",
+    "version": "1.4.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -110,7 +110,7 @@
           "id": "task-100",
           "title": "Build dispatcher tracing config logic from Markus baseline",
           "description": "Replace the legacy regex-driven config mutation path with app-side config generation logic that starts from the Markus tracing baseline and applies only the required 11.0.1 dispatcher-era mutations, without generating EKG or Prometheus HTTP config.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 3.0,
           "dependencies": [
@@ -138,7 +138,9 @@
             "Generated tracing config is based on Markus plus minimal JorManager-owned mutations.",
             "Core and non-core node tracing shapes differ only where the PRD allows."
           ],
-          "notes": "A small structured config builder is preferred over more regex patching of legacy config blobs."
+          "notes": "A small structured config builder is preferred over more regex patching of legacy config blobs.",
+          "completedAt": "2026-05-12T22:01:36Z",
+          "completionNotes": "Replaced the live NodeController tracing-config regex path with a structured JSON-tree helper that seeds TraceOptions from an explicit Markus-derived baseline, applies the pinned dispatcher-era relay/core mutations, removes legacy tracing and HTTP metrics keys from generated output, and adds focused NodeControllerTest coverage for Markus-based relay/core config shape. Rollout remains gated behind later listener, consumer-migration, and template-alignment tasks."
         },
         {
           "id": "task-101",

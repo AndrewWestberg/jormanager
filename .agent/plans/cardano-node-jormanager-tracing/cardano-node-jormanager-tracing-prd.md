@@ -771,6 +771,9 @@ streams:
 
 - **Status:** 📝 Draft
 - **Started:** 2026-05-12
+- **Implementation Notes:**
+  - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
+  - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `BlockMonitor` and `NodeMonitor` still depend on legacy outputs today.
 
 ---
 

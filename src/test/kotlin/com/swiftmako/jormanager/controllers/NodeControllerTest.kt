@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.controllers
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.common.truth.Truth.assertThat
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.Host
@@ -17,6 +18,55 @@ import retrofit2.Retrofit
 class NodeControllerTest {
     private val config = Configuration()
     private val moshi = config.getMoshi()
+    private val objectMapper = ObjectMapper()
+    private val legacyConfigTemplate =
+        """
+        {
+          "ConwayGenesisFile": "/tmp/conway.json",
+          "AlonzoGenesisFile": "/tmp/alonzo.json",
+          "ByronGenesisFile": "/tmp/byron.json",
+          "ShelleyGenesisFile": "/tmp/shelley.json",
+          "GenesisFile": "/tmp/legacy-shelley.json",
+          "PeerSharing": false,
+          "MaxConcurrencyDeadline": 1,
+          "TraceOptions": {
+            "": {
+              "backends": [
+                "Stdout HumanFormatColoured",
+                "PrometheusSimple suffix 127.0.0.1 12798"
+              ],
+              "detail": "DNormal",
+              "severity": "Warning"
+            },
+            "Forge.AdoptedBlock": {
+              "severity": "Info"
+            }
+          },
+          "UseTraceDispatcher": false,
+          "TurnOnLogging": false,
+          "TurnOnLogMetrics": false,
+          "minSeverity": "Notice",
+          "TraceOptionForwarder": {
+            "connQueueSize": 1,
+            "disconnQueueSize": 2,
+            "maxReconnectDelay": 3
+          },
+          "TraceOptionMetricsPrefix": "cardano.node.metrics.",
+          "TraceOptionResourceFrequency": 1000,
+          "TraceBlockFetchDecisions": true,
+          "defaultBackends": [],
+          "defaultScribes": [],
+          "setupBackends": [],
+          "setupScribes": [],
+          "rotation": {},
+          "TracingVerbosity": "Normal",
+          "EKGBackend": "127.0.0.1:12788",
+          "PrometheusSimple": "127.0.0.1:12789",
+          "hasEkg": 12788,
+          "hasEKG": 12788,
+          "hasPrometheus": 12789
+        }
+        """.trimIndent()
 
     private fun createTarget() =
         NodeController(
@@ -85,6 +135,123 @@ class NodeControllerTest {
         assertThat(relayTracingPort).isNull()
         assertThat(poolTracingPort).isNull()
         assertThat(probeCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun renderManagedConfigBuildsCoreDispatcherTracingShape() {
+        val target = createTarget()
+
+        val rendered =
+            target.renderManagedConfig(
+                templateContent = legacyConfigTemplate,
+                nodeType = NodeController.NODE_TYPE_CORE,
+                maxConcurrencyDeadline = "2",
+                peerSharing = false,
+            )
+
+        val root = objectMapper.readTree(rendered)
+
+        assertThat(root.get("UseTraceDispatcher").asBoolean()).isTrue()
+        assertThat(root.get("TurnOnLogging").asBoolean()).isTrue()
+        assertThat(root.get("TurnOnLogMetrics").asBoolean()).isTrue()
+        assertThat(root.get("minSeverity").asText()).isEqualTo("Critical")
+        assertThat(root.get("PeerSharing").asBoolean()).isFalse()
+        assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(2)
+        assertThat(root.get("ConwayGenesisFile").asText()).isEqualTo("conway-genesis.json")
+        assertThat(root.get("AlonzoGenesisFile").asText()).isEqualTo("alonzo-genesis.json")
+        assertThat(root.get("ByronGenesisFile").asText()).isEqualTo("byron-genesis.json")
+        assertThat(root.get("ShelleyGenesisFile").asText()).isEqualTo("shelley-genesis.json")
+        assertThat(root.get("GenesisFile").asText()).isEqualTo("shelley-genesis.json")
+
+        val rootTraceOptions = root.get("TraceOptions").get("")
+        assertThat(rootTraceOptions.get("severity").asText()).isEqualTo("Notice")
+        assertThat(rootTraceOptions.get("detail")).isNull()
+        assertThat(rootTraceOptions.get("backends").map { it.asText() })
+            .containsExactly("Stdout MachineFormat", "Forwarder")
+            .inOrder()
+
+        val forwarder = root.get("TraceOptionForwarder")
+        assertThat(forwarder).isNotNull()
+        assertThat(forwarder.get("connQueueSize").asInt()).isEqualTo(64)
+        assertThat(forwarder.get("disconnQueueSize").asInt()).isEqualTo(128)
+        assertThat(forwarder.get("maxReconnectDelay").asInt()).isEqualTo(30)
+
+        assertThat(root.get("TraceOptions").get("Version.NodeVersion").get("severity").asText()).isEqualTo("Info")
+        assertThat(root.get("TraceOptions").get("ChainSync.Client").get("severity").asText()).isEqualTo("Warning")
+        assertThat(root.get("TraceOptions").get("Resources").get("maxFrequency").asDouble()).isEqualTo(0.0167)
+        assertThat(root.fieldNames().asSequence().toList())
+            .containsExactly(
+                "ConwayGenesisFile",
+                "AlonzoGenesisFile",
+                "ByronGenesisFile",
+                "ShelleyGenesisFile",
+                "GenesisFile",
+                "PeerSharing",
+                "MaxConcurrencyDeadline",
+                "TraceOptions",
+                "UseTraceDispatcher",
+                "TurnOnLogging",
+                "TurnOnLogMetrics",
+                "minSeverity",
+                "TraceOptionForwarder",
+            )
+        assertThat(root.get("TraceBlockFetchDecisions")).isNull()
+        assertThat(root.get("defaultScribes")).isNull()
+        assertThat(root.get("rotation")).isNull()
+        assertThat(root.get("EKGBackend")).isNull()
+        assertThat(root.get("PrometheusSimple")).isNull()
+        assertThat(root.get("hasEkg")).isNull()
+        assertThat(root.get("hasEKG")).isNull()
+        assertThat(root.get("hasPrometheus")).isNull()
+        assertThat(root.get("TraceOptionMetricsPrefix")).isNull()
+        assertThat(root.get("TraceOptionResourceFrequency")).isNull()
+    }
+
+    @Test
+    fun renderManagedConfigBuildsRelayDispatcherTracingShape() {
+        val target = createTarget()
+
+        val rendered =
+            target.renderManagedConfig(
+                templateContent = legacyConfigTemplate,
+                nodeType = NodeController.NODE_TYPE_RELAY,
+                maxConcurrencyDeadline = "4",
+                peerSharing = true,
+            )
+
+        val root = objectMapper.readTree(rendered)
+
+        assertThat(root.get("UseTraceDispatcher").asBoolean()).isTrue()
+        assertThat(root.get("TurnOnLogging").asBoolean()).isTrue()
+        assertThat(root.get("TurnOnLogMetrics").asBoolean()).isTrue()
+        assertThat(root.get("minSeverity").asText()).isEqualTo("Critical")
+        assertThat(root.get("PeerSharing").asBoolean()).isTrue()
+        assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(4)
+        assertThat(root.get("TraceOptions").get("").get("backends").map { it.asText() })
+            .containsExactly("Stdout MachineFormat")
+        assertThat(root.get("TraceOptions").get("Version.NodeVersion").get("severity").asText()).isEqualTo("Info")
+        assertThat(root.get("TraceOptions").get("ChainSync.Client").get("severity").asText()).isEqualTo("Warning")
+        assertThat(root.get("TraceOptionForwarder")).isNull()
+        assertThat(root.fieldNames().asSequence().toList())
+            .containsExactly(
+                "ConwayGenesisFile",
+                "AlonzoGenesisFile",
+                "ByronGenesisFile",
+                "ShelleyGenesisFile",
+                "GenesisFile",
+                "PeerSharing",
+                "MaxConcurrencyDeadline",
+                "TraceOptions",
+                "UseTraceDispatcher",
+                "TurnOnLogging",
+                "TurnOnLogMetrics",
+                "minSeverity",
+            )
+        assertThat(root.get("TraceBlockFetchDecisions")).isNull()
+        assertThat(root.get("defaultBackends")).isNull()
+        assertThat(root.get("defaultScribes")).isNull()
+        assertThat(root.get("EKGBackend")).isNull()
+        assertThat(root.get("PrometheusSimple")).isNull()
     }
 
     @Test

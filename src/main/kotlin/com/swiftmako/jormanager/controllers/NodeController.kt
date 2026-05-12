@@ -1,5 +1,9 @@
 package com.swiftmako.jormanager.controllers
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.databind.node.ArrayNode
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -100,6 +104,11 @@ class NodeController
         // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
+        private val objectMapper by lazy {
+            ObjectMapper().apply {
+                enable(SerializationFeature.INDENT_OUTPUT)
+            }
+        }
 
         @MessageMapping("/nodes")
         @SendTo("/topic/messages")
@@ -194,6 +203,7 @@ class NodeController
                             createConfigFile(
                                 hostId = request.hostId,
                                 genesisByronFileName = genesisByronFile.name,
+                                nodeType = request.type,
                                 requestEkgPort = request.ekgPort,
                                 requestPromPort = request.promPort,
                                 hostConnection = hostConnection,
@@ -1006,6 +1016,7 @@ class NodeController
                                         createConfigFile(
                                             hostId = request.hostId,
                                             genesisByronFileName = genesisByronFile.name,
+                                            nodeType = request.type,
                                             requestEkgPort = request.ekgPort,
                                             requestPromPort = request.promPort,
                                             hostConnection = hostConnection,
@@ -3372,6 +3383,7 @@ class NodeController
         private fun createConfigFile(
             hostId: Long,
             genesisByronFileName: String,
+            nodeType: String,
             requestEkgPort: Int,
             requestPromPort: Int,
             hostConnection: HostConnection,
@@ -3396,6 +3408,15 @@ class NodeController
             }
             val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
             val configFileContent =
+                configFile?.content?.let {
+                    renderManagedConfig(
+                        templateContent = it,
+                        nodeType = nodeType,
+                        maxConcurrencyDeadline = maxConcurrencyDeadline,
+                        peerSharing = peerSharing,
+                    )
+                }
+            /*
                 configFile
                     ?.content
                     ?.replace(Regex(""""ConwayGenesisFile": .*,"""), """"ConwayGenesisFile": "conway-genesis.json",""")
@@ -3428,12 +3449,82 @@ class NodeController
                         Regex(""""MaxConcurrencyDeadline.*,""""),
                         """"MaxConcurrencyDeadline": $maxConcurrencyDeadline,"""
                     )
+            */
             configFileContent?.let {
                 log.debug("Creating $nodeFolder/config.json from db file ${configFile.name}")
                 hostConnection.commandWriteFile("$nodeFolder/config.json", it)
             } ?: throw IOException("Config file not found in db!")
 
             return Triple(configFile.id!!, ekgPort, promPort)
+        }
+
+        internal fun renderManagedConfig(
+            templateContent: String,
+            nodeType: String,
+            maxConcurrencyDeadline: String,
+            peerSharing: Boolean,
+        ): String {
+            val root = objectMapper.readTree(templateContent).deepCopy<ObjectNode>()
+            normalizeManagedConfig(root, nodeType, maxConcurrencyDeadline, peerSharing)
+            return objectMapper.writeValueAsString(root) + "\n"
+        }
+
+        private fun normalizeManagedConfig(
+            root: ObjectNode,
+            nodeType: String,
+            maxConcurrencyDeadline: String,
+            peerSharing: Boolean,
+        ) {
+            root.put("ConwayGenesisFile", "conway-genesis.json")
+            root.put("AlonzoGenesisFile", "alonzo-genesis.json")
+            root.put("ByronGenesisFile", "byron-genesis.json")
+            root.put("ShelleyGenesisFile", "shelley-genesis.json")
+            root.put("GenesisFile", "shelley-genesis.json")
+            root.put("PeerSharing", peerSharing)
+            root.put("MaxConcurrencyDeadline", maxConcurrencyDeadline.toInt())
+
+            normalizeTracingConfig(root, nodeType)
+        }
+
+        private fun normalizeTracingConfig(
+            root: ObjectNode,
+            nodeType: String,
+        ) {
+            val traceOptions = objectMapper.readTree(MARKUS_TRACE_OPTIONS_JSON).deepCopy<ObjectNode>()
+            root.set<ObjectNode>("TraceOptions", traceOptions)
+
+            val rootTraceOptions = traceOptions.get("") as ObjectNode
+            rootTraceOptions.remove("detail")
+            rootTraceOptions.put("severity", MARKUS_ROOT_TRACE_SEVERITY)
+
+            val backends = objectMapper.createArrayNode().apply {
+                add(STDOUT_MACHINE_FORMAT_BACKEND)
+                if (nodeType == NODE_TYPE_CORE) {
+                    add(FORWARDER_BACKEND)
+                }
+            }
+            rootTraceOptions.set<ArrayNode>("backends", backends)
+
+            root.put("UseTraceDispatcher", true)
+            root.put("TurnOnLogging", true)
+            root.put("TurnOnLogMetrics", true)
+            root.put("minSeverity", MIN_TRACE_SEVERITY)
+
+            if (nodeType == NODE_TYPE_CORE) {
+                val forwarderOptions = objectMapper.createObjectNode().apply {
+                    put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
+                    put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
+                    put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
+                }
+                root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
+            } else {
+                root.remove("TraceOptionForwarder")
+            }
+
+            LEGACY_TRACING_KEYS_TO_REMOVE.forEach(root::remove)
+            root.fieldNames().asSequence().toList()
+                .filter { it.startsWith("Trace") && it != "TraceOptions" && it != "TraceOptionForwarder" }
+                .forEach(root::remove)
         }
 
         private fun isPortUsed(
@@ -3746,6 +3837,121 @@ class NodeController
             const val NODE_TYPE_RELAY = "relay"
             const val NODE_TYPE_CORE = "core"
             const val NODE_TYPE_POOL = "pool"
+            private const val STDOUT_MACHINE_FORMAT_BACKEND = "Stdout MachineFormat"
+            private const val FORWARDER_BACKEND = "Forwarder"
+            private const val MARKUS_ROOT_TRACE_SEVERITY = "Notice"
+            private const val MIN_TRACE_SEVERITY = "Critical"
+            private const val TRACE_FORWARDER_CONN_QUEUE_SIZE = 64
+            private const val TRACE_FORWARDER_DISCONN_QUEUE_SIZE = 128
+            private const val TRACE_FORWARDER_MAX_RECONNECT_DELAY = 30
+            private val MARKUS_TRACE_OPTIONS_JSON =
+                """
+                {
+                  "": {
+                    "backends": [
+                      "Stdout MachineFormat",
+                      "PrometheusSimple 127.0.0.1 12798"
+                    ],
+                    "severity": "Notice"
+                  },
+                  "Version.NodeVersion": {
+                    "severity": "Info"
+                  },
+                  "Startup.DiffusionInit": {
+                    "severity": "Info"
+                  },
+                  "Resources": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0167
+                  },
+                  "ChainDB.LedgerEvent.Replay": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0668
+                  },
+                  "ChainDB.ImmDbEvent": {
+                    "severity": "Warning"
+                  },
+                  "ChainDB.ImmDbEvent.ChunkValidation.ValidatedChunk": {
+                    "severity": "Info"
+                  },
+                  "Net.ConnectionManager.Remote": {
+                    "severity": "Info"
+                  },
+                  "Net.PeerSelection": {
+                    "severity": "Info"
+                  },
+                  " Net.PeerSelection.Actions.ConnectionError": {
+                    "severity": "Silence"
+                  },
+                  "Net.InboundGovernor.Remote": {
+                    "severity": "Info"
+                  },
+                  "Net.InboundGovernor.Remote.InboundGovernorCounters": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0167
+                  },
+                  "Net.ErrorPolicy": {
+                    "severity": "Info"
+                  },
+                  "Net.AcceptPolicy.ConnectionRateLimiting": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0167
+                  },
+                  "Net.AcceptPolicy.ConnectionLimitResume": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0167
+                  },
+                  "ChainSync.Client": {
+                    "severity": "Warning"
+                  },
+                  "Forge.Loop": {
+                    "severity": "Info"
+                  },
+                  "Forge.Loop.NodeNotLeader": {
+                    "severity": "Silence"
+                  },
+                  "Forge.Loop.StartLeadershipCheck": {
+                    "severity": "Silence"
+                  },
+                  "Forge.StateInfo": {
+                    "severity": "Info",
+                    "maxFrequency": 0.0002783
+                  },
+                  "ChainDB.AddBlockEvent.SwitchedToAFork": {
+                    "severity": "Info"
+                  },
+                  "ChainDB.AddBlockEvent.AddedToCurrentChain": {
+                    "maxFrequency": 2.0
+                  },
+                  "ChainSync.Client.DownloadedHeader": {
+                    "severity": "Info",
+                    "maxFrequency": 14.0
+                  },
+                  "BlockFetch.Client.SendFetchRequest": {
+                    "severity": "Info"
+                  },
+                  "BlockFetch.Client.CompletedBlockFetch": {
+                    "severity": "Info",
+                    "maxFrequency": 4.0
+                  }
+                }
+                """.trimIndent()
+            private val LEGACY_TRACING_KEYS_TO_REMOVE =
+                listOf(
+                    "defaultBackends",
+                    "defaultScribes",
+                    "setupBackends",
+                    "setupScribes",
+                    "rotation",
+                    "TracingVerbosity",
+                    "EKGBackend",
+                    "PrometheusSimple",
+                    "hasEkg",
+                    "hasEKG",
+                    "hasPrometheus",
+                    "TraceOptionMetricsPrefix",
+                    "TraceOptionResourceFrequency",
+                )
             private val IP4_ADDRESS =
                 Regex(
                     "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
