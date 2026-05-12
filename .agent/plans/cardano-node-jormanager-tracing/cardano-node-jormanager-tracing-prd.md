@@ -775,6 +775,7 @@ streams:
   - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
   - `task-101` verified against local `cardano-node 11.0.1` help output that the tracing listener mechanism is CLI-based via `--tracer-socket-network-accept HOST:PORT`, and pinned that exact core-only argument shape in `NodeController` test-backed code for reuse by later startup wiring.
   - `task-102` wired the verified listener flag into generated startup artifacts by allocating `tracingPort` before direct core startup generation, reusing the same core-only listener helper in systemd and manual startup rendering, and preserving the pool-triggered parent-core bulk-credentials unit shape while adding the listener from persisted core-node tracing metadata.
+  - `task-104` removed EKG and Prometheus HTTP port fields from the create-node request/UI contract and replaced controller request-fed usage with internal metrics-port allocation, while explicitly preserving persisted `Node.ekgPort`/`Node.promPort` and the existing `promPort`-derived tracing-port sequencing needed until later monitor migration tasks complete.
   - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `BlockMonitor` and `NodeMonitor` still depend on legacy outputs today.
 
 ---

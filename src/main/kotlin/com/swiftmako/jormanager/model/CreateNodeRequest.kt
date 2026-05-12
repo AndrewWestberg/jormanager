@@ -14,8 +14,6 @@ data class CreateNodeRequest(
     @param:JsonProperty("processorThreads") val processorThreads: Int,
     @param:JsonProperty("listen") val listen: String,
     @param:JsonProperty("port") val port: Int,
-    @param:JsonProperty("ekgPort") val ekgPort: Int,
-    @param:JsonProperty("promPort") val promPort: Int,
     @param:JsonProperty("genesisByron") val genesisByronFileId: Long,
     @param:JsonProperty("genesisShelley") val genesisShelleyFileId: Long,
     @param:JsonProperty("genesisAlonzo") val genesisAlonzoFileId: Long,
@@ -40,5 +38,5 @@ data class CreateNodeRequest(
     @param:JsonProperty("metadata") val metadata: Metadata?,
     @param:JsonProperty("sudoPassword") val sudoPassword: String
 ) {
-    override fun toString(): String = "CreateNodeRequest(spendingPassword='************', color='$color', hostId=$hostId, parentId=$parentId, name='$name', isDefault=$isDefault, type='$type', processorThreads=$processorThreads, listen='$listen', port=$port, ekgPort=$ekgPort, promPort=$promPort, genesisByronFileId=$genesisByronFileId, genesisShelleyFileId=$genesisShelleyFileId, generateColdKeys=$generateColdKeys, coldSKey=***, coldVKey=***, coldCounter=***, generateVRFKeys=$generateVRFKeys, vrfSKey=***, vrfVKey=***, generateKESKeys=$generateKESKeys, kesSKey=***, kesVKey=***, registrationFeesAccount=$registrationFeesAccount, ownerStakingAccount=$ownerStakingAccount, rewardsStakingAccount=$rewardsStakingAccount, poolPledge=$poolPledge, poolCost=$poolCost, poolMargin='$poolMargin', relays=$relays, metadata=$metadata, sudoPassword='************')"
+    override fun toString(): String = "CreateNodeRequest(spendingPassword='************', color='$color', hostId=$hostId, parentId=$parentId, name='$name', isDefault=$isDefault, type='$type', processorThreads=$processorThreads, listen='$listen', port=$port, genesisByronFileId=$genesisByronFileId, genesisShelleyFileId=$genesisShelleyFileId, generateColdKeys=$generateColdKeys, coldSKey=***, coldVKey=***, coldCounter=***, generateVRFKeys=$generateVRFKeys, vrfSKey=***, vrfVKey=***, generateKESKeys=$generateKESKeys, kesSKey=***, kesVKey=***, registrationFeesAccount=$registrationFeesAccount, ownerStakingAccount=$ownerStakingAccount, rewardsStakingAccount=$rewardsStakingAccount, poolPledge=$poolPledge, poolCost=$poolCost, poolMargin='$poolMargin', relays=$relays, metadata=$metadata, sudoPassword='************')"
 }

@@ -118,10 +118,40 @@ class NodeControllerTest {
             metadata = null,
             sudoPassword = "asdfasdf",
             spendingPassword = "asdfasdf",
-            ekgPort = 12788,
-            promPort = 12789,
             parentId = null,
         )
+
+    @Test
+    fun allocateMetricsPortsReturnsFirstFreePair() {
+        val target = createTarget()
+
+        val metricsPorts = target.allocateMetricsPorts(1L, mockk(relaxed = true)) { false }
+
+        assertThat(metricsPorts).isEqualTo(12788 to 12789)
+    }
+
+    @Test
+    fun allocateMetricsPortsScansPastUsedPorts() {
+        val target = createTarget()
+
+        val metricsPorts =
+            target.allocateMetricsPorts(1L, mockk(relaxed = true)) { port ->
+                port == 12788 || port == 12789 || port == 12790
+            }
+
+        assertThat(metricsPorts).isEqualTo(12791 to 12792)
+    }
+
+    @Test
+    fun allocateMetricsPortsFeedsCoreTracingPortSequence() {
+        val target = createTarget()
+
+        val metricsPorts = target.allocateMetricsPorts(1L, mockk(relaxed = true)) { port -> port == 12788 }
+        val tracingPort = target.allocateTracingPort(NodeController.NODE_TYPE_CORE, metricsPorts.second) { false }
+
+        assertThat(metricsPorts).isEqualTo(12789 to 12790)
+        assertThat(tracingPort).isEqualTo(12791)
+    }
 
     private fun createTarget() =
         NodeController(
@@ -540,8 +570,6 @@ class NodeControllerTest {
                     ),
                 sudoPassword = "asdfasdf",
                 spendingPassword = "asdfasdf",
-                ekgPort = 12788,
-                promPort = 12789,
                 parentId = null,
             )
         val response = target.createNode(request)

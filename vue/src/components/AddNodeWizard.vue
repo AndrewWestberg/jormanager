@@ -106,32 +106,6 @@
           <p class="text-center">{{ formNode.processorThreads }} Threads</p>
         </BFormGroup>
         
-        <BFormGroup label="EKG Port" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.ekgPort"
-            type="number"
-            step="1"
-            min="-1"
-            max="65535"
-            :state="ekgPortState"
-            placeholder="e.g. 12788 (-1 for auto)"
-            :disabled="parentId != null"
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Prometheus Port" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.promPort"
-            type="number"
-            step="1"
-            min="-1"
-            max="65535"
-            :state="promPortState"
-            placeholder="e.g. 12798 (-1 for auto)"
-            :disabled="parentId != null"
-          />
-        </BFormGroup>
-        
         <BFormGroup label="Genesis Byron" label-cols-md="2">
           <BFormSelect
             v-model="formNode.genesisByron"
@@ -745,8 +719,6 @@ const formNode = ref({
   processorThreads: 0,
   listen: '',
   port: '' as string | number,
-  ekgPort: '' as string | number,
-  promPort: '' as string | number,
   genesisByron: null as number | null,
   genesisShelley: null as number | null,
   genesisAlonzo: null as number | null,
@@ -829,14 +801,6 @@ const portState = computed(() => {
   return !isNaN(port) && port >= 1024 && port <= 65535
 })
 const processorThreadsState = computed(() => formNode.value.processorThreads >= 2)
-const ekgPortState = computed(() => {
-  const port = Number(formNode.value.ekgPort)
-  return !isNaN(port) && port >= -1 && port <= 65535
-})
-const promPortState = computed(() => {
-  const port = Number(formNode.value.promPort)
-  return !isNaN(port) && port >= -1 && port <= 65535
-})
 const genesisByronState = computed(() => formNode.value.genesisByron != null)
 const genesisShelleyState = computed(() => formNode.value.genesisShelley != null)
 const genesisAlonzoState = computed(() => formNode.value.genesisAlonzo != null)
@@ -895,7 +859,7 @@ function addRelay() {
 // Validation functions for beforeChange
 function validateStep1(): boolean {
   if (!hostState.value || !nameState.value || !typeState.value ||
-      !processorThreadsState.value || !ekgPortState.value || !promPortState.value ||
+      !processorThreadsState.value ||
       !genesisByronState.value || !genesisShelleyState.value ||
       !genesisAlonzoState.value || !genesisConwayState.value) {
     store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
@@ -990,8 +954,6 @@ onMounted(() => {
       formNode.value.processorThreads = (parent as any).processorThreads || 2
       formNode.value.listen = (parent as any).listen || '0.0.0.0'
       formNode.value.port = (parent as any).port || 3001
-      formNode.value.ekgPort = (parent as any).ekgPort || 12788
-      formNode.value.promPort = (parent as any).promPort || 12798
       formNode.value.genesisByron = (parent as any).genesisByronFileId
       formNode.value.genesisShelley = (parent as any).genesisShelleyFileId
       formNode.value.genesisAlonzo = (parent as any).genesisAlonzoFileId
