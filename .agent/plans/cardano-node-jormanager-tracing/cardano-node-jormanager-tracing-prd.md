@@ -774,6 +774,7 @@ streams:
 - **Implementation Notes:**
   - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
   - `task-101` verified against local `cardano-node 11.0.1` help output that the tracing listener mechanism is CLI-based via `--tracer-socket-network-accept HOST:PORT`, and pinned that exact core-only argument shape in `NodeController` test-backed code for reuse by later startup wiring.
+  - `task-102` wired the verified listener flag into generated startup artifacts by allocating `tracingPort` before direct core startup generation, reusing the same core-only listener helper in systemd and manual startup rendering, and preserving the pool-triggered parent-core bulk-credentials unit shape while adding the listener from persisted core-node tracing metadata.
   - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `BlockMonitor` and `NodeMonitor` still depend on legacy outputs today.
 
 ---

@@ -68,6 +68,61 @@ class NodeControllerTest {
         }
         """.trimIndent()
 
+    private val testHost =
+        Host(
+            id = 1L,
+            type = "local",
+            cardanoCliPath = "/home/westbam/.local/bin/cardano-cli",
+            cardanoNodePath = "/home/westbam/.local/bin/cardano-node",
+            hostname = "brainy",
+            sshUser = "westbam",
+            nodeHomePath = "/home/westbam/haskell",
+            jcliPath = "/home/westbam/.cargo/bin/jcli",
+        )
+
+    private fun createRequest(
+        type: String,
+        name: String = "tickr",
+        processorThreads: Int = 8,
+    ) =
+        CreateNodeRequest(
+            color = "#0000FF",
+            hostId = 1L,
+            name = name,
+            isDefault = false,
+            type = type,
+            processorThreads = processorThreads,
+            listen = "127.0.0.1",
+            port = 6001,
+            genesisByronFileId = 1L,
+            genesisShelleyFileId = 2L,
+            genesisAlonzoFileId = 3L,
+            genesisConwayFileId = 4L,
+            generateColdKeys = true,
+            coldSKey = null,
+            coldVKey = null,
+            coldCounter = null,
+            generateVRFKeys = true,
+            vrfSKey = null,
+            vrfVKey = null,
+            generateKESKeys = true,
+            kesSKey = null,
+            kesVKey = null,
+            registrationFeesAccount = 1L,
+            ownerStakingAccount = 2L,
+            rewardsStakingAccount = 3L,
+            poolPledge = 250000000000L.toBigInteger(),
+            poolCost = 340000000L.toBigInteger(),
+            poolMargin = "0.05",
+            relays = emptyList(),
+            metadata = null,
+            sudoPassword = "asdfasdf",
+            spendingPassword = "asdfasdf",
+            ekgPort = 12788,
+            promPort = 12789,
+            parentId = null,
+        )
+
     private fun createTarget() =
         NodeController(
             nodeRepository = mockk(relaxed = true),
@@ -164,6 +219,76 @@ class NodeControllerTest {
         val listenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_CORE, null)
 
         assertThat(listenerArgument).isNull()
+    }
+
+    @Test
+    fun renderManualStartupScriptAddsTracingListenerForCoreNodes() {
+        val target = createTarget()
+
+        val script =
+            target.renderManualStartupScript(
+                request = createRequest(NodeController.NODE_TYPE_CORE),
+                startupNodeType = NodeController.NODE_TYPE_CORE,
+                host = testHost,
+                tracingPort = 12790,
+            )
+
+        assertThat(script).contains("--tracer-socket-network-accept 0.0.0.0:12790")
+        assertThat(script).contains("--shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}")
+    }
+
+    @Test
+    fun renderSystemdContentOmitsTracingListenerForRelayNodes() {
+        val target = createTarget()
+
+        val systemd =
+            target.renderSystemdContent(
+                startupNodeType = NodeController.NODE_TYPE_RELAY,
+                host = testHost,
+                name = "relay1",
+                processorThreads = 4,
+                tracingPort = 12790,
+            )
+
+        assertThat(systemd).doesNotContain("--tracer-socket-network-accept")
+        assertThat(systemd).contains("--config ${'$'}{CONFIG}")
+    }
+
+    @Test
+    fun renderSystemdContentAddsTracingListenerForPoolRewrite() {
+        val target = createTarget()
+
+        val systemd =
+            target.renderSystemdContent(
+                startupNodeType = NodeController.NODE_TYPE_POOL,
+                listenerNodeType = NodeController.NODE_TYPE_CORE,
+                host = testHost,
+                name = "core1",
+                processorThreads = 6,
+                tracingPort = 12790,
+            )
+
+        assertThat(systemd).contains("--tracer-socket-network-accept 0.0.0.0:12790")
+        assertThat(systemd).contains("--bulk-credentials-file ${'$'}{BULK_CREDENTIALS}")
+        assertThat(systemd).doesNotContain("--shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}")
+    }
+
+    @Test
+    fun renderSystemdContentSkipsTracingListenerWhenPoolRewriteCorePortMissing() {
+        val target = createTarget()
+
+        val systemd =
+            target.renderSystemdContent(
+                startupNodeType = NodeController.NODE_TYPE_POOL,
+                listenerNodeType = NodeController.NODE_TYPE_CORE,
+                host = testHost,
+                name = "core1",
+                processorThreads = 6,
+                tracingPort = null,
+            )
+
+        assertThat(systemd).doesNotContain("--tracer-socket-network-accept")
+        assertThat(systemd).contains("--bulk-credentials-file ${'$'}{BULK_CREDENTIALS}")
     }
 
     @Test
