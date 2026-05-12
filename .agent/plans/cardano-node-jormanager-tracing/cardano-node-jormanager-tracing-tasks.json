@@ -146,7 +146,7 @@
           "id": "task-101",
           "title": "Pin the automated tracing listener mechanism",
           "description": "Verify and codify the exact cardano-node 11.0.1 tracing listener/startup mechanism so the agentic implementation can rely on fixtures and tests instead of manual runtime discovery.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 1.5,
           "dependencies": [],
@@ -165,7 +165,9 @@
             "The tracing listener mechanism is explicitly verified and documented in code-adjacent artifacts.",
             "Subsequent startup-generation work can be implemented in an automated fashion.",
             "No user interaction is required to choose between config-only and CLI-only wiring during implementation."
-          ]
+          ],
+          "completedAt": "2026-05-12T22:12:14Z",
+          "completionNotes": "Pinned the verified `cardano-node 11.0.1` listener mechanism to a reusable `NodeController.renderTracingListenerArgument()` helper and focused `NodeControllerTest` coverage for the exact core-only `--tracer-socket-network-accept 0.0.0.0:<tracingPort>` fragment. Also recorded that task-102 must reconcile startup-artifact generation ordering and persisted-input flow before wiring the helper into systemd/manual startup commands."
         },
         {
           "id": "task-102",

@@ -3548,6 +3548,17 @@ class NodeController
             return tracingPort
         }
 
+        internal fun renderTracingListenerArgument(
+            nodeType: String,
+            tracingPort: Int?,
+        ): String? {
+            if (nodeType != NODE_TYPE_CORE || tracingPort == null) {
+                return null
+            }
+
+            return "--tracer-socket-network-accept 0.0.0.0:$tracingPort"
+        }
+
         @MessageMapping("/governancevote")
         @Transactional
         fun submitGovernanceVote(request: GovernanceVoteRequest) {

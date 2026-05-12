@@ -773,6 +773,7 @@ streams:
 - **Started:** 2026-05-12
 - **Implementation Notes:**
   - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
+  - `task-101` verified against local `cardano-node 11.0.1` help output that the tracing listener mechanism is CLI-based via `--tracer-socket-network-accept HOST:PORT`, and pinned that exact core-only argument shape in `NodeController` test-backed code for reuse by later startup wiring.
   - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `BlockMonitor` and `NodeMonitor` still depend on legacy outputs today.
 
 ---
