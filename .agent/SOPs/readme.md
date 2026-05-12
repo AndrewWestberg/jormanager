@@ -104,7 +104,7 @@ Organize SOPs by category:
 
 | Category | SOP Name | Description | Date |
 |----------|----------|-------------|------|
-| *No SOPs yet* | — | — | — |
+| Tooling | [How to Ignore Files in KtLint](ktlint_ignore.md) | Disable KtLint for selected files via `.editorconfig` | 2026-01-15 |
 
 ---
 
