@@ -138,6 +138,35 @@ class NodeControllerTest {
     }
 
     @Test
+    fun renderTracingListenerArgumentBuildsCoreNetworkAcceptFlag() {
+        val target = createTarget()
+
+        val listenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_CORE, 12790)
+
+        assertThat(listenerArgument).isEqualTo("--tracer-socket-network-accept 0.0.0.0:12790")
+    }
+
+    @Test
+    fun renderTracingListenerArgumentSkipsRelayAndPoolNodes() {
+        val target = createTarget()
+
+        val relayListenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_RELAY, 12790)
+        val poolListenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_POOL, 12790)
+
+        assertThat(relayListenerArgument).isNull()
+        assertThat(poolListenerArgument).isNull()
+    }
+
+    @Test
+    fun renderTracingListenerArgumentRequiresTracingPortForCoreNodes() {
+        val target = createTarget()
+
+        val listenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_CORE, null)
+
+        assertThat(listenerArgument).isNull()
+    }
+
+    @Test
     fun renderManagedConfigBuildsCoreDispatcherTracingShape() {
         val target = createTarget()
 
