@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T22:01:36Z",
-    "version": "1.4.0",
+    "updated": "2026-05-12T22:30:07Z",
+    "version": "1.5.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -173,7 +173,7 @@
           "id": "task-102",
           "title": "Wire core tracing listener into startup generation",
           "description": "Update systemd or manual startup generation so newly created core nodes actually listen for the trace-forward client on the saved tracing port.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -195,7 +195,9 @@
             "New core-node startup artifacts contain the verified tracing listener configuration for cardano-node 11.0.1.",
             "Generated startup artifacts remain consistent with JorManager's existing deployment style.",
             "No runtime dependency on cardano-tracer is introduced."
-          ]
+          ],
+          "completedAt": "2026-05-12T22:30:07Z",
+          "completionNotes": "Updated NodeController startup generation so direct core creation allocates tracingPort before writing systemd/manual artifacts, centralized listener wiring through renderTracingListenerArgument-backed render helpers, and preserved the existing pool parent-core bulk-credentials systemd shape while adding the core-only listener from persisted coreNode.tracingPort. Focused NodeControllerTest coverage now pins direct core, relay, and pool-triggered parent-core rewrite listener behavior, including the null-port no-listener case."
         },
         {
           "id": "task-104",

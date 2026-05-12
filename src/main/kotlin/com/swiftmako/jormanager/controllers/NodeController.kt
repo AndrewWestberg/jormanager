@@ -219,8 +219,22 @@ class NodeController
                             request.listen,
                             request.port
                         )
-                        createSystemdFile(request, host, hostConnection, request.name, request.processorThreads)
-                        createManualStartupScripts(request, host, hostConnection)
+                        createSystemdFile(
+                            request = request,
+                            startupNodeType = request.type,
+                            host = host,
+                            hostConnection = hostConnection,
+                            name = request.name,
+                            processorThreads = request.processorThreads,
+                            tracingPort = null,
+                        )
+                        createManualStartupScripts(
+                            request = request,
+                            startupNodeType = request.type,
+                            host = host,
+                            hostConnection = hostConnection,
+                            tracingPort = null,
+                        )
 
                         if (request.isDefault) {
                             val oldDefault = nodeRepository.findDefault()
@@ -1003,6 +1017,7 @@ class NodeController
 
                             // 13. Create and Save node information
                             var parentId: Long? = null
+                            var tracingPort: Int? = null
                             val (configFileId, ekgPort, promPort) =
                                 if (request.type == "core") {
                                     val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
@@ -1040,8 +1055,26 @@ class NodeController
                                         request.listen,
                                         request.port
                                     )
-                                    createSystemdFile(request, host, hostConnection, request.name, request.processorThreads)
-                                    createManualStartupScripts(request, host, hostConnection)
+                                    tracingPort =
+                                        allocateTracingPort(request.type, promPort) { port ->
+                                            isPortUsed(hostConnection, port)
+                                        }
+                                    createSystemdFile(
+                                        request = request,
+                                        startupNodeType = request.type,
+                                        host = host,
+                                        hostConnection = hostConnection,
+                                        name = request.name,
+                                        processorThreads = request.processorThreads,
+                                        tracingPort = tracingPort,
+                                    )
+                                    createManualStartupScripts(
+                                        request = request,
+                                        startupNodeType = request.type,
+                                        host = host,
+                                        hostConnection = hostConnection,
+                                        tracingPort = tracingPort,
+                                    )
                                     Triple(configFileId, ekgPort, promPort)
                                 } else {
                                     // pool
@@ -1121,21 +1154,19 @@ class NodeController
                                         )
                                         createBulkCredentials(hostConnection, nodeFolder, credentials)
                                         createSystemdFile(
-                                            request,
-                                            host,
-                                            hostConnection,
-                                            coreNode.name,
-                                            4 + credentials.size
+                                            request = request,
+                                            startupNodeType = request.type,
+                                            listenerNodeType = coreNode.type,
+                                            host = host,
+                                            hostConnection = hostConnection,
+                                            name = coreNode.name,
+                                            processorThreads = 4 + credentials.size,
+                                            tracingPort = coreNode.tracingPort,
                                         )
 
                                         Triple(coreNode.configFileId, coreNode.ekgPort, coreNode.promPort)
                                     } ?: throw IOException("Parent core node not found!")
                                 }
-                            val tracingPort =
-                                allocateTracingPort(request.type, promPort) { port ->
-                                    isPortUsed(hostConnection, port)
-                                }
-
                             val node =
                                 Node(
                                     hostId = host.id!!,
@@ -3093,56 +3124,18 @@ class NodeController
 
         private fun createManualStartupScripts(
             request: CreateNodeRequest,
+            startupNodeType: String,
             host: Host,
-            hostConnection: HostConnection
+            hostConnection: HostConnection,
+            tracingPort: Int?,
         ) {
             val startNodeContent =
-                when (request.type) {
-                    NODE_TYPE_RELAY -> {
-                        """
-                    |#!/bin/bash
-                    |OLDPWD=`pwd`
-                    |cd ${host.nodeHomePath}/${request.name}
-                    |source ${host.nodeHomePath}/${request.name}/env
-                    |nohup ${host.cardanoNodePath} \
-                    |  +RTS -N${request.processorThreads} -RTS run \
-                    |  --topology ${'$'}{TOPOLOGY} \
-                    |  --database-path ${'$'}{DATABASE_PATH} \
-                    |  --socket-path ${'$'}{SOCKET_PATH} \
-                    |  --host-addr ${'$'}{HOST_ADDR} \
-                    |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG} \
-                    |  > ${request.name}.log 2>&1 &
-                    |echo ${'$'}! > ${request.name}.pid
-                    |cd ${'$'}OLDPWD
-                    |echo "Started with logfile ${request.name}.log"
-                        """.trimMargin()
-                    }
-
-                    else -> {
-                        """
-                    |#!/bin/bash
-                    |OLDPWD=`pwd`
-                    |cd ${host.nodeHomePath}/${request.name}
-                    |source ${host.nodeHomePath}/${request.name}/env
-                    |nohup ${host.cardanoNodePath} \
-                    |  +RTS -N${request.processorThreads} -RTS run \
-                    |  --topology ${'$'}{TOPOLOGY} \
-                    |  --database-path ${'$'}{DATABASE_PATH} \
-                    |  --socket-path ${'$'}{SOCKET_PATH} \
-                    |  --host-addr ${'$'}{HOST_ADDR} \
-                    |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG} \
-                    |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
-                    |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
-                    |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
-                    |  > ${request.name}.log 2>&1 &
-                    |echo ${'$'}! > ${request.name}.pid
-                    |cd ${'$'}OLDPWD
-                    |echo "Started with logfile ${request.name}.log"
-                        """.trimMargin()
-                    }
-                }
+                renderManualStartupScript(
+                    request = request,
+                    startupNodeType = startupNodeType,
+                    host = host,
+                    tracingPort = tracingPort,
+                )
 
             hostConnection.commandWriteFile("${host.nodeHomePath}/${request.name}/startNode.sh", startNodeContent)
             hostConnection.command("chmod 555 ${host.nodeHomePath}/${request.name}/startNode.sh")
@@ -3165,111 +3158,23 @@ class NodeController
 
         private fun createSystemdFile(
             request: CreateNodeRequest,
+            startupNodeType: String,
+            listenerNodeType: String = startupNodeType,
             host: Host,
             hostConnection: HostConnection,
             name: String,
-            processorThreads: Int
+            processorThreads: Int,
+            tracingPort: Int?,
         ) {
             val systemdContent =
-                when (request.type) {
-                    NODE_TYPE_RELAY -> {
-                        """
-                    |[Unit]
-                    |Description=Cardano Haskell Node - $name
-                    |After=syslog.target
-                    |StartLimitIntervalSec=0
-                    |
-                    |[Service]
-                    |Type=simple
-                    |Restart=always
-                    |RestartSec=5
-                    |User=${host.sshUser}
-                    |LimitNOFILE=131072
-                    |WorkingDirectory=${host.nodeHomePath}/$name
-                    |EnvironmentFile=${host.nodeHomePath}/$name/env
-                    |ExecStart=${host.cardanoNodePath} \
-                    |  +RTS -N$processorThreads -RTS run \
-                    |  --topology ${'$'}{TOPOLOGY} \
-                    |  --database-path ${'$'}{DATABASE_PATH} \
-                    |  --socket-path ${'$'}{SOCKET_PATH} \
-                    |  --host-addr ${'$'}{HOST_ADDR} \
-                    |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG}
-                    |KillSignal=SIGINT
-                    |SyslogIdentifier=$name-node
-                    |
-                    |[Install]
-                    |WantedBy=multi-user.target
-                        """.trimMargin()
-                    }
-
-                    NODE_TYPE_CORE -> {
-                        """
-                    |[Unit]
-                    |Description=Cardano Haskell Node - $name
-                    |After=syslog.target
-                    |StartLimitIntervalSec=0
-                    |
-                    |[Service]
-                    |Type=simple
-                    |Restart=always
-                    |RestartSec=5
-                    |User=${host.sshUser}
-                    |LimitNOFILE=131072
-                    |WorkingDirectory=${host.nodeHomePath}/$name
-                    |EnvironmentFile=${host.nodeHomePath}/$name/env
-                    |ExecStart=${host.cardanoNodePath} \
-                    |  +RTS -N$processorThreads -RTS run \
-                    |  --topology ${'$'}{TOPOLOGY} \
-                    |  --database-path ${'$'}{DATABASE_PATH} \
-                    |  --socket-path ${'$'}{SOCKET_PATH} \
-                    |  --host-addr ${'$'}{HOST_ADDR} \
-                    |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG} \
-                    |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
-                    |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
-                    |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}
-                    |KillSignal=SIGINT
-                    |SyslogIdentifier=$name-node
-                    |
-                    |[Install]
-                    |WantedBy=multi-user.target
-                        """.trimMargin()
-                    }
-
-                    else -> {
-                        // NODE_TYPE_POOL
-                        """
-                    |[Unit]
-                    |Description=Cardano Haskell Node - $name
-                    |After=syslog.target
-                    |StartLimitIntervalSec=0
-                    |
-                    |[Service]
-                    |Type=simple
-                    |Restart=always
-                    |RestartSec=5
-                    |User=${host.sshUser}
-                    |LimitNOFILE=131072
-                    |WorkingDirectory=${host.nodeHomePath}/$name
-                    |EnvironmentFile=${host.nodeHomePath}/$name/env
-                    |ExecStart=${host.cardanoNodePath} \
-                    |  +RTS -N$processorThreads -RTS run \
-                    |  --topology ${'$'}{TOPOLOGY} \
-                    |  --database-path ${'$'}{DATABASE_PATH} \
-                    |  --socket-path ${'$'}{SOCKET_PATH} \
-                    |  --host-addr ${'$'}{HOST_ADDR} \
-                    |  --port ${'$'}{PORT} \
-                    |  --config ${'$'}{CONFIG} \
-                    |  --bulk-credentials-file ${'$'}{BULK_CREDENTIALS}
-                    |KillSignal=SIGINT
-                    |SyslogIdentifier=$name-node
-                    |
-                    |[Install]
-                    |WantedBy=multi-user.target
-                        """.trimMargin()
-                    }
-                }
+                renderSystemdContent(
+                    startupNodeType = startupNodeType,
+                    listenerNodeType = listenerNodeType,
+                    host = host,
+                    name = name,
+                    processorThreads = processorThreads,
+                    tracingPort = tracingPort,
+                )
 
             hostConnection.sudoCommandWriteFile(
                 "/etc/systemd/system/$name-node.service",
@@ -3557,6 +3462,174 @@ class NodeController
             }
 
             return "--tracer-socket-network-accept 0.0.0.0:$tracingPort"
+        }
+
+        internal fun renderManualStartupScript(
+            request: CreateNodeRequest,
+            startupNodeType: String,
+            host: Host,
+            tracingPort: Int?,
+        ): String {
+            val listenerArgument = renderTracingListenerArgument(startupNodeType, tracingPort)
+            val listenerLine = listenerArgument?.let { "|  $it \\\n" } ?: ""
+
+            return when (startupNodeType) {
+                NODE_TYPE_RELAY -> {
+                    """
+                |#!/bin/bash
+                |OLDPWD=`pwd`
+                |cd ${host.nodeHomePath}/${request.name}
+                |source ${host.nodeHomePath}/${request.name}/env
+                |nohup ${host.cardanoNodePath} \
+                |  +RTS -N${request.processorThreads} -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG} \
+                ${listenerLine}|  > ${request.name}.log 2>&1 &
+                |echo ${'$'}! > ${request.name}.pid
+                |cd ${'$'}OLDPWD
+                |echo "Started with logfile ${request.name}.log"
+                    """.trimMargin()
+                }
+
+                else -> {
+                    """
+                |#!/bin/bash
+                |OLDPWD=`pwd`
+                |cd ${host.nodeHomePath}/${request.name}
+                |source ${host.nodeHomePath}/${request.name}/env
+                |nohup ${host.cardanoNodePath} \
+                |  +RTS -N${request.processorThreads} -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG} \
+                |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
+                |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
+                |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
+                ${listenerLine}|  > ${request.name}.log 2>&1 &
+                |echo ${'$'}! > ${request.name}.pid
+                |cd ${'$'}OLDPWD
+                |echo "Started with logfile ${request.name}.log"
+                    """.trimMargin()
+                }
+            }
+        }
+
+        internal fun renderSystemdContent(
+            startupNodeType: String,
+            listenerNodeType: String = startupNodeType,
+            host: Host,
+            name: String,
+            processorThreads: Int,
+            tracingPort: Int?,
+        ): String {
+            val listenerArgument = renderTracingListenerArgument(listenerNodeType, tracingPort)
+            val listenerLine = listenerArgument?.let { "|  $it \\\n" } ?: ""
+
+            return when (startupNodeType) {
+                NODE_TYPE_RELAY -> {
+                    """
+                |[Unit]
+                |Description=Cardano Haskell Node - $name
+                |After=syslog.target
+                |StartLimitIntervalSec=0
+                |
+                |[Service]
+                |Type=simple
+                |Restart=always
+                |RestartSec=5
+                |User=${host.sshUser}
+                |LimitNOFILE=131072
+                |WorkingDirectory=${host.nodeHomePath}/$name
+                |EnvironmentFile=${host.nodeHomePath}/$name/env
+                |ExecStart=${host.cardanoNodePath} \
+                |  +RTS -N$processorThreads -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG}
+                |KillSignal=SIGINT
+                |SyslogIdentifier=$name-node
+                |
+                |[Install]
+                |WantedBy=multi-user.target
+                    """.trimMargin()
+                }
+
+                NODE_TYPE_CORE -> {
+                    """
+                |[Unit]
+                |Description=Cardano Haskell Node - $name
+                |After=syslog.target
+                |StartLimitIntervalSec=0
+                |
+                |[Service]
+                |Type=simple
+                |Restart=always
+                |RestartSec=5
+                |User=${host.sshUser}
+                |LimitNOFILE=131072
+                |WorkingDirectory=${host.nodeHomePath}/$name
+                |EnvironmentFile=${host.nodeHomePath}/$name/env
+                |ExecStart=${host.cardanoNodePath} \
+                |  +RTS -N$processorThreads -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG} \
+                |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
+                |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
+                |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
+                ${listenerLine}|KillSignal=SIGINT
+                |SyslogIdentifier=$name-node
+                |
+                |[Install]
+                |WantedBy=multi-user.target
+                    """.trimMargin()
+                }
+
+                else -> {
+                    """
+                |[Unit]
+                |Description=Cardano Haskell Node - $name
+                |After=syslog.target
+                |StartLimitIntervalSec=0
+                |
+                |[Service]
+                |Type=simple
+                |Restart=always
+                |RestartSec=5
+                |User=${host.sshUser}
+                |LimitNOFILE=131072
+                |WorkingDirectory=${host.nodeHomePath}/$name
+                |EnvironmentFile=${host.nodeHomePath}/$name/env
+                |ExecStart=${host.cardanoNodePath} \
+                |  +RTS -N$processorThreads -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG} \
+                |  --bulk-credentials-file ${'$'}{BULK_CREDENTIALS} \
+                ${listenerLine}|KillSignal=SIGINT
+                |SyslogIdentifier=$name-node
+                |
+                |[Install]
+                |WantedBy=multi-user.target
+                    """.trimMargin()
+                }
+            }
         }
 
         @MessageMapping("/governancevote")
