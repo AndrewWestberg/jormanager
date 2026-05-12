@@ -6,6 +6,7 @@ import java.net.Socket
 import java.net.SocketException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class ScriptedTraceForwardServer private constructor(
@@ -13,6 +14,7 @@ class ScriptedTraceForwardServer private constructor(
     private val sessions: List<TraceForwardSessionScript>,
     private val readTimeoutMillis: Int,
 ) : AutoCloseable {
+    private val acceptedSessionCount = AtomicInteger(0)
     private val failure = AtomicReference<Throwable?>(null)
     private val completedSessions = CountDownLatch(sessions.size)
     private val worker =
@@ -20,6 +22,7 @@ class ScriptedTraceForwardServer private constructor(
             try {
                 sessions.forEach { script ->
                     serverSocket.accept().use { socket ->
+                        acceptedSessionCount.incrementAndGet()
                         handleSession(socket, script)
                     }
                     completedSessions.countDown()
@@ -50,6 +53,23 @@ class ScriptedTraceForwardServer private constructor(
         failure.get()?.let { throw AssertionError("Scripted trace-forward server failed", it) }
     }
 
+    fun awaitAcceptedSessions(
+        expectedSessions: Int,
+        timeoutMillis: Long = 5_000L,
+    ) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (System.nanoTime() < deadline) {
+            if (acceptedSessionCount.get() >= expectedSessions) {
+                return
+            }
+            Thread.sleep(10)
+        }
+
+        check(acceptedSessionCount.get() >= expectedSessions) {
+            "Timed out waiting for $expectedSessions accepted trace-forward sessions"
+        }
+    }
+
     override fun close() {
         serverSocket.close()
         worker.join(1_000L)
@@ -77,6 +97,12 @@ class ScriptedTraceForwardServer private constructor(
             output.write(response)
             output.flush()
         }
+        if (script.awaitClientDisconnectAfterResponses) {
+            while (input.read() != -1) {
+                // wait for the client to close the connection explicitly
+            }
+            return
+        }
         if (script.closeAfterResponses) {
             socket.close()
         }
@@ -99,4 +125,5 @@ data class TraceForwardSessionScript(
     val expectedClientMessages: List<ByteArray>,
     val serverResponses: List<ByteArray>,
     val closeAfterResponses: Boolean = true,
+    val awaitClientDisconnectAfterResponses: Boolean = false,
 )
