@@ -2,7 +2,7 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T17:51:00Z",
+    "updated": "2026-05-12T18:05:00Z",
     "version": "1.1.0",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
@@ -59,7 +59,7 @@
           "id": "task-002",
           "title": "Allocate and save core tracing ports",
           "description": "Teach node creation to allocate a tracing port for core nodes, persist it, and leave relay and pool nodes unassigned in the first version.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.0,
           "dependencies": [
@@ -80,7 +80,9 @@
             "Core nodes receive a dedicated tracing port during creation.",
             "Tracing port persistence is deterministic and host-local.",
             "No tracing port is requested from the user in phase 1."
-          ]
+          ],
+          "completedAt": "2026-05-12T18:05:00Z",
+          "completionNotes": "Added a minimal NodeController tracing-port allocation helper that starts from promPort + 1 for core nodes, scans upward with the existing host-local port probe, persists null for relay/pool nodes, and adds focused helper tests. Focused Gradle verification was attempted but backend Kotlin compilation remains blocked by unrelated pre-existing NodeController extension import/call-site failures in the workspace."
         }
       ]
     },

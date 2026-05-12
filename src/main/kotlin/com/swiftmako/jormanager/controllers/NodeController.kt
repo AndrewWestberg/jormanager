@@ -236,7 +236,8 @@ class NodeController
                                 genesisAlonzoFileId = request.genesisAlonzoFileId,
                                 genesisConwayFileId = request.genesisConwayFileId,
                                 configFileId = configFileId,
-                                isDefault = request.isDefault
+                                isDefault = request.isDefault,
+                                tracingPort = null,
                             )
                         val savedNode = nodeRepository.save(node)
 
@@ -1119,6 +1120,10 @@ class NodeController
                                         Triple(coreNode.configFileId, coreNode.ekgPort, coreNode.promPort)
                                     } ?: throw IOException("Parent core node not found!")
                                 }
+                            val tracingPort =
+                                allocateTracingPort(request.type, promPort) { port ->
+                                    isPortUsed(hostConnection, port)
+                                }
 
                             val node =
                                 Node(
@@ -1158,6 +1163,7 @@ class NodeController
                                     itnPublicKeyId = itnPublicKeyId,
                                     metadataUrl = metadataUrl,
                                     extendedMetadataUrl = extendedMetadataUrl,
+                                    tracingPort = tracingPort,
                                 )
                             val savedNode = nodeRepository.save(node)
 
@@ -3434,6 +3440,22 @@ class NodeController
             hostConnection: HostConnection,
             port: Int
         ): Boolean = hostConnection.command("ss -tulw").trim().contains(":$port")
+
+        internal fun allocateTracingPort(
+            nodeType: String,
+            promPort: Int,
+            isPortUsed: (Int) -> Boolean,
+        ): Int? {
+            if (nodeType != NODE_TYPE_CORE) {
+                return null
+            }
+
+            var tracingPort = promPort + 1
+            while (isPortUsed(tracingPort)) {
+                tracingPort++
+            }
+            return tracingPort
+        }
 
         @MessageMapping("/governancevote")
         @Transactional

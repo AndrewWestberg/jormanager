@@ -15,11 +15,81 @@ import org.springframework.data.repository.findByIdOrNull
 import retrofit2.Retrofit
 
 class NodeControllerTest {
+    private val config = Configuration()
+    private val moshi = config.getMoshi()
+
+    private fun createTarget() =
+        NodeController(
+            nodeRepository = mockk(relaxed = true),
+            hostRepository = mockk(relaxed = true),
+            fileRepository = mockk(relaxed = true),
+            walletRepository = mockk(relaxed = true),
+            walletUtils = mockk(relaxed = true),
+            transactionRepository = mockk(relaxed = true),
+            webSocketTemplate = mockk(relaxed = true),
+            nodesChannel = mockk(relaxed = true),
+            retrofit = Retrofit.Builder().baseUrl("http://dummy.com").build(),
+            okHttpClient = OkHttpClient.Builder().build(),
+            relayRepository = mockk(relaxed = true),
+            extendedMetadataAdapter = config.getExtendedMetadataAdapter(moshi),
+            shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
+            byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
+            metadataAdapter = config.getMetadataAdapter(moshi),
+            protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
+            queryTipAdapter = config.getQueryTipAdapter(moshi),
+            keyFileJsonAdapter = mockk(relaxed = true),
+            bulkCredentialsJsonAdapter = mockk(relaxed = true),
+            txSignedAdapter = mockk(relaxed = true),
+            ledgerDao = mockk(relaxed = true),
+            cardanoUtils = mockk(relaxed = true),
+            cardanoRepository = mockk(relaxed = true),
+        )
+
+    @Test
+    fun allocateTracingPortReturnsFirstFreeCorePort() {
+        val target = createTarget()
+
+        val tracingPort = target.allocateTracingPort(NodeController.NODE_TYPE_CORE, 12789) { false }
+
+        assertThat(tracingPort).isEqualTo(12790)
+    }
+
+    @Test
+    fun allocateTracingPortScansPastCollisionsForCoreNodes() {
+        val target = createTarget()
+
+        val tracingPort =
+            target.allocateTracingPort(NodeController.NODE_TYPE_CORE, 12789) { port ->
+                port == 12790 || port == 12791
+            }
+
+        assertThat(tracingPort).isEqualTo(12792)
+    }
+
+    @Test
+    fun allocateTracingPortSkipsNonCoreNodesWithoutProbing() {
+        val target = createTarget()
+
+        var probeCalls = 0
+        val relayTracingPort =
+            target.allocateTracingPort(NodeController.NODE_TYPE_RELAY, 12789) {
+                probeCalls++
+                false
+            }
+        val poolTracingPort =
+            target.allocateTracingPort(NodeController.NODE_TYPE_POOL, 12789) {
+                probeCalls++
+                false
+            }
+
+        assertThat(relayTracingPort).isNull()
+        assertThat(poolTracingPort).isNull()
+        assertThat(probeCalls).isEqualTo(0)
+    }
+
     @Test
     @Disabled
     fun testCreateNode() {
-        val config = Configuration()
-        val moshi = config.getMoshi()
         val target =
             NodeController(
                 nodeRepository = mockk(relaxed = true),
