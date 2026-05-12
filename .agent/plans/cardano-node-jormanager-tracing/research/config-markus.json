@@ -1,0 +1,93 @@
+{
+
+  "TraceOptions": {
+    "": {
+      "backends": [
+        "Stdout MachineFormat",
+        "PrometheusSimple 127.0.0.1 12798"
+      ],
+      "severity": "Notice"
+    },
+    "Version.NodeVersion": {
+      "severity": "Info"
+    },
+    "Startup.DiffusionInit": {
+      "severity": "Info"
+    },
+    "Resources": {
+      "severity": "Info",
+      "maxFrequency": 0.0167
+    },
+    "ChainDB.LedgerEvent.Replay": {
+      "severity": "Info",
+      "maxFrequency": 0.0668
+    },
+    "ChainDB.ImmDbEvent": {
+      "severity": "Warning"
+    },
+    "ChainDB.ImmDbEvent.ChunkValidation.ValidatedChunk": {
+      "severity": "Info"
+    },
+    "Net.ConnectionManager.Remote": {
+      "severity": "Info"
+    },
+    "Net.PeerSelection": {
+      "severity": "Info"
+    },
+    " Net.PeerSelection.Actions.ConnectionError": {
+      "severity": "Silence"
+    },
+    "Net.InboundGovernor.Remote": {
+      "severity": "Info"
+    },
+    "Net.InboundGovernor.Remote.InboundGovernorCounters": {
+      "severity": "Info",
+      "maxFrequency": 0.0167
+    },
+    "Net.ErrorPolicy": {
+      "severity": "Info"
+    },
+    "Net.AcceptPolicy.ConnectionRateLimiting": {
+      "severity": "Info",
+      "maxFrequency": 0.0167
+    },
+    "Net.AcceptPolicy.ConnectionLimitResume": {
+      "severity": "Info",
+      "maxFrequency": 0.0167
+    },
+    "ChainSync.Client": {
+      "severity": "Warning"
+    },
+    "Forge.Loop": {
+      "severity": "Info"
+    },
+    "Forge.Loop.NodeNotLeader": {
+      "severity": "Silence"
+    },
+    "Forge.Loop.StartLeadershipCheck": {
+      "severity": "Silence"
+    },
+    "Forge.StateInfo": {
+      "severity": "Info",
+      "maxFrequency": 0.0002783
+    },
+    "ChainDB.AddBlockEvent.SwitchedToAFork": {
+      "severity": "Info"
+    },
+    "ChainDB.AddBlockEvent.AddedToCurrentChain": {
+      "maxFrequency": 2.0
+    },
+    "ChainSync.Client.DownloadedHeader": {
+      "severity": "Info",
+      "maxFrequency": 14.0
+    },
+    "BlockFetch.Client.SendFetchRequest": {
+      "severity": "Info"
+    },
+    "BlockFetch.Client.CompletedBlockFetch": {
+      "severity": "Info",
+      "maxFrequency": 4.0
+    }
+  }
+
+}

@@ -139,6 +139,22 @@ Any unresolved decisions.
 
 Every active plan must include a `*-tasks.json` file next to its PRD. Omit optional fields when they do not apply.
 
+Task and phase numbering rules:
+
+- Phase IDs should start at `phase-0` and increment by one: `phase-0`,
+  `phase-1`, `phase-2`, and so on.
+- Task IDs must be grouped by phase number using hundreds-based ranges.
+- Phase 0 tasks use `task-001` through `task-099`.
+- Phase 1 tasks use `task-100` through `task-199`.
+- Phase 2 tasks use `task-200` through `task-299`.
+- Phase 3 tasks use `task-300` through `task-399`.
+- Continue the same pattern for later phases.
+- Task dependencies, critical-path references, prompt references, PRD references,
+  and task-plan filenames must all use the same canonical task IDs.
+- Use zero-padded numeric IDs for the phase bucket. Suffix variants like
+  `task-001a` are allowed only when inserting a small follow-up into an existing
+  phase without renumbering the whole graph.
+
 ```json
 {
   "metadata": {
@@ -154,7 +170,7 @@ Every active plan must include a `*-tasks.json` file next to its PRD. Omit optio
   },
   "phases": [
     {
-      "id": "phase-1",
+      "id": "phase-0",
       "name": "Phase Name",
       "description": "What this phase accomplishes",
       "riskLevel": "low",
@@ -234,6 +250,7 @@ Use `prompt.md` for orchestration rules and high-discipline execution. Keep feat
 
 | Domain | Plan | Status | Date |
 |--------|------|--------|------|
+| Node Ops | [Cardano Node And JorManager Tracing Migration](cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md) | Draft | 2026-05-12 |
 | Governance | [Governance Voting](governance-voting/governance-voting-prd.md) | Completed | 2026-01-15 |
 
 ---
@@ -243,5 +260,6 @@ Use `prompt.md` for orchestration rules and high-discipline execution. Keep feat
 1. **Keep plans updated** — Mark status changes as implementation progresses
 2. **Use the tasks JSON actively** — It should reflect current execution, not just initial planning
 3. **Keep prompts focused** — `prompt.md` should govern execution flow, not duplicate the full PRD
-4. **Document deviations** — Note any meaningful changes from the original plan
-5. **Include learnings** — Add retrospective notes or research entries for future reference
+4. **Keep task numbering phase-scoped** — Phase 0 uses `task-001...`, Phase 1 uses `task-100...`, Phase 2 uses `task-200...`, and so on
+5. **Document deviations** — Note any meaningful changes from the original plan
+6. **Include learnings** — Add retrospective notes or research entries for future reference

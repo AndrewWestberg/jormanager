@@ -1,0 +1,372 @@
+{
+  "metadata": {
+    "title": "Cardano Node And JorManager Tracing Migration Tasks",
+    "created": "2026-05-12",
+    "updated": "2026-05-12",
+    "version": "1.1.0",
+    "totalTasks": 10,
+    "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
+    "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and replace BlockMonitor SSH log scraping with a direct forwarded tracing consumer.",
+    "sourceFiles": [
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt",
+      "vue/src/components/AddNodeWizard.vue",
+      "src/main/resources/db/",
+      "/home/westbam/bcsh/jormanager/guild-config.json",
+      "/home/westbam/bcsh/jormanager/mainnet-config.json",
+      "/home/westbam/bcsh/jormanager/preprod-config.json",
+      "/home/westbam/bcsh/jormanager/preview-config.json"
+    ],
+    "importantNote": "The block-discovery event for cardano-node 11.0.1 is forwarded namespace Forge.AdoptedBlock with machine payload kind TraceAdoptedBlock carried inside a TraceObject wrapper."
+  },
+  "phases": [
+    {
+      "id": "phase-0",
+      "name": "Schema And Provisioning Foundation",
+      "description": "Add the persistent tracing metadata needed to provision core nodes and carry tracing configuration through node creation.",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-001",
+          "title": "Add tracing port persistence for nodes",
+          "description": "Add database and entity support for a per-node tracing port so core nodes can expose a dedicated tracing listener without overloading existing metrics ports.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 1.5,
+          "dependencies": [],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt",
+          "implementationNotes": [
+            "Add nodes.tracing_port through a Liquibase migration.",
+            "Extend the Node entity and any repository projections or DTO plumbing that rely on the nodes table shape.",
+            "Keep tracing_port nullable for relay and pool nodes in phase 1."
+          ],
+          "testCases": [
+            "Application starts cleanly with the new migration.",
+            "Existing node reads tolerate null tracing_port values.",
+            "Core-node serialization exposes tracingPort if present."
+          ],
+          "acceptance": [
+            "Database schema includes nodes.tracing_port.",
+            "Backend model can persist and read tracingPort values.",
+            "No tracing-specific UI controls are added."
+          ]
+        },
+        {
+          "id": "task-002",
+          "title": "Allocate and save core tracing ports",
+          "description": "Teach node creation to allocate a tracing port for core nodes, persist it, and leave relay and pool nodes unassigned in the first version.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.0,
+          "dependencies": [
+            "task-001"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "implementationNotes": [
+            "Start from promPort + 1 for core nodes and scan upward until a free port is found.",
+            "Persist tracingPort only for core nodes.",
+            "Avoid adding a user-facing tracing port field in the first version unless backend flow proves it is required."
+          ],
+          "testCases": [
+            "Core node creation allocates a tracing port.",
+            "Port collisions scan upward correctly.",
+            "Relay and pool creation leave tracingPort null."
+          ],
+          "acceptance": [
+            "Core nodes receive a dedicated tracing port during creation.",
+            "Tracing port persistence is deterministic and host-local.",
+            "No tracing port is requested from the user in phase 1."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "name": "Node Config And Startup Migration",
+      "description": "Replace legacy file-tracing generation with dispatcher-era tracing config, update deployed node template configs, and wire core-node trace forwarding into startup generation.",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-100",
+          "title": "Build dispatcher tracing config logic from Markus baseline",
+          "description": "Replace the legacy regex-driven config mutation path with app-side config generation logic that starts from the Markus tracing baseline and applies only the required 11.0.1 dispatcher-era mutations.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 3.0,
+          "dependencies": [
+            "task-002"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "implementationNotes": [
+            "Preserve Markus as the tracing baseline.",
+            "Set UseTraceDispatcher true for all generated node configs.",
+            "Preserve Stdout MachineFormat and Prometheus wiring.",
+            "Add Forwarder only for core nodes.",
+            "Retain only the compatibility-era top-level tracing keys still needed by cardano-node 11.0.1."
+          ],
+          "testCases": [
+            "Core config includes dispatcher tracing and forwarder backend.",
+            "Relay and pool config include dispatcher tracing without forwarder backend.",
+            "Generated config does not emit file-log scribes or rotation config.",
+            "Generated config carries required compatibility-era top-level keys."
+          ],
+          "acceptance": [
+            "Config generation no longer depends on legacy file-log assumptions.",
+            "Generated tracing config is based on Markus plus minimal JorManager-owned mutations.",
+            "Core and non-core node tracing shapes differ only where the PRD allows."
+          ],
+          "notes": "A small structured config builder is preferred over more regex patching of legacy config blobs."
+        },
+        {
+          "id": "task-101",
+          "title": "Update deployed node template configs",
+          "description": "Update the deployed node template configs under /home/westbam/bcsh/jormanager so new node creation for guild, mainnet, preprod, and preview inherits the dispatcher-era tracing setup.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 1.5,
+          "dependencies": [
+            "task-100"
+          ],
+          "targetPath": "/home/westbam/bcsh/jormanager/mainnet-config.json",
+          "implementationNotes": [
+            "Update only guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json.",
+            "Keep db-sync config files explicitly out of scope.",
+            "Apply the same dispatcher-era tracing rules used by the JorManager config-generation design.",
+            "Remove legacy file-log assumptions from the deployed templates."
+          ],
+          "testCases": [
+            "All four deployed node template configs use dispatcher tracing.",
+            "All four deployed node template configs preserve machine-formatted stdout logging.",
+            "No updated template carries legacy file-log scribes or rotation assumptions.",
+            "No *-db-sync-config.json file is modified."
+          ],
+          "acceptance": [
+            "guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json are updated for the tracing migration.",
+            "The deployed template configs align with the PRD's dispatcher-era tracing model.",
+            "db-sync config templates remain untouched."
+          ]
+        },
+        {
+          "id": "task-102",
+          "title": "Wire core tracing listener into startup generation",
+          "description": "Update systemd or manual startup generation so newly created core nodes actually listen for the trace-forward client on the saved tracing port.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": [
+            "task-101"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "implementationNotes": [
+            "Use the verified cardano-node 11.0.1 listener mechanism rather than guessing between config-only and CLI-only wiring.",
+            "Bind listeners as required by the PRD and preserve existing service-generation conventions where possible.",
+            "Keep forwarding limited to core nodes."
+          ],
+          "testCases": [
+            "Generated startup wiring includes trace-forward listener settings for core nodes.",
+            "Relay and pool startup wiring does not expose a trace-forward listener.",
+            "Existing non-tracing startup settings remain intact."
+          ],
+          "acceptance": [
+            "New core-node startup artifacts contain the verified tracing listener configuration for cardano-node 11.0.1.",
+            "Generated startup artifacts remain consistent with JorManager's existing deployment style.",
+            "No runtime dependency on cardano-tracer is introduced."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Tracing Consumer Subsystem",
+      "description": "Introduce the direct tracing client stack that can connect to core nodes, decode forwarded trace objects, and normalize adopted-block events for JorManager.",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-200",
+          "title": "Add core tracing connection lifecycle management",
+          "description": "Create the first pass of a dedicated tracing subsystem that manages one direct trace-forward connection per core node and handles reconnects without depending on SSH or cardano-tracer.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 4.0,
+          "dependencies": [
+            "task-102"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
+          "implementationNotes": [
+            "Keep the tracing subsystem separate from the existing node-to-client mini-protocol code even if lifecycle patterns are reused.",
+            "Manage one connection per forwarded core node.",
+            "Make reconnect and shutdown behavior explicit and testable."
+          ],
+          "testCases": [
+            "Subsystem opens a tracing connection per eligible core node.",
+            "Connection loss triggers reconnect behavior.",
+            "Deleting or disabling a node tears down its tracing session cleanly."
+          ],
+          "acceptance": [
+            "JorManager has a dedicated tracing connection manager or equivalent service.",
+            "The subsystem is independent from SSH log scraping.",
+            "The subsystem can be extended to more trace event families later."
+          ]
+        },
+        {
+          "id": "task-201",
+          "title": "Decode forwarded adopted-block trace objects",
+          "description": "Implement the decoder that matches Forge.AdoptedBlock forwarded TraceObjects and extracts the cardano-node 11.0.1 TraceAdoptedBlock machine payload into a normalized internal block event.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 3.0,
+          "dependencies": [
+            "task-200"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
+          "implementationNotes": [
+            "Match on forwarded namespace Forge.AdoptedBlock.",
+            "Parse toMachine JSON and confirm kind TraceAdoptedBlock.",
+            "Phase 1 should depend only on slot and blockHash and tolerate optional blockSize or txIds fields."
+          ],
+          "testCases": [
+            "Valid Forge.AdoptedBlock payloads decode into normalized block events.",
+            "Unexpected namespaces are ignored.",
+            "Malformed toMachine JSON does not crash the subsystem.",
+            "Payloads missing required slot or blockHash are rejected safely."
+          ],
+          "acceptance": [
+            "Forwarded adopted-block events decode without relying on the old scraped log-line model.",
+            "Namespace and kind checks are both enforced.",
+            "Decoder output is suitable for reuse by BlockMonitor migration work."
+          ]
+        },
+        {
+          "id": "task-202",
+          "title": "Bridge tracing events into block persistence flow",
+          "description": "Add the service layer that takes normalized adopted-block events from the tracing client and hands them into the existing block repository flow with minimal disruption to downstream validation semantics.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": [
+            "task-201"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+          "implementationNotes": [
+            "Preserve trace-driven discovery followed by chain-driven forged or missed or orphaned classification.",
+            "Keep websocket updates and repository writes behaviorally aligned with the existing monitor.",
+            "Avoid coupling the tracing subsystem directly to SSH or host shell utilities."
+          ],
+          "testCases": [
+            "A normalized adopted-block event results in a saved candidate block.",
+            "Existing validation loop still resolves forged or missed or orphaned status later.",
+            "Duplicate adopted-block events do not create duplicate persisted blocks."
+          ],
+          "acceptance": [
+            "Tracing events can drive candidate block persistence end to end.",
+            "Current downstream validation semantics remain intact.",
+            "No new historical replay behavior is introduced."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Monitor Migration And Final Alignment",
+      "description": "Remove the old SSH or file-scraping discovery path, align minimal UI or API plumbing, and add focused coverage so the new tracing model is the only supported path for new nodes.",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-300",
+          "title": "Remove SSH and file scraping from BlockMonitor",
+          "description": "Delete the legacy historical scrape and live tail code paths from BlockMonitor so block discovery comes only from the new tracing subsystem.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": [
+            "task-202"
+          ],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+          "implementationNotes": [
+            "Remove dependency on logs/node.json, logs/node-*.json, tail, grep, and SSH-based discovery for block monitoring.",
+            "Keep the validation loop only where it still belongs.",
+            "Remove obsolete parsing helpers once the tracing handoff covers discovery fully."
+          ],
+          "testCases": [
+            "BlockMonitor no longer shells out to tail or grep.",
+            "BlockMonitor no longer opens SSH sessions for block discovery.",
+            "Block validation still runs on discovered candidate blocks."
+          ],
+          "acceptance": [
+            "No runtime dependency remains on node log files for block discovery.",
+            "BlockMonitor is simplified to tracing-driven discovery plus validation.",
+            "Legacy discovery-only code is removed rather than left dormant."
+          ]
+        },
+        {
+          "id": "task-301",
+          "title": "Finish minimal plumbing tests and docs",
+          "description": "Complete the small backend or frontend plumbing needed for tracing metadata exposure, add focused automated coverage, and update plan docs to reflect implementation reality.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 3.0,
+          "dependencies": [
+            "task-300"
+          ],
+          "targetPath": "vue/src/components/AddNodeWizard.vue",
+          "implementationNotes": [
+            "Only add frontend or API shape changes that are required for internal plumbing.",
+            "Prefer backend tests around config generation, port allocation, decoder behavior, and block flow.",
+            "Update PRD, prompt, and research if implementation truths differ from planning assumptions."
+          ],
+          "testCases": [
+            "Config generation tests cover core and non-core tracing differences.",
+            "Port allocation tests cover collision scanning.",
+            "Tracing decoder tests cover Forge.AdoptedBlock and malformed payloads.",
+            "Plan docs are synchronized with the implemented system."
+          ],
+          "acceptance": [
+            "Only minimal internal plumbing changes are made outside the backend core.",
+            "Focused automated coverage exists for the highest-risk migration areas.",
+            "Plan artifacts are updated to reflect the implemented result."
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalPhases": 4,
+    "totalTasks": 10,
+    "estimatedTotalHours": 26.0,
+    "criticalPath": [
+      "task-001",
+      "task-002",
+      "task-100",
+      "task-101",
+      "task-102",
+      "task-200",
+      "task-201",
+      "task-202",
+      "task-300",
+      "task-301"
+    ],
+    "keyFiles": [
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/monitors/BlockMonitor.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/entities/Node.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/CreateNodeRequest.kt",
+      "src/main/resources/db/",
+      "vue/src/components/AddNodeWizard.vue",
+      "/home/westbam/bcsh/jormanager/guild-config.json",
+      "/home/westbam/bcsh/jormanager/mainnet-config.json",
+      "/home/westbam/bcsh/jormanager/preprod-config.json",
+      "/home/westbam/bcsh/jormanager/preview-config.json"
+    ],
+    "riskAreas": [
+      "Verifying the exact cardano-node 11.0.1 tracing listener startup mechanism.",
+      "Implementing the trace-forward wire client without overfitting to cardano-tracer internals.",
+      "Keeping the deployed node template configs in /home/westbam/bcsh/jormanager aligned with the app-side tracing model.",
+      "Replacing BlockMonitor discovery without regressing forged or missed or orphaned classification semantics.",
+      "Migrating config generation away from legacy regex mutation safely."
+    ],
+    "testingNotes": "Prioritize focused backend coverage for config generation, tracing port allocation, trace object decoding, tracing connection lifecycle, and end-to-end candidate block persistence. Frontend checks should stay limited to any internal payload plumbing that proves necessary.",
+    "rollbackPlan": "Disable or revert the tracing migration as a unit by restoring the previous node config generation and BlockMonitor discovery path from git if implementation verification fails before release. Newly created nodes should not be partially rolled out with mixed tracing models."
+  }
+}
