@@ -15,7 +15,7 @@ Run this workflow when:
 - ✅ Modifying database schema
 - ✅ Adding new workflows or processes
 - ✅ Resolving issues that should become SOPs
-- ✅ Completing a feature that should be documented in `/task`
+- ✅ Creating, updating, or completing a plan in `/plans`
 
 ---
 
@@ -47,11 +47,15 @@ Based on changes, update the appropriate files:
 | API changes | `.agent/system/api-endpoints.md` |
 | New workflow | `.agent/workflows/{name}.md` |
 | Resolved issue | `.agent/SOPs/{category}/{name}.md` |
-| Completed feature | `.agent/task/{domain}/{feature}.md` |
+| New or updated plan | `.agent/plans/{feature-name}/{feature-name}-prd.md` and, for new/current plans, `.agent/plans/{feature-name}/{feature-name}-tasks.json` |
 
 ### Step 3: Update Index
 
-If adding new files, update `.agent/readme.md` to include them.
+If adding or moving files, update the relevant indexes and links:
+
+- `.agent/readme.md` for top-level docs, workflows, plans, SOPs, and skills
+- `.agent/plans/readme.md` whenever adding, moving, or renaming plan folders or files
+- Any existing references that still point to the old path
 
 ### Step 4: Commit Documentation
 
@@ -129,7 +133,13 @@ How to confirm success.
 
 ### New Task Plan
 
-Create `.agent/task/{domain}/{feature}.md`:
+Create a per-plan folder with a PRD, tasks file, and optional prompt:
+
+```
+.agent/plans/{feature-name}/{feature-name}-prd.md
+.agent/plans/{feature-name}/{feature-name}-tasks.json
+.agent/plans/{feature-name}/prompt.md
+```
 
 ```markdown
 # {Feature Name}
@@ -152,6 +162,10 @@ Brief description.
 **Status:** ✅ Completed  
 **Date:** {Date}
 ```
+
+New/current plans should use a matching `*-tasks.json` file to track execution status.
+
+Add `prompt.md` when the work needs a durable orchestration prompt for multi-step or multi-session execution.
 
 ---
 

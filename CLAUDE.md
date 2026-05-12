@@ -30,7 +30,7 @@ All agent documentation is centralized in the [`.agent/`](./.agent/) directory.
 - [/update-doc](./.agent/workflows/update-doc.md) — Update documentation
 
 ### Learning Resources
-- [Task History](./.agent/task/) — Past implementation plans
+- [Plans](./.agent/plans/) — Active and historical implementation plans
 - [SOPs](./.agent/SOPs/) — Standard operating procedures
 
 ---
@@ -48,7 +48,7 @@ All agent documentation is centralized in the [`.agent/`](./.agent/) directory.
 ### Frontend
 ```bash
 cd vue
-npm install && npm run serve       # Development
+npm install && npm run dev         # Development
 npm run build                      # Production build
 npm run lint                       # Lint check
 ./deploy.sh                        # Build and deploy to backend
@@ -71,7 +71,7 @@ jormanager/
 ├── vue/                    # Vue.js frontend
 │   ├── src/views/          # Page components
 │   ├── src/components/     # Reusable components
-│   └── src/store/          # Vuex state
+│   └── src/stores/         # Pinia state
 └── src/main/resources/
     └── db/                 # Liquibase migrations
 ```
@@ -82,7 +82,7 @@ jormanager/
 
 When completing features or resolving issues:
 
-1. **Implementation plans** → Save to `.agent/task/{domain}/`
+1. **Implementation plans** → Save to `.agent/plans/{feature-name}/`
 2. **Resolved issues** → Create SOP in `.agent/SOPs/{category}/`
 3. **New workflows** → Add to `.agent/workflows/`
 

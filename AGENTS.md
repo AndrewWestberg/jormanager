@@ -13,8 +13,9 @@ The `.agent/` directory contains comprehensive documentation organized for AI ag
 | Folder | Purpose | When to Read |
 |--------|---------|--------------|
 | `.agent/system/` | Architecture, schemas, APIs | Understanding system design |
-| `.agent/task/` | Past PRDs and implementation plans | Before implementing new features |
+| `.agent/plans/` | Active and historical implementation plans | Before planning or implementing new features |
 | `.agent/SOPs/` | Standard operating procedures | When encountering known issues |
+| `.agent/skills/` | Reusable skills and operators | When a task matches a supported skill |
 | `.agent/workflows/` | Step-by-step guides | When executing specific tasks |
 
 ---
@@ -50,7 +51,7 @@ Use these slash commands to access workflows:
 | Layer | Technology |
 |-------|------------|
 | Backend | Kotlin (Java 21), Spring Boot, Spring Data JPA |
-| Frontend | Vue.js 2, Bootstrap-Vue, Vuex |
+| Frontend | Vue 3, TypeScript, Pinia, Vite, Bootstrap 5 |
 | Database | PostgreSQL, Liquibase migrations |
 | SSH | SSHJ for remote host connections |
 | Build | Gradle (Kotlin DSL), npm |
@@ -73,11 +74,12 @@ Use these slash commands to access workflows:
 - REST endpoints in `@RestController` classes
 - Null-safe Kotlin idioms
 
-### Frontend (Vue.js 2)
+### Frontend (Vue 3)
 - Single File Components (`.vue`)
-- Vuex for state management
+- Pinia for state management
 - Vue Router for navigation
-- Bootstrap-Vue for UI components
+- Bootstrap-Vue-Next for UI components
+- Vite for development and builds
 
 ---
 
@@ -94,3 +96,8 @@ Use these slash commands to access workflows:
 - Never commit secrets or API keys
 - Database credentials are in `application.properties` (local dev only)
 - SSH keys are managed per-host in the application
+
+## Documentation Update Rules
+
+- Treat PRD history sections such as `Status Log` or `Progress Log` as append-only chronological transcripts.
+- Store plan artifacts in `.agent/plans/{feature-name}/` using the current PRD, tasks JSON, and optional `prompt.md` convention.

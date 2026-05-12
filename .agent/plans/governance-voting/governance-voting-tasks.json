@@ -1,0 +1,195 @@
+{
+  "metadata": {
+    "title": "Governance Voting Tasks",
+    "created": "2026-01-15",
+    "updated": "2026-01-15",
+    "version": "1.0.0",
+    "totalTasks": 11,
+    "prdReference": ".agent/plans/governance-voting/governance-voting-prd.md",
+    "description": "Add governance vote submission from the Nodes view for all core nodes in one transaction",
+    "sourceFiles": [
+      "vue/src/views/Nodes.vue",
+      "vue/src/components/GovernanceVoteModal.vue",
+      "vue/src/stores/jormanager.ts",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/GovernanceVoteRequest.kt"
+    ]
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Frontend Voting Flow",
+      "description": "Expose the governance voting UI and client-side submission path",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-001",
+          "title": "Add Vote button to Nodes view",
+          "description": "Expose governance voting from the Nodes page when core nodes are available",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 0.5,
+          "dependencies": [],
+          "targetPath": "vue/src/views/Nodes.vue",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-002",
+          "title": "Create governance vote modal",
+          "description": "Build the modal UI for governance action ID, per-node vote selection, and fee account selection",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.5,
+          "dependencies": ["task-001"],
+          "targetPath": "vue/src/components/GovernanceVoteModal.vue",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-003",
+          "title": "Add client-side validation",
+          "description": "Validate bech32 governance action IDs and require a vote for every core node",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 0.5,
+          "dependencies": ["task-002"],
+          "targetPath": "vue/src/components/GovernanceVoteModal.vue",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-004",
+          "title": "Add store submission action",
+          "description": "Send governance vote requests over the existing WebSocket messaging flow and surface the result to the UI",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.0,
+          "dependencies": ["task-002"],
+          "targetPath": "vue/src/stores/jormanager.ts",
+          "completedAt": "2026-01-15"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Backend Vote Submission",
+      "description": "Handle vote request payloads and build the on-chain governance transaction",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-005",
+          "title": "Create governance vote request model",
+          "description": "Define the request payload used by the frontend and backend WebSocket handler",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 0.5,
+          "dependencies": [],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/model/GovernanceVoteRequest.kt",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-006",
+          "title": "Add governance vote message endpoint",
+          "description": "Create the backend message mapping that receives governance vote submissions",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 0.5,
+          "dependencies": ["task-005"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-007",
+          "title": "Generate per-node vote files",
+          "description": "Use cardano-cli to generate governance vote files for each core node selection",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.0,
+          "dependencies": ["task-006"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-008",
+          "title": "Build combined governance transaction",
+          "description": "Build a single transaction containing all vote files and a selected fee source",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.5,
+          "dependencies": ["task-007"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-009",
+          "title": "Sign and submit vote transaction",
+          "description": "Sign the transaction with all required cold keys and payment key, then submit and return the TxID",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.0,
+          "dependencies": ["task-008"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "completedAt": "2026-01-15"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Verification",
+      "description": "Verify the end-to-end governance voting flow",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-010",
+          "title": "Verify modal validation and UX",
+          "description": "Check the modal interaction flow, default voting behavior, and validation messages",
+          "status": "completed",
+          "priority": "medium",
+          "estimatedHours": 0.5,
+          "dependencies": ["task-002", "task-003"],
+          "targetPath": "vue/src/components/GovernanceVoteModal.vue",
+          "completedAt": "2026-01-15"
+        },
+        {
+          "id": "task-011",
+          "title": "Run end-to-end governance vote testing",
+          "description": "Verify the full governance voting flow returns a successful transaction ID",
+          "status": "completed",
+          "priority": "medium",
+          "estimatedHours": 1.0,
+          "dependencies": ["task-004", "task-009"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "completedAt": "2026-01-15"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalPhases": 3,
+    "totalTasks": 11,
+    "estimatedTotalHours": 9.5,
+    "criticalPath": [
+      "task-001",
+      "task-002",
+      "task-004",
+      "task-005",
+      "task-006",
+      "task-007",
+      "task-008",
+      "task-009",
+      "task-011"
+    ],
+    "keyFiles": [
+      "vue/src/views/Nodes.vue",
+      "vue/src/components/GovernanceVoteModal.vue",
+      "vue/src/stores/jormanager.ts",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/model/GovernanceVoteRequest.kt"
+    ],
+    "riskAreas": [
+      "Correct cardano-cli governance command generation",
+      "Multi-signature transaction assembly across all core nodes",
+      "Secure use of stored cold signing keys"
+    ],
+    "testingNotes": "Verification focused on modal UX, payload validation, and successful end-to-end transaction submission.",
+    "rollbackPlan": "Remove the vote UI entry point and backend message handling if governance voting needs to be withdrawn."
+  }
+}
