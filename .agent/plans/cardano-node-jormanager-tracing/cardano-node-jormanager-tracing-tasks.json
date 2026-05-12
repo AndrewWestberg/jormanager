@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T23:44:12Z",
-    "version": "1.8.0",
+    "updated": "2026-05-12T23:58:22Z",
+    "version": "1.9.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -245,7 +245,8 @@
           "estimatedHours": 4.0,
           "dependencies": [
             "task-102",
-            "task-203"
+            "task-203",
+            "task-200"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/",
           "implementationNotes": [
@@ -299,7 +300,7 @@
           "id": "task-201",
           "title": "Decode forwarded adopted-block trace objects",
           "description": "Implement the decoder that matches Forge.AdoptedBlock forwarded TraceObjects and extracts the cardano-node 11.0.1 TraceAdoptedBlock machine payload into a normalized internal block event.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 3.0,
           "dependencies": [
@@ -321,7 +322,9 @@
             "Forwarded adopted-block events decode without relying on the old scraped log-line model.",
             "Namespace and kind checks are both enforced.",
             "Decoder output is suitable for reuse by BlockMonitor migration work."
-          ]
+          ],
+          "completedAt": "2026-05-12T23:58:22Z",
+          "completionNotes": "Added a small tracing-package decoder that traverses non-empty `TraceObjectsReply` payloads, matches only forwarded `Forge.AdoptedBlock` plus machine `kind: \"TraceAdoptedBlock\"`, and normalizes machine-owned `slot`/`blockHash` with forwarded `toTimestamp`/`toHostname` into a reusable internal event. Focused decoder and fixture tests passed, including malformed JSON, wrong kind, non-numeric slot, wrapper-only blockHash rejection, and scripted non-empty reply traversal; current Gradle wiring also ran Vue tests/build during verification."
         },
         {
           "id": "task-202",

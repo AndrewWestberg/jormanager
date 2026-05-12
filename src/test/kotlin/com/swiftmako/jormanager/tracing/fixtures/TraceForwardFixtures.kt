@@ -3,6 +3,7 @@ package com.swiftmako.jormanager.tracing.fixtures
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborInteger
 import com.google.iot.cbor.CborSimple
+import com.google.iot.cbor.CborTextString
 import com.google.iot.cbor.CborWriter
 import java.nio.ByteBuffer
 import org.json.JSONArray
@@ -31,6 +32,20 @@ object TraceForwardFixtures {
             CborArray.create().apply {
                 add(CborInteger.create(MSG_TRACE_OBJECTS_REPLY_ID))
                 add(CborArray.create())
+            }
+        )
+
+    fun msgTraceObjectsReply(vararg traceObjects: ForwardedTraceObjectFixture): ByteArray =
+        cborBytes(
+            CborArray.create().apply {
+                add(CborInteger.create(MSG_TRACE_OBJECTS_REPLY_ID))
+                add(
+                    CborArray.create().apply {
+                        traceObjects.forEach { traceObject ->
+                            add(CborTextString.create(traceObject.traceObjectJson))
+                        }
+                    }
+                )
             }
         )
 
@@ -98,6 +113,55 @@ object TraceForwardFixtures {
                 """
                 {
                   "toNamespace": ["Forge", "AdoptedBlock"],
+                  "toMachine": {"kind":"TraceAdoptedBlock","slot":42},
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun wrongKindTraceObject(): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["Forge", "AdoptedBlock"],
+                  "toMachine": {"kind":"SomeOtherEvent","slot":42,"blockHash":"abc123"},
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun nonNumericSlotTraceObject(): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["Forge", "AdoptedBlock"],
+                  "toMachine": {"kind":"TraceAdoptedBlock","slot":"oops","blockHash":"abc123"},
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun wrapperOnlyBlockHashTraceObject(): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["Forge", "AdoptedBlock"],
+                  "blockHash": "wrapper-value",
                   "toMachine": {"kind":"TraceAdoptedBlock","slot":42},
                   "toSeverity": "Info",
                   "toDetails": "DNormal",

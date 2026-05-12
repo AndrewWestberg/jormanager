@@ -34,6 +34,19 @@ class TraceForwardFixturesTest {
     }
 
     @Test
+    fun msgTraceObjectsReplyBuildsNonEmptyCborShape() {
+        val payload = TraceForwardFixtures.msgTraceObjectsReply(TraceForwardFixtures.adoptedBlockTraceObject())
+        val reply = payload.readSingleCborArray()
+        val traceObjects = reply.elementAt(1) as CborArray
+
+        assertThat(reply.size()).isEqualTo(2)
+        assertThat(reply.elementAt(0).toJsonString()).isEqualTo("3")
+        assertThat(traceObjects.size()).isEqualTo(1)
+        assertThat(traceObjects.elementAt(0).toJsonString()).contains("\\\"toNamespace\\\"")
+        assertThat(traceObjects.elementAt(0).toJsonString()).contains("Forge")
+    }
+
+    @Test
     fun msgDoneBuildsExpectedCborShape() {
         val payload = TraceForwardFixtures.msgDone()
         val done = payload.readSingleCborArray()
@@ -60,12 +73,19 @@ class TraceForwardFixturesTest {
         val malformed = TraceForwardFixtures.malformedMachineJsonTraceObject()
         val unknownNamespace = TraceForwardFixtures.unknownNamespaceTraceObject()
         val missingBlockHash = TraceForwardFixtures.missingBlockHashTraceObject()
+        val wrongKind = TraceForwardFixtures.wrongKindTraceObject()
+        val nonNumericSlot = TraceForwardFixtures.nonNumericSlotTraceObject()
+        val wrapperOnlyBlockHash = TraceForwardFixtures.wrapperOnlyBlockHashTraceObject()
 
         assertThat(malformed.namespace()).containsExactly("Forge", "AdoptedBlock").inOrder()
         assertThat(malformed.toMachineJson()).endsWith(",")
         assertThat(unknownNamespace.namespace()).containsExactly("ChainDB", "AddBlockEvent").inOrder()
         assertThat(unknownNamespace.toMachineJson()).contains("\"SomeOtherEvent\"")
         assertThat(missingBlockHash.toMachineJson()).doesNotContain("blockHash")
+        assertThat(wrongKind.namespace()).containsExactly("Forge", "AdoptedBlock").inOrder()
+        assertThat(wrongKind.toMachineJson()).contains("\"SomeOtherEvent\"")
+        assertThat(nonNumericSlot.toMachineJson()).contains("\"slot\":\"oops\"")
+        assertThat(wrapperOnlyBlockHash.traceObjectJson).contains("\"blockHash\": \"wrapper-value\"")
     }
 
     @Test
