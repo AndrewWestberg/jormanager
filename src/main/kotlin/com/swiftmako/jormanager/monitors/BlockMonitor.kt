@@ -18,6 +18,7 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.tracing.TracingBlockPersistenceService
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -67,6 +68,7 @@ class BlockMonitor
         private val webSocketTemplate: SimpMessagingTemplate,
         @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         private val blockUtils: BlockUtils,
+        private val tracingBlockPersistenceService: TracingBlockPersistenceService,
         private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
         private val shelleyShelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val adoptedBlockAdapter: JsonAdapter<TraceAdoptedBlock>,
@@ -475,13 +477,13 @@ class BlockMonitor
                                     status = "completed"
                                 )
 
-                            val existingBlock =
-                                blockRepository.findBySlot(traceAdoptedBlock.data.block.slot).firstOrNull()
+                                val existingBlock =
+                                    blockRepository.findBySlot(traceAdoptedBlock.data.block.slot).firstOrNull()
 
-                            if (existingBlock == null || existingBlock.hash.isEmpty()) {
-                                val pool = existingBlock?.pool ?: "---"
-                                val hashUpdatedBlock: Block =
-                                    host?.let {
+                                if (existingBlock == null || existingBlock.hash.isEmpty()) {
+                                    val pool = existingBlock?.pool ?: "---"
+                                    val hashUpdatedBlock: Block =
+                                        host?.let {
                                         val hostConnection = HostConnection(host, node)
                                         val socketPath = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
                                         val tipJson =
@@ -495,16 +497,10 @@ class BlockMonitor
                                             } else {
                                                 block.copy(id = existingBlock?.id, pool = pool)
                                             }
-                                        } ?: block.copy(id = existingBlock?.id, pool = pool)
-                                    } ?: block.copy(id = existingBlock?.id, pool = pool)
+                                            } ?: block.copy(pool = pool)
+                                        } ?: block.copy(pool = pool)
 
-                                val savedBlock = blockRepository.save(hashUpdatedBlock)
-
-                                log.info(savedBlock.toString())
-                                webSocketTemplate.convertAndSend(
-                                    "/topic/messages",
-                                    SocketResponse.Success(type = "block", data = savedBlock)
-                                )
+                                tracingBlockPersistenceService.persistCandidateBlock(hashUpdatedBlock)
                             }
                         } catch (e: DataIntegrityViolationException) {
                             log.warn("Block Exists! (${node.name}): $traceAdoptedBlock", e)

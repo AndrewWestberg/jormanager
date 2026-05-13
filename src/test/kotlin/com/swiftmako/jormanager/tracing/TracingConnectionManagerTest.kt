@@ -252,6 +252,7 @@ class TracingConnectionManagerTest {
         nodesChannel: MutableSharedFlow<Node> = MutableSharedFlow(extraBufferCapacity = 8),
         reconnectDelayMillis: Long = 50L,
         sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
+        messageSink: TraceForwardMessageSink = TraceForwardMessageSink { _, _ -> },
     ): TracingConnectionManager {
         val nodeRepository = mockk<NodeRepository>()
         val hostRepository = mockk<HostRepository>()
@@ -266,6 +267,7 @@ class TracingConnectionManagerTest {
             hostRepository = hostRepository,
             nodesChannel = nodesChannel,
             sessionClientFactory = sessionClientFactory,
+            messageSink = messageSink,
             reconnectDelayMillis = reconnectDelayMillis,
         )
     }
