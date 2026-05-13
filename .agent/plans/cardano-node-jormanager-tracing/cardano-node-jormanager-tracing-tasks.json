@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-12T23:58:22Z",
-    "version": "1.9.0",
+    "updated": "2026-05-13T00:20:30Z",
+    "version": "1.10.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -330,7 +330,7 @@
           "id": "task-202",
           "title": "Bridge tracing events into block persistence flow",
           "description": "Add the service layer that takes normalized adopted-block events from the tracing client and hands them into the existing block repository flow with minimal disruption to downstream validation semantics.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -351,7 +351,9 @@
             "Tracing events can drive candidate block persistence end to end.",
             "Current downstream validation semantics remain intact.",
             "No new historical replay behavior is introduced."
-          ]
+          ],
+          "completedAt": "2026-05-13T00:20:30Z",
+          "completionNotes": "Added a real production `TraceForwardMessageSink` path that decodes forwarded adopted-block replies and persists candidate blocks through a shared tracing persistence service, while preserving managed-host persistence, websocket publication, and `BlockUtils`-based epoch/slot-in-epoch calculation. Follow-up review exposed a duplicate-race risk while legacy SSH/file discovery still coexists, so the final approved implementation moved duplicate suppression behind a shared persistence mutex and added focused interleaving coverage; the focused Gradle verification passed, and this repo also ran Vue tests/build during that target."
         },
         {
           "id": "task-204",

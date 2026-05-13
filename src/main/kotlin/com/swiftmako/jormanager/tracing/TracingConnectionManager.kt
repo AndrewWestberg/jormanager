@@ -36,7 +36,7 @@ class TracingConnectionManager(
     private val hostRepository: HostRepository,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
     private val sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
-    private val messageSink: TraceForwardMessageSink = TraceForwardMessageSink { _, _ -> },
+    private val messageSink: TraceForwardMessageSink,
     private val reconnectDelayMillis: Long = DEFAULT_RECONNECT_DELAY_MILLIS,
 ) : SmartLifecycle,
     CoroutineScope {
