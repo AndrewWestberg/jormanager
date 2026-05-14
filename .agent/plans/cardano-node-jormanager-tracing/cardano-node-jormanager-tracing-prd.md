@@ -786,7 +786,8 @@ streams:
   - `task-200` added the first production tracing lifecycle layer under `src/main/kotlin/com/swiftmako/jormanager/tracing/`, including a dedicated `TracingConnectionManager`, a minimal direct TCP trace-forward session client, and focused lifecycle tests for seeded core-node startup, reconnect after disconnect, idle-session stability, ineligibility teardown, and both Spring stop paths.
   - `task-201` added a minimal tracing-package adopted-block decoder that traverses real `TraceForwardMessage.TraceObjectsReply` payloads, matches only forwarded `Forge.AdoptedBlock` plus machine `kind: "TraceAdoptedBlock"`, and normalizes machine-owned `slot`/`blockHash` with forwarded `toTimestamp`/`toHostname` into a reusable internal event for later `BlockMonitor` persistence work.
   - `task-202` bridged forwarded adopted-block replies into the live candidate-block repository flow by requiring a real production tracing sink, adding a shared tracing persistence service for post-normalization block saves, preserving managed-host plus websocket semantics, and serializing duplicate suppression across both tracing and still-live legacy discovery writers until `task-300` removes the old scraper path.
-  - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `BlockMonitor` and `NodeMonitor` still depend on legacy outputs today.
+  - `task-300` removed the legacy `BlockMonitor` SSH and file-scrape discovery path entirely, narrowed `BlockMonitor` to cold-start node seeding plus forged/missed/orphaned validation, and kept the shared startup seed contract intact for `NodeMonitor` and `PooltoolMonitor` while removing obsolete `SSHClientPool` shutdown coupling.
+  - Rollout is still intentionally gated until later listener, direct-consumer migration, and deployed-template tasks complete, because `NodeMonitor` still depends on legacy node-state outputs today.
 
 ---
 
