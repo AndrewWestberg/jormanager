@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-14T22:14:00Z",
-    "version": "1.13.0",
+    "updated": "2026-05-14T22:26:00Z",
+    "version": "1.14.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -458,7 +458,7 @@
           "id": "task-302",
           "title": "Retire HTTP-only metrics plumbing",
           "description": "Retire EkgService and any remaining HTTP-only metrics plumbing once BlockMonitor and NodeMonitor have both moved to the direct Hermod-compatible boundary.",
-          "status": "pending",
+          "status": "completed",
           "priority": "medium",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -478,7 +478,9 @@
           "acceptance": [
             "HTTP-only metrics plumbing is retired only after direct replacements are live.",
             "The codebase no longer carries an active EKG or Prometheus HTTP metrics path."
-          ]
+          ],
+          "completedAt": "2026-05-14T22:26:00Z",
+          "completionNotes": "Deleted the orphaned `EkgService` interface and the unused `model/ekg` plus `model/ekg2` HTTP metrics DTO trees after confirming task-301 had fully moved `NodeMonitor` to the direct DataPoint path. Focused backend verification passed with NodeMonitor and tracing tests, and the repo's Gradle wiring also ran Vue unit tests and frontend production build during that target; persisted `Node.ekgPort` and `Node.promPort` intentionally remain for the later controller/schema cleanup that still depends on them."
         }
       ]
     },
