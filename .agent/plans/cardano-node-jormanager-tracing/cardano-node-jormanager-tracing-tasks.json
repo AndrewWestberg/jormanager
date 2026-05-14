@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-14T21:10:06Z",
-    "version": "1.11.0",
+    "updated": "2026-05-14T21:51:01Z",
+    "version": "1.12.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -398,7 +398,7 @@
           "id": "task-300",
           "title": "Remove SSH and file scraping from BlockMonitor",
           "description": "Delete the legacy historical scrape and live tail code paths from BlockMonitor so block discovery comes only from the new tracing subsystem.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -419,7 +419,9 @@
             "No runtime dependency remains on node log files for block discovery.",
             "BlockMonitor is simplified to tracing-driven discovery plus validation.",
             "Legacy discovery-only code is removed rather than left dormant."
-          ]
+          ],
+          "completedAt": "2026-05-14T21:51:01Z",
+          "completionNotes": "Removed the legacy SSH and local-shell block discovery path from BlockMonitor entirely, preserved the existing cold-start nodesChannel seed that adjacent monitors still depend on, retained only candidate-block validation semantics, and added focused BlockMonitor tests for startup seeding plus forged/missed/orphaned outcomes. Focused Gradle verification passed, and the repo's configured test graph also ran Vue tests and frontend production build during that target."
         },
         {
           "id": "task-301",
