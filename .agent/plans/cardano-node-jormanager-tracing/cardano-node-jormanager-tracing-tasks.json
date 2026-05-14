@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-13T00:20:30Z",
-    "version": "1.10.0",
+    "updated": "2026-05-14T21:10:06Z",
+    "version": "1.11.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -359,7 +359,7 @@
           "id": "task-204",
           "title": "Pin the node-state protocol family and mapping",
           "description": "Pin the exact direct Hermod-compatible node-state protocol family used in this version and verify how its payloads normalize into the current NodeStats contract.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -382,7 +382,9 @@
             "A concrete node-state mapping exists before NodeMonitor is refactored.",
             "Node-state migration is no longer under-specified compared with block-event migration.",
             "The mapping is covered by automated tests."
-          ]
+          ],
+          "completedAt": "2026-05-14T21:10:06Z",
+          "completionNotes": "Pinned the first node-state migration version to the direct DataPoint mini-protocol, codified the exact eight `cardano.node.metrics.*` keys and NodeStats mapping in a small sibling tracing decoder/client surface, and added independent literal CBOR request/reply anchors plus negative and chunked-byte fixtures so the protocol contract is testable without live-node discovery. Focused Gradle verification passed, and the repo's current test graph also ran Vue tests and frontend production build during that command."
         }
       ]
     },

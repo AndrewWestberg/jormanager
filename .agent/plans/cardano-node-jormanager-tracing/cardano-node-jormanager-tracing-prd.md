@@ -551,6 +551,12 @@ node-state protocol family used in this version, rather than leaving it open
 between forwarded trace objects, data-point exchanges, or a future subscription
 model.
 
+That pinning is now satisfied by the direct `DataPoint` mini-protocol with the
+exact eight-key `cardano.node.metrics.*` request set used by the current
+`NodeStats` contract, a sibling-per-core-session topology, and literal request
+or reply fixture anchors that cover both normal and chunked-byte-string
+`DataPointValue` payloads.
+
 ### Future-Ready Scope
 
 The subsystem should be designed so future event types can be added without
