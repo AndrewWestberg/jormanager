@@ -22,6 +22,14 @@ interface DataPointSessionClient {
     fun close()
 }
 
+fun interface DataPointSessionClientFactory {
+    fun create(): DataPointSessionClient
+}
+
+class SocketDataPointSessionClientFactory : DataPointSessionClientFactory {
+    override fun create(): DataPointSessionClient = SocketDataPointSessionClient()
+}
+
 class SocketDataPointSessionClient(
     private val requestedNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
@@ -42,7 +50,8 @@ class SocketDataPointSessionClient(
         }.use { socket ->
             activeSocket.set(socket)
             try {
-                socket.getOutputStream().apply {
+                val output = socket.getOutputStream()
+                output.apply {
                     write(buildDataPointsRequest(requestedNames))
                     flush()
                 }
@@ -51,11 +60,15 @@ class SocketDataPointSessionClient(
                 while (true) {
                     try {
                         when (val message = readMessage(input)) {
-                            is TraceForwardMessage.DataPointsReply -> onMessage(message)
-                            TraceForwardMessage.Done -> {
-                                onMessage(TraceForwardMessage.Done)
+                            is TraceForwardMessage.DataPointsReply -> {
+                                onMessage(message)
+                                output.write(buildDoneMessage())
+                                output.flush()
                                 return
                             }
+
+                            TraceForwardMessage.Done ->
+                                throw IOException("Unexpected done reply on data-point session")
 
                             is TraceForwardMessage.TraceObjectsReply ->
                                 throw IOException("Unexpected trace-objects reply on data-point session")
@@ -103,6 +116,17 @@ class SocketDataPointSessionClient(
                 )
             }
         val buffer = ByteBuffer.allocate(512)
+        CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
+        buffer.flip()
+        return ByteArray(buffer.remaining()).also { buffer.get(it) }
+    }
+
+    private fun buildDoneMessage(): ByteArray {
+        val payload =
+            CborArray.create().apply {
+                add(CborInteger.create(MSG_DONE_ID))
+            }
+        val buffer = ByteBuffer.allocate(16)
         CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
         buffer.flip()
         return ByteArray(buffer.remaining()).also { buffer.get(it) }
