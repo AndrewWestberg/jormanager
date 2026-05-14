@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-14T21:51:01Z",
-    "version": "1.12.0",
+    "updated": "2026-05-14T22:14:00Z",
+    "version": "1.13.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -427,7 +427,7 @@
           "id": "task-301",
           "title": "Replace NodeMonitor HTTP metrics polling with direct node protocol consumption",
           "description": "Refactor NodeMonitor so the current NodeStats data comes from direct Hermod-compatible node protocol consumption rather than EKG or Prometheus HTTP polling or SSH port-forwarding.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 4.0,
           "dependencies": [
@@ -450,7 +450,9 @@
             "NodeMonitor is no longer coupled to HTTP EKG or Prometheus endpoints.",
             "Dashboard node stats are fed by direct node protocol consumption.",
             "The direct protocol subsystem covers both block flow and node-state flow."
-          ]
+          ],
+          "completedAt": "2026-05-14T22:14:00Z",
+          "completionNotes": "Replaced NodeMonitor's Retrofit EKG and SSH port-forward polling path with direct short-lived DataPoint sessions against core-node tracing listeners, added startup self-seeding plus core-only eligibility handling inside NodeMonitor, and preserved the existing NodeStats contract, websocket payload shape, and default-node cache semantics within the approved core-only boundary. Follow-up review corrected the pinned DataPoint mini-protocol so JorManager sends client-side MsgDone after the first reply, and focused Gradle verification passed with new NodeMonitor coverage plus the existing node-state decoder and tracing lifecycle tests; the repo task graph also ran Vue tests and frontend production build during that target."
         },
         {
           "id": "task-302",
