@@ -3,7 +3,7 @@ package com.swiftmako.jormanager.tracing
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborInteger
 import com.google.iot.cbor.CborReader
-import com.google.iot.cbor.CborSimple
+import com.google.iot.cbor.CborTextString
 import com.google.iot.cbor.CborWriter
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -12,7 +12,7 @@ import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 
-interface TraceForwardSessionClient {
+interface DataPointSessionClient {
     suspend fun runSession(
         hostname: String,
         port: Int,
@@ -22,20 +22,11 @@ interface TraceForwardSessionClient {
     fun close()
 }
 
-fun interface TraceForwardSessionClientFactory {
-    fun create(): TraceForwardSessionClient
-}
-
-class SocketTraceForwardSessionClientFactory : TraceForwardSessionClientFactory {
-    override fun create(): TraceForwardSessionClient = SocketTraceForwardSessionClient()
-}
-
-class SocketTraceForwardSessionClient(
+class SocketDataPointSessionClient(
+    private val requestedNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MILLIS,
-    private val requestBlocking: Boolean = true,
-    private val requestCount: Int = DEFAULT_REQUEST_COUNT,
-) : TraceForwardSessionClient {
+) : DataPointSessionClient {
     private val activeSocket = AtomicReference<Socket?>(null)
 
     override suspend fun runSession(
@@ -52,7 +43,7 @@ class SocketTraceForwardSessionClient(
             activeSocket.set(socket)
             try {
                 socket.getOutputStream().apply {
-                    write(buildTraceObjectsRequest(requestBlocking, requestCount))
+                    write(buildDataPointsRequest(requestedNames))
                     flush()
                 }
 
@@ -60,16 +51,16 @@ class SocketTraceForwardSessionClient(
                 while (true) {
                     try {
                         when (val message = readMessage(input)) {
-                            is TraceForwardMessage.TraceObjectsReply -> onMessage(message)
-                            is TraceForwardMessage.DataPointsReply ->
-                                throw IOException("Unexpected data-point reply on trace-objects session")
+                            is TraceForwardMessage.DataPointsReply -> onMessage(message)
                             TraceForwardMessage.Done -> {
                                 onMessage(TraceForwardMessage.Done)
                                 return
                             }
+
+                            is TraceForwardMessage.TraceObjectsReply ->
+                                throw IOException("Unexpected trace-objects reply on data-point session")
                         }
                     } catch (_: SocketTimeoutException) {
-                        // Blocking trace-forward sessions can stay quiet for long periods.
                         continue
                     }
                 }
@@ -85,38 +76,33 @@ class SocketTraceForwardSessionClient(
 
     private fun readMessage(input: java.io.InputStream): TraceForwardMessage {
         val payload = CborReader.createFromInputStream(input).readDataItem() as? CborArray
-            ?: throw IOException("Expected trace-forward CBOR array message")
+            ?: throw IOException("Expected data-point CBOR array message")
         val messageId = (payload.elementAt(0) as? CborInteger)?.longValue()
-            ?: throw IOException("Expected trace-forward message identifier")
+            ?: throw IOException("Expected data-point message identifier")
 
         return when (messageId) {
-            MSG_TRACE_OBJECTS_REPLY_ID -> {
-                val traceObjects = payload.elementAt(1) as? CborArray
-                    ?: throw IOException("Expected trace objects array payload")
-                TraceForwardMessage.TraceObjectsReply(traceObjects)
+            MSG_DATA_POINTS_REPLY_ID -> {
+                val dataPoints = payload.elementAt(1) as? CborArray
+                    ?: throw IOException("Expected data points array payload")
+                TraceForwardMessage.DataPointsReply(dataPoints)
             }
 
             MSG_DONE_ID -> TraceForwardMessage.Done
-            else -> throw IOException("Unexpected trace-forward message id: $messageId")
+            else -> throw IOException("Unexpected data-point message id: $messageId")
         }
     }
 
-    private fun buildTraceObjectsRequest(
-        blocking: Boolean,
-        count: Int,
-    ): ByteArray {
+    private fun buildDataPointsRequest(requestedNames: List<String>): ByteArray {
         val payload =
             CborArray.create().apply {
-                add(CborInteger.create(MSG_TRACE_OBJECTS_REQUEST_ID))
-                add(if (blocking) CborSimple.TRUE else CborSimple.FALSE)
+                add(CborInteger.create(MSG_DATA_POINTS_REQUEST_ID))
                 add(
                     CborArray.create().apply {
-                        add(CborInteger.create(BLOCKING_REQUEST_ID))
-                        add(CborInteger.create(count.toLong()))
+                        requestedNames.forEach { add(CborTextString.create(it)) }
                     }
                 )
             }
-        val buffer = ByteBuffer.allocate(64)
+        val buffer = ByteBuffer.allocate(512)
         CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
         buffer.flip()
         return ByteArray(buffer.remaining()).also { buffer.get(it) }
@@ -125,10 +111,8 @@ class SocketTraceForwardSessionClient(
     companion object {
         private const val DEFAULT_CONNECT_TIMEOUT_MILLIS = 5_000
         private const val DEFAULT_READ_TIMEOUT_MILLIS = 5_000
-        internal const val DEFAULT_REQUEST_COUNT = 25
-        private const val MSG_TRACE_OBJECTS_REQUEST_ID = 1L
+        private const val MSG_DATA_POINTS_REQUEST_ID = 1L
         private const val MSG_DONE_ID = 2L
-        private const val MSG_TRACE_OBJECTS_REPLY_ID = 3L
-        private const val BLOCKING_REQUEST_ID = 0L
+        private const val MSG_DATA_POINTS_REPLY_ID = 3L
     }
 }

@@ -7,6 +7,10 @@ sealed interface TraceForwardMessage {
         val traceObjects: CborArray,
     ) : TraceForwardMessage
 
+    data class DataPointsReply(
+        val dataPoints: CborArray,
+    ) : TraceForwardMessage
+
     data object Done : TraceForwardMessage
 }
 
