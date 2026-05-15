@@ -250,7 +250,7 @@ Use `prompt.md` for orchestration rules and high-discipline execution. Keep feat
 
 | Domain | Plan | Status | Date |
 |--------|------|--------|------|
-| Node Ops | [Cardano Node And JorManager Tracing Migration](cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md) | Draft | 2026-05-12 |
+| Node Ops | [Cardano Node And JorManager Tracing Migration](cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md) | Completed | 2026-05-12 |
 | Governance | [Governance Voting](governance-voting/governance-voting-prd.md) | Completed | 2026-01-15 |
 
 ---
