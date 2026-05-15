@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-14T22:26:00Z",
-    "version": "1.14.0",
+    "updated": "2026-05-15T18:28:45Z",
+    "version": "1.15.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -493,8 +493,8 @@
         {
           "id": "task-103",
           "title": "Update deployed node template configs",
-          "description": "Update the deployed node template configs under /home/westbam/bcsh/jormanager so new node creation for guild, mainnet, preprod, and preview inherits the dispatcher-era tracing setup without EKG or Prometheus HTTP config.",
-          "status": "pending",
+          "description": "Update the deployed node template configs under /home/westbam/bcsh/jormanager so the environment-side guild, mainnet, preprod, and preview templates align to the dispatcher-era tracing setup without EKG or Prometheus HTTP config.",
+          "status": "completed",
           "priority": "medium",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -517,7 +517,9 @@
             "guild-config.json, mainnet-config.json, preprod-config.json, and preview-config.json are updated for the tracing migration.",
             "The deployed template configs align with the PRD's dispatcher-era direct-protocol model.",
             "db-sync config templates remain untouched."
-          ]
+          ],
+          "completedAt": "2026-05-15T18:22:44Z",
+          "completionNotes": "Updated the four deployed network template configs under /home/westbam/bcsh/jormanager to the shared non-core dispatcher baseline used by NodeController tracing generation: UseTraceDispatcher true, Markus-rooted TraceOptions, machine-formatted stdout only, and no legacy file-scribe or HTTP metrics keys. Verification used machine-checked JSON assertions plus template-directory git status confirmation that no *-db-sync-config.json files changed. This task intentionally aligns the environment-side templates only; NodeController.createConfigFile() still reads DB-backed template content through FileRepository, so any DB/import sync remains separate."
         },
         {
           "id": "task-400",

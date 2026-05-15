@@ -1,0 +1,49 @@
+Planner: Iteration 1
+Timestamp: 2026-05-14T22:30:57Z
+
+Reviewed the required docs in order, then refreshed repo understanding with code-index after finding the prior cache had no loaded project files. Verified the live app-side tracing model in `src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt`, especially `renderManagedConfig(...)` and `normalizeTracingConfig(...)`, and then checked the live deployed templates in `/home/westbam/bcsh/jormanager/guild-config.json`, `mainnet-config.json`, `preprod-config.json`, and `preview-config.json` before drafting the canonical plan at `.agent/plans/cardano-node-jormanager-tracing/task-plans/task-103.md`.
+
+The plan is truthfully `autonomous` and intentionally narrow. It limits implementation to the four deployed node template configs plus the required task tracking artifacts, explicitly keeps all `*-db-sync-config.json` files out of scope, and does not widen into `NodeController`, startup wiring, schema, monitor, or frontend changes. The accepted alignment target is the proven app-side dispatcher-era config model already landed by earlier tasks: `UseTraceDispatcher: true`, Markus-rooted `TraceOptions`, machine-formatted stdout logging, and no EKG or Prometheus HTTP configuration.
+
+The live-template review confirmed all four deployed templates still use the old shape today: `UseTraceDispatcher: false`, legacy top-level boolean `Trace*` toggles, `TracingVerbosity`, `defaultBackends`, `defaultScribes`, `rotation`, `setupBackends`, `setupScribes`, and `hasEKG` plus `hasPrometheus`. The plan therefore requires replacing only those tracing-related sections while preserving network-specific keys such as genesis references, `RequiresNetworkMagic`, guild `PBftSignatureThreshold`, and preview experimental flags. It also records the key subtlety for this task: these deployed files appear to be shared new-node baseline templates, so they should align to the app-side common non-core dispatcher baseline rather than unconditionally embedding the core-only `Forwarder` and `TraceOptionForwarder` branch without stronger proof that the files are core-only artifacts.
+
+Docs and workflow usage were recorded in the plan: `.agent/readme.md`, `.agent/system/architecture.md`, `.agent/workflows/update-doc.md`, and `.agent/workflows/test.md`. No specialized skill was needed. The plan also captures the missing `task-103` research artifact as relevant, because implementation may need a small durable note explaining why template alignment stops at the shared baseline instead of forcing core forwarding into all four deployed templates.
+
+Acceptance and verification are pinned to live-file truth: all four templates must move to dispatcher tracing with `UseTraceDispatcher: true`, root `TraceOptions[" "]` must preserve `Stdout MachineFormat`, all HTTP metrics and legacy file-scribe tracing keys must be gone, and no db-sync template may change. Verification is primarily static against the live deployed files plus consistency checks against the non-core branch of `NodeController.normalizeTracingConfig(...)`; no mandatory repo test run is required unless implementation widens beyond external template and tracking-file edits. Self-review completed: no obvious scope creep, no stale workflow dependency, no missing task-plan doc, and no inconsistency with the PRD’s fixed decisions.
+
+Outcome: canonical `task-103` plan drafted and ready for formal review.
+
+Critiquer: Iteration 1
+Timestamp: 2026-05-14T22:33:41Z
+
+1. `task-103.md:14-24`, `:56-63`, and `:128-150` still assume that editing `/home/westbam/bcsh/jormanager/{guild,mainnet,preprod,preview}-config.json` directly causes future JorManager-created nodes to inherit the new tracing shape. Live app code does not read those files during node creation. `NodeController.createConfigFile()` still loads the template from `fileRepository.findByName(...)` and renders from DB-backed content, not from `/home/westbam/bcsh/jormanager/` (`src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt:3313-3322`). That makes the current plan boundary stale: it marks the task as fully autonomous, says no user-owned checkpoint is needed, and writes acceptance as if rollout effect is immediate. Either narrow the task truthfully to "environment template alignment only" or explicitly add the missing sync/import/deploy checkpoint, owner, and verification step that refreshes the DB-backed template source actually used by `createNode()`. This is blocking because the task can otherwise be declared complete while new nodes still inherit the old DB template shape.
+
+2. `task-103.md:137-150` leaves verification too weak for a config-only rollout task. "Read each updated deployed template" is not enough when no repo test target exercises these files. The plan needs machine-checked validation of the four edited JSON files plus explicit forbidden-key checks, otherwise a malformed JSON edit or partial legacy-key carryover can slip through unnoticed. Require at minimum: parse all four files as JSON, assert `UseTraceDispatcher: true`, assert root `TraceOptions[""].backends == ["Stdout MachineFormat"]`, assert `TraceOptionForwarder` is absent in all four shared templates, assert legacy `Trace*` booleans plus `defaultBackends`, `defaultScribes`, `setupBackends`, `setupScribes`, `rotation`, `options`, `hasEKG`, `hasPrometheus`, `EKGBackend`, and `PrometheusSimple` are absent, and assert no `*-db-sync-config.json` file changed. Also make the controller-alignment check explicit against `normalizeTracingConfig(...)`'s non-core tracing result only, not the whole `renderManagedConfig(...)` surface, because the latter also rewrites unrelated genesis filenames and other fields that these deployed templates should keep network-specific. Blocking because static eyeballing is currently the only regression net.
+
+Blocking findings:
+- Hidden rollout dependency: the plan claims new-node inheritance from `/home/westbam/bcsh/jormanager/*.json`, but `createNode()` still uses DB-backed templates from `FileRepository`, so the plan is missing the actual sync/import/deploy step or must narrow its claimed effect.
+- Verification is under-specified for the only changed artifacts; require machine-checked JSON parsing and explicit allow/deny assertions instead of read-only inspection.
+
+Non-blocking observations:
+- `task-103.md:108-109`, `:157`, `:165` likely overcommits to a new research artifact. If implementation yields no durable finding beyond "shared deployed templates stay on the non-core dispatcher baseline," completion notes may be enough; broader plan/prompt sync already belongs to `task-400`.
+- The shared-baseline decision itself looks correct from current evidence: the controller adds `Forwarder` only for `NODE_TYPE_CORE` (`NodeController.kt:3404-3426`), so forcing forwarder settings into all four network templates would still be unjustified scope growth.
+
+Approval bar:
+- Revise the plan so its outcome is truthful about the actual rollout path: either environment-template alignment only, or environment-template edits plus the explicit sync/import/deploy step that refreshes the DB template source used by `NodeController.createConfigFile()`.
+- Upgrade verification to machine-checked JSON validation with concrete positive and negative assertions for all four files and an explicit no-change check for `*-db-sync-config.json`.
+- Keep controller alignment scoped to the non-core tracing subtree only, not to unrelated `renderManagedConfig(...)` filename/field rewrites.
+
+Decision: requires_changes
+
+Planner: Iteration 2
+Timestamp: 2026-05-15T17:54:57Z
+Revised the canonical plan at `.agent/plans/cardano-node-jormanager-tracing/task-plans/task-103.md` to resolve the full blocker list without widening scope. The task is now explicitly framed as environment-template alignment only: update the four deployed templates under `/home/westbam/bcsh/jormanager/`, but do not claim that those edits alone immediately change create-node behavior because live `NodeController.createConfigFile()` still reads DB-backed template content through `FileRepository`.
+
+The revised plan keeps the same minimal implementation boundary while making the rollout truth explicit in scope, acceptance, risks, and required doc updates. It records `createConfigFile(...)` as a verified task surface, adds the DB-backed template source to the out-of-scope list, and states that any import or sync step refreshing those DB-backed templates remains outside `task-103` rather than being silently implied.
+
+Verification is also upgraded from read-only inspection to machine-checked validation tailored to these external JSON artifacts: parse all four files as JSON, assert `UseTraceDispatcher: true`, assert root `TraceOptions[""].backends` equals exactly `["Stdout MachineFormat"]`, assert `TraceOptionForwarder` is absent across the shared templates, assert legacy top-level `Trace*` booleans and legacy tracing keys like `TracingVerbosity`, `defaultBackends`, `defaultScribes`, `setupBackends`, `setupScribes`, `rotation`, `options`, `hasEKG`, and `hasPrometheus` are absent, assert no serialized value contains `EKGBackend` or `PrometheusSimple`, and assert no `*-db-sync-config.json` file changed. The controller alignment check is now scoped only to the non-core tracing subtree of `normalizeTracingConfig(...)`, not to unrelated `renderManagedConfig(...)` filename rewrites.
+
+I also reduced an unnecessary requirement from the first draft: the plan no longer assumes a new research artifact is mandatory, and instead allows `no new research` if the final environment-vs-DB boundary is fully captured in task notes and tracking updates. This is the final allowed planning pass and is intended to be implementation-ready without further planning churn.
+
+Outcome: canonical `task-103` plan revised to resolve critique findings and ready for implementation.
+
