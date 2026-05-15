@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Migration Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-15T18:28:45Z",
-    "version": "1.15.0",
+    "updated": "2026-05-15T18:55:00Z",
+    "version": "1.16.0",
     "totalTasks": 16,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Migrate new JorManager-managed nodes to cardano-node 11.0.1 dispatcher tracing and make direct JorManager <-> node Hermod-compatible protocols the only integration boundary for logs and node-state data.",
@@ -524,8 +524,8 @@
         {
           "id": "task-400",
           "title": "Sync plan docs and prompt artifacts",
-          "description": "Update PRD, tasks, research notes, and prompt-driven implementation guidance after the direct-protocol implementation is stable.",
-          "status": "pending",
+          "description": "Synchronize the tracing plan PRD, tracker, prompt artifact, and related plan docs to the completed implementation state without widening back into code or rollout work.",
+          "status": "completed",
           "priority": "low",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -546,7 +546,9 @@
             "Plan artifacts are synchronized with the implemented result.",
             "Prompt-driven implementation guidance no longer depends on stale assumptions.",
             "Documentation work does not block core implementation."
-          ]
+          ],
+          "completedAt": "2026-05-15T18:55:00Z",
+          "completionNotes": "Synchronized the tracing plan PRD, tasks tracker, prompt artifact, plan index, and canonical task-400 doc to the completed implementation state. The final docs now mark the plan completed, remove stale pre-implementation wording about listener and node-state protocol verification, preserve the DB-backed template boundary already documented by task-103, and treat prompt.md as historical orchestration guidance with completed-plan framing. No new research note was needed because the durable final-state evidence was already captured in existing task docs and research notes."
         }
       ]
     }

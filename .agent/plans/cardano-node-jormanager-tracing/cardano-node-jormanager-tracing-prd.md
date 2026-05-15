@@ -754,28 +754,33 @@ only changes the tracing shape inherited by newly created nodes.
 
 ## Open Questions
 
-- Exact `cardano-node 11.0.1+` listener configuration mechanism for the tracing
-  accept/listen mode still needs verification during implementation.
-- Exact wire encoding and framing used by the Hermod-compatible protocols still
-  need implementation verification, but the logical event identity for block
-  discovery is now pinned down to forwarded namespace `Forge.AdoptedBlock` with
-  machine payload `kind: "TraceAdoptedBlock"`.
+- The core-node listener mechanism is now pinned by implementation and test
+  evidence to the CLI form `--tracer-socket-network-accept 0.0.0.0:<tracingPort>`
+  for `cardano-node 11.0.1+`.
+- The first shipped direct node-state path is pinned to the `DataPoint`
+  mini-protocol with the exact eight-key `cardano.node.metrics.*` request set
+  used by the current `NodeStats` contract.
+- Residual follow-up boundary: JorManager's deployed filesystem templates under
+  `/home/westbam/bcsh/jormanager/` now match the accepted dispatcher baseline,
+  but `NodeController.createConfigFile()` still renders from DB-backed template
+  content via `FileRepository`, so any import or sync of that separate template
+  source remains outside this completed plan.
 
 ## Implementation Readiness Summary
 
-This PRD is ready to drive a tasks graph with the following top-level work
-streams:
+The tracked implementation workstreams defined by this PRD have completed:
 
-- node config generation migration to dispatcher tracing
-- core-node tracing port allocation and startup generation
-- JorManager direct Hermod-compatible protocol subsystem introduction
-- `BlockMonitor` migration off SSH/file scraping
-- `NodeMonitor` migration off EKG and Prometheus HTTP polling
-- minimal backend/frontend/schema plumbing for new core-node tracing metadata
+- node config generation migrated to dispatcher tracing
+- core-node tracing port allocation and startup generation are in place
+- JorManager now has direct Hermod-compatible tracing and node-state consumers
+- `BlockMonitor` no longer depends on SSH or file scraping for block discovery
+- `NodeMonitor` no longer depends on EKG or Prometheus HTTP polling
+- the required schema, request-model, frontend-plumbing, fixture, and
+  documentation updates landed for the supported core-node flow
 
 ## Status
 
-- **Status:** 📝 Draft
+- **Status:** Completed
 - **Started:** 2026-05-12
 - **Implementation Notes:**
   - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
@@ -790,7 +795,7 @@ streams:
   - `task-301` replaced `NodeMonitor`'s Retrofit EKG and SSH port-forward polling path with direct short-lived `DataPoint` protocol sessions against core-node tracing listeners, kept lifecycle ownership inside `NodeMonitor` with explicit startup self-seeding, preserved the current `NodeStats` and websocket `nodestats` contract, and intentionally left relay/pool parity plus non-core default-node cache behavior out of scope for this phase.
   - `task-302` retired the last dead HTTP-only node-metrics code by deleting `EkgService` and the orphaned `model/ekg` plus `model/ekg2` DTO trees once `task-300` and `task-301` had removed the live block and node-state consumers. Shared Retrofit wiring remains intentionally in place for non-EKG consumers, and persisted `ekgPort` / `promPort` fields remain a separate later cleanup because current node-creation sequencing still depends on them.
   - `task-103` updated the deployed `guild`, `mainnet`, `preprod`, and `preview` network template configs under `/home/westbam/bcsh/jormanager/` to the same shared non-core dispatcher baseline already proven in app-side generation: `UseTraceDispatcher: true`, Markus-rooted `TraceOptions`, root `Stdout MachineFormat`, and no legacy file-scribe or EKG/Prometheus HTTP config. This rollout-alignment step intentionally stopped at the environment-side templates; live `NodeController.createConfigFile()` still renders from DB-backed template content via `FileRepository`, so any import/sync of those DB-backed records remains separate from task-103.
-  - Rollout is still intentionally gated until later plan-artifact synchronization completes, but `NodeMonitor` no longer depends on legacy node-state HTTP outputs after `task-301` and the deployed environment templates now match the accepted dispatcher-era baseline after `task-103`.
+  - `task-400` synchronized the PRD, tasks tracker, plan index, prompt artifact, and task-plan docs to the completed implementation state. The tracing migration plan is now closed as completed documentation-wise, while preserving the already-verified boundary that DB-backed template content used by `NodeController.createConfigFile()` remains a separate operational import or sync surface outside this plan.
 
 ---
 
