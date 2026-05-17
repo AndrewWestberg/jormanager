@@ -125,6 +125,11 @@ class BlockUtils
             byron: GenesisByron,
             shelley: GenesisShelley
         ): Long {
+            if (shelley.networkMagic == 141L) {
+                // Guild behaves like a Shelley-era network for slot math.
+                return 0L
+            }
+
             latestNodeStats.get()?.let { nodeStats ->
                 if (nodeStats.epoch == null || nodeStats.slot == null || nodeStats.slotInEpoch == null) {
                     return -1L

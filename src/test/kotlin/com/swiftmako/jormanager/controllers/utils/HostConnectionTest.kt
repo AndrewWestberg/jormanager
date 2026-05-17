@@ -59,23 +59,23 @@ class HostConnectionTest {
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
         val defaultNode =
             Node(
-                0,
-                0,
-                null,
-                "",
-                "relay",
-                8,
-                "local",
-                "127.0.0.1",
-                22,
-                12788,
-                0,
-                0,
-                0,
-                0,
-                0,
+                id = 0,
+                hostId = 0,
+                parentId = null,
+                color = "",
+                type = "relay",
+                processorThreads = 8,
+                name = "local",
+                listen = "127.0.0.1",
+                port = 22,
+                promPort = 12789,
+                tracingHost = null,
+                genesisByronFileId = 0,
+                genesisShelleyFileId = 0,
+                genesisAlonzoFileId = 0,
+                genesisConwayFileId = 0,
+                configFileId = 0,
                 isDefault = true,
-                configFileId = 0
             )
         val hostConnection = HostConnection(host, defaultNode)
         val output =
@@ -91,23 +91,23 @@ class HostConnectionTest {
             Host(0, "local", "/home/westbam/.local/bin/cardano-cli", "", "", "", 22, "", "/home/westbam/haskell", "")
         val defaultNode =
             Node(
-                0,
-                0,
-                null,
-                "",
-                "relay",
-                8,
-                "local",
-                "127.0.0.1",
-                22,
-                12788,
-                0,
-                0,
-                0,
-                0,
-                0,
+                id = 0,
+                hostId = 0,
+                parentId = null,
+                color = "",
+                type = "relay",
+                processorThreads = 8,
+                name = "local",
+                listen = "127.0.0.1",
+                port = 22,
+                promPort = 12789,
+                tracingHost = null,
+                genesisByronFileId = 0,
+                genesisShelleyFileId = 0,
+                genesisAlonzoFileId = 0,
+                genesisConwayFileId = 0,
+                configFileId = 0,
                 isDefault = true,
-                configFileId = 0
             )
         val hostConnection = HostConnection(host, defaultNode)
         val port = 12955

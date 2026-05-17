@@ -117,6 +117,50 @@ class TracingBlockMessageSinkTest {
         }
 
     @Test
+    fun forgedBlockTracePersistsCreatedCandidateBlockImmediately() =
+        runBlocking {
+            val node = coreNode()
+            val host = host()
+            val blockRepository = mockk<BlockRepository>()
+            val fileRepository = mockk<FileRepository>()
+            val nodeRepository = mockk<NodeRepository>()
+            val hostRepository = mockk<HostRepository>()
+            val blockUtils = mockk<BlockUtils>()
+            val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+            val savedBlock = AtomicReference<Block?>(null)
+
+            every { nodeRepository.findById(node.id!!) } returns Optional.of(node)
+            every { hostRepository.findById(node.hostId) } returns Optional.of(host)
+            every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
+            every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
+            every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
+            every { blockRepository.save(any()) } answers {
+                firstArg<Block>().also { savedBlock.set(it) }
+            }
+
+            val sink =
+                TracingBlockMessageSink(
+                    nodeRepository = nodeRepository,
+                    hostRepository = hostRepository,
+                    tracingBlockPersistenceService =
+                        TracingBlockPersistenceService(
+                            blockRepository = blockRepository,
+                            fileRepository = fileRepository,
+                            webSocketTemplate = webSocketTemplate,
+                            blockUtils = blockUtils,
+                            byronGenesisAdapter = byronGenesisAdapter,
+                            shelleyGenesisAdapter = shelleyGenesisAdapter,
+                        ),
+                )
+
+            sink.onMessage(1L, forgedBlockReply())
+
+            assertThat(savedBlock.get()?.status).isEqualTo("created")
+            assertThat(savedBlock.get()?.hash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
+        }
+
+    @Test
     fun persistsSentinelEpochWhenBlockUtilsCannotResolveEpochYet() =
         runBlocking {
         val blockRepository = mockk<BlockRepository>()
@@ -266,11 +310,19 @@ class TracingBlockMessageSinkTest {
         )
 
     private fun adoptedBlockEvent() =
-        ForwardedAdoptedBlockEvent(
+        ForwardedBlockEvent(
             slot = 7_403_221L,
             blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
             timestamp = "2026-05-12T00:00:00Z",
             hostname = "trace-wrapper-host",
+            status = "completed",
+        )
+
+    private fun forgedBlockReply(): TraceForwardMessage.TraceObjectsReply =
+        TraceForwardMessage.TraceObjectsReply(
+            CborArray.create().apply {
+                add(CborTextString.create(TraceForwardFixtures.forgedBlockTraceObject().traceObjectJson))
+            }
         )
 
     private fun existingBlock() =
@@ -310,8 +362,8 @@ class TracingBlockMessageSinkTest {
             name = "core-a",
             listen = "0.0.0.0",
             port = 3001,
-            ekgPort = 12788,
             promPort = 12789,
+            tracingHost = "0.0.0.0",
             genesisByronFileId = 11L,
             genesisShelleyFileId = 12L,
             genesisAlonzoFileId = 13L,

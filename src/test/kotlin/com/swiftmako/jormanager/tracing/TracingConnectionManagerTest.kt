@@ -5,9 +5,6 @@ import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.tracing.fixtures.ScriptedTraceForwardServer
-import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
-import com.swiftmako.jormanager.tracing.fixtures.TraceForwardSessionScript
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
@@ -21,91 +18,115 @@ import org.junit.jupiter.api.Test
 
 class TracingConnectionManagerTest {
     @Test
-    fun startSeedsEligibleCoreNodesAndConnects() =
+    fun startSeedsEligibleNodesAndConnects() =
         runBlocking {
-            ScriptedTraceForwardServer.start(
-                TraceForwardSessionScript(
-                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
-                    serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-                    closeAfterResponses = false,
-                    awaitClientDisconnectAfterResponses = true,
+            val attempts = AtomicInteger(0)
+            val closed = AtomicReference(false)
+            val node = coreNode()
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(node.hostId to host()),
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    attempts.incrementAndGet()
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                    closed.set(true)
+                                }
+                            }
+                        },
                 )
-            ).use { server ->
-                val node = coreNode(tracingPort = server.port)
-                val manager =
-                    createManager(
-                        nodes = listOf(node),
-                        hostById = mapOf(node.hostId to host()),
-                    )
 
-                manager.start()
-                server.awaitAcceptedSessions(1)
+            manager.start()
+            waitUntil { attempts.get() == 1 }
 
-                assertThat(manager.managedNodeIds()).containsExactly(node.id)
+            assertThat(manager.managedNodeIds()).containsExactly(node.id)
 
-                manager.stopAndWait()
-                server.awaitCompletion()
-            }
+            manager.stopAndWait()
+            assertThat(closed.get()).isTrue()
         }
 
     @Test
     fun reconnectsAfterTraceSessionDisconnect() =
         runBlocking {
-            ScriptedTraceForwardServer.start(
-                TraceForwardSessionScript(
-                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
-                    serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-                ),
-                TraceForwardSessionScript(
-                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
-                    serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-                ),
-            ).use { server ->
-                val node = coreNode(tracingPort = server.port)
-                val manager =
-                    createManager(
-                        nodes = listOf(node),
-                        hostById = mapOf(node.hostId to host()),
-                        reconnectDelayMillis = 50L,
-                    )
+            val attempts = AtomicInteger(0)
+            val manager =
+                createManager(
+                    nodes = listOf(coreNode()),
+                    hostById = mapOf(1L to host()),
+                    reconnectDelayMillis = 50L,
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    attempts.incrementAndGet()
+                                    throw IOException("synthetic disconnect")
+                                }
 
-                manager.start()
-                server.awaitCompletion()
+                                override fun close() {
+                                }
+                            }
+                        },
+                )
 
-                manager.stopAndWait()
-            }
+            manager.start()
+            waitUntil { attempts.get() >= 2 }
+            manager.stopAndWait()
         }
 
     @Test
     fun deletingNodeTearsDownActiveTracingSession() =
         runBlocking {
             val nodesChannel = MutableSharedFlow<Node>(extraBufferCapacity = 8)
-            ScriptedTraceForwardServer.start(
-                TraceForwardSessionScript(
-                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
-                    serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-                    closeAfterResponses = false,
-                    awaitClientDisconnectAfterResponses = true,
+            val closed = AtomicReference(false)
+            val attempts = AtomicInteger(0)
+            val node = coreNode()
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(node.hostId to host()),
+                    nodesChannel = nodesChannel,
+                    reconnectDelayMillis = 50L,
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    attempts.incrementAndGet()
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                    closed.set(true)
+                                }
+                            }
+                        },
                 )
-            ).use { server ->
-                val node = coreNode(tracingPort = server.port)
-                val manager =
-                    createManager(
-                        nodes = listOf(node),
-                        hostById = mapOf(node.hostId to host()),
-                        nodesChannel = nodesChannel,
-                        reconnectDelayMillis = 50L,
-                    )
 
-                manager.start()
-                server.awaitAcceptedSessions(1)
+            manager.start()
+            waitUntil { attempts.get() == 1 }
+            nodesChannel.emit(node.copy(isDeleted = true))
+            waitUntil { closed.get() }
 
-                nodesChannel.emit(node.copy(isDeleted = true))
-                server.awaitCompletion()
-
-                assertThat(manager.managedNodeIds()).isEmpty()
-                manager.stopAndWait()
-            }
+            assertThat(closed.get()).isTrue()
+            assertThat(manager.managedNodeIds()).isEmpty()
+            manager.stopAndWait()
         }
 
     @Test
@@ -186,30 +207,35 @@ class TracingConnectionManagerTest {
     @Test
     fun directStopShutsDownActiveConnections() =
         runBlocking {
-            ScriptedTraceForwardServer.start(
-                TraceForwardSessionScript(
-                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
-                    serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-                    closeAfterResponses = false,
-                    awaitClientDisconnectAfterResponses = true,
+            val closed = AtomicReference(false)
+            val manager =
+                createManager(
+                    nodes = listOf(coreNode()),
+                    hostById = mapOf(1L to host()),
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                    closed.set(true)
+                                }
+                            }
+                        },
                 )
-            ).use { server ->
-                val node = coreNode(tracingPort = server.port)
-                val manager =
-                    createManager(
-                        nodes = listOf(node),
-                        hostById = mapOf(node.hostId to host()),
-                    )
 
-                manager.start()
-                server.awaitAcceptedSessions(1)
+            manager.start()
+            manager.stop()
+            waitUntil { !manager.isRunning() }
 
-                manager.stop()
-                server.awaitCompletion()
-
-                assertThat(manager.isRunning()).isFalse()
-                assertThat(manager.managedNodeIds()).isEmpty()
-            }
+            assertThat(closed.get()).isTrue()
+            assertThat(manager.managedNodeIds()).isEmpty()
         }
 
     @Test
@@ -218,8 +244,12 @@ class TracingConnectionManagerTest {
             val attempts = AtomicInteger(0)
             val manager =
                 createManager(
-                    nodes = listOf(coreNode(type = "relay"), coreNode(tracingPort = null)),
-                    hostById = mapOf(1L to host()),
+                    nodes = listOf(
+                        coreNode(type = "relay", tracingPort = null),
+                        coreNode(type = "pool", tracingPort = 12791, id = 2L),
+                        coreNode(tracingPort = null, id = 3L),
+                    ),
+                    hostById = mapOf(1L to host(), 2L to host(), 3L to host()),
                     sessionClientFactory =
                         TraceForwardSessionClientFactory {
                             object : TraceForwardSessionClient {
@@ -287,8 +317,8 @@ class TracingConnectionManagerTest {
             name = "core-a",
             listen = "0.0.0.0",
             port = 3001,
-            ekgPort = 12788,
             promPort = 12789,
+            tracingHost = "0.0.0.0",
             genesisByronFileId = 1L,
             genesisShelleyFileId = 2L,
             genesisAlonzoFileId = 3L,

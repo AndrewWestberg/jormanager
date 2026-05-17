@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.model.NodeStats
 import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.math.BigInteger
+import org.json.JSONObject
 
 data class NodeStateMetrics(
     val peers: Int,
@@ -46,15 +47,18 @@ class NodeStateDataPointDecoder {
     fun decode(reply: TraceForwardMessage.DataPointsReply): NodeStateMetrics? =
         runCatching {
             val values = reply.dataPoints.toDataPointValueMap() ?: return null
+            val nodeAddBlock = values.parseNodeAddBlock()
+            val epoch = values.requireLong(KEY_EPOCH, LEGACY_KEY_EPOCH) ?: nodeAddBlock?.epoch ?: return null
+            val slotInEpoch = values.requireLong(KEY_SLOT_IN_EPOCH, LEGACY_KEY_SLOT_IN_EPOCH) ?: nodeAddBlock?.slotInEpoch ?: return null
             NodeStateMetrics(
-                peers = values.requireInt(KEY_OUTGOING_CONNS) ?: return null,
-                incomingPeers = values.requireInt(KEY_INCOMING_CONNS) ?: return null,
-                blockHeight = values.requireLong(KEY_BLOCK_NUM) ?: return null,
-                remainingKESPeriods = values.requireInt(KEY_REMAINING_KES_PERIODS) ?: return null,
-                epoch = values.requireLong(KEY_EPOCH) ?: return null,
-                slot = values.requireLong(KEY_SLOT_NUM) ?: return null,
-                slotInEpoch = values.requireLong(KEY_SLOT_IN_EPOCH) ?: return null,
-                txsProcessed = values.requireLong(KEY_TXS_PROCESSED_NUM) ?: return null,
+                peers = values.requireInt(KEY_OUTGOING_CONNS, LEGACY_KEY_OUTGOING_CONNS) ?: 0,
+                incomingPeers = values.requireInt(KEY_INCOMING_CONNS, LEGACY_KEY_INCOMING_CONNS) ?: 0,
+                blockHeight = values.requireLong(KEY_BLOCK_NUM, LEGACY_KEY_BLOCK_NUM) ?: return null,
+                remainingKESPeriods = values.requireInt(KEY_REMAINING_KES_PERIODS, LEGACY_KEY_REMAINING_KES_PERIODS) ?: 0,
+                epoch = epoch,
+                slot = values.requireLong(KEY_SLOT_NUM, LEGACY_KEY_SLOT_NUM) ?: 0L,
+                slotInEpoch = slotInEpoch,
+                txsProcessed = values.requireLong(KEY_TXS_PROCESSED_NUM, LEGACY_KEY_TXS_PROCESSED_NUM) ?: 0,
             )
         }.getOrNull()
 
@@ -94,11 +98,46 @@ class NodeStateDataPointDecoder {
         }
     }
 
-    private fun Map<String, ByteArray?>.requireInt(key: String): Int? =
-        get(key)?.parseIntegerValue()?.intValueExact()
+    private fun Map<String, ByteArray?>.requireInt(vararg keys: String): Int? =
+        findValue(*keys)?.parseIntegerValue()?.intValueExact()
 
-    private fun Map<String, ByteArray?>.requireLong(key: String): Long? =
-        get(key)?.parseIntegerValue()?.longValueExact()
+    private fun Map<String, ByteArray?>.requireLong(vararg keys: String): Long? =
+        findValue(*keys)?.parseIntegerValue()?.longValueExact()
+
+    private fun Map<String, ByteArray?>.findValue(vararg keys: String): ByteArray? =
+        keys.firstNotNullOfOrNull(::get)
+
+    private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? =
+        findValue(KEY_NODE_ADD_BLOCK)?.decodeToString()?.let(::parseNodeAddBlock)
+
+    private fun parseNodeAddBlock(rawJson: String): NodeAddBlockValue? =
+        runCatching {
+            val root = JSONObject(rawJson)
+            if (root.optString(JSON_TAG_FIELD) != NODE_ADD_BLOCK_TAG) {
+                return null
+            }
+
+            val contents = root.optJSONArray(JSON_CONTENTS_FIELD) ?: return null
+            if (contents.length() < NODE_ADD_BLOCK_CONTENTS_SIZE) {
+                return null
+            }
+
+            NodeAddBlockValue(
+                epoch = contents.optLongOrNull(0) ?: return null,
+                slotInEpoch = contents.optLongOrNull(1) ?: return null,
+            )
+        }.getOrNull()
+
+    private fun org.json.JSONArray.optLongOrNull(index: Int): Long? {
+        if (index !in 0 until length() || isNull(index)) {
+            return null
+        }
+
+        return when (val value = opt(index)) {
+            is Number -> value.toLong()
+            else -> null
+        }
+    }
 
     private fun ByteArray.parseIntegerValue(): BigInteger? =
         runCatching {
@@ -106,14 +145,24 @@ class NodeStateDataPointDecoder {
         }.getOrNull()
 
     companion object {
-        const val KEY_OUTGOING_CONNS = "cardano.node.metrics.connectionManager.outgoingConns"
-        const val KEY_INCOMING_CONNS = "cardano.node.metrics.connectionManager.incomingConns"
-        const val KEY_BLOCK_NUM = "cardano.node.metrics.blockNum"
-        const val KEY_REMAINING_KES_PERIODS = "cardano.node.metrics.remainingKESPeriods"
-        const val KEY_EPOCH = "cardano.node.metrics.epoch"
-        const val KEY_SLOT_NUM = "cardano.node.metrics.slotNum"
-        const val KEY_SLOT_IN_EPOCH = "cardano.node.metrics.slotInEpoch"
-        const val KEY_TXS_PROCESSED_NUM = "cardano.node.metrics.txsProcessedNum"
+        const val KEY_OUTGOING_CONNS = "connectionManager.outgoingConns"
+        const val KEY_INCOMING_CONNS = "connectionManager.incomingConns"
+        const val KEY_BLOCK_NUM = "blockNum"
+        const val KEY_REMAINING_KES_PERIODS = "remainingKESPeriods"
+        const val KEY_EPOCH = "epoch"
+        const val KEY_SLOT_NUM = "slotNum"
+        const val KEY_SLOT_IN_EPOCH = "slotInEpoch"
+        const val KEY_TXS_PROCESSED_NUM = "txsProcessedNum"
+        const val KEY_NODE_ADD_BLOCK = "NodeAddBlock"
+
+        const val LEGACY_KEY_OUTGOING_CONNS = "cardano.node.metrics.connectionManager.outgoingConns"
+        const val LEGACY_KEY_INCOMING_CONNS = "cardano.node.metrics.connectionManager.incomingConns"
+        const val LEGACY_KEY_BLOCK_NUM = "cardano.node.metrics.blockNum"
+        const val LEGACY_KEY_REMAINING_KES_PERIODS = "cardano.node.metrics.remainingKESPeriods"
+        const val LEGACY_KEY_EPOCH = "cardano.node.metrics.epoch"
+        const val LEGACY_KEY_SLOT_NUM = "cardano.node.metrics.slotNum"
+        const val LEGACY_KEY_SLOT_IN_EPOCH = "cardano.node.metrics.slotInEpoch"
+        const val LEGACY_KEY_TXS_PROCESSED_NUM = "cardano.node.metrics.txsProcessedNum"
 
         val REQUESTED_NAMES =
             listOf(
@@ -125,6 +174,17 @@ class NodeStateDataPointDecoder {
                 KEY_SLOT_NUM,
                 KEY_SLOT_IN_EPOCH,
                 KEY_TXS_PROCESSED_NUM,
+                KEY_NODE_ADD_BLOCK,
             )
+
+        private const val JSON_TAG_FIELD = "tag"
+        private const val JSON_CONTENTS_FIELD = "contents"
+        private const val NODE_ADD_BLOCK_TAG = "NodeAddBlock"
+        private const val NODE_ADD_BLOCK_CONTENTS_SIZE = 3
     }
 }
+
+private data class NodeAddBlockValue(
+    val epoch: Long,
+    val slotInEpoch: Long,
+)

@@ -9,6 +9,16 @@ also replacing JorManager's SSH log scraping and HTTP EKG or Prometheus polling
 with direct Hermod-compatible node protocol consumers implemented inside
 JorManager itself.
 
+The prior completed migration work proved that direct protocol access is viable,
+but later live research against `localhost:18400` and `clockwork:18401` showed
+that the elegant final architecture is not a collection of separate ad hoc
+session clients. It is a single per-node trace-forward connection that runs all
+required mini-protocols concurrently and captures all available data before any
+JorManager-specific filtering. The durable findings for that final design are
+recorded in:
+
+- `.agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md`
+
 The target design keeps machine-formatted logs flowing to stdout for journald on
 all managed nodes, enables direct trace forwarding only on core nodes, and has
 JorManager connect directly to each core node as the only external integration
@@ -107,6 +117,7 @@ The migration problem is therefore not just "update config keys." It is:
 
 This PRD is grounded in the following repo-local and project-local sources:
 
+- `.agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md`
 - `.agent/plans/cardano-node-jormanager-tracing/research/config-new.json`
 - `.agent/plans/cardano-node-jormanager-tracing/research/config-markus.json`
 - `.agent/plans/cardano-node-jormanager-tracing/research/hermod-protocol-reference-note.md`
@@ -451,6 +462,24 @@ the node version target before final coding.
 JorManager should gain a dedicated tracing subsystem rather than embedding the
 new protocol directly inside `BlockMonitor`.
 
+The accepted final shape is now pinned by live protocol and source research:
+
+- one outbound TCP connection per eligible core node
+- one outer forwarding handshake with the node's network magic
+- three concurrent mini-protocol loops on that same muxed connection:
+  - protocol `1` for dispatcher-backed metrics
+  - protocol `2` for trace objects
+  - protocol `3` for datapoints
+- one raw-capture layer that accepts all data families
+- typed extraction layers built on top of raw capture for current JorManager
+  consumers such as block persistence and dashboard snapshots
+
+JorManager should therefore not continue down the older sibling-session
+topology that was temporarily acceptable during earlier migration tasks. That
+older shape was useful as an implementation stepping stone, but the final design
+must converge on the single-connection architecture proven in
+`task-500-single-connection-trace-forward-architecture.md`.
+
 Suggested responsibilities:
 
 - connection management per core node
@@ -465,11 +494,19 @@ The exact class names can change, but the design should converge on a shape
 close to:
 
 - `TracingConnectionManager`
-- `TracingClient`
-- `TracingEventDecoder`
+- `TracingSession`
+- `TracingRawCaptureService`
+- `TracingMetricDecoder`
+- `TracingTraceObjectDecoder`
+- `TracingDataPointDecoder`
 - `TracingBlockEventService`
-- `TracingNodeStateService`
+- `TracingDashboardSignalService`
 - `CoreNodeTraceMonitor`
+
+The production subsystem should keep all raw protocol families available for
+future feature work, then project only the currently needed internal signal
+models out of that raw capture. The runtime design should not discard unused
+protocol replies before capture.
 
 ### Reuse Boundaries
 
@@ -546,16 +583,32 @@ Phase 2 replaces `NodeMonitor` EKG and Prometheus HTTP polling with direct
 Hermod-compatible node-state consumption while preserving the current
 `NodeStats` contract where practical.
 
+That node-state work is now further pinned by live research:
+
+- KES metrics are proven to come from protocol `1` dispatcher-backed metrics on
+  block producers
+- mempool metrics are proven to come from protocol `1` dispatcher-backed metrics
+- peer counters are proven to come from protocol `2` trace objects, not from the
+  currently forwarded protocol `1` metric set
+- startup metadata remains best sourced from protocol `3` `NodeStartupInfo`
+
+The final runtime architecture should therefore merge signals across the three
+protocol families on one connection rather than assigning one protocol family to
+one subsystem in isolation.
+
 Before the `NodeMonitor` refactor begins, the implementation must pin the exact
 node-state protocol family used in this version, rather than leaving it open
 between forwarded trace objects, data-point exchanges, or a future subscription
 model.
 
-That pinning is now satisfied by the direct `DataPoint` mini-protocol with the
-exact eight-key `cardano.node.metrics.*` request set used by the current
-`NodeStats` contract, a sibling-per-core-session topology, and literal request
-or reply fixture anchors that cover both normal and chunked-byte-string
-`DataPointValue` payloads.
+That pinning is now satisfied by the unified single-connection runtime proven in
+task-500 research. `NodeMonitor` should consume extracted signals from the
+shared protocol `1`/`2`/`3` capture layer rather than owning its own sibling
+session topology. The implementation may still reuse existing decoder fixtures,
+including literal `DataPoint` request or reply anchors that cover both normal
+and chunked-byte-string `DataPointValue` payloads, but those fixtures are
+evidence for protocol behavior rather than a license to reintroduce a separate
+protocol-3-only runtime architecture.
 
 ### Future-Ready Scope
 
@@ -754,48 +807,43 @@ only changes the tracing shape inherited by newly created nodes.
 
 ## Open Questions
 
-- The core-node listener mechanism is now pinned by implementation and test
-  evidence to the CLI form `--tracer-socket-network-accept 0.0.0.0:<tracingPort>`
-  for `cardano-node 11.0.1+`.
-- The first shipped direct node-state path is pinned to the `DataPoint`
-  mini-protocol with the exact eight-key `cardano.node.metrics.*` request set
-  used by the current `NodeStats` contract.
-- Residual follow-up boundary: JorManager's deployed filesystem templates under
-  `/home/westbam/bcsh/jormanager/` now match the accepted dispatcher baseline,
-  but `NodeController.createConfigFile()` still renders from DB-backed template
-  content via `FileRepository`, so any import or sync of that separate template
-  source remains outside this completed plan.
+- The core-node listener mechanism is pinned by implementation and test evidence
+  to the CLI form `--tracer-socket-network-accept 0.0.0.0:<tracingPort>` for
+  `cardano-node 11.0.1+`.
+- The final runtime protocol topology is pinned to one muxed connection per core
+  node, not the earlier sibling-session topology.
+- Protocol `1` is now proven to surface dispatcher-backed metrics for chain,
+  forge, KES, and mempool, while legacy direct-EKG metric families such as
+  `connectionManager.*`, `peerSelection.*`, and `inboundGovernor.*` remain
+  absent there and must continue to be sourced from protocol `2` trace objects
+  where live evidence exists.
+- `NodeAddBlock` is now pinned as a structured datapoint carrying epoch,
+  slot-in-epoch, and sync percentage, not block height.
+- Residual operational boundary: JorManager's deployed filesystem templates
+  under `/home/westbam/bcsh/jormanager/` now match the accepted dispatcher
+  baseline, but `NodeController.createConfigFile()` still renders from DB-backed
+  template content via `FileRepository`, so any import or sync of that separate
+  template source remains outside this completed plan.
 
-## Implementation Readiness Summary
+## Current Implementation Baseline
 
-The tracked implementation workstreams defined by this PRD have completed:
+The earlier migration work delivered a functioning but transitional runtime
+baseline:
 
 - node config generation migrated to dispatcher tracing
 - core-node tracing port allocation and startup generation are in place
-- JorManager now has direct Hermod-compatible tracing and node-state consumers
 - `BlockMonitor` no longer depends on SSH or file scraping for block discovery
 - `NodeMonitor` no longer depends on EKG or Prometheus HTTP polling
-- the required schema, request-model, frontend-plumbing, fixture, and
-  documentation updates landed for the supported core-node flow
+
+However, live research and new test evidence show that the runtime architecture
+should now be re-thought around the final single-connection design documented in
+`task-500-single-connection-trace-forward-architecture.md`.
 
 ## Status
 
-- **Status:** Completed
+- **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Implementation Notes:**
-  - `task-100` completed the app-side config-generation migration in `NodeController` by replacing the live regex mutation path with a structured JSON-tree helper seeded from an explicit Markus-derived tracing baseline.
-  - `task-101` verified against local `cardano-node 11.0.1` help output that the tracing listener mechanism is CLI-based via `--tracer-socket-network-accept HOST:PORT`, and pinned that exact core-only argument shape in `NodeController` test-backed code for reuse by later startup wiring.
-  - `task-102` wired the verified listener flag into generated startup artifacts by allocating `tracingPort` before direct core startup generation, reusing the same core-only listener helper in systemd and manual startup rendering, and preserving the pool-triggered parent-core bulk-credentials unit shape while adding the listener from persisted core-node tracing metadata.
-  - `task-104` removed EKG and Prometheus HTTP port fields from the create-node request/UI contract and replaced controller request-fed usage with internal metrics-port allocation, while explicitly preserving persisted `Node.ekgPort`/`Node.promPort` and the existing `promPort`-derived tracing-port sequencing needed until later monitor migration tasks complete.
-  - `task-203` added a reusable test-only tracing fixture foundation under `src/test/kotlin/com/swiftmako/jormanager/tracing/fixtures/`, including independent CBOR byte anchors for the minimum trace-forward request/reply/done session contract, a scripted fake server for repeated-session reconnect scenarios, and forwarded adopted-block wrapper fixtures that preserve the accepted `toNamespace` plus `toMachine` boundary for later decoder work.
-  - `task-200` added the first production tracing lifecycle layer under `src/main/kotlin/com/swiftmako/jormanager/tracing/`, including a dedicated `TracingConnectionManager`, a minimal direct TCP trace-forward session client, and focused lifecycle tests for seeded core-node startup, reconnect after disconnect, idle-session stability, ineligibility teardown, and both Spring stop paths.
-  - `task-201` added a minimal tracing-package adopted-block decoder that traverses real `TraceForwardMessage.TraceObjectsReply` payloads, matches only forwarded `Forge.AdoptedBlock` plus machine `kind: "TraceAdoptedBlock"`, and normalizes machine-owned `slot`/`blockHash` with forwarded `toTimestamp`/`toHostname` into a reusable internal event for later `BlockMonitor` persistence work.
-  - `task-202` bridged forwarded adopted-block replies into the live candidate-block repository flow by requiring a real production tracing sink, adding a shared tracing persistence service for post-normalization block saves, preserving managed-host plus websocket semantics, and serializing duplicate suppression across both tracing and still-live legacy discovery writers until `task-300` removes the old scraper path.
-  - `task-300` removed the legacy `BlockMonitor` SSH and file-scrape discovery path entirely, narrowed `BlockMonitor` to cold-start node seeding plus forged/missed/orphaned validation, and kept the shared startup seed contract intact for `NodeMonitor` and `PooltoolMonitor` while removing obsolete `SSHClientPool` shutdown coupling.
-  - `task-301` replaced `NodeMonitor`'s Retrofit EKG and SSH port-forward polling path with direct short-lived `DataPoint` protocol sessions against core-node tracing listeners, kept lifecycle ownership inside `NodeMonitor` with explicit startup self-seeding, preserved the current `NodeStats` and websocket `nodestats` contract, and intentionally left relay/pool parity plus non-core default-node cache behavior out of scope for this phase.
-  - `task-302` retired the last dead HTTP-only node-metrics code by deleting `EkgService` and the orphaned `model/ekg` plus `model/ekg2` DTO trees once `task-300` and `task-301` had removed the live block and node-state consumers. Shared Retrofit wiring remains intentionally in place for non-EKG consumers, and persisted `ekgPort` / `promPort` fields remain a separate later cleanup because current node-creation sequencing still depends on them.
-  - `task-103` updated the deployed `guild`, `mainnet`, `preprod`, and `preview` network template configs under `/home/westbam/bcsh/jormanager/` to the same shared non-core dispatcher baseline already proven in app-side generation: `UseTraceDispatcher: true`, Markus-rooted `TraceOptions`, root `Stdout MachineFormat`, and no legacy file-scribe or EKG/Prometheus HTTP config. This rollout-alignment step intentionally stopped at the environment-side templates; live `NodeController.createConfigFile()` still renders from DB-backed template content via `FileRepository`, so any import/sync of those DB-backed records remains separate from task-103.
-  - `task-400` synchronized the PRD, tasks tracker, plan index, prompt artifact, and task-plan docs to the completed implementation state. The tracing migration plan is now closed as completed documentation-wise, while preserving the already-verified boundary that DB-backed template content used by `NodeController.createConfigFile()` remains a separate operational import or sync surface outside this plan.
+- **Last Updated:** 2026-05-17
 
 ---
 

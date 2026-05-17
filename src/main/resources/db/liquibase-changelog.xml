@@ -44,5 +44,7 @@
     <include file="changelog/037-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/038-update-transaction-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/039-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/040-update-node-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/041-drop-ekg-port.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

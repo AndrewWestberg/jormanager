@@ -199,23 +199,30 @@ class NodeController
                         createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
                         createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
                         createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                        val (configFileId, ekgPort, promPort) =
+                        val (configFileId, promPort) =
                             createConfigFile(
                                 genesisByronFileName = genesisByronFile.name,
                                 nodeType = request.type,
-                                metricsPorts = allocateMetricsPorts(request.hostId, hostConnection),
+                                promPort = allocatePrometheusPort(request.hostId, hostConnection),
+                                prometheusListen = request.prometheusListen,
                                 hostConnection = hostConnection,
                                 nodeFolder = nodeFolder,
                                 maxConcurrencyDeadline = "4",
                                 peerSharing = true,
                             )
+                        val tracingPort =
+                            allocateTracingPort(promPort) { port ->
+                                isPortUsed(hostConnection, port)
+                            }.takeIf { request.enableTracingListener }
                         createEnvFile(
                             hostConnection,
                             request.type,
                             request.name,
                             nodeFolder,
                             request.listen,
-                            request.port
+                            request.port,
+                            request.tracingListen,
+                            tracingPort,
                         )
                         createSystemdFile(
                             request = request,
@@ -224,14 +231,16 @@ class NodeController
                             hostConnection = hostConnection,
                             name = request.name,
                             processorThreads = request.processorThreads,
-                            tracingPort = null,
+                            tracingHost = request.tracingListen,
+                            tracingPort = tracingPort,
                         )
                         createManualStartupScripts(
                             request = request,
                             startupNodeType = request.type,
                             host = host,
                             hostConnection = hostConnection,
-                            tracingPort = null,
+                            tracingHost = request.tracingListen,
+                            tracingPort = tracingPort,
                         )
 
                         if (request.isDefault) {
@@ -251,15 +260,15 @@ class NodeController
                                 name = request.name,
                                 listen = request.listen,
                                 port = request.port,
-                                ekgPort = ekgPort,
                                 promPort = promPort,
+                                tracingHost = request.tracingListen.takeIf { tracingPort != null },
                                 genesisByronFileId = request.genesisByronFileId,
                                 genesisShelleyFileId = request.genesisShelleyFileId,
                                 genesisAlonzoFileId = request.genesisAlonzoFileId,
                                 genesisConwayFileId = request.genesisConwayFileId,
                                 configFileId = configFileId,
                                 isDefault = request.isDefault,
-                                tracingPort = null,
+                                tracingPort = tracingPort,
                             )
                         val savedNode = nodeRepository.save(node)
 
@@ -1016,7 +1025,7 @@ class NodeController
                             // 13. Create and Save node information
                             var parentId: Long? = null
                             var tracingPort: Int? = null
-                            val (configFileId, ekgPort, promPort) =
+                            val (configFileId, promPort) =
                                 if (request.type == "core") {
                                     val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
                                     createNodeFolders(hostConnection, nodeFolder)
@@ -1025,12 +1034,13 @@ class NodeController
                                     createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
                                     createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
                                     createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                                    val metricsPorts = allocateMetricsPorts(request.hostId, hostConnection)
-                                    val (configFileId, ekgPort, promPort) =
+                                    val allocatedPromPort = allocatePrometheusPort(request.hostId, hostConnection)
+                                    val (configFileId, promPort) =
                                         createConfigFile(
                                             genesisByronFileName = genesisByronFile.name,
                                             nodeType = request.type,
-                                            metricsPorts = metricsPorts,
+                                            promPort = allocatedPromPort,
+                                            prometheusListen = request.prometheusListen,
                                             hostConnection = hostConnection,
                                             nodeFolder = nodeFolder,
                                             maxConcurrencyDeadline = "2",
@@ -1044,18 +1054,20 @@ class NodeController
                                         hostConnection,
                                         nodeFolder
                                     )
-                                    createEnvFile(
-                                        hostConnection,
-                                        request.type,
-                                        request.name,
-                                        nodeFolder,
-                                        request.listen,
-                                        request.port
-                                    )
-                                    tracingPort =
-                                        allocateTracingPort(request.type, promPort) { port ->
-                                            isPortUsed(hostConnection, port)
-                                        }
+                                        createEnvFile(
+                                            hostConnection,
+                                            request.type,
+                                            request.name,
+                                            nodeFolder,
+                                            request.listen,
+                                            request.port,
+                                            request.tracingListen,
+                                            null,
+                                        )
+                                        tracingPort =
+                                            allocateTracingPort(promPort) { port ->
+                                                isPortUsed(hostConnection, port)
+                                            }.takeIf { request.enableTracingListener }
                                     createSystemdFile(
                                         request = request,
                                         startupNodeType = request.type,
@@ -1063,6 +1075,7 @@ class NodeController
                                         hostConnection = hostConnection,
                                         name = request.name,
                                         processorThreads = request.processorThreads,
+                                        tracingHost = request.tracingListen,
                                         tracingPort = tracingPort,
                                     )
                                     createManualStartupScripts(
@@ -1070,9 +1083,10 @@ class NodeController
                                         startupNodeType = request.type,
                                         host = host,
                                         hostConnection = hostConnection,
+                                        tracingHost = request.tracingListen,
                                         tracingPort = tracingPort,
                                     )
-                                    Triple(configFileId, ekgPort, promPort)
+                                    Pair(configFileId, promPort)
                                 } else {
                                     // pool
                                     nodeRepository.findByIdOrNull(request.parentId!!)?.let { coreNode ->
@@ -1092,7 +1106,9 @@ class NodeController
                                             coreNode.name,
                                             nodeFolder,
                                             coreNode.listen,
-                                            coreNode.port
+                                            coreNode.port,
+                                            coreNode.tracingHost ?: request.tracingListen,
+                                            null,
                                         )
                                         val credentials = mutableListOf<MutableList<Key>>()
                                         // core node's pool
@@ -1153,15 +1169,15 @@ class NodeController
                                         createSystemdFile(
                                             request = request,
                                             startupNodeType = request.type,
-                                            listenerNodeType = coreNode.type,
                                             host = host,
                                             hostConnection = hostConnection,
                                             name = coreNode.name,
                                             processorThreads = 4 + credentials.size,
+                                            tracingHost = coreNode.tracingHost ?: request.tracingListen,
                                             tracingPort = coreNode.tracingPort,
                                         )
 
-                                        Triple(coreNode.configFileId, coreNode.ekgPort, coreNode.promPort)
+                                        Pair(coreNode.configFileId, coreNode.promPort)
                                     } ?: throw IOException("Parent core node not found!")
                                 }
                             val node =
@@ -1174,8 +1190,8 @@ class NodeController
                                     name = request.name,
                                     listen = request.listen,
                                     port = request.port,
-                                    ekgPort = ekgPort,
                                     promPort = promPort,
+                                    tracingHost = null,
                                     genesisByronFileId = request.genesisByronFileId,
                                     genesisShelleyFileId = request.genesisShelleyFileId,
                                     genesisAlonzoFileId = request.genesisAlonzoFileId,
@@ -1202,7 +1218,7 @@ class NodeController
                                     itnPublicKeyId = itnPublicKeyId,
                                     metadataUrl = metadataUrl,
                                     extendedMetadataUrl = extendedMetadataUrl,
-                                    tracingPort = tracingPort,
+                                    tracingPort = null,
                                 )
                             val savedNode = nodeRepository.save(node)
 
@@ -3124,6 +3140,7 @@ class NodeController
             startupNodeType: String,
             host: Host,
             hostConnection: HostConnection,
+            tracingHost: String,
             tracingPort: Int?,
         ) {
             val startNodeContent =
@@ -3131,6 +3148,7 @@ class NodeController
                     request = request,
                     startupNodeType = startupNodeType,
                     host = host,
+                    tracingHost = tracingHost,
                     tracingPort = tracingPort,
                 )
 
@@ -3156,20 +3174,20 @@ class NodeController
         private fun createSystemdFile(
             request: CreateNodeRequest,
             startupNodeType: String,
-            listenerNodeType: String = startupNodeType,
             host: Host,
             hostConnection: HostConnection,
             name: String,
             processorThreads: Int,
+            tracingHost: String,
             tracingPort: Int?,
         ) {
             val systemdContent =
                 renderSystemdContent(
                     startupNodeType = startupNodeType,
-                    listenerNodeType = listenerNodeType,
                     host = host,
                     name = name,
                     processorThreads = processorThreads,
+                    tracingHost = tracingHost,
                     tracingPort = tracingPort,
                 )
 
@@ -3193,8 +3211,14 @@ class NodeController
             nodeName: String,
             nodeFolder: String,
             listen: String,
-            port: Int
+            port: Int,
+            tracingHost: String,
+            tracingPort: Int?,
         ): String {
+            val tracingEnv =
+                tracingPort?.let {
+                    "|TRACING_HOST=$tracingHost\n|TRACING_PORT=$tracingPort\n"
+                } ?: ""
             when (nodeType) {
                 NODE_TYPE_RELAY -> {
                     hostConnection.commandWriteFile(
@@ -3206,6 +3230,7 @@ class NodeController
                 |HOST_ADDR=$listen
                 |PORT=$port
                 |CONFIG=$nodeFolder/config.json
+                $tracingEnv
                         """.trimMargin()
                     )
                 }
@@ -3223,6 +3248,7 @@ class NodeController
                 |SHELLEY_KES_KEY=$nodeFolder/$nodeName.kes.skey
                 |SHELLEY_VRF_KEY=$nodeFolder/$nodeName.vrf.skey
                 |SHELLEY_OPCERT=$nodeFolder/$nodeName.node.opcert
+                $tracingEnv
                         """.trimMargin()
                     )
                 }
@@ -3238,6 +3264,7 @@ class NodeController
                 |PORT=$port
                 |CONFIG=$nodeFolder/config.json
                 |BULK_CREDENTIALS=$nodeFolder/credentials.json
+                $tracingEnv
                         """.trimMargin()
                     )
                 }
@@ -3282,34 +3309,29 @@ class NodeController
             hostConnection.command("chmod 400 $nodeFolder/$nodeName.node.opcert")
         }
 
-        internal fun allocateMetricsPorts(
+        internal fun allocatePrometheusPort(
             hostId: Long,
             hostConnection: HostConnection,
             isPortUsed: (Int) -> Boolean = { port -> isPortUsed(hostConnection, port) },
-        ): Pair<Int, Int> {
-            var ekgPort = 12788 + (2 * nodeRepository.countForHost(hostId))
-            while (isPortUsed(ekgPort)) {
-                ekgPort++
-            }
-
-            var promPort = ekgPort + 1
+        ): Int {
+            var promPort = 12789 + nodeRepository.countForHost(hostId)
             while (isPortUsed(promPort)) {
                 promPort++
             }
 
-            return ekgPort to promPort
+            return promPort
         }
 
         private fun createConfigFile(
             genesisByronFileName: String,
             nodeType: String,
-            metricsPorts: Pair<Int, Int>,
+            promPort: Int,
+            prometheusListen: String,
             hostConnection: HostConnection,
             nodeFolder: String,
             maxConcurrencyDeadline: String,
             peerSharing: Boolean,
-        ): Triple<Long, Int, Int> {
-            val (ekgPort, promPort) = metricsPorts
+        ): Pair<Long, Int> {
             val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
             val configFileContent =
                 configFile?.content?.let {
@@ -3318,6 +3340,8 @@ class NodeController
                         nodeType = nodeType,
                         maxConcurrencyDeadline = maxConcurrencyDeadline,
                         peerSharing = peerSharing,
+                        prometheusListen = prometheusListen,
+                        promPort = promPort,
                     )
                 }
             /*
@@ -3346,8 +3370,6 @@ class NodeController
                     ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
                     ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
                     ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
-                    ?.replace(Regex(""""hasEkg.*,"""), """"hasEkg": $ekgPort,""")
-                    ?.replace(Regex(""""hasEKG.*,"""), """"hasEKG": $ekgPort,""")
                     ?.replace("12798", "$promPort")
                     ?.replace(
                         Regex(""""MaxConcurrencyDeadline.*,""""),
@@ -3357,9 +3379,10 @@ class NodeController
             configFileContent?.let {
                 log.debug("Creating $nodeFolder/config.json from db file ${configFile.name}")
                 hostConnection.commandWriteFile("$nodeFolder/config.json", it)
+                maybeCreateCheckpointsFile(configFile.name, it, hostConnection, nodeFolder)
             } ?: throw IOException("Config file not found in db!")
 
-            return Triple(configFile.id!!, ekgPort, promPort)
+            return Pair(configFile.id!!, promPort)
         }
 
         internal fun renderManagedConfig(
@@ -3367,9 +3390,11 @@ class NodeController
             nodeType: String,
             maxConcurrencyDeadline: String,
             peerSharing: Boolean,
+            prometheusListen: String,
+            promPort: Int,
         ): String {
             val root = objectMapper.readTree(templateContent).deepCopy<ObjectNode>()
-            normalizeManagedConfig(root, nodeType, maxConcurrencyDeadline, peerSharing)
+            normalizeManagedConfig(root, nodeType, maxConcurrencyDeadline, peerSharing, prometheusListen, promPort)
             return objectMapper.writeValueAsString(root) + "\n"
         }
 
@@ -3378,34 +3403,41 @@ class NodeController
             nodeType: String,
             maxConcurrencyDeadline: String,
             peerSharing: Boolean,
+            prometheusListen: String,
+            promPort: Int,
         ) {
             root.put("ConwayGenesisFile", "conway-genesis.json")
             root.put("AlonzoGenesisFile", "alonzo-genesis.json")
             root.put("ByronGenesisFile", "byron-genesis.json")
             root.put("ShelleyGenesisFile", "shelley-genesis.json")
             root.put("GenesisFile", "shelley-genesis.json")
+            root.path("CheckpointsFile")?.takeIf { !it.isMissingNode && it.isTextual }?.let {
+                root.put("CheckpointsFile", "checkpoints.json")
+            }
             root.put("PeerSharing", peerSharing)
             root.put("MaxConcurrencyDeadline", maxConcurrencyDeadline.toInt())
 
-            normalizeTracingConfig(root, nodeType)
+            normalizeTracingConfig(root, nodeType, prometheusListen, promPort)
         }
 
         private fun normalizeTracingConfig(
             root: ObjectNode,
             nodeType: String,
+            prometheusListen: String,
+            promPort: Int,
         ) {
-            val traceOptions = objectMapper.readTree(MARKUS_TRACE_OPTIONS_JSON).deepCopy<ObjectNode>()
-            root.set<ObjectNode>("TraceOptions", traceOptions)
+            val traceOptions = root.with("TraceOptions")
 
             val rootTraceOptions = traceOptions.get("") as ObjectNode
             rootTraceOptions.remove("detail")
-            rootTraceOptions.put("severity", MARKUS_ROOT_TRACE_SEVERITY)
+            if (!rootTraceOptions.has("severity")) {
+                rootTraceOptions.put("severity", MARKUS_ROOT_TRACE_SEVERITY)
+            }
 
             val backends = objectMapper.createArrayNode().apply {
                 add(STDOUT_MACHINE_FORMAT_BACKEND)
-                if (nodeType == NODE_TYPE_CORE) {
-                    add(FORWARDER_BACKEND)
-                }
+                add(FORWARDER_BACKEND)
+                add("PrometheusSimple suffix $prometheusListen $promPort")
             }
             rootTraceOptions.set<ArrayNode>("backends", backends)
 
@@ -3414,21 +3446,44 @@ class NodeController
             root.put("TurnOnLogMetrics", true)
             root.put("minSeverity", MIN_TRACE_SEVERITY)
 
-            if (nodeType == NODE_TYPE_CORE) {
-                val forwarderOptions = objectMapper.createObjectNode().apply {
-                    put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
-                    put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
-                    put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
-                }
-                root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
-            } else {
-                root.remove("TraceOptionForwarder")
+            val forwarderOptions = objectMapper.createObjectNode().apply {
+                put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
+                put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
+                put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
             }
+            root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
 
             LEGACY_TRACING_KEYS_TO_REMOVE.forEach(root::remove)
             root.fieldNames().asSequence().toList()
-                .filter { it.startsWith("Trace") && it != "TraceOptions" && it != "TraceOptionForwarder" }
+                .filter {
+                    it.startsWith("Trace") &&
+                        it != "TraceOptions" &&
+                        it != "TraceOptionForwarder" &&
+                        it != "TraceOptionMetricsPrefix" &&
+                        it != "TraceOptionResourceFrequency"
+                }
                 .forEach(root::remove)
+        }
+
+        private fun maybeCreateCheckpointsFile(
+            configFileName: String,
+            configFileContent: String,
+            hostConnection: HostConnection,
+            nodeFolder: String,
+        ) {
+            val checkpointsFileName =
+                objectMapper.readTree(configFileContent)
+                    .path("CheckpointsFile")
+                    .takeIf { !it.isMissingNode && it.isTextual }
+                    ?.asText()
+                    ?: return
+
+            val sourceCheckpointsFile =
+                fileRepository.findByName(configFileName.removeSuffix("-config.json") + "-checkpoints.json")
+                    ?: throw IOException("Checkpoints file $checkpointsFileName referenced by $configFileName not found in db!")
+
+            log.debug("Creating $nodeFolder/checkpoints.json from db file ${sourceCheckpointsFile.name}")
+            hostConnection.commandWriteFile("$nodeFolder/checkpoints.json", sourceCheckpointsFile.content)
         }
 
         private fun isPortUsed(
@@ -3437,14 +3492,9 @@ class NodeController
         ): Boolean = hostConnection.command("ss -tulw").trim().contains(":$port")
 
         internal fun allocateTracingPort(
-            nodeType: String,
             promPort: Int,
             isPortUsed: (Int) -> Boolean,
-        ): Int? {
-            if (nodeType != NODE_TYPE_CORE) {
-                return null
-            }
-
+        ): Int {
             var tracingPort = promPort + 1
             while (isPortUsed(tracingPort)) {
                 tracingPort++
@@ -3453,23 +3503,24 @@ class NodeController
         }
 
         internal fun renderTracingListenerArgument(
-            nodeType: String,
+            tracingHost: String,
             tracingPort: Int?,
         ): String? {
-            if (nodeType != NODE_TYPE_CORE || tracingPort == null) {
+            if (tracingPort == null) {
                 return null
             }
 
-            return "--tracer-socket-network-accept 0.0.0.0:$tracingPort"
+            return "--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}"
         }
 
         internal fun renderManualStartupScript(
             request: CreateNodeRequest,
             startupNodeType: String,
             host: Host,
+            tracingHost: String,
             tracingPort: Int?,
         ): String {
-            val listenerArgument = renderTracingListenerArgument(startupNodeType, tracingPort)
+            val listenerArgument = renderTracingListenerArgument(tracingHost, tracingPort)
             val listenerLine = listenerArgument?.let { "|  $it \\\n" } ?: ""
 
             return when (startupNodeType) {
@@ -3522,13 +3573,13 @@ class NodeController
 
         internal fun renderSystemdContent(
             startupNodeType: String,
-            listenerNodeType: String = startupNodeType,
             host: Host,
             name: String,
             processorThreads: Int,
+            tracingHost: String,
             tracingPort: Int?,
         ): String {
-            val listenerArgument = renderTracingListenerArgument(listenerNodeType, tracingPort)
+            val listenerArgument = renderTracingListenerArgument(tracingHost, tracingPort)
             val listenerLine = listenerArgument?.let { "|  $it \\\n" } ?: ""
 
             return when (startupNodeType) {
@@ -3554,8 +3605,8 @@ class NodeController
                 |  --socket-path ${'$'}{SOCKET_PATH} \
                 |  --host-addr ${'$'}{HOST_ADDR} \
                 |  --port ${'$'}{PORT} \
-                |  --config ${'$'}{CONFIG}
-                |KillSignal=SIGINT
+                |  --config ${'$'}{CONFIG} \
+                ${listenerLine}|KillSignal=SIGINT
                 |SyslogIdentifier=$name-node
                 |
                 |[Install]
@@ -4032,8 +4083,6 @@ class NodeController
                     "hasEkg",
                     "hasEKG",
                     "hasPrometheus",
-                    "TraceOptionMetricsPrefix",
-                    "TraceOptionResourceFrequency",
                 )
             private val IP4_ADDRESS =
                 Regex(

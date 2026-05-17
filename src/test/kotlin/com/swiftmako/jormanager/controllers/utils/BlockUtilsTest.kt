@@ -97,6 +97,31 @@ class BlockUtilsTest {
             )
         )
 
+    private val byronGuild =
+        GenesisByron(
+            startTime = 1639090522L,
+            protocolConsts =
+                ProtocolConsts(
+                    k = 36L,
+                ),
+            blockVersionData =
+                BlockVersionData(
+                    slotDuration = 100L,
+                ),
+        )
+
+    private val shelleyGuild =
+        GenesisShelley(
+            activeSlotsCoeff = 0.05,
+            networkId = "Testnet",
+            networkMagic = 141L,
+            slotLength = 1L,
+            epochLength = 3600L,
+            slotsPerKESPeriod = 129600L,
+            systemStart = "2021-12-09T22:55:22Z",
+            maxKESEvolutions = 62L,
+        )
+
     @Test
     fun `test getEpochAndSlot`() {
         val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
@@ -123,6 +148,10 @@ class BlockUtilsTest {
         target = BlockUtils(nodeStatsTest, "/usr/local/lib/libsodium.so")
         val testnetTransitionEpoch = target.getShelleyTransitionEpoch(byronTest, shelleyTest)
         assertThat(testnetTransitionEpoch).isEqualTo(74)
+
+        target = BlockUtils(nodeStatsTest, "/usr/local/lib/libsodium.so")
+        val guildTransitionEpoch = target.getShelleyTransitionEpoch(byronGuild, shelleyGuild)
+        assertThat(guildTransitionEpoch).isEqualTo(0)
     }
 
     @Test
