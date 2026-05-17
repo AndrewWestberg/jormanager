@@ -8,6 +8,7 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
+import java.time.Instant
 import java.util.Optional
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -205,6 +206,143 @@ class TracingConnectionManagerTest {
         }
 
     @Test
+    fun unifiedIngressCapturesMetricsTraceObjectsAndDataPoints() =
+        runBlocking {
+            val node = coreNode()
+            val captureService = createRawCaptureService(node)
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(1L to host()),
+                    messageSink = captureService,
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    onMessage(
+                                        TraceForwardMessage.MetricsReply(
+                                            metrics =
+                                                mapOf(
+                                                    "counter" to TracingRawMetricValue.Counter(3),
+                                                    "gauge" to TracingRawMetricValue.IntGauge(7),
+                                                    "label" to TracingRawMetricValue.Label("hello"),
+                                                ),
+                                            rawJson = "metrics-raw",
+                                        )
+                                    )
+                                    onMessage(dataPointsReply())
+                                    onMessage(traceObjectsReply())
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                }
+                            }
+                        },
+                )
+
+            manager.start()
+            waitUntil {
+                captureService.latestMetricSnapshot(node.id!!)?.metrics?.size == 3 &&
+                    captureService.latestDataPointSnapshot(node.id)?.dataPoints?.size() == 1 &&
+                    captureService.recentTraceObjectBatches(node.id).isNotEmpty()
+            }
+
+            val metricSnapshot = captureService.latestMetricSnapshot(node.id!!)
+            assertThat(metricSnapshot?.metrics?.get("counter")).isEqualTo(TracingRawMetricValue.Counter(3))
+            assertThat(metricSnapshot?.metrics?.get("gauge")).isEqualTo(TracingRawMetricValue.IntGauge(7))
+            assertThat(metricSnapshot?.metrics?.get("label")).isEqualTo(TracingRawMetricValue.Label("hello"))
+            assertThat(captureService.latestDataPointSnapshot(node.id)?.toMessage()?.dataPoints?.size()).isEqualTo(1)
+            assertThat(captureService.recentTraceObjectBatches(node.id)).hasSize(1)
+
+            manager.stopAndWait()
+
+            assertThat(captureService.latestMetricSnapshot(node.id)).isNull()
+            assertThat(captureService.latestDataPointSnapshot(node.id)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(node.id)).isEmpty()
+        }
+
+    @Test
+    fun clearNodeEvictsFreshSnapshotsAndTraceBatches() =
+        runBlocking {
+            val node = coreNode()
+            val captureService = createRawCaptureService(node)
+
+            captureService.recordMetricSnapshotForTest(
+                node.id!!,
+                TracingRawMetricSnapshot(
+                    nodeId = node.id,
+                    capturedAt = Instant.now(),
+                    metrics = mapOf("counter" to TracingRawMetricValue.Counter(1)),
+                    rawJson = "metrics",
+                ),
+            )
+            captureService.recordDataPointSnapshotForTest(
+                node.id,
+                TracingRawDataPointSnapshot(
+                    nodeId = node.id,
+                    capturedAt = Instant.now(),
+                    dataPoints = dataPointsReply().dataPoints,
+                ),
+            )
+            captureService.recordTraceObjectBatchForTest(
+                node.id,
+                TracingRawTraceObjectBatch(
+                    nodeId = node.id,
+                    capturedAt = Instant.now(),
+                    traceObjects = traceObjectsReply().traceObjects,
+                ),
+            )
+
+            captureService.clearNode(node.id)
+
+            assertThat(captureService.latestMetricSnapshot(node.id)).isNull()
+            assertThat(captureService.latestDataPointSnapshot(node.id)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(node.id)).isEmpty()
+        }
+
+    @Test
+    fun stopClearsRawCaptureForManagedNode() =
+        runBlocking {
+            val node = coreNode()
+            val captureService = createRawCaptureService(node)
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(node.hostId to host()),
+                    messageSink = captureService,
+                    sessionClientFactory =
+                        TraceForwardSessionClientFactory {
+                            object : TraceForwardSessionClient {
+                                override suspend fun runSession(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    onMessage(dataPointsReply())
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                }
+                            }
+                        },
+                )
+
+            manager.start()
+            waitUntil { captureService.latestDataPointSnapshot(node.id!!) != null }
+
+            manager.stopAndWait()
+
+            assertThat(captureService.latestDataPointSnapshot(node.id!!)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(node.id!!)).isEmpty()
+        }
+
+    @Test
     fun directStopShutsDownActiveConnections() =
         runBlocking {
             val closed = AtomicReference(false)
@@ -282,7 +420,7 @@ class TracingConnectionManagerTest {
         nodesChannel: MutableSharedFlow<Node> = MutableSharedFlow(extraBufferCapacity = 8),
         reconnectDelayMillis: Long = 50L,
         sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
-        messageSink: TraceForwardMessageSink = TraceForwardMessageSink { _, _ -> },
+        messageSink: TracingRawCaptureService = createRawCaptureService(coreNode()),
     ): TracingConnectionManager {
         val nodeRepository = mockk<NodeRepository>()
         val hostRepository = mockk<HostRepository>()
@@ -301,6 +439,41 @@ class TracingConnectionManagerTest {
             reconnectDelayMillis = reconnectDelayMillis,
         )
     }
+
+    private fun createRawCaptureService(node: Node): TracingRawCaptureService {
+        val nodeRepository = mockk<NodeRepository>()
+        val hostRepository = mockk<HostRepository>()
+        val blockService = mockk<TracingBlockPersistenceService>(relaxed = true)
+        every { nodeRepository.findById(node.id!!) } returns Optional.of(node)
+        every { hostRepository.findById(node.hostId) } returns Optional.of(host())
+        return TracingRawCaptureService(
+            tracingBlockMessageSink =
+                TracingBlockMessageSink(
+                    nodeRepository = nodeRepository,
+                    hostRepository = hostRepository,
+                    tracingBlockPersistenceService = blockService,
+                )
+        )
+    }
+
+    private fun dataPointsReply() =
+        TraceForwardMessage.DataPointsReply(
+            com.google.iot.cbor.CborArray.create().apply {
+                add(
+                    com.google.iot.cbor.CborArray.create().apply {
+                        add(com.google.iot.cbor.CborTextString.create("NodeInfo"))
+                        add(com.google.iot.cbor.CborArray.create())
+                    }
+                )
+            }
+        )
+
+    private fun traceObjectsReply() =
+        TraceForwardMessage.TraceObjectsReply(
+            com.google.iot.cbor.CborArray.create().apply {
+                add(com.google.iot.cbor.CborTextString.create("{\"toNamespace\":[\"Forge\",\"AdoptedBlock\"],\"toMachine\":{\"kind\":\"TraceAdoptedBlock\",\"slot\":1,\"blockHash\":\"abc\"},\"toHostname\":\"host\",\"toTimestamp\":\"2026-05-12T00:00:00Z\"}"))
+            }
+        )
 
     private fun coreNode(
         id: Long = 1L,

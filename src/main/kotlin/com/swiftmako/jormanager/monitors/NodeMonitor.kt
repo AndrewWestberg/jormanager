@@ -14,15 +14,12 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.tracing.DataPointSessionClientFactory
 import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import com.swiftmako.jormanager.tracing.NodeStateMetrics
-import com.swiftmako.jormanager.tracing.SocketDataPointSessionClientFactory
-import com.swiftmako.jormanager.tracing.TraceForwardMessage
 import com.swiftmako.jormanager.tracing.TraceForwardNodeStateDecoder
-import com.swiftmako.jormanager.tracing.TraceForwardSessionClientFactory
-import com.swiftmako.jormanager.tracing.SocketTraceForwardSessionClientFactory
+import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import java.io.IOException
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
@@ -70,13 +67,13 @@ class NodeMonitor
         private val moshi: Moshi,
         @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
+        private val tracingRawCaptureService: TracingRawCaptureService,
         private val nodeStateDecoder: NodeStateDataPointDecoder = NodeStateDataPointDecoder(),
-        private val dataPointSessionClientFactory: DataPointSessionClientFactory = SocketDataPointSessionClientFactory(),
         private val traceForwardNodeStateDecoder: TraceForwardNodeStateDecoder = TraceForwardNodeStateDecoder(),
-        private val traceForwardSessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
         private val sampleIntervalMillis: Long = SAMPLE_INTERVAL_MS,
         private val publishDelayMillis: Long = PUBLISH_DELAY_MS,
+        private val rawSnapshotMaxAge: Duration = Duration.ofSeconds(15),
     ) : SmartLifecycle,
         CoroutineScope {
         private val log by lazy { LoggerFactory.getLogger("NodeMonitor") }
@@ -339,51 +336,37 @@ class NodeMonitor
             node: Node,
             epochLength: Long,
         ): NodeStateMetrics? {
-            node.tracingPort?.let { tracingPort ->
-                val client = dataPointSessionClientFactory.create()
-                try {
-                    var decoded: NodeStateMetrics? = null
-                    client.runSession(host.hostname, tracingPort) { message ->
-                        if (message is TraceForwardMessage.DataPointsReply && decoded == null) {
-                            decoded = nodeStateDecoder.decode(message)
-                        }
-                    }
-                    decoded?.let { metrics ->
+            node.tracingPort?.let {
+                tracingRawCaptureService.latestFreshDataPointSnapshot(node.id!!, rawSnapshotMaxAge)
+                    ?.toMessage()
+                    ?.let(nodeStateDecoder::decode)
+                    ?.let { metrics ->
                         return metrics.withDerivedSlot(epochLength)
                     }
-                } finally {
-                    client.close()
-                }
 
-                val traceClient = traceForwardSessionClientFactory.create()
-                try {
-                    var forwardedState: com.swiftmako.jormanager.tracing.ForwardedNodeState? = null
-                    traceClient.runSession(host.hostname, tracingPort) { message ->
-                        if (message is TraceForwardMessage.TraceObjectsReply) {
-                            val decoded = traceForwardNodeStateDecoder.decode(message)
-                            if (decoded != null) {
-                                forwardedState = forwardedState?.merge(decoded) ?: decoded
-                            }
+                val forwardedState =
+                    tracingRawCaptureService
+                        .recentFreshTraceObjectBatches(node.id, rawSnapshotMaxAge)
+                        .mapNotNull { batch -> traceForwardNodeStateDecoder.decode(batch.toMessage()) }
+                        .fold(null as com.swiftmako.jormanager.tracing.ForwardedNodeState?) { acc, next ->
+                            acc?.merge(next) ?: next
                         }
-                    }
-                    forwardedState?.let { state ->
-                        val slot = state.slot ?: return@let
-                        val blockHeight = state.blockHeight ?: return@let
-                        val epoch = slot / epochLength
-                        val slotInEpoch = slot % epochLength
-                        return NodeStateMetrics(
-                            peers = state.peers ?: 0,
-                            incomingPeers = state.incomingPeers ?: 0,
-                            blockHeight = blockHeight,
-                            remainingKESPeriods = 0,
-                            epoch = epoch,
-                            slot = slot,
-                            slotInEpoch = slotInEpoch,
-                            txsProcessed = 0,
-                        )
-                    }
-                } finally {
-                    traceClient.close()
+
+                forwardedState?.let { state ->
+                    val slot = state.slot ?: return@let
+                    val blockHeight = state.blockHeight ?: return@let
+                    val epoch = slot / epochLength
+                    val slotInEpoch = slot % epochLength
+                    return NodeStateMetrics(
+                        peers = state.peers ?: 0,
+                        incomingPeers = state.incomingPeers ?: 0,
+                        blockHeight = blockHeight,
+                        remainingKESPeriods = 0,
+                        epoch = epoch,
+                        slot = slot,
+                        slotInEpoch = slotInEpoch,
+                        txsProcessed = 0,
+                    )
                 }
             }
 
@@ -469,13 +452,3 @@ private fun NodeStateMetrics.withDerivedSlot(epochLength: Long): NodeStateMetric
     } else {
         copy(slot = epoch * epochLength + slotInEpoch)
     }
-
-private fun com.swiftmako.jormanager.tracing.ForwardedNodeState.merge(
-    other: com.swiftmako.jormanager.tracing.ForwardedNodeState,
-): com.swiftmako.jormanager.tracing.ForwardedNodeState =
-    com.swiftmako.jormanager.tracing.ForwardedNodeState(
-        slot = other.slot ?: slot,
-        blockHeight = other.blockHeight ?: blockHeight,
-        peers = other.peers ?: peers,
-        incomingPeers = other.incomingPeers ?: incomingPeers,
-    )

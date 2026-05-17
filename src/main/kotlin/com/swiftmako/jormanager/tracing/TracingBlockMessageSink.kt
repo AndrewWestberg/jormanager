@@ -20,6 +20,13 @@ class TracingBlockMessageSink(
         message: TraceForwardMessage,
     ) {
         val reply = message as? TraceForwardMessage.TraceObjectsReply ?: return
+        onTraceObjectBatch(nodeId, TracingRawTraceObjectBatch(nodeId = nodeId, capturedAt = java.time.Instant.now(), traceObjects = reply.traceObjects))
+    }
+
+    suspend fun onTraceObjectBatch(
+        nodeId: Long,
+        batch: TracingRawTraceObjectBatch,
+    ) {
         val node = nodeRepository.findByIdOrNull(nodeId) ?: return
         if (node.isDeleted) {
             return
@@ -31,7 +38,7 @@ class TracingBlockMessageSink(
             return
         }
 
-        decoder.decode(reply).forEach { event ->
+        decoder.decode(batch.toMessage()).forEach { event ->
             runCatching {
                 tracingBlockPersistenceService.persistTracingCandidateBlock(node, host, event)
             }.onFailure { throwable ->

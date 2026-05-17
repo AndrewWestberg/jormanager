@@ -1,7 +1,10 @@
 package com.swiftmako.jormanager.tracing
 
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
+import com.swiftmako.jormanager.tracing.forwarding.ForwardingDataPointsProtocol
 import com.swiftmako.jormanager.tracing.forwarding.ForwardingHandshakeProtocol
+import com.swiftmako.jormanager.tracing.forwarding.ForwardingMetricsProtocol
+import com.swiftmako.jormanager.tracing.forwarding.ForwardingMetricsRequest
 import com.swiftmako.jormanager.tracing.forwarding.ForwardingTraceObjectsProtocol
 import io.ktor.network.selector.ActorSelectorManager
 import io.ktor.network.sockets.InetSocketAddress
@@ -35,6 +38,8 @@ class SocketTraceForwardSessionClientFactory : TraceForwardSessionClientFactory 
 }
 
 class SocketTraceForwardSessionClient(
+    private val requestedDataPointNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
+    private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetAllMetrics,
     private val networkMagic: Long = DEFAULT_NETWORK_MAGIC,
     private val requestBlocking: Boolean = true,
     private val requestCount: Int = DEFAULT_REQUEST_COUNT,
@@ -54,17 +59,23 @@ class SocketTraceForwardSessionClient(
             }.use { socket ->
                 val mux = Mux(socket.connection())
                 activeMux.set(mux)
+                val metricsProtocol = ForwardingMetricsProtocol(metricsRequest)
                 val protocol = ForwardingTraceObjectsProtocol(
                     requestBlocking = requestBlocking,
                     requestCount = requestCount,
                     singleReplyMode = false,
                 )
+                val dataPointsProtocol = ForwardingDataPointsProtocol(requestedDataPointNames, singleReplyMode = false)
+                val metricsCollector = metricsProtocol.messages.collectInBackground(onMessage)
                 val collector = protocol.messages.collectInBackground(onMessage)
+                val dataPointCollector = dataPointsProtocol.messages.collectInBackground(onMessage)
                 try {
                     mux.execute(ForwardingHandshakeProtocol(networkMagic))
-                    mux.execute(protocol)
+                    mux.execute(metricsProtocol, protocol, dataPointsProtocol)
                 } finally {
+                    metricsCollector.cancelAndJoin()
                     collector.cancelAndJoin()
+                    dataPointCollector.cancelAndJoin()
                     activeMux.compareAndSet(mux, null)
                 }
             }

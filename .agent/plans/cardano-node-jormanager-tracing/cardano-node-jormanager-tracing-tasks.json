@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-17T22:57:57Z",
-    "version": "2.0.1",
+    "updated": "2026-05-17T23:36:30Z",
+    "version": "2.0.2",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -26,7 +26,8 @@
     "researchNotes": [
       ".agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md",
       ".agent/plans/cardano-node-jormanager-tracing/research/task-204-node-state-datapoint-contract.md",
-      ".agent/plans/cardano-node-jormanager-tracing/research/task-201-forwarded-adopted-block-decoder.md"
+      ".agent/plans/cardano-node-jormanager-tracing/research/task-201-forwarded-adopted-block-decoder.md",
+      ".agent/plans/cardano-node-jormanager-tracing/research/task-511-raw-capture-freshness-and-invalidation.md"
     ],
     "importantNote": "The final runtime design is one outbound connection per core node, one forwarding handshake, and concurrent protocol 1/2/3 loops that capture all data families before JorManager-specific filtering. Protocol 1 supplies dispatcher-backed chain/forge/KES/mempool metrics; protocol 2 supplies trace objects such as forged/adopted blocks and connection counters; protocol 3 supplies explicit datapoints such as NodeInfo and NodeStartupInfo. Task-500 research is the governing runtime architecture anchor; older sibling-session planning artifacts are historical inputs only."
   },
@@ -41,7 +42,7 @@
           "id": "task-500",
           "title": "Codify the final single-connection trace-forward architecture",
           "description": "Turn the newly proven protocol and signal findings into the accepted final tracing architecture for JorManager, replacing the older transitional design assumptions that remain in code and docs.",
-          "status": "completed",
+          "status": "pending",
           "priority": "high",
           "estimatedHours": 2.0,
           "dependencies": [],
@@ -66,7 +67,7 @@
           "id": "task-501",
           "title": "Refactor planning artifacts to the final tracing architecture",
           "description": "Update the tracing PRD and tasks graph so they describe the final single-connection architecture rather than the earlier transitional implementation baseline.",
-          "status": "completed",
+          "status": "pending",
           "priority": "high",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -128,7 +129,7 @@
           "id": "task-511",
           "title": "Add production raw capture models for metrics, trace objects, and datapoints",
           "description": "Introduce explicit in-memory raw capture models and routing so JorManager retains all incoming protocol data before dashboard-specific or block-specific filtering.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 4.0,
           "dependencies": [
@@ -149,7 +150,9 @@
           "acceptance": [
             "JorManager has a production raw capture layer for trace-forward data families that all current consumers can share.",
             "Later runtime signal extraction can be added without redesigning the transport layer or reintroducing protocol-family-specific sockets."
-          ]
+          ],
+          "completedAt": "2026-05-17T23:36:30Z",
+          "completionNotes": "Added production raw capture models and routing for protocol 1/2/3, promoted protocol 1 metrics into production, moved NodeMonitor and block persistence downstream of shared raw capture, and recorded the freshness/invalidation boundary needed so stale capture cannot keep dashboard state looking healthy after teardown."
         }
       ]
     },

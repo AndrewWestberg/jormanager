@@ -11,7 +11,15 @@ data class ForwardedNodeState(
     val blockHeight: Long? = null,
     val peers: Int? = null,
     val incomingPeers: Int? = null,
-)
+) {
+    fun merge(other: ForwardedNodeState): ForwardedNodeState =
+        ForwardedNodeState(
+            slot = other.slot ?: slot,
+            blockHeight = other.blockHeight ?: blockHeight,
+            peers = other.peers ?: peers,
+            incomingPeers = other.incomingPeers ?: incomingPeers,
+        )
+}
 
 class TraceForwardNodeStateDecoder {
     fun decode(reply: TraceForwardMessage.TraceObjectsReply): ForwardedNodeState? =
@@ -105,14 +113,6 @@ class TraceForwardNodeStateDecoder {
             else -> null
         }
     }
-
-    private fun ForwardedNodeState.merge(other: ForwardedNodeState): ForwardedNodeState =
-        ForwardedNodeState(
-            slot = other.slot ?: slot,
-            blockHeight = other.blockHeight ?: blockHeight,
-            peers = other.peers ?: peers,
-            incomingPeers = other.incomingPeers ?: incomingPeers,
-        )
 
     companion object {
         private const val NAMESPACE_FIELD = "toNamespace"
