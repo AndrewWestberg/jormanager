@@ -309,6 +309,7 @@ class TracingConnectionManagerTest {
     fun stopClearsRawCaptureForManagedNode() =
         runBlocking {
             val node = coreNode()
+            val nodeId = requireNotNull(node.id)
             val captureService = createRawCaptureService(node)
             val manager =
                 createManager(
@@ -334,12 +335,12 @@ class TracingConnectionManagerTest {
                 )
 
             manager.start()
-            waitUntil { captureService.latestDataPointSnapshot(node.id!!) != null }
+            waitUntil { captureService.latestDataPointSnapshot(nodeId) != null }
 
             manager.stopAndWait()
 
-            assertThat(captureService.latestDataPointSnapshot(node.id!!)).isNull()
-            assertThat(captureService.recentTraceObjectBatches(node.id!!)).isEmpty()
+            assertThat(captureService.latestDataPointSnapshot(nodeId)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(nodeId)).isEmpty()
         }
 
     @Test
@@ -383,7 +384,7 @@ class TracingConnectionManagerTest {
             val manager =
                 createManager(
                     nodes = listOf(
-                        coreNode(type = "relay", tracingPort = null),
+                        coreNode(type = "relay", tracingPort = 12790),
                         coreNode(type = "pool", tracingPort = 12791, id = 2L),
                         coreNode(tracingPort = null, id = 3L),
                     ),
