@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-17T23:36:30Z",
-    "version": "2.0.2",
+    "updated": "2026-05-17T23:46:10Z",
+    "version": "2.0.3",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -123,7 +123,9 @@
             "Production tracing runtime uses one socket per core node.",
             "All required protocol families are captured concurrently on that one connection.",
             "The runtime no longer depends on protocol-family-specific socket topology."
-          ]
+          ],
+          "completedAt": "2026-05-17T23:46:10Z",
+          "completionNotes": "Finished the remaining runtime hardening for the single-connection tracing design: tracing transport eligibility is now core-only, NodeMonitor no longer manufactures relay tracing ports from promPort adjacency, the stale DataPointSessionClient sibling transport was deleted, and focused tracing/monitor tests passed with frontend tasks skipped."
         },
         {
           "id": "task-511",

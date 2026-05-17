@@ -126,7 +126,7 @@ class NodeMonitor
                         return@forEach
                     }
 
-                    if (node.isDeleted || node.type == "pool" || node.tracingPort != null || node.promPort <= 0) {
+                    if (node.isDeleted || node.type != "core" || node.tracingPort != null || node.promPort <= 0) {
                         return@forEach
                     }
 
@@ -403,7 +403,7 @@ class NodeMonitor
             )
 
         private fun shouldMonitorNode(node: Node): Boolean =
-            !node.isDeleted && node.type != "pool" && node.tracingPort != null
+            !node.isDeleted && node.type == "core" && node.tracingPort != null
 
         private fun nextAlignedDelay(intervalMillis: Long): Long {
             val now = System.currentTimeMillis()

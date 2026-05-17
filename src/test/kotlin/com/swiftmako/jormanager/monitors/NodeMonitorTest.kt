@@ -192,25 +192,24 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun tracedRelayStartsMonitoringButPoolDoesNot() =
+    fun tracedRelayDoesNotStartMonitoring() =
         runBlocking {
             val relayNode = node(id = 1L, name = "relay-a", type = "relay", tracingPort = 12790)
-            val poolNode = node(id = 2L, name = "pool-a", type = "pool", tracingPort = 12791)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
             val rawCapture = rawCaptureService(relayNode)
             val monitor =
                 createMonitor(
-                    nodes = listOf(relayNode, poolNode),
+                    nodes = listOf(relayNode),
                     tracingRawCaptureService = rawCapture,
                     onSend = { _, payload -> sentMessages += payload },
                 )
 
             rawCapture.onMessage(relayNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
-            waitUntil { sentMessages.isNotEmpty() }
+            Thread.sleep(150)
             monitor.stopAndWait()
 
-            assertThat(sentMessages).isNotEmpty()
+            assertThat(sentMessages).isEmpty()
         }
 
     @Test
@@ -250,9 +249,42 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun startBackfillsTracingSettingsForLegacyNodes() =
+    fun startBackfillsTracingSettingsForLegacyCoreNodes() =
         runBlocking {
-            val legacyDefaultRelay =
+            val legacyCoreNode =
+                node(
+                    id = 1L,
+                    name = "core-a",
+                    type = "core",
+                    isDefault = true,
+                    tracingPort = null,
+                ).copy(tracingHost = null)
+            val nodeRepository = mockk<NodeRepository>(relaxed = true)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(legacyCoreNode),
+                    nodeRepositoryOverride = nodeRepository,
+                    tracingRawCaptureService = rawCaptureService(legacyCoreNode),
+                )
+
+            monitor.start()
+            monitor.stopAndWait()
+
+            verify {
+                nodeRepository.save(
+                    withArg { savedNode ->
+                        assertThat(savedNode.id).isEqualTo(legacyCoreNode.id)
+                        assertThat(savedNode.tracingHost).isEqualTo("0.0.0.0")
+                        assertThat(savedNode.tracingPort).isEqualTo(legacyCoreNode.promPort + 1)
+                    }
+                )
+            }
+        }
+
+    @Test
+    fun startDoesNotBackfillTracingSettingsForLegacyRelayNodes() =
+        runBlocking {
+            val legacyRelayNode =
                 node(
                     id = 1L,
                     name = "relay-a",
@@ -263,22 +295,16 @@ class NodeMonitorTest {
             val nodeRepository = mockk<NodeRepository>(relaxed = true)
             val monitor =
                 createMonitor(
-                    nodes = listOf(legacyDefaultRelay),
+                    nodes = listOf(legacyRelayNode),
                     nodeRepositoryOverride = nodeRepository,
-                    tracingRawCaptureService = rawCaptureService(legacyDefaultRelay),
+                    tracingRawCaptureService = rawCaptureService(legacyRelayNode),
                 )
 
             monitor.start()
             monitor.stopAndWait()
 
-            verify {
-                nodeRepository.save(
-                    withArg { savedNode ->
-                        assertThat(savedNode.id).isEqualTo(legacyDefaultRelay.id)
-                        assertThat(savedNode.tracingHost).isEqualTo("0.0.0.0")
-                        assertThat(savedNode.tracingPort).isEqualTo(legacyDefaultRelay.promPort + 1)
-                    }
-                )
+            verify(exactly = 0) {
+                nodeRepository.save(any())
             }
         }
 

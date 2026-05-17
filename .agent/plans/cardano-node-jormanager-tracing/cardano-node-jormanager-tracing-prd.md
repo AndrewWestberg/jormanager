@@ -842,6 +842,9 @@ should now be re-thought around the final single-connection design documented in
 ## Recent Implementation Notes
 
 - `task-511` is complete.
+- `task-510` is complete.
+- Production runtime eligibility and legacy startup backfill now match the PRD's core-node-only tracing rule: relays are no longer tracing-eligible merely because of leftover tracing ports, and `NodeMonitor` no longer derives relay tracing ports from `promPort + 1`.
+- The stale sibling protocol-`3` transport `DataPointSessionClient` has been removed from production code.
 - Production tracing now has a shared raw-capture layer for protocol `1`, `2`, and `3` data families.
 - Production protocol `1` metrics now have a direct raw-capture decode path.
 - `NodeMonitor` now reads tracing state from shared raw capture instead of opening its own authoritative tracing sessions.
@@ -853,7 +856,7 @@ should now be re-thought around the final single-connection design documented in
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-17T23:36:30Z
+- **Last Updated:** 2026-05-17T23:46:10Z
 
 ---
 

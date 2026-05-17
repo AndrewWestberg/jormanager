@@ -188,7 +188,7 @@ class TracingConnectionManager(
             }
 
     private fun resolveTarget(node: Node): TracingNodeTarget? {
-        if (node.id == null || node.isDeleted || node.type == "pool" || node.tracingPort == null) {
+        if (node.id == null || node.isDeleted || node.type != "core" || node.tracingPort == null) {
             return null
         }
 
