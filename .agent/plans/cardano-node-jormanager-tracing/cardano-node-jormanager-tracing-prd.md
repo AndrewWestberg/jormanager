@@ -839,11 +839,21 @@ However, live research and new test evidence show that the runtime architecture
 should now be re-thought around the final single-connection design documented in
 `task-500-single-connection-trace-forward-architecture.md`.
 
+## Recent Implementation Notes
+
+- `task-511` is complete.
+- Production tracing now has a shared raw-capture layer for protocol `1`, `2`, and `3` data families.
+- Production protocol `1` metrics now have a direct raw-capture decode path.
+- `NodeMonitor` now reads tracing state from shared raw capture instead of opening its own authoritative tracing sessions.
+- Block persistence remains downstream of shared raw trace-object capture.
+- Shared raw capture now uses freshness-gated dashboard reads plus teardown invalidation so disconnected tracing sessions do not leave stale healthy-looking node stats on the dashboard.
+- Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-511-raw-capture-freshness-and-invalidation.md`.
+
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-17
+- **Last Updated:** 2026-05-17T23:36:30Z
 
 ---
 

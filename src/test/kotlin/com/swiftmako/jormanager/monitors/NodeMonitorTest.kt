@@ -12,20 +12,17 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.tracing.DataPointSessionClient
-import com.swiftmako.jormanager.tracing.DataPointSessionClientFactory
-import com.swiftmako.jormanager.tracing.TraceForwardSessionClient
-import com.swiftmako.jormanager.tracing.TraceForwardSessionClientFactory
 import com.swiftmako.jormanager.tracing.TraceForwardMessage
+import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.ByteArrayInputStream
-import java.io.IOException
+import java.time.Duration
+import java.time.Instant
 import java.util.Optional
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
@@ -42,32 +39,24 @@ class NodeMonitorTest {
             val coreNode = node(isDefault = true)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val sentMessages = CopyOnWriteArrayList<Pair<String, SocketResponse.Success<*>>>()
-            val sessionAttempts = AtomicInteger(0)
+            val rawCapture = rawCaptureService(coreNode)
             val monitor =
                 createMonitor(
                     nodes = listOf(coreNode),
                     latestNodeStats = latestNodeStats,
-                    sessionClientFactory =
-                        sessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                        },
-                    traceSessionClientFactory =
-                        traceSessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                            emitNodeStateReply(it)
-                        },
+                    tracingRawCaptureService = rawCapture,
                     onSend = { destination, payload ->
                         sentMessages += destination to payload
                     },
                 )
 
+            rawCapture.onMessage(coreNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil {
                 latestNodeStats.get()?.blockHeight == 7_403_221L && sentMessages.isNotEmpty()
             }
             monitor.stopAndWait()
 
-            assertThat(sessionAttempts.get()).isAtLeast(1)
             assertThat(latestNodeStats.get()?.slot).isEqualTo(7_403_221L)
             val (destination, payload) = sentMessages.last()
             assertThat(destination).isEqualTo("/topic/messages")
@@ -81,14 +70,14 @@ class NodeMonitorTest {
                     timestamp = nodeStatsEvents.last().timestamp,
                     nodeName = coreNode.name,
                     color = coreNode.color,
-                    peers = 0,
-                    incomingPeers = 0,
+                    peers = 12,
+                    incomingPeers = 7,
                     blockHeight = 7_403_221L,
-                    remainingKESPeriods = 0,
-                    epoch = 17L,
+                    remainingKESPeriods = 36,
+                    epoch = 490L,
                     slot = 7_403_221L,
-                    slotInEpoch = 59_221L,
-                    txsProcessed = 0L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 123_456L,
                     epochLength = 432_000L,
                 )
             )
@@ -99,13 +88,11 @@ class NodeMonitorTest {
         runBlocking {
             val coreNode = node(isDefault = true)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
+            val rawCapture = rawCaptureService(coreNode)
             val monitor =
                 createMonitor(
                     nodes = listOf(coreNode),
-                    sessionClientFactory =
-                        sessionClientFactory {
-                            throw IOException("synthetic failure")
-                        },
+                    tracingRawCaptureService = rawCapture,
                     onSend = { _, payload -> sentMessages += payload },
                 )
 
@@ -135,6 +122,38 @@ class NodeMonitorTest {
         }
 
     @Test
+    fun staleRawSnapshotPublishesNullValuedFallback() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
+            val rawCapture = rawCaptureService(coreNode)
+            rawCapture.recordDataPointSnapshotForTest(
+                nodeId = coreNode.id!!,
+                snapshot =
+                    com.swiftmako.jormanager.tracing.TracingRawDataPointSnapshot(
+                        nodeId = coreNode.id,
+                        capturedAt = Instant.now().minusSeconds(60),
+                        dataPoints = TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply().dataPoints,
+                    ),
+            )
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    tracingRawCaptureService = rawCapture,
+                    onSend = { _, payload -> sentMessages += payload },
+                )
+
+            monitor.start()
+            waitUntil { sentMessages.isNotEmpty() }
+            monitor.stopAndWait()
+
+            @Suppress("UNCHECKED_CAST")
+            val nodeStatsEvents = sentMessages.last().data as List<NodeStats>
+            assertThat(nodeStatsEvents.last().blockHeight).isNull()
+            assertThat(nodeStatsEvents.last().slot).isNull()
+        }
+
+    @Test
     fun defaultRelayDoesNotRefreshLatestNodeStats() =
         runBlocking {
             val defaultRelay = node(id = 1L, name = "relay-a", type = "relay", isDefault = true, tracingPort = null)
@@ -156,24 +175,17 @@ class NodeMonitorTest {
                     epochLength = 432_000L,
                 )
             )
-            val sessionAttempts = AtomicInteger(0)
+            val rawCapture = rawCaptureService(coreNode)
             val monitor =
                 createMonitor(
                     nodes = listOf(defaultRelay, coreNode),
                     latestNodeStats = latestNodeStats,
-                    sessionClientFactory =
-                        sessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                        },
-                    traceSessionClientFactory =
-                        traceSessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                            emitNodeStateReply(it)
-                        },
+                    tracingRawCaptureService = rawCapture,
                 )
 
+            rawCapture.onMessage(coreNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
-            waitUntil { sessionAttempts.get() >= 1 }
+            waitUntil { latestNodeStats.get()?.nodeName == "old-default" }
             monitor.stopAndWait()
 
             assertThat(latestNodeStats.get()?.nodeName).isEqualTo("old-default")
@@ -184,28 +196,20 @@ class NodeMonitorTest {
         runBlocking {
             val relayNode = node(id = 1L, name = "relay-a", type = "relay", tracingPort = 12790)
             val poolNode = node(id = 2L, name = "pool-a", type = "pool", tracingPort = 12791)
-            val sessionAttempts = AtomicInteger(0)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
+            val rawCapture = rawCaptureService(relayNode)
             val monitor =
                 createMonitor(
                     nodes = listOf(relayNode, poolNode),
-                    sessionClientFactory =
-                        sessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                        },
-                    traceSessionClientFactory =
-                        traceSessionClientFactory {
-                            sessionAttempts.incrementAndGet()
-                            emitNodeStateReply(it)
-                        },
+                    tracingRawCaptureService = rawCapture,
                     onSend = { _, payload -> sentMessages += payload },
                 )
 
+            rawCapture.onMessage(relayNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { sentMessages.isNotEmpty() }
             monitor.stopAndWait()
 
-            assertThat(sessionAttempts.get()).isAtLeast(1)
             assertThat(sentMessages).isNotEmpty()
         }
 
@@ -215,28 +219,25 @@ class NodeMonitorTest {
             val coreNode = node(isDefault = true)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val sentMessages = CopyOnWriteArrayList<Pair<String, SocketResponse.Success<*>>>()
+            val rawCapture = rawCaptureService(coreNode)
             val monitor =
                 createMonitor(
                     nodes = listOf(coreNode),
                     latestNodeStats = latestNodeStats,
-                    sessionClientFactory =
-                        sessionClientFactory { _ ->
-                        },
-                    traceSessionClientFactory =
-                        traceSessionClientFactory { onMessage ->
-                            onMessage(
-                                TraceForwardFixtures
-                                    .msgTraceObjectsReply(
-                                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 2, inbound = 3),
-                                        TraceForwardFixtures.nodeStateTraceObject(),
-                                    ).toTraceObjectsReply(),
-                            )
-                        },
+                    tracingRawCaptureService = rawCapture,
                     onSend = { destination, payload ->
                         sentMessages += destination to payload
                     },
                 )
 
+            rawCapture.onMessage(
+                coreNode.id!!,
+                TraceForwardFixtures
+                    .msgTraceObjectsReply(
+                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 2, inbound = 3),
+                        TraceForwardFixtures.nodeStateTraceObject(),
+                    ).toTraceObjectsReply(),
+            )
             monitor.start()
             waitUntil {
                 latestNodeStats.get()?.peers == 2 && latestNodeStats.get()?.incomingPeers == 3 && sentMessages.isNotEmpty()
@@ -264,7 +265,7 @@ class NodeMonitorTest {
                 createMonitor(
                     nodes = listOf(legacyDefaultRelay),
                     nodeRepositoryOverride = nodeRepository,
-                    sessionClientFactory = sessionClientFactory { },
+                    tracingRawCaptureService = rawCaptureService(legacyDefaultRelay),
                 )
 
             monitor.start()
@@ -296,7 +297,7 @@ class NodeMonitorTest {
                 createMonitor(
                     nodes = listOf(legacyPool),
                     nodeRepositoryOverride = nodeRepository,
-                    sessionClientFactory = sessionClientFactory { },
+                    tracingRawCaptureService = rawCaptureService(legacyPool),
                 )
 
             monitor.start()
@@ -315,9 +316,8 @@ class NodeMonitorTest {
 
     private fun createMonitor(
         nodes: List<Node>,
+        tracingRawCaptureService: TracingRawCaptureService,
         latestNodeStats: AtomicReference<NodeStats> = AtomicReference(null),
-        sessionClientFactory: DataPointSessionClientFactory,
-        traceSessionClientFactory: TraceForwardSessionClientFactory = traceSessionClientFactory { },
         nodeRepositoryOverride: NodeRepository? = null,
         onSend: (String, SocketResponse.Success<*>) -> Unit = { _, _ -> },
     ): NodeMonitor {
@@ -356,38 +356,12 @@ class NodeMonitorTest {
             moshi = moshi,
             nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
             latestNodeStats = latestNodeStats,
-            dataPointSessionClientFactory = sessionClientFactory,
-            traceForwardSessionClientFactory = traceSessionClientFactory,
+            tracingRawCaptureService = tracingRawCaptureService,
             startupDelayMillis = 0L,
             sampleIntervalMillis = 50L,
             publishDelayMillis = 10L,
+            rawSnapshotMaxAge = Duration.ofSeconds(15),
         )
-    }
-
-    private fun sessionClientFactory(
-        runSession: suspend (suspend (TraceForwardMessage) -> Unit) -> Unit,
-    ): DataPointSessionClientFactory =
-        DataPointSessionClientFactory {
-            object : DataPointSessionClient {
-                override suspend fun runSession(
-                    hostname: String,
-                    port: Int,
-                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                ) {
-                    runSession(onMessage)
-                }
-
-                override fun close() {
-                }
-            }
-        }
-
-    private suspend fun emitDataPointReply(onMessage: suspend (TraceForwardMessage) -> Unit) {
-        onMessage(TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
-    }
-
-    private suspend fun emitNodeStateReply(onMessage: suspend (TraceForwardMessage) -> Unit) {
-        onMessage(TraceForwardFixtures.msgTraceObjectsReply(TraceForwardFixtures.nodeStateTraceObject()).toTraceObjectsReply())
     }
 
     private fun ByteArray.toDataPointsReply(): TraceForwardMessage.DataPointsReply =
@@ -402,23 +376,20 @@ class NodeMonitorTest {
             TraceForwardMessage.TraceObjectsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
         }
 
-    private fun traceSessionClientFactory(
-        runSession: suspend (suspend (TraceForwardMessage) -> Unit) -> Unit,
-    ): TraceForwardSessionClientFactory =
-        TraceForwardSessionClientFactory {
-            object : TraceForwardSessionClient {
-                override suspend fun runSession(
-                    hostname: String,
-                    port: Int,
-                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                ) {
-                    runSession(onMessage)
-                }
 
-                override fun close() {
-                }
-            }
-        }
+    private fun rawCaptureService(node: Node): TracingRawCaptureService =
+        TracingRawCaptureService(
+            tracingBlockMessageSink =
+                com.swiftmako.jormanager.tracing.TracingBlockMessageSink(
+                    nodeRepository = mockk<NodeRepository>().apply {
+                        every { findById(node.id!!) } returns Optional.of(node)
+                    },
+                    hostRepository = mockk<HostRepository>().apply {
+                        every { findById(node.hostId) } returns Optional.of(host(node.hostId))
+                    },
+                    tracingBlockPersistenceService = mockk(relaxed = true),
+                )
+        )
 
     private fun genesisShelleyFile() =
         File(

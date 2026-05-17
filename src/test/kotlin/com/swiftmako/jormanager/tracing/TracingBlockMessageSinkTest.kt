@@ -72,6 +72,7 @@ class TracingBlockMessageSinkTest {
                             shelleyGenesisAdapter = shelleyGenesisAdapter,
                         ),
                 )
+            val rawCaptureService = TracingRawCaptureService(sink)
             val manager =
                 TracingConnectionManager(
                     nodeRepository = nodeRepository,
@@ -93,7 +94,7 @@ class TracingBlockMessageSinkTest {
                                 }
                             }
                         },
-                    messageSink = sink,
+                    messageSink = rawCaptureService,
                     reconnectDelayMillis = 50L,
                 )
 
@@ -300,6 +301,48 @@ class TracingBlockMessageSinkTest {
             sink.onMessage(1L, adoptedBlockReply())
 
             verify(exactly = 0) { blockRepository.save(any()) }
+        }
+
+    @Test
+    fun rawCaptureRecordsTraceBatchBeforePersistenceRuns() =
+        runBlocking {
+            val node = coreNode()
+            val host = host()
+            val blockRepository = mockk<BlockRepository>()
+            val fileRepository = mockk<FileRepository>()
+            val nodeRepository = mockk<NodeRepository>()
+            val hostRepository = mockk<HostRepository>()
+            val blockUtils = mockk<BlockUtils>()
+            val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+
+            every { nodeRepository.findById(node.id!!) } returns Optional.of(node)
+            every { hostRepository.findById(node.hostId) } returns Optional.of(host)
+            every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
+            every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
+            every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
+            every { blockRepository.save(any()) } answers { firstArg() }
+
+            val sink =
+                TracingBlockMessageSink(
+                    nodeRepository = nodeRepository,
+                    hostRepository = hostRepository,
+                    tracingBlockPersistenceService =
+                        TracingBlockPersistenceService(
+                            blockRepository = blockRepository,
+                            fileRepository = fileRepository,
+                            webSocketTemplate = webSocketTemplate,
+                            blockUtils = blockUtils,
+                            byronGenesisAdapter = byronGenesisAdapter,
+                            shelleyGenesisAdapter = shelleyGenesisAdapter,
+                        ),
+                )
+            val rawCaptureService = TracingRawCaptureService(sink)
+
+            rawCaptureService.onMessage(node.id!!, adoptedBlockReply())
+
+            assertThat(rawCaptureService.recentTraceObjectBatches(node.id)).hasSize(1)
+            verify(exactly = 1) { blockRepository.save(any()) }
         }
 
     private fun adoptedBlockReply(): TraceForwardMessage.TraceObjectsReply =

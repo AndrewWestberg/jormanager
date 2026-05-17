@@ -36,7 +36,7 @@ class TracingConnectionManager(
     private val hostRepository: HostRepository,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
     private val sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
-    private val messageSink: TraceForwardMessageSink,
+    private val messageSink: TracingRawCaptureService,
     private val reconnectDelayMillis: Long = DEFAULT_RECONNECT_DELAY_MILLIS,
 ) : SmartLifecycle,
     CoroutineScope {
@@ -124,6 +124,7 @@ class TracingConnectionManager(
         mutex.withLock {
             val existing = managedConnections[nodeId]
             if (target == null) {
+                messageSink.clearNode(nodeId)
                 managedConnections.remove(nodeId)?.shutdown()
                 return
             }
@@ -139,6 +140,7 @@ class TracingConnectionManager(
                     target = target,
                     sessionClient = sessionClient,
                     job = launch { runConnectionLoop(target, sessionClient) },
+                    messageSink = messageSink,
                 )
             managedConnections[nodeId] = connection
         }
@@ -171,8 +173,10 @@ class TracingConnectionManager(
                 break
             }
 
+            messageSink.clearNode(target.nodeId)
             delay(reconnectDelayMillis)
         }
+        messageSink.clearNode(target.nodeId)
         sessionClient.close()
     }
 
@@ -205,8 +209,10 @@ class TracingConnectionManager(
         val target: TracingNodeTarget,
         val sessionClient: TraceForwardSessionClient,
         val job: Job,
+        val messageSink: TracingRawCaptureService,
     ) {
         fun shutdown() {
+            messageSink.clearNode(target.nodeId)
             sessionClient.close()
             job.cancel()
         }
