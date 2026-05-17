@@ -62,8 +62,6 @@ class NodeControllerTest {
           "TracingVerbosity": "Normal",
           "EKGBackend": "127.0.0.1:12788",
           "PrometheusSimple": "127.0.0.1:12789",
-          "hasEkg": 12788,
-          "hasEKG": 12788,
           "hasPrometheus": 12789
         }
         """.trimIndent()
@@ -94,6 +92,9 @@ class NodeControllerTest {
             processorThreads = processorThreads,
             listen = "127.0.0.1",
             port = 6001,
+            prometheusListen = "127.0.0.1",
+            enableTracingListener = true,
+            tracingListen = "0.0.0.0",
             genesisByronFileId = 1L,
             genesisShelleyFileId = 2L,
             genesisAlonzoFileId = 3L,
@@ -122,35 +123,35 @@ class NodeControllerTest {
         )
 
     @Test
-    fun allocateMetricsPortsReturnsFirstFreePair() {
+    fun allocatePrometheusPortReturnsFirstFreePort() {
         val target = createTarget()
 
-        val metricsPorts = target.allocateMetricsPorts(1L, mockk(relaxed = true)) { false }
+        val promPort = target.allocatePrometheusPort(1L, mockk(relaxed = true)) { false }
 
-        assertThat(metricsPorts).isEqualTo(12788 to 12789)
+        assertThat(promPort).isEqualTo(12789)
     }
 
     @Test
-    fun allocateMetricsPortsScansPastUsedPorts() {
+    fun allocatePrometheusPortScansPastUsedPorts() {
         val target = createTarget()
 
-        val metricsPorts =
-            target.allocateMetricsPorts(1L, mockk(relaxed = true)) { port ->
-                port == 12788 || port == 12789 || port == 12790
+        val promPort =
+            target.allocatePrometheusPort(1L, mockk(relaxed = true)) { port ->
+                port == 12789 || port == 12790
             }
 
-        assertThat(metricsPorts).isEqualTo(12791 to 12792)
+        assertThat(promPort).isEqualTo(12791)
     }
 
     @Test
-    fun allocateMetricsPortsFeedsCoreTracingPortSequence() {
+    fun allocatePrometheusPortFeedsTracingPortSequence() {
         val target = createTarget()
 
-        val metricsPorts = target.allocateMetricsPorts(1L, mockk(relaxed = true)) { port -> port == 12788 }
-        val tracingPort = target.allocateTracingPort(NodeController.NODE_TYPE_CORE, metricsPorts.second) { false }
+        val promPort = target.allocatePrometheusPort(1L, mockk(relaxed = true)) { false }
+        val tracingPort = target.allocateTracingPort(promPort) { false }
 
-        assertThat(metricsPorts).isEqualTo(12789 to 12790)
-        assertThat(tracingPort).isEqualTo(12791)
+        assertThat(promPort).isEqualTo(12789)
+        assertThat(tracingPort).isEqualTo(12790)
     }
 
     private fun createTarget() =
@@ -181,20 +182,20 @@ class NodeControllerTest {
         )
 
     @Test
-    fun allocateTracingPortReturnsFirstFreeCorePort() {
+    fun allocateTracingPortReturnsFirstFreePort() {
         val target = createTarget()
 
-        val tracingPort = target.allocateTracingPort(NodeController.NODE_TYPE_CORE, 12789) { false }
+        val tracingPort = target.allocateTracingPort(12789) { false }
 
         assertThat(tracingPort).isEqualTo(12790)
     }
 
     @Test
-    fun allocateTracingPortScansPastCollisionsForCoreNodes() {
+    fun allocateTracingPortScansPastCollisions() {
         val target = createTarget()
 
         val tracingPort =
-            target.allocateTracingPort(NodeController.NODE_TYPE_CORE, 12789) { port ->
+            target.allocateTracingPort(12789) { port ->
                 port == 12790 || port == 12791
             }
 
@@ -202,51 +203,19 @@ class NodeControllerTest {
     }
 
     @Test
-    fun allocateTracingPortSkipsNonCoreNodesWithoutProbing() {
+    fun renderTracingListenerArgumentBuildsNetworkAcceptFlag() {
         val target = createTarget()
 
-        var probeCalls = 0
-        val relayTracingPort =
-            target.allocateTracingPort(NodeController.NODE_TYPE_RELAY, 12789) {
-                probeCalls++
-                false
-            }
-        val poolTracingPort =
-            target.allocateTracingPort(NodeController.NODE_TYPE_POOL, 12789) {
-                probeCalls++
-                false
-            }
+        val listenerArgument = target.renderTracingListenerArgument("0.0.0.0", 12790)
 
-        assertThat(relayTracingPort).isNull()
-        assertThat(poolTracingPort).isNull()
-        assertThat(probeCalls).isEqualTo(0)
+        assertThat(listenerArgument).isEqualTo("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
     }
 
     @Test
-    fun renderTracingListenerArgumentBuildsCoreNetworkAcceptFlag() {
+    fun renderTracingListenerArgumentRequiresTracingPort() {
         val target = createTarget()
 
-        val listenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_CORE, 12790)
-
-        assertThat(listenerArgument).isEqualTo("--tracer-socket-network-accept 0.0.0.0:12790")
-    }
-
-    @Test
-    fun renderTracingListenerArgumentSkipsRelayAndPoolNodes() {
-        val target = createTarget()
-
-        val relayListenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_RELAY, 12790)
-        val poolListenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_POOL, 12790)
-
-        assertThat(relayListenerArgument).isNull()
-        assertThat(poolListenerArgument).isNull()
-    }
-
-    @Test
-    fun renderTracingListenerArgumentRequiresTracingPortForCoreNodes() {
-        val target = createTarget()
-
-        val listenerArgument = target.renderTracingListenerArgument(NodeController.NODE_TYPE_CORE, null)
+        val listenerArgument = target.renderTracingListenerArgument("0.0.0.0", null)
 
         assertThat(listenerArgument).isNull()
     }
@@ -260,15 +229,16 @@ class NodeControllerTest {
                 request = createRequest(NodeController.NODE_TYPE_CORE),
                 startupNodeType = NodeController.NODE_TYPE_CORE,
                 host = testHost,
+                tracingHost = "0.0.0.0",
                 tracingPort = 12790,
             )
 
-        assertThat(script).contains("--tracer-socket-network-accept 0.0.0.0:12790")
+        assertThat(script).contains("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
         assertThat(script).contains("--shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}")
     }
 
     @Test
-    fun renderSystemdContentOmitsTracingListenerForRelayNodes() {
+    fun renderSystemdContentAddsTracingListenerForRelayNodes() {
         val target = createTarget()
 
         val systemd =
@@ -277,10 +247,11 @@ class NodeControllerTest {
                 host = testHost,
                 name = "relay1",
                 processorThreads = 4,
+                tracingHost = "0.0.0.0",
                 tracingPort = 12790,
             )
 
-        assertThat(systemd).doesNotContain("--tracer-socket-network-accept")
+        assertThat(systemd).contains("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
         assertThat(systemd).contains("--config ${'$'}{CONFIG}")
     }
 
@@ -291,14 +262,14 @@ class NodeControllerTest {
         val systemd =
             target.renderSystemdContent(
                 startupNodeType = NodeController.NODE_TYPE_POOL,
-                listenerNodeType = NodeController.NODE_TYPE_CORE,
                 host = testHost,
                 name = "core1",
                 processorThreads = 6,
+                tracingHost = "0.0.0.0",
                 tracingPort = 12790,
             )
 
-        assertThat(systemd).contains("--tracer-socket-network-accept 0.0.0.0:12790")
+        assertThat(systemd).contains("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
         assertThat(systemd).contains("--bulk-credentials-file ${'$'}{BULK_CREDENTIALS}")
         assertThat(systemd).doesNotContain("--shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}")
     }
@@ -310,10 +281,10 @@ class NodeControllerTest {
         val systemd =
             target.renderSystemdContent(
                 startupNodeType = NodeController.NODE_TYPE_POOL,
-                listenerNodeType = NodeController.NODE_TYPE_CORE,
                 host = testHost,
                 name = "core1",
                 processorThreads = 6,
+                tracingHost = "0.0.0.0",
                 tracingPort = null,
             )
 
@@ -331,6 +302,8 @@ class NodeControllerTest {
                 nodeType = NodeController.NODE_TYPE_CORE,
                 maxConcurrencyDeadline = "2",
                 peerSharing = false,
+                prometheusListen = "127.0.0.1",
+                promPort = 12800,
             )
 
         val root = objectMapper.readTree(rendered)
@@ -348,10 +321,10 @@ class NodeControllerTest {
         assertThat(root.get("GenesisFile").asText()).isEqualTo("shelley-genesis.json")
 
         val rootTraceOptions = root.get("TraceOptions").get("")
-        assertThat(rootTraceOptions.get("severity").asText()).isEqualTo("Notice")
+        assertThat(rootTraceOptions.get("severity").asText()).isEqualTo("Warning")
         assertThat(rootTraceOptions.get("detail")).isNull()
         assertThat(rootTraceOptions.get("backends").map { it.asText() })
-            .containsExactly("Stdout MachineFormat", "Forwarder")
+            .containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 127.0.0.1 12800")
             .inOrder()
 
         val forwarder = root.get("TraceOptionForwarder")
@@ -360,11 +333,10 @@ class NodeControllerTest {
         assertThat(forwarder.get("disconnQueueSize").asInt()).isEqualTo(128)
         assertThat(forwarder.get("maxReconnectDelay").asInt()).isEqualTo(30)
 
-        assertThat(root.get("TraceOptions").get("Version.NodeVersion").get("severity").asText()).isEqualTo("Info")
-        assertThat(root.get("TraceOptions").get("ChainSync.Client").get("severity").asText()).isEqualTo("Warning")
-        assertThat(root.get("TraceOptions").get("Resources").get("maxFrequency").asDouble()).isEqualTo(0.0167)
+        assertThat(root.get("TraceOptions").get("Forge.AdoptedBlock").get("severity").asText()).isEqualTo("Info")
+        assertThat(root.get("TraceOptions").get("Resources")).isNull()
         assertThat(root.fieldNames().asSequence().toList())
-            .containsExactly(
+            .containsAtLeast(
                 "ConwayGenesisFile",
                 "AlonzoGenesisFile",
                 "ByronGenesisFile",
@@ -387,8 +359,8 @@ class NodeControllerTest {
         assertThat(root.get("hasEkg")).isNull()
         assertThat(root.get("hasEKG")).isNull()
         assertThat(root.get("hasPrometheus")).isNull()
-        assertThat(root.get("TraceOptionMetricsPrefix")).isNull()
-        assertThat(root.get("TraceOptionResourceFrequency")).isNull()
+        assertThat(root.get("TraceOptionMetricsPrefix").asText()).isEqualTo("cardano.node.metrics.")
+        assertThat(root.get("TraceOptionResourceFrequency").asInt()).isEqualTo(1000)
     }
 
     @Test
@@ -401,6 +373,8 @@ class NodeControllerTest {
                 nodeType = NodeController.NODE_TYPE_RELAY,
                 maxConcurrencyDeadline = "4",
                 peerSharing = true,
+                prometheusListen = "0.0.0.0",
+                promPort = 12900,
             )
 
         val root = objectMapper.readTree(rendered)
@@ -412,12 +386,11 @@ class NodeControllerTest {
         assertThat(root.get("PeerSharing").asBoolean()).isTrue()
         assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(4)
         assertThat(root.get("TraceOptions").get("").get("backends").map { it.asText() })
-            .containsExactly("Stdout MachineFormat")
-        assertThat(root.get("TraceOptions").get("Version.NodeVersion").get("severity").asText()).isEqualTo("Info")
-        assertThat(root.get("TraceOptions").get("ChainSync.Client").get("severity").asText()).isEqualTo("Warning")
-        assertThat(root.get("TraceOptionForwarder")).isNull()
+            .containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
+        assertThat(root.get("TraceOptions").get("Forge.AdoptedBlock").get("severity").asText()).isEqualTo("Info")
+        assertThat(root.get("TraceOptionForwarder")).isNotNull()
         assertThat(root.fieldNames().asSequence().toList())
-            .containsExactly(
+            .containsAtLeast(
                 "ConwayGenesisFile",
                 "AlonzoGenesisFile",
                 "ByronGenesisFile",
@@ -430,12 +403,15 @@ class NodeControllerTest {
                 "TurnOnLogging",
                 "TurnOnLogMetrics",
                 "minSeverity",
+                "TraceOptionForwarder",
             )
         assertThat(root.get("TraceBlockFetchDecisions")).isNull()
         assertThat(root.get("defaultBackends")).isNull()
         assertThat(root.get("defaultScribes")).isNull()
         assertThat(root.get("EKGBackend")).isNull()
         assertThat(root.get("PrometheusSimple")).isNull()
+        assertThat(root.get("TraceOptionMetricsPrefix").asText()).isEqualTo("cardano.node.metrics.")
+        assertThat(root.get("TraceOptionResourceFrequency").asInt()).isEqualTo(1000)
     }
 
     @Test
@@ -493,6 +469,9 @@ class NodeControllerTest {
                 processorThreads = 8,
                 listen = "127.0.0.1",
                 port = 6001,
+                prometheusListen = "127.0.0.1",
+                enableTracingListener = true,
+                tracingListen = "0.0.0.0",
                 genesisByronFileId = 1L,
                 genesisShelleyFileId = 2L,
                 genesisAlonzoFileId = 3L,

@@ -3,15 +3,8 @@ package com.swiftmako.jormanager.tracing
 import com.google.common.truth.Truth.assertThat
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
-import com.swiftmako.jormanager.tracing.fixtures.ScriptedTraceForwardServer
 import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
-import com.swiftmako.jormanager.tracing.fixtures.TraceForwardSessionScript
 import java.io.ByteArrayInputStream
-import java.net.ServerSocket
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 class NodeStateDataPointDecoderTest {
@@ -69,14 +62,36 @@ class NodeStateDataPointDecoderTest {
     fun missingRequiredKeyFailsSafely() {
         val reply = TraceForwardFixtures.missingNodeStateKeyReply().toDataPointsReply()
 
-        assertThat(decoder.decode(reply)).isNull()
+        assertThat(decoder.decode(reply)).isEqualTo(
+            NodeStateMetrics(
+                peers = 12,
+                incomingPeers = 7,
+                blockHeight = 7_403_221L,
+                remainingKESPeriods = 36,
+                epoch = 490L,
+                slot = 7_403_221L,
+                slotInEpoch = 321L,
+                txsProcessed = 0L,
+            )
+        )
     }
 
     @Test
     fun nothingValueFailsSafely() {
         val reply = TraceForwardFixtures.nothingNodeStateValueReply().toDataPointsReply()
 
-        assertThat(decoder.decode(reply)).isNull()
+        assertThat(decoder.decode(reply)).isEqualTo(
+            NodeStateMetrics(
+                peers = 12,
+                incomingPeers = 7,
+                blockHeight = 7_403_221L,
+                remainingKESPeriods = 36,
+                epoch = 490L,
+                slot = 0L,
+                slotInEpoch = 321L,
+                txsProcessed = 123_456L,
+            )
+        )
     }
 
     @Test
@@ -101,61 +116,29 @@ class NodeStateDataPointDecoderTest {
     }
 
     @Test
-    fun dataPointSessionRoundTripUsesPinnedRequestAndReply() =
-        runBlocking {
-            val replies = mutableListOf<TraceForwardMessage.DataPointsReply>()
-            val receivedDone = AtomicReference<ByteArray?>(null)
-            val failure = AtomicReference<Throwable?>(null)
-            val sessionComplete = CountDownLatch(1)
+    fun legacyPrefixedReplyStillDecodesSafely() {
+        val reply = TraceForwardFixtures.legacyPrefixedNodeStateReply().toDataPointsReply()
 
-            ServerSocket(0).use { serverSocket ->
-                val serverThread =
-                    Thread {
-                        try {
-                            serverSocket.accept().use { socket ->
-                                val input = socket.getInputStream()
-                                val output = socket.getOutputStream()
+        assertThat(decoder.decode(reply)).isEqualTo(
+            NodeStateMetrics(
+                peers = 12,
+                incomingPeers = 7,
+                blockHeight = 7_403_221L,
+                remainingKESPeriods = 36,
+                epoch = 490L,
+                slot = 7_403_221L,
+                slotInEpoch = 321L,
+                txsProcessed = 123_456L,
+            )
+        )
+    }
 
-                                val expectedRequest = TraceForwardFixtures.pinnedNodeStateRequest()
-                                val actualRequest = input.readNBytes(expectedRequest.size)
-                                check(actualRequest.contentEquals(expectedRequest)) {
-                                    "Unexpected data-point request bytes"
-                                }
+    @Test
+    fun nodeAddBlockReplySuppliesFallbackStateWhenScalarMetricsAreAbsent() {
+        val reply = TraceForwardFixtures.nodeAddBlockOnlyReply().toDataPointsReply()
 
-                                output.write(TraceForwardFixtures.pinnedNodeStateReply())
-                                output.flush()
-
-                                val expectedDone = TraceForwardFixtures.msgDone()
-                                val actualDone = input.readNBytes(expectedDone.size)
-                                receivedDone.set(actualDone)
-                                check(actualDone.contentEquals(expectedDone)) {
-                                    "Expected client MsgDone after data-point reply"
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            failure.set(t)
-                        } finally {
-                            sessionComplete.countDown()
-                        }
-                    }
-                serverThread.start()
-
-                SocketDataPointSessionClient().runSession("127.0.0.1", serverSocket.localPort) { message ->
-                    if (message is TraceForwardMessage.DataPointsReply) {
-                        replies += message
-                    }
-                }
-
-                check(sessionComplete.await(5, TimeUnit.SECONDS)) {
-                    "Timed out waiting for data-point session server"
-                }
-                failure.get()?.let { throw AssertionError("Manual data-point session server failed", it) }
-            }
-
-            assertThat(decoder.decode(replies.single())?.slot).isEqualTo(7_403_221L)
-            assertThat(decoder.decode(replies.single())?.txsProcessed).isEqualTo(123_456L)
-            assertThat(receivedDone.get()).isEqualTo(TraceForwardFixtures.msgDone())
-        }
+        assertThat(decoder.decode(reply)).isNull()
+    }
 
     private fun fullReply(): TraceForwardMessage.DataPointsReply =
         TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply()

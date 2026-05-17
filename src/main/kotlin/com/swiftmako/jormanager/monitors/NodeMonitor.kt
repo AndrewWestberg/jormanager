@@ -13,11 +13,15 @@ import com.swiftmako.jormanager.moshi.adapters.PoolLedgerJsonAdapter
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.tracing.DataPointSessionClientFactory
 import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import com.swiftmako.jormanager.tracing.NodeStateMetrics
 import com.swiftmako.jormanager.tracing.SocketDataPointSessionClientFactory
 import com.swiftmako.jormanager.tracing.TraceForwardMessage
+import com.swiftmako.jormanager.tracing.TraceForwardNodeStateDecoder
+import com.swiftmako.jormanager.tracing.TraceForwardSessionClientFactory
+import com.swiftmako.jormanager.tracing.SocketTraceForwardSessionClientFactory
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
@@ -60,6 +64,7 @@ class NodeMonitor
         private val hostRepository: HostRepository,
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
+        private val chainRepository: ChainRepository,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val moshi: Moshi,
@@ -67,6 +72,8 @@ class NodeMonitor
         @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
         private val nodeStateDecoder: NodeStateDataPointDecoder = NodeStateDataPointDecoder(),
         private val dataPointSessionClientFactory: DataPointSessionClientFactory = SocketDataPointSessionClientFactory(),
+        private val traceForwardNodeStateDecoder: TraceForwardNodeStateDecoder = TraceForwardNodeStateDecoder(),
+        private val traceForwardSessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
         private val sampleIntervalMillis: Long = SAMPLE_INTERVAL_MS,
         private val publishDelayMillis: Long = PUBLISH_DELAY_MS,
@@ -107,10 +114,35 @@ class NodeMonitor
         override fun start() {
             log.info("Starting NodeMonitor...")
 
+            backfillTracingSettingsIfNecessary()
             loadLedgerValuesIfNecessary()
             monitorNodes()
             seedNodes()
             collectAndGroupStats()
+        }
+
+        private fun backfillTracingSettingsIfNecessary() {
+            runCatching {
+                nodeRepository.findAll().forEach { node ->
+                    if (node.type == "pool" && (node.tracingPort != null || node.tracingHost != null)) {
+                        nodeRepository.save(node.copy(tracingHost = null, tracingPort = null))
+                        return@forEach
+                    }
+
+                    if (node.isDeleted || node.type == "pool" || node.tracingPort != null || node.promPort <= 0) {
+                        return@forEach
+                    }
+
+                    nodeRepository.save(
+                        node.copy(
+                            tracingHost = node.tracingHost ?: "0.0.0.0",
+                            tracingPort = node.promPort + 1,
+                        )
+                    )
+                }
+            }.onFailure { throwable ->
+                log.error("Error backfilling node tracing settings!", throwable)
+            }
         }
 
         @OptIn(DelicateCoroutinesApi::class)
@@ -288,7 +320,7 @@ class NodeMonitor
                 return nullNodeStats(node, timestamp, epochLength)
             }
 
-            val metrics = loadNodeStateMetrics(host, node.tracingPort)
+            val metrics = loadNodeStateMetrics(host, node, epochLength)
             return if (metrics != null && metrics.blockHeight > 0L) {
                 metrics.toNodeStats(
                     timestamp = timestamp,
@@ -304,20 +336,58 @@ class NodeMonitor
 
         private suspend fun loadNodeStateMetrics(
             host: Host,
-            tracingPort: Int,
+            node: Node,
+            epochLength: Long,
         ): NodeStateMetrics? {
-            val client = dataPointSessionClientFactory.create()
-            try {
-                var decoded: NodeStateMetrics? = null
-                client.runSession(host.hostname, tracingPort) { message ->
-                    if (message is TraceForwardMessage.DataPointsReply && decoded == null) {
-                        decoded = nodeStateDecoder.decode(message)
+            node.tracingPort?.let { tracingPort ->
+                val client = dataPointSessionClientFactory.create()
+                try {
+                    var decoded: NodeStateMetrics? = null
+                    client.runSession(host.hostname, tracingPort) { message ->
+                        if (message is TraceForwardMessage.DataPointsReply && decoded == null) {
+                            decoded = nodeStateDecoder.decode(message)
+                        }
                     }
+                    decoded?.let { metrics ->
+                        return metrics.withDerivedSlot(epochLength)
+                    }
+                } finally {
+                    client.close()
                 }
-                return decoded
-            } finally {
-                client.close()
+
+                val traceClient = traceForwardSessionClientFactory.create()
+                try {
+                    var forwardedState: com.swiftmako.jormanager.tracing.ForwardedNodeState? = null
+                    traceClient.runSession(host.hostname, tracingPort) { message ->
+                        if (message is TraceForwardMessage.TraceObjectsReply) {
+                            val decoded = traceForwardNodeStateDecoder.decode(message)
+                            if (decoded != null) {
+                                forwardedState = forwardedState?.merge(decoded) ?: decoded
+                            }
+                        }
+                    }
+                    forwardedState?.let { state ->
+                        val slot = state.slot ?: return@let
+                        val blockHeight = state.blockHeight ?: return@let
+                        val epoch = slot / epochLength
+                        val slotInEpoch = slot % epochLength
+                        return NodeStateMetrics(
+                            peers = state.peers ?: 0,
+                            incomingPeers = state.incomingPeers ?: 0,
+                            blockHeight = blockHeight,
+                            remainingKESPeriods = 0,
+                            epoch = epoch,
+                            slot = slot,
+                            slotInEpoch = slotInEpoch,
+                            txsProcessed = 0,
+                        )
+                    }
+                } finally {
+                    traceClient.close()
+                }
             }
+
+            return null
         }
 
         private fun resolveEpochLength(genesisShelleyFileId: Long): Long =
@@ -350,7 +420,7 @@ class NodeMonitor
             )
 
         private fun shouldMonitorNode(node: Node): Boolean =
-            !node.isDeleted && node.type == CORE_NODE_TYPE && node.tracingPort != null
+            !node.isDeleted && node.type != "pool" && node.tracingPort != null
 
         private fun nextAlignedDelay(intervalMillis: Long): Long {
             val now = System.currentTimeMillis()
@@ -385,11 +455,27 @@ class NodeMonitor
             }
         }
 
-        companion object {
-            private const val CORE_NODE_TYPE = "core"
+    companion object {
             private const val DEFAULT_EPOCH_LENGTH = 432000L
             private const val STARTUP_DELAY_MS = 5000L
             private const val SAMPLE_INTERVAL_MS = 5000L
             private const val PUBLISH_DELAY_MS = 3000L
         }
     }
+
+private fun NodeStateMetrics.withDerivedSlot(epochLength: Long): NodeStateMetrics =
+    if (slot > 0L) {
+        this
+    } else {
+        copy(slot = epoch * epochLength + slotInEpoch)
+    }
+
+private fun com.swiftmako.jormanager.tracing.ForwardedNodeState.merge(
+    other: com.swiftmako.jormanager.tracing.ForwardedNodeState,
+): com.swiftmako.jormanager.tracing.ForwardedNodeState =
+    com.swiftmako.jormanager.tracing.ForwardedNodeState(
+        slot = other.slot ?: slot,
+        blockHeight = other.blockHeight ?: blockHeight,
+        peers = other.peers ?: peers,
+        incomingPeers = other.incomingPeers ?: incomingPeers,
+    )

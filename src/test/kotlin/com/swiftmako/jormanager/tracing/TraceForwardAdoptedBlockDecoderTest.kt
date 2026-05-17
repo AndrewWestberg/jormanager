@@ -15,11 +15,27 @@ class TraceForwardAdoptedBlockDecoderTest {
         val event = decoder.decode(TraceForwardFixtures.adoptedBlockTraceObject().traceObjectJson)
 
         assertThat(event).isEqualTo(
-            ForwardedAdoptedBlockEvent(
+            ForwardedBlockEvent(
                 slot = 7_403_221L,
                 blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
                 timestamp = "2026-05-12T00:00:00Z",
                 hostname = "core-node-1",
+                status = "completed",
+            )
+        )
+    }
+
+    @Test
+    fun decodesValidForwardedForgedBlockTraceObject() {
+        val event = decoder.decode(TraceForwardFixtures.forgedBlockTraceObject().traceObjectJson)
+
+        assertThat(event).isEqualTo(
+            ForwardedBlockEvent(
+                slot = 7_403_221L,
+                blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
+                timestamp = "2026-05-12T00:00:00Z",
+                hostname = "core-node-1",
+                status = "created",
             )
         )
     }
@@ -100,11 +116,47 @@ class TraceForwardAdoptedBlockDecoderTest {
             val events = decoder.decode(replies.single())
 
             assertThat(events).containsExactly(
-                ForwardedAdoptedBlockEvent(
+                ForwardedBlockEvent(
                     slot = 7_403_221L,
                     blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
                     timestamp = "2026-05-12T00:00:00Z",
                     hostname = "core-node-1",
+                    status = "completed",
+                )
+            )
+        }
+
+    @Test
+    fun toleratesSocketCloseAfterTraceObjectsReplyWithoutDone() =
+        runBlocking {
+            val replies = mutableListOf<TraceForwardMessage.TraceObjectsReply>()
+
+            ScriptedTraceForwardServer.start(
+                TraceForwardSessionScript(
+                    expectedClientMessages = listOf(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 25)),
+                    serverResponses = listOf(
+                        TraceForwardFixtures.msgTraceObjectsReply(TraceForwardFixtures.adoptedBlockTraceObject()),
+                    ),
+                )
+            ).use { server ->
+                SocketTraceForwardSessionClient().runSession("127.0.0.1", server.port) { message ->
+                    if (message is TraceForwardMessage.TraceObjectsReply) {
+                        replies += message
+                    }
+                }
+
+                server.awaitCompletion()
+            }
+
+            val events = decoder.decode(replies.single())
+
+            assertThat(events).containsExactly(
+                ForwardedBlockEvent(
+                    slot = 7_403_221L,
+                    blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
+                    timestamp = "2026-05-12T00:00:00Z",
+                    hostname = "core-node-1",
+                    status = "completed",
                 )
             )
         }

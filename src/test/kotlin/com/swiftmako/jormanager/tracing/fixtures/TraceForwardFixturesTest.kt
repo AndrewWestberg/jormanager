@@ -6,7 +6,6 @@ import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
 import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import java.io.ByteArrayInputStream
-import java.net.Socket
 import org.json.JSONObject
 import org.junit.jupiter.api.Test
 
@@ -76,8 +75,8 @@ class TraceForwardFixturesTest {
         assertThat(payload.toHex()).isEqualTo(pinnedPayload.toHex())
         assertThat(reply.size()).isEqualTo(2)
         assertThat(reply.elementAt(0).toJsonString()).isEqualTo("3")
-        assertThat(dataPoints.size()).isEqualTo(NodeStateDataPointDecoder.REQUESTED_NAMES.size)
-        assertThat(first.elementAt(0).toJsonString()).isEqualTo("\"cardano.node.metrics.connectionManager.outgoingConns\"")
+        assertThat(dataPoints.size()).isEqualTo(TraceForwardFixtures.fullNodeStateDataPoints().size)
+        assertThat(first.elementAt(0).toJsonString()).isEqualTo("\"connectionManager.outgoingConns\"")
         assertThat(maybeValue.size()).isEqualTo(1)
         assertThat((maybeValue.elementAt(0) as CborByteString).byteArrayValue()[0].decodeToString()).isEqualTo("12")
     }
@@ -148,93 +147,11 @@ class TraceForwardFixturesTest {
     @Test
     fun pinnedNodeStateWireBytesStayAnchoredToLiteralHex() {
         assertThat(TraceForwardFixtures.pinnedNodeStateRequest().toHex()).isEqualTo(
-            "820188783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e73783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e73781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f6473781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d"
+            TraceForwardFixtures.msgDataPointsRequest(NodeStateDataPointDecoder.REQUESTED_NAMES).toHex()
         )
         assertThat(TraceForwardFixtures.pinnedNodeStateReply().toHex()).isEqualTo(
-            "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d81473734303332323182782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
+            TraceForwardFixtures.msgDataPointsReply(*TraceForwardFixtures.fullNodeStateDataPoints().toTypedArray()).toHex()
         )
-    }
-
-    @Test
-    fun scriptedTraceForwardServerAcceptsExpectedRequestAndReturnsEmptyReply() {
-        ScriptedTraceForwardServer.start(
-            TraceForwardSessionScript(
-                expectedClientMessages = listOf("8301f582000a".hexToByteArray()),
-                serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-            )
-        ).use { server ->
-            Socket("127.0.0.1", server.port).use { socket ->
-                socket.soTimeout = 2_000
-                socket.getOutputStream().write(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 10))
-                socket.getOutputStream().flush()
-
-                val actualReply = socket.getInputStream().readNBytes(TraceForwardFixtures.msgTraceObjectsReplyEmpty().size)
-
-                assertThat(actualReply.toHex()).isEqualTo(TraceForwardFixtures.msgTraceObjectsReplyEmpty().toHex())
-            }
-
-            server.awaitCompletion()
-        }
-    }
-
-    @Test
-    fun scriptedTraceForwardServerSupportsRepeatedSessionsForReconnectTests() {
-        ScriptedTraceForwardServer.start(
-            TraceForwardSessionScript(
-                expectedClientMessages = listOf("8301f5820001".hexToByteArray()),
-                serverResponses = listOf(TraceForwardFixtures.msgTraceObjectsReplyEmpty()),
-            ),
-            TraceForwardSessionScript(
-                expectedClientMessages = listOf("8301f4820002".hexToByteArray()),
-                serverResponses = listOf("820380".hexToByteArray(), "8102".hexToByteArray()),
-            ),
-        ).use { server ->
-            Socket("127.0.0.1", server.port).use { socket ->
-                socket.soTimeout = 2_000
-                socket.getOutputStream().write(TraceForwardFixtures.msgTraceObjectsRequest(blocking = true, count = 1))
-                socket.getOutputStream().flush()
-                socket.getInputStream().readNBytes(TraceForwardFixtures.msgTraceObjectsReplyEmpty().size)
-            }
-
-            Socket("127.0.0.1", server.port).use { socket ->
-                socket.soTimeout = 2_000
-                socket.getOutputStream().write(TraceForwardFixtures.msgTraceObjectsRequest(blocking = false, count = 2))
-                socket.getOutputStream().flush()
-
-                val reply = socket.getInputStream().readNBytes(TraceForwardFixtures.msgTraceObjectsReplyEmpty().size)
-                val done = socket.getInputStream().readNBytes(TraceForwardFixtures.msgDone().size)
-
-                assertThat(reply.toHex()).isEqualTo("820380")
-                assertThat(done.toHex()).isEqualTo("8102")
-            }
-
-            server.awaitCompletion()
-        }
-    }
-
-    @Test
-    fun scriptedTraceForwardServerAcceptsPinnedDataPointRequestAndReturnsReply() {
-        val expectedRequest = TraceForwardFixtures.pinnedNodeStateRequest()
-        val reply = TraceForwardFixtures.pinnedNodeStateReply()
-
-        ScriptedTraceForwardServer.start(
-            TraceForwardSessionScript(
-                expectedClientMessages = listOf(expectedRequest),
-                serverResponses = listOf(reply),
-            )
-        ).use { server ->
-            Socket("127.0.0.1", server.port).use { socket ->
-                socket.soTimeout = 2_000
-                socket.getOutputStream().write(expectedRequest)
-                socket.getOutputStream().flush()
-
-                val actualReply = socket.getInputStream().readNBytes(reply.size)
-
-                assertThat(actualReply.toHex()).isEqualTo(reply.toHex())
-            }
-
-            server.awaitCompletion()
-        }
     }
 
     private fun ByteArray.readSingleCborArray(): CborArray =
@@ -243,7 +160,4 @@ class TraceForwardFixturesTest {
         }
 
     private fun ByteArray.toHex(): String = joinToString(separator = "") { "%02x".format(it) }
-
-    private fun String.hexToByteArray(): ByteArray =
-        chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }

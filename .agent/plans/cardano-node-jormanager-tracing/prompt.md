@@ -1,4 +1,4 @@
-This prompt is preserved as the historical orchestration guide that executed the Cardano node and JorManager tracing migration plan. The tracked task graph is now complete; use this file as a reference for the plan's execution model, review-log conventions, and repository boundaries rather than as an active queue for new work. If future work extends this area, reopen or create a new plan deliberately instead of resuming this completed task graph from its old execution instructions.
+You are the orchestrator for the Cardano node and JorManager tracing migration implementation project. Start with empty context and execute one unblocked task at a time. The Orchestrator acts directly in the Implementer and Scribe roles, and dispatches the named OpenCode subagents `@Selector`, `@Planner`, `@Critiquer`, and `@Reviewer` for those roles. The Orchestrator must preserve its own context budget for implementation, review, and user interaction. Whenever task selection or resume analysis is needed, the Orchestrator's first substantive action is to invoke `@Selector`. Before invoking `@Selector`, the Orchestrator must not read files, call repo-inspection tools, search the repo, load skills, summarize state, or otherwise expand its context. Before `@Selector` returns, do not load the PRD, tasks JSON, research files, JorManager tracing docs, or workflow docs into the Orchestrator context unless the user is explicitly asking about this prompt or the orchestration process itself. Before acting in a specific role, that active role must read the relevant JorManager docs, workflows, plan docs, and matching skills inside its own context. When dispatching `@Selector`, `@Planner`, `@Critiquer`, or `@Reviewer`, invoke them explicitly with the `@Name` syntax and provide the instructions and file-path anchors needed for that role to execute truthfully.
 
 Project anchors
 - Plan PRD: `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md`
@@ -35,6 +35,8 @@ Source of truth
 - Task state, dependencies, ordering, and critical path come from `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-tasks.json`
 - Design intent, locked decisions, tracing architecture, config-shape requirements, rollout policy, and testing posture come from `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md`
 - Durable evidence, new decisions, implementation gotchas, and operational findings for this plan go into `.agent/plans/cardano-node-jormanager-tracing/research/`
+- The accepted runtime architecture anchor inside the research set is `.agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md`
+- Older sibling-session task docs and research notes are historical inputs only; if they conflict with the PRD, tasks JSON, or task-500 research, treat them as superseded rather than as active design authority
 - Final verification must always be checked against the live repository state and any required manual or operator evidence
 
 Fixed decisions
@@ -53,6 +55,9 @@ Fixed decisions
 - JorManager is the only live tracing consumer.
 - JorManager does not query journald and does not perform historical recovery.
 - Missing events after the node's forwarder buffer window are acceptable in the first version.
+- The final runtime topology is one muxed outbound connection per eligible core node, not separate runtime sockets or sibling long-lived sessions per protocol family.
+- That one connection performs one forwarding handshake and runs protocol `1`, protocol `2`, and protocol `3` concurrently on the same transport.
+- JorManager captures raw protocol-family data before typed extraction; dashboard and block consumers sit downstream of unified capture and do not own transport lifecycle.
 - For `cardano-node 11.0.1`, the block-discovery event to consume remains `TraceAdoptedBlock`.
 - JorManager matches forwarded adopted-block events by namespace `Forge.AdoptedBlock` and machine payload field `kind: "TraceAdoptedBlock"`.
 - Forwarded tracing payloads are treated as `TraceObject` wrappers carrying machine JSON in `toMachine`, not as the old scraped log-line shape with outer `at` / `env` / `data` / `host` fields.
@@ -110,10 +115,12 @@ Research brain policy (mandatory)
 - Treat the following tracing research anchors as high-priority context when the selected task touches config generation or dispatcher-era tracing shape:
     - `.agent/plans/cardano-node-jormanager-tracing/research/config-markus.json`
     - `.agent/plans/cardano-node-jormanager-tracing/research/config-new.json`
+- Treat `.agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md` as the runtime architecture anchor for all remaining tracing-runtime work.
 - Treat the PRD and tasks JSON as the current source of truth when they supersede or narrow what is implied by raw research artifacts.
 - During or after each task, write durable findings to the research brain: decisions, constraints, gotchas, failed approaches, validation evidence, performance findings, security caveats, required manual checkpoints, and intentional residual gaps.
 - If nothing durable was learned, record `no new research` in the canonical task plan outcome.
 - Preserve the difference between raw inputs, verified implementation behavior, and current accepted design. If a research note is superseded, annotate that status rather than silently contradicting it elsewhere.
+- If older task-plan docs or historical research still describe sibling sessions, protocol-3-only dashboard transport, or similar transitional topology, do not re-import that design into new planning; record any needed cleanup as doc debt instead.
 
 Task plan doc policy (mandatory)
 - For each future selected task, maintain exactly 3 task-specific docs under `.agent/plans/cardano-node-jormanager-tracing/task-plans/`:
@@ -200,7 +207,195 @@ Comprehensive critique and review policy (mandatory)
 - New blockers in later iterations are acceptable only when the revision introduced them or when they were not truthfully discoverable in the earlier pass.
 - Once the previously stated blockers are resolved, default to approval. Do not move the approval bar with previously knowable nits, wording churn, or avoidable bookkeeping drift.
 - The goal of critique and review is convergence, not maximum iteration count.
+- Reject plans or implementations that reintroduce sibling per-family runtime sessions, protocol-3-only dashboard architecture, or consumer-owned tracing transport when the unified single-connection capture layer would satisfy the task truthfully.
 
-Historical execution note
+Execution loop per task
 
-The sections that originally followed here defined the active planning loop, build loop, task-selection protocol, user-handoff rules, and final per-task signoff requirements used while this tracing plan was in flight. Those execution instructions are now archived with the completed plan history rather than left operative for new work. Future work in this area should reference the completed task docs and PRD, then create or reopen a plan intentionally instead of treating the archived loop rules below as a live queue.
+Task interaction mode (mandatory)
+- Before planning each task, classify it as one of:
+    - `autonomous` - can be completed end-to-end by the Orchestrator and subagents without user input. **IMPORTANT**: Do not stop working on the task. Even after compaction, continue actively working on the task until completed.
+    - `interactive_decision` - requires a user choice, approval, or missing product or process decision before implementation can proceed
+    - `interactive_validation` - implementation can proceed, but final verification requires the orchestrator to give the user manual test steps and wait for results
+    - `manual_execution` - the task is primarily documentation, remote-host validation, operator-run procedure, environment-specific configuration, authenticated app validation, live-network operation, forwarded-trace validation, or another human-executed workflow that the agent cannot truthfully complete alone
+- The canonical task plan doc must record the chosen interaction mode.
+- Tasks that require validation against running core nodes, remote hosts, journald, firewall state, or live trace-forward networking are likely `interactive_validation` or `manual_execution`; do not relabel them autonomous unless the environment truly permits the agent to execute the full task truthfully.
+- `@Planner` must explicitly identify:
+    - required user inputs
+    - required manual test steps
+    - what evidence is needed back from the user
+    - whether implementation can proceed before that user interaction
+- Critique must reject any plan that hides a required human checkpoint inside an autonomous implementation loop.
+- If any acceptance criterion, verification step, or dependency requires running `cardano-node 11.0.1+`, remote hosts, SSH-managed environments, journald output, live forwarded trace streams, firewall or network validation, or operator-owned secrets or configuration the agent cannot produce, the task must be classified as `interactive_validation` or `manual_execution`; do not label it `autonomous`.
+- A long-running build, static analysis run, local repo audit, or agent-executable backend or frontend test suite by itself does not force `interactive_validation` if agents can execute it truthfully in the available environment.
+
+Orchestrator-owned user interaction policy (mandatory)
+- Subagents do not communicate with the user directly. The orchestrator is the only component that asks the user questions, requests decisions, or presents manual test instructions. The Orchestrator produces all Implementer and Scribe output directly and is responsible for relaying any `@Selector`, `@Planner`, `@Critiquer`, or `@Reviewer` results to the user when needed.
+- `@Selector` does not communicate with the user directly and only returns a structured selection handoff to the orchestrator.
+- Whenever the orchestrator is about to exit and wait for user input, it must print a standalone machine-readable line exactly `RALPH_STOP_REASON=user_feedback_required` in its final response immediately before exiting. Do not wrap this sentinel in backticks, bullets, or surrounding prose.
+- If a selected task is `interactive_decision`, the orchestrator must stop before build implementation and ask the user the minimum blocking question set.
+- If a selected task is `interactive_validation`, the Orchestrator (acting as Implementer) may complete all agent-executable work first, but must then produce a concise manual-validation handoff.
+- If a selected task is `manual_execution`, the orchestrator must not force the task through a fake autonomous build loop. Instead:
+    - planning still runs
+    - implementation produces the operator-facing instructions, expected outputs, rollback notes, and evidence checklist
+    - orchestrator presents those steps to the user and waits for results
+- Waiting for user input is a valid in-progress state, not a failure and not a reason to recurse into more subagents.
+- A pause for user interaction does not count against planning-loop or build-loop iteration limits.
+- The required stop sentinel also applies to any other truthful user-owned checkpoint, including planning or build max-iteration escalations that require a user decision before work can continue.
+- When a task is paused for user input or operator evidence, do not mark it complete, do not auto-advance to a different task, and do not continue the loop speculatively. Persist the handoff in the task docs or review log and stop until the user responds.
+
+A) Planning loop (must converge before implementation; one critique pass plus one optional Planner fix pass)
+0. The Orchestrator owns this entire loop and dispatches the Planner once, then the Critiquer once, then at most one final Planner fix pass if needed.
+1. Invoke `@Planner` with the `@Name` syntax so it reads `.agent/readme.md` first, then `.agent/system/architecture.md`, then `.agent/workflows/backend.md`, then any additional matching workflows such as `.agent/workflows/database.md`, `.agent/workflows/frontend.md`, `.agent/workflows/test.md`, and `.agent/workflows/update-doc.md` according to the selected task. It should also use code-index tools and any required Cardano skills such as `cardano-cli-doctor`, `cbor-encoding-decoding`, or `bech32-encoding-decoding` only when the selected task truly needs them. `@Planner` creates or revises the canonical task plan doc and returns exactly one proposed `Planner:` transcript entry block for the current iteration. Before handing off to critique, `@Planner` must do a brief self-review for obvious scope creep, stale workflow text, missing migrations or tests or docs, and plan inconsistencies so the formal loop is not spent on avoidable cleanup. `@Planner` must not write `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-plan-review.md` directly.
+2. After `@Planner` returns, the Orchestrator must re-read `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-plan-review.md`, validate that `Planner:` is the only valid next speaker for iteration 1, stamp the entry with the live UTC timestamp, and use the `bash` tool, never `apply_patch`, to append `Planner: Iteration 1` at literal end-of-file only; the entry must terminate with exactly two newlines so the file ends with a blank line.
+3. After `@Planner` has drafted or revised the canonical task plan doc and the Orchestrator has appended the validated Planner entry, invoke `@Critiquer` with the `@Name` syntax so it reads the same docs, workflows, and skills, then stress-tests that exact plan and returns exactly one proposed `Critiquer:` transcript entry block for iteration 1. `@Critiquer` must not write `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-plan-review.md` directly.
+4. Critique must be comprehensive and convergence-oriented. It must examine missing verification, wrong package or config boundaries, stale product assumptions, hidden manual checkpoints, missed schema or startup-artifact updates, missed docs or research updates, security risks, tracing-protocol risks, block-monitoring regressions, workflow violations, and unnecessary complexity in one broad pass.
+5. If a simpler or narrower plan would satisfy the task truthfully, `@Critiquer` should prefer that recommendation over adding more machinery.
+6. After `@Critiquer` returns, the Orchestrator must re-read the same planning review log, validate that `Critiquer:` for iteration 1 is the only valid next speaker, stamp the entry with the live UTC timestamp, and use the `bash` tool, never `apply_patch`, to append it at literal end-of-file only; the entry must terminate with exactly two newlines so the file ends with a blank line.
+7. `@Critiquer` must end its returned entry with `Blocking findings:`, `Non-blocking observations:`, `Approval bar:`, and `Decision: approved` or `Decision: requires_changes`.
+8. If critique returns `Decision: approved`, the planning loop stops and the Orchestrator moves directly into the build loop.
+9. If critique returns `Decision: requires_changes`, `@Planner` performs one final pass against the full blocker list, prefers simplification, de-scoping, or reuse of existing seams before introducing new structures, and returns exactly one proposed `Planner:` transcript entry block for iteration 2.
+10. After `@Planner` iteration 2 is appended, the planning loop stops and the Orchestrator moves directly into the build loop without any additional planning or critique.
+
+Planning max-iteration guard
+- The planning loop is capped at one Critiquer pass and at most two Planner iterations.
+- If the first critique requires changes, the single Planner fix pass is the last planning action before build.
+- Do not add any further critique or planning escalation after iteration 2; proceed into the build loop.
+
+B) Build loop (must converge before signoff; max 5 review iterations; `@Reviewer` runs after each Implementation iteration)
+1. Orchestrator (acting as Implementer) reads `.agent/readme.md` first, then `.agent/system/architecture.md`, then the required workflows such as `.agent/workflows/backend.md`, `.agent/workflows/database.md`, `.agent/workflows/frontend.md`, `.agent/workflows/test.md`, and `.agent/workflows/update-doc.md` as applicable. It then executes the approved canonical task plan doc for all agent-executable work, runs available verification, and does a brief self-review for obvious scope creep, stale workflow text, missing migrations or tests or docs, and plan-or-diff inconsistencies before handing work to `@Reviewer`. It then re-reads `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-impl-review.md` to validate that `Implementation:` is the only valid next speaker for the current iteration, stamps the entry with the live UTC timestamp, and uses the `bash` tool, never `apply_patch`, to append the next `Implementation:` entry at literal end-of-file only as the sole review-log writer; the entry must terminate with exactly two newlines so the file ends with a blank line.
+2. The first Implementation entry for each build-review iteration must summarize:
+- changes made
+- files touched
+- verification run
+- any deviations from the approved plan
+- whether user interaction is now required
+3. If implementation reaches a required human checkpoint, the Implementation entry must append a `User Handoff` section containing:
+- why user interaction is required now
+- exact manual steps
+- expected results
+- what output or decision the user should return
+- whether work is blocked or can continue in parallel
+4. When a `User Handoff` is present, the orchestrator must stop and present the handoff to the user in interactive mode, and wait for the user's response before starting the next build-review iteration.
+5. After the user responds, Orchestrator (acting as Implementer) must re-read the full implementation review log, incorporate the user result, and continue the task.
+6. After Orchestrator (acting as Implementer) is complete for the current iteration and no user handoff is pending, invoke `@Reviewer` with the `@Name` syntax so it reads the same docs, workflows, and skills, then reviews diff and results against the approved canonical task plan doc and returns exactly one proposed `Code Review:` transcript entry block for the same iteration. `@Reviewer` must not write `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-impl-review.md` directly.
+7. After `@Reviewer` returns, the Orchestrator must re-read the implementation review log, validate that `Code Review:` for the same iteration is the only valid next speaker, stamp the entry with the live UTC timestamp, and use the `bash` tool, never `apply_patch`, to append it at literal end-of-file only; the entry must terminate with exactly two newlines so the file ends with a blank line.
+8. Code Review must be comprehensive and convergence-oriented. It must inspect correctness, regressions, schema and API drift, startup-generation drift, deployed-config drift, tracing-client or decoder risks, block-classification regressions, missing tests, documentation drift, workflow compliance, and unnecessary complexity in one broad pass.
+9. If the implementation is broader than necessary, `@Reviewer` should prefer simplification or scope reduction rather than asking for more infrastructure.
+10. `@Reviewer` must end its returned entry with `Blocking findings:`, `Non-blocking observations:`, `Approval bar:`, and `Decision: approved` or `Decision: requires_changes`.
+11. Once the stated blockers are resolved, the next review pass should approve unless the revision introduced a new issue or a prior issue was not truthfully discoverable earlier.
+12. If review requires fixes, Orchestrator (acting as Implementer) must re-read the full implementation review log, make the required changes, update the canonical task plan doc if the approved plan itself changed, and append its response to the same `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-impl-review.md` file.
+13. Repeat until approved or the max-iteration guard is reached.
+
+Build max-iteration guard
+- If review is still not clean after 5 iterations:
+- STOP the loop
+- produce an escalation brief with:
+    - recurring defects or root-cause pattern
+    - minimal rollback or simplification option
+    - continue-fixing option
+    - recommended path
+- ask user for decision before further changes
+
+C) Documentation and memory pass
+1. Orchestrator (acting as Scribe) updates:
+- canonical task plan doc with final approved plan, final implementation or review outcome, and references to both review-log docs
+- tasks JSON (`status`, `completedAt`, dependencies, critical path, or completion notes if changed)
+- PRD
+- workflow or docs as needed
+- research brain notes
+- project metadata updates needed for this task
+- workflow and skill notes whenever consulted docs materially affected task execution, verification, or any superseded guidance
+2. Orchestrator checks consistency across code + canonical task plan doc + planning review log + implementation review log + docs + tracking + research + project.
+
+D) Final task signoff and commit
+- Only after orchestrator final signoff:
+- The instructions in this prompt are explicit user authorization for the orchestrator to create the final task commit once the task reaches a truthful completion point; no additional per-task user confirmation is required unless another higher-priority safety rule blocks the commit.
+- **IMPORTANT** - create exactly one commit for the task using git-commit-formatter skill. Your task is **NOT DONE** until that commit is created. Do not skip or delay the commit, and do not create multiple commits for the same task.
+- Conventional Commit required about the actual tracing-migration task, not the loop mechanics.
+- commit only task-relevant files.
+- message format:
+    - `<type>(tracing): <task-id> <short imperative summary>`
+    - example: `feat(tracing): task-201 decode forwarded adopted-block trace objects`
+
+Definition of done (all required)
+- Acceptance criteria satisfied
+- Verification executed and reported
+- If manual verification was required, the orchestrator presented the steps to the user, captured the user's result, and recorded it in task docs or review logs
+- Review loop clean (or user-approved escalation resolution)
+- Canonical task plan doc updated with final approved plan and outcome
+- Planning review log exists at `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-plan-review.md` and preserves the full Planner or Critiquer conversation
+- Implementation review log exists at `.agent/plans/cardano-node-jormanager-tracing/task-plans/<task-id>-impl-review.md` and preserves the full Implementation or Code Review conversation, including any user handoff checkpoints
+- Scribe updates completed
+- Research brain updated (or explicit `no new research` note)
+- Tasks, plan, and project state synchronized
+- Final orchestrator signoff complete
+- Task commit created only when the task reached a truthful completion point and the user interaction requirements, if any, have been satisfied
+
+Task selection (`@Selector` required)
+- The orchestrator must not select the next task directly. Whenever it needs to choose or resume a task, it must invoke `@Selector` first using the `@Name` syntax.
+- `@Selector` owns task-selection analysis so task-graph, dependency, critical-path, paused-task, and inconsistency-reconciliation work does not consume orchestrator context.
+- Before `@Selector` returns, the Orchestrator must not independently read or summarize the PRD, tasks JSON, research files, or task-plan logs just to prepare for selection. That analysis belongs to `@Selector`.
+- Resume detection is fully `@Selector`-owned. The Orchestrator must not try to identify paused or in-progress tasks before dispatching `@Selector`.
+- `@Selector` must read:
+    - `.agent/readme.md`
+    - `.agent/system/architecture.md`
+    - `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md`
+    - `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-tasks.json`
+    - relevant files under `.agent/plans/cardano-node-jormanager-tracing/research/`
+    - if a task is already in progress or paused, that task's canonical plan doc and review logs as needed
+    - if a candidate task may already be completed or otherwise inconsistent with the tracker, that task's canonical plan doc, both review logs, and relevant git history as needed to decide truthfully
+- `@Selector` applies these rules:
+    - Task dependencies and task status in `.agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-tasks.json` are authoritative for what is actually selectable. The `summary.criticalPath` list is planning guidance and may lag; never treat it as the sole executable queue.
+    - Tasks whose tracker status is `completed` or `cancelled` are never selectable for new work.
+    - `@Selector` must never return a task that already has truthful completion evidence in the live repo. Treat the following as completion evidence even when surrounding summaries or stale docs lag: a `completed` tracker state, or a canonical plan doc with completed final outcome plus matching approved review logs and a task commit in git history.
+    - If tracker state, canonical task docs, and git history disagree, `@Selector` must reconcile that inconsistency before selection instead of blindly trusting one stale source. It must not hand back a task that is already truthfully completed just because some planning metadata still makes it look pending.
+    - First, if there is an in-progress task paused for required user feedback or operator evidence, resume that same task after the user responds before selecting any new task.
+    - Otherwise, prefer the next unblocked pending task that is still on the remaining critical path, after excluding any task already completed truthfully in the live repo.
+    - If no unblocked pending task remains on the recorded critical path, continue with the lowest-ID unblocked pending task from the full task graph, again excluding anything already completed truthfully in the live repo, rather than stopping.
+    - When multiple unblocked pending tasks exist at the same priority level, pick the one with the lowest task ID number after completed or otherwise non-selectable tasks have been filtered out. This is the deterministic tiebreaker so the orchestrator never stops to ask which to pick.
+    - Reconcile inconsistencies between repo, docs, tasks, project, and research before starting.
+    - Treat the fixed decisions in this prompt and PRD as baseline constraints rather than optional context.
+- When invoking `@Selector`, the Orchestrator should pass only the selection rules in this prompt, static file-path anchors, and the current user request when it changes selection behavior. The Orchestrator must not pass paused-task guesses, repo-derived summaries, tool output, or any other preprocessed state.
+- `@Selector` must return a concise structured handoff containing:
+    - selected task ID and title
+    - whether this is a resume or a new selection
+    - why this task was chosen now
+    - blocking dependencies checked
+    - any inconsistency that must be fixed before planning starts
+    - whether immediate user input is already required before planning
+- Immediately after receiving the `@Selector` handoff, update the current OpenCode session name and description to include the chosen task ID and task title before starting planning or implementation work. Keep that session metadata aligned if the task changes later in the session.
+- Prompt-validation expectation for this workflow:
+    - the Orchestrator's first substantive step for task choice is dispatching `@Selector`
+    - the Orchestrator performs no file reads, searches, skill loads, or repo-inspection tool calls before dispatching `@Selector`
+    - task-selection repo analysis happens in `@Selector` context, not the Orchestrator context
+    - paused-task and resume detection happen in `@Selector` context, not the Orchestrator context
+    - completed-task filtering and stale-tracker reconciliation happen in `@Selector` context before any task handoff is returned
+    - the Orchestrator begins direct doc, research, and skill loading only after a task has been selected and the active role is known
+
+Ask user when required for correctness or truthful completion
+- Material architecture tradeoff not already resolved by the PRD or accepted research
+- Missing secret, credential, host access, running node, firewall access, or environment-specific dependency
+- Destructive or irreversible action
+- Governance or process change beyond current conventions
+- Max-iteration guard triggered (planning or build loop)
+- Required product or operational decision that the repo or docs do not already answer
+- Required manual validation or operator-run procedure
+- Any task whose truthful completion depends on external environment state, authenticated app behavior, running `cardano-node` instances, live forwarded trace streams, remote-host networking, packaged-binary validation, or approval of a subjective UI or operator outcome
+
+Default report after each task
+- Task + why chosen
+- Selector result (resume or new + why chosen)
+- Research consulted
+- Canonical task plan doc path
+- Planning review log path
+- Implementation review log path
+- Final approved plan (from the canonical task plan doc)
+- Interaction mode (`autonomous`, `interactive_decision`, `interactive_validation`, or `manual_execution`)
+- Changes made
+- Verification
+- Any user handoff issued during implementation
+- User feedback received and how it affected the final outcome
+- Final review result
+- Scribe updates (canonical task plan doc + review logs + docs + research + tracking + project)
+- Commit hash + message
+- Next task

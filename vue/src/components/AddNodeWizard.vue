@@ -105,6 +105,26 @@
           />
           <p class="text-center">{{ formNode.processorThreads }} Threads</p>
         </BFormGroup>
+
+        <BFormGroup label="Prometheus Bind" label-cols-md="2">
+          <BFormRadioGroup v-model="formNode.prometheusListen">
+            <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
+            <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
+          </BFormRadioGroup>
+        </BFormGroup>
+
+        <BFormGroup label-cols-md="2">
+          <BFormCheckbox v-model="formNode.enableTracingListener">
+            Enable tracing listener for JorManager
+          </BFormCheckbox>
+        </BFormGroup>
+
+        <BFormGroup label="Tracing Bind" label-cols-md="2" v-if="formNode.enableTracingListener">
+          <BFormRadioGroup v-model="formNode.tracingListen">
+            <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
+            <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
+          </BFormRadioGroup>
+        </BFormGroup>
         
         <BFormGroup label="Genesis Byron" label-cols-md="2">
           <BFormSelect
@@ -719,6 +739,9 @@ const formNode = ref({
   processorThreads: 0,
   listen: '',
   port: '' as string | number,
+  prometheusListen: '127.0.0.1',
+  enableTracingListener: true,
+  tracingListen: '0.0.0.0',
   genesisByron: null as number | null,
   genesisShelley: null as number | null,
   genesisAlonzo: null as number | null,

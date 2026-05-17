@@ -317,6 +317,11 @@ class BlockController
                                             genesisShelley,
                                             tipSlotNumber + additionalSlots
                                         )
+                                    if (firstSlotOfEpoch < 0) {
+                                        throw IOException(
+                                            "Unable to determine the first slot of the epoch from current node stats. Try again after the default node reports epoch/slot tracing data."
+                                        )
+                                    }
                                     val firstSlotOfPreviousEpoch = firstSlotOfEpoch - slotsPerEpoch
                                     // in Conway, we switch to 4k/f instead of 3k/f
                                     val stabilityWindowMultiplier = if (tip.eraNumber < ERA_CONWAY) 3 else 4

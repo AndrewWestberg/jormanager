@@ -12,9 +12,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object TraceForwardFixtures {
-    fun pinnedNodeStateRequest(): ByteArray = PINNED_NODE_STATE_REQUEST_HEX.hexToByteArray()
+    fun pinnedNodeStateRequest(): ByteArray = msgDataPointsRequest()
 
-    fun pinnedNodeStateReply(): ByteArray = PINNED_NODE_STATE_REPLY_HEX.hexToByteArray()
+    fun pinnedNodeStateReply(): ByteArray = msgDataPointsReply(*fullNodeStateDataPoints().toTypedArray())
 
     fun chunkedNodeStateReply(): ByteArray = CHUNKED_NODE_STATE_REPLY_HEX.hexToByteArray()
 
@@ -114,6 +114,26 @@ object TraceForwardFixtures {
                 """.trimIndent(),
         )
 
+    fun forgedBlockTraceObject(
+        slot: Long = 7_403_221L,
+        blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
+        blockNo: Long = 7_403_221L,
+    ): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["Forge", "ForgedBlock"],
+                  "toMachine": {"kind":"TraceForgedBlock","slot":$slot,"block":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash"},
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
     fun malformedMachineJsonTraceObject(): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
@@ -121,6 +141,47 @@ object TraceForwardFixtures {
                 {
                   "toNamespace": ["Forge", "AdoptedBlock"],
                   "toMachine": "{\"kind\":\"TraceAdoptedBlock\",\"slot\":42,",
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun nodeStateTraceObject(
+        blockHeight: Long = 7_403_221L,
+        slot: Long = 7_403_221L,
+    ): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["ChainDB.AddBlockEvent.AddedToCurrentChain"],
+                  "toMachine": {"kind":"AddedToCurrentChain","newSuffixSelectView":{"blockNo":$blockHeight,"slotNo":$slot},"newtip":"hash@$slot"},
+                  "toSeverity": "Notice",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun connectionManagerCountersTraceObject(
+        outbound: Int = 2,
+        inbound: Int = 2,
+        duplex: Int = 2,
+        fullDuplex: Int = 2,
+        unidirectional: Int = 0,
+    ): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ["Net.ConnectionManager.Remote.ConnectionManagerCounters"],
+                  "toMachine": {"kind":"ConnectionManagerCounters","state":{"duplex":$duplex,"fullDuplex":$fullDuplex,"inbound":$inbound,"outbound":$outbound,"unidirectional":$unidirectional}},
                   "toSeverity": "Info",
                   "toDetails": "DNormal",
                   "toHostname": "core-node-1",
@@ -224,16 +285,73 @@ object TraceForwardFixtures {
         )
 
     fun missingNodeStateKeyReply(): ByteArray =
-        MISSING_NODE_STATE_KEY_REPLY_HEX.hexToByteArray()
+        msgDataPointsReply(
+            dataPoint(NodeStateDataPointDecoder.KEY_OUTGOING_CONNS, "12"),
+            dataPoint(NodeStateDataPointDecoder.KEY_INCOMING_CONNS, "7"),
+            dataPoint(NodeStateDataPointDecoder.KEY_BLOCK_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_REMAINING_KES_PERIODS, "36"),
+            dataPoint(NodeStateDataPointDecoder.KEY_EPOCH, "490"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
+        )
 
     fun nothingNodeStateValueReply(): ByteArray =
-        NOTHING_NODE_STATE_VALUE_REPLY_HEX.hexToByteArray()
+        msgDataPointsReply(
+            dataPoint(NodeStateDataPointDecoder.KEY_OUTGOING_CONNS, "12"),
+            dataPoint(NodeStateDataPointDecoder.KEY_INCOMING_CONNS, "7"),
+            dataPoint(NodeStateDataPointDecoder.KEY_BLOCK_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_REMAINING_KES_PERIODS, "36"),
+            dataPoint(NodeStateDataPointDecoder.KEY_EPOCH, "490"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_NUM, null),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
+            dataPoint(NodeStateDataPointDecoder.KEY_TXS_PROCESSED_NUM, "123456"),
+        )
 
     fun malformedNodeStateScalarReply(): ByteArray =
-        MALFORMED_NODE_STATE_SCALAR_REPLY_HEX.hexToByteArray()
+        msgDataPointsReply(
+            dataPoint(NodeStateDataPointDecoder.KEY_OUTGOING_CONNS, "12"),
+            dataPoint(NodeStateDataPointDecoder.KEY_INCOMING_CONNS, "7"),
+            dataPoint(NodeStateDataPointDecoder.KEY_BLOCK_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_REMAINING_KES_PERIODS, "36"),
+            dataPoint(NodeStateDataPointDecoder.KEY_EPOCH, "\"oops\""),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
+            dataPoint(NodeStateDataPointDecoder.KEY_TXS_PROCESSED_NUM, "123456"),
+        )
 
     fun overflowingNodeStateReply(): ByteArray =
-        OVERFLOWING_NODE_STATE_REPLY_HEX.hexToByteArray()
+        msgDataPointsReply(
+            dataPoint(NodeStateDataPointDecoder.KEY_OUTGOING_CONNS, "2147483648"),
+            dataPoint(NodeStateDataPointDecoder.KEY_INCOMING_CONNS, "7"),
+            dataPoint(NodeStateDataPointDecoder.KEY_BLOCK_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_REMAINING_KES_PERIODS, "36"),
+            dataPoint(NodeStateDataPointDecoder.KEY_EPOCH, "490"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
+            dataPoint(NodeStateDataPointDecoder.KEY_TXS_PROCESSED_NUM, "123456"),
+        )
+
+    fun legacyPrefixedNodeStateReply(): ByteArray =
+        msgDataPointsReply(
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_OUTGOING_CONNS, "12"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_INCOMING_CONNS, "7"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_BLOCK_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_REMAINING_KES_PERIODS, "36"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_EPOCH, "490"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_SLOT_NUM, "7403221"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_SLOT_IN_EPOCH, "321"),
+            dataPoint(NodeStateDataPointDecoder.LEGACY_KEY_TXS_PROCESSED_NUM, "123456"),
+        )
+
+    fun nodeAddBlockOnlyReply(): ByteArray =
+        msgDataPointsReply(
+            dataPoint(
+                NodeStateDataPointDecoder.KEY_NODE_ADD_BLOCK,
+                """
+                {"tag":"NodeAddBlock","contents":[320,74,74.64714228564361]}
+                """.trimIndent(),
+            )
+        )
 
     fun dataPoint(
         name: String,
@@ -255,32 +373,20 @@ object TraceForwardFixtures {
 
     private const val BLOCKING_REQUEST_ID = 0L
 
-    private const val PINNED_NODE_STATE_REQUEST_HEX =
-        "820188783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e73783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e73781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f6473781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d"
-    private const val PINNED_NODE_STATE_REPLY_HEX =
-        "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d81473734303332323182782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
-    private const val MISSING_NODE_STATE_KEY_REPLY_HEX =
-        "82038782783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d81473734303332323182782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f63688143333231"
-    private const val NOTHING_NODE_STATE_VALUE_REPLY_HEX =
-        "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d8082782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
-    private const val MALFORMED_NODE_STATE_SCALAR_REPLY_HEX =
-        "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f63688146226f6f70732282781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d81473734303332323182782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
-    private const val OVERFLOWING_NODE_STATE_REPLY_HEX =
-        "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e73814a3231343734383336343882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d81473734303332323182782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
-    private const val CHUNKED_NODE_STATE_REPLY_HEX =
-        "82038882783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282783463617264616e6f2e6e6f64652e6d6574726963732e636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e7381413782781d63617264616e6f2e6e6f64652e6d6574726963732e626c6f636b4e756d81473734303332323182782863617264616e6f2e6e6f64652e6d6574726963732e72656d61696e696e674b4553506572696f64738142333682781a63617264616e6f2e6e6f64652e6d6574726963732e65706f6368814334393082781c63617264616e6f2e6e6f64652e6d6574726963732e736c6f744e756d815f433734304433323231ff82782063617264616e6f2e6e6f64652e6d6574726963732e736c6f74496e45706f6368814333323182782463617264616e6f2e6e6f64652e6d6574726963732e74787350726f6365737365644e756d8146313233343536"
-
     private fun String.hexToByteArray(): ByteArray =
         chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    private const val CHUNKED_NODE_STATE_REPLY_HEX =
+        "82038882781f636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282781f636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e738141378268626c6f636b4e756d814737343033323231827372656d61696e696e674b4553506572696f647381423336826565706f636881433439308267736c6f744e756d815f433734304433323231ff826b736c6f74496e45706f63688143333231826f74787350726f6365737365644e756d8146313233343536"
 }
 
 data class DataPointFixture(
     val name: String,
-    val rawJsonValue: String?,
+    val rawJsonValue: String? = null,
 ) {
     fun maybeValue(): CborArray =
         CborArray.create().apply {
-            rawJsonValue?.let { add(CborByteString.create(it.encodeToByteArray())) }
+            rawJsonValue?.let { add(CborByteString.create(rawJsonValue.encodeToByteArray())) }
         }
 }
 

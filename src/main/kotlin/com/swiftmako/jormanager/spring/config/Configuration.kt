@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.sql.DataSource
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import liquibase.integration.spring.SpringLiquibase
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -74,6 +75,17 @@ class Configuration {
         Database.connect(ds)
         return ds
     }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
+    fun liquibase(
+        dataSource: DataSource,
+        @Value("\${spring.liquibase.change-log}") changeLog: String,
+    ): SpringLiquibase =
+        SpringLiquibase().apply {
+            this.dataSource = dataSource
+            this.changeLog = changeLog
+        }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)

@@ -184,7 +184,7 @@ class TracingConnectionManager(
             }
 
     private fun resolveTarget(node: Node): TracingNodeTarget? {
-        if (node.id == null || node.isDeleted || node.type != CORE_NODE_TYPE || node.tracingPort == null) {
+        if (node.id == null || node.isDeleted || node.type == "pool" || node.tracingPort == null) {
             return null
         }
 
@@ -219,7 +219,6 @@ class TracingConnectionManager(
     )
 
     companion object {
-        private const val CORE_NODE_TYPE = "core"
         private const val DEFAULT_RECONNECT_DELAY_MILLIS = 5_000L
     }
 }

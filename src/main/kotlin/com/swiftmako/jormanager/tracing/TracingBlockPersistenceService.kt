@@ -32,7 +32,7 @@ class TracingBlockPersistenceService(
     suspend fun persistTracingCandidateBlock(
         node: Node,
         host: Host,
-        event: ForwardedAdoptedBlockEvent,
+        event: ForwardedBlockEvent,
     ): Block? {
         val byronGenesisFile =
             fileRepository.findByIdOrNull(node.genesisByronFileId)
@@ -56,7 +56,7 @@ class TracingBlockPersistenceService(
                 epoch = epoch,
                 slotInEpoch = slotInEpoch,
                 hash = event.blockHash,
-                status = "completed",
+                status = event.status,
             )
 
         return persistCandidateBlock(candidateBlock)
