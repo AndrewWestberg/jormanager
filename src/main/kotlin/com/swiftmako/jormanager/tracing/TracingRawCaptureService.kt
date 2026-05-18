@@ -93,6 +93,12 @@ class TracingRawCaptureService(
 
     fun latestMetricSnapshot(nodeId: Long): TracingRawMetricSnapshot? = latestMetricSnapshots[nodeId]
 
+    fun latestFreshMetricSnapshot(
+        nodeId: Long,
+        maxAge: Duration,
+        now: Instant = Instant.now(),
+    ): TracingRawMetricSnapshot? = latestMetricSnapshots[nodeId]?.takeIf { it.capturedAt.plus(maxAge).isAfter(now) }
+
     fun latestDataPointSnapshot(nodeId: Long): TracingRawDataPointSnapshot? = latestDataPointSnapshots[nodeId]
 
     fun latestFreshDataPointSnapshot(

@@ -13,6 +13,9 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.tracing.TraceForwardMessage
+import com.swiftmako.jormanager.tracing.TracingRawMetricSnapshot
+import com.swiftmako.jormanager.tracing.TracingRawMetricValue
+import com.swiftmako.jormanager.tracing.TracingMetricDecoder
 import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
 import io.mockk.every
@@ -249,6 +252,142 @@ class NodeMonitorTest {
         }
 
     @Test
+    fun freshProtocol1MetricsWinOverDatapointsForOverlappingFields() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.recordMetricSnapshotForTest(
+                coreNode.id!!,
+                metricSnapshot(
+                    nodeId = coreNode.id,
+                    blockNum = 8_888_888L,
+                    slotNum = 8_888_889L,
+                    slotInEpoch = 222L,
+                    epoch = 500L,
+                    remainingKesPeriods = 40L,
+                    txsProcessedNum = 999_999L,
+                )
+            )
+            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(8_888_888L)
+            assertThat(latestNodeStats.get()?.slot).isEqualTo(8_888_889L)
+            assertThat(latestNodeStats.get()?.slotInEpoch).isEqualTo(222L)
+            assertThat(latestNodeStats.get()?.epoch).isEqualTo(500L)
+            assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(40)
+            assertThat(latestNodeStats.get()?.txsProcessed).isEqualTo(999_999L)
+            assertThat(latestNodeStats.get()?.peers).isEqualTo(12)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(7)
+        }
+
+    @Test
+    fun staleProtocol1MetricsFallBackToDatapoints() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.recordMetricSnapshotForTest(
+                coreNode.id!!,
+                metricSnapshot(
+                    nodeId = coreNode.id,
+                    blockNum = 8_888_888L,
+                    capturedAt = Instant.now().minusSeconds(60),
+                )
+            )
+            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(36)
+        }
+
+    @Test
+    fun incompleteProtocol1MetricsFallBackToDatapoints() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.recordMetricSnapshotForTest(
+                coreNode.id!!,
+                metricSnapshot(
+                    nodeId = coreNode.id,
+                    metrics =
+                        fullProtocol1MetricMap(
+                            blockNum = 8_888_888L,
+                            txsProcessedNum = null,
+                        )
+                )
+            )
+            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.txsProcessed).isEqualTo(123_456L)
+        }
+
+    @Test
+    fun freshProtocol1MetricsStillUseProtocol2PeerCountersWhenAvailable() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.recordMetricSnapshotForTest(
+                coreNode.id!!,
+                metricSnapshot(nodeId = coreNode.id)
+            )
+            rawCapture.onMessage(
+                coreNode.id,
+                TraceForwardFixtures
+                    .msgTraceObjectsReply(
+                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                    ).toTraceObjectsReply(),
+            )
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.peers == 5 && latestNodeStats.get()?.incomingPeers == 6 }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(6)
+        }
+
+    @Test
     fun startBackfillsTracingSettingsForLegacyCoreNodes() =
         runBlocking {
             val legacyCoreNode =
@@ -402,7 +541,6 @@ class NodeMonitorTest {
             TraceForwardMessage.TraceObjectsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
         }
 
-
     private fun rawCaptureService(node: Node): TracingRawCaptureService =
         TracingRawCaptureService(
             tracingBlockMessageSink =
@@ -416,6 +554,68 @@ class NodeMonitorTest {
                     tracingBlockPersistenceService = mockk(relaxed = true),
                 )
         )
+
+    private fun metricSnapshot(
+        nodeId: Long,
+        blockNum: Long = 7_403_221L,
+        slotNum: Long = 7_403_221L,
+        slotInEpoch: Long = 321L,
+        epoch: Long = 490L,
+        remainingKesPeriods: Long = 36L,
+        txsProcessedNum: Long? = 123_456L,
+        capturedAt: Instant = Instant.now(),
+        metrics: Map<String, TracingRawMetricValue> =
+            fullProtocol1MetricMap(
+                blockNum = blockNum,
+                slotNum = slotNum,
+                slotInEpoch = slotInEpoch,
+                epoch = epoch,
+                remainingKesPeriods = remainingKesPeriods,
+                txsProcessedNum = txsProcessedNum,
+            ),
+    ) =
+        TracingRawMetricSnapshot(
+            nodeId = nodeId,
+            capturedAt = capturedAt,
+            metrics = metrics,
+            rawJson = "metrics",
+        )
+
+    private fun fullProtocol1MetricMap(
+        blockNum: Long = 7_403_221L,
+        slotNum: Long = 7_403_221L,
+        slotInEpoch: Long = 321L,
+        epoch: Long = 490L,
+        remainingKesPeriods: Long = 36L,
+        txsProcessedNum: Long? = 123_456L,
+    ): Map<String, TracingRawMetricValue> =
+        buildMap {
+            put(TracingMetricDecoder.BLOCK_NUM, TracingRawMetricValue.IntGauge(blockNum))
+            put(TracingMetricDecoder.SLOT_NUM, TracingRawMetricValue.IntGauge(slotNum))
+            put(TracingMetricDecoder.SLOT_IN_EPOCH, TracingRawMetricValue.IntGauge(slotInEpoch))
+            put(TracingMetricDecoder.EPOCH, TracingRawMetricValue.IntGauge(epoch))
+            put(TracingMetricDecoder.DENSITY, TracingRawMetricValue.Label("0.55"))
+            put(TracingMetricDecoder.TIP_BLOCK, TracingRawMetricValue.Label("hash-123"))
+            put(TracingMetricDecoder.FORGING_ENABLED, TracingRawMetricValue.IntGauge(1L))
+            put(TracingMetricDecoder.FORGE_ABOUT_TO_LEAD, TracingRawMetricValue.Counter(2L))
+            put(TracingMetricDecoder.FORGE_NODE_NOT_LEADER, TracingRawMetricValue.Counter(3L))
+            put(TracingMetricDecoder.FORGE_NODE_IS_LEADER, TracingRawMetricValue.Counter(4L))
+            put(TracingMetricDecoder.FORGED_SLOT_LAST, TracingRawMetricValue.IntGauge(slotNum))
+            put(TracingMetricDecoder.FORGE_FORGED, TracingRawMetricValue.Counter(5L))
+            put(TracingMetricDecoder.FORGE_ADOPTED, TracingRawMetricValue.Counter(6L))
+            put(TracingMetricDecoder.OPERATIONAL_CERTIFICATE_START_KES_PERIOD, TracingRawMetricValue.IntGauge(10L))
+            put(TracingMetricDecoder.OPERATIONAL_CERTIFICATE_EXPIRY_KES_PERIOD, TracingRawMetricValue.IntGauge(72L))
+            put(TracingMetricDecoder.CURRENT_KES_PERIOD, TracingRawMetricValue.IntGauge(36L))
+            put(TracingMetricDecoder.REMAINING_KES_PERIODS, TracingRawMetricValue.IntGauge(remainingKesPeriods))
+            put(TracingMetricDecoder.TXS_IN_MEMPOOL, TracingRawMetricValue.IntGauge(8L))
+            put(TracingMetricDecoder.MEMPOOL_BYTES, TracingRawMetricValue.IntGauge(9L))
+            txsProcessedNum?.let {
+                put(TracingMetricDecoder.TXS_PROCESSED_NUM, TracingRawMetricValue.Counter(it))
+            }
+            put(TracingMetricDecoder.TXS_SYNC_DURATION, TracingRawMetricValue.IntGauge(10L))
+            put(TracingMetricDecoder.TXS_SYNC_DURATION_TOTAL, TracingRawMetricValue.Counter(11L))
+            put(TracingMetricDecoder.TXS_MEMPOOL_TIMEOUT_SOFT, TracingRawMetricValue.Counter(12L))
+        }
 
     private fun genesisShelleyFile() =
         File(

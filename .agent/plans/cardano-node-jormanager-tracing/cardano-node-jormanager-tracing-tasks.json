@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-17T23:46:10Z",
-    "version": "2.0.3",
+    "updated": "2026-05-18T00:05:22Z",
+    "version": "2.0.4",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -27,7 +27,8 @@
       ".agent/plans/cardano-node-jormanager-tracing/research/task-500-single-connection-trace-forward-architecture.md",
       ".agent/plans/cardano-node-jormanager-tracing/research/task-204-node-state-datapoint-contract.md",
       ".agent/plans/cardano-node-jormanager-tracing/research/task-201-forwarded-adopted-block-decoder.md",
-      ".agent/plans/cardano-node-jormanager-tracing/research/task-511-raw-capture-freshness-and-invalidation.md"
+      ".agent/plans/cardano-node-jormanager-tracing/research/task-511-raw-capture-freshness-and-invalidation.md",
+      ".agent/plans/cardano-node-jormanager-tracing/research/task-520-protocol1-typed-metric-promotion.md"
     ],
     "importantNote": "The final runtime design is one outbound connection per core node, one forwarding handshake, and concurrent protocol 1/2/3 loops that capture all data families before JorManager-specific filtering. Protocol 1 supplies dispatcher-backed chain/forge/KES/mempool metrics; protocol 2 supplies trace objects such as forged/adopted blocks and connection counters; protocol 3 supplies explicit datapoints such as NodeInfo and NodeStartupInfo. Task-500 research is the governing runtime architecture anchor; older sibling-session planning artifacts are historical inputs only."
   },
@@ -102,7 +103,7 @@
           "id": "task-510",
           "title": "Replace runtime sibling sessions with one muxed tracing session per core node",
           "description": "Refactor the tracing runtime so each core node uses one connection, one handshake, and concurrent protocol 1/2/3 loops instead of separate ad hoc session clients and short-lived protocol calls.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 5.0,
           "dependencies": [
@@ -168,7 +169,7 @@
           "id": "task-520",
           "title": "Promote protocol 1 typed extraction for chain, forge, KES, and mempool metrics into production",
           "description": "Move the test-proven typed protocol 1 extraction into production code so JorManager can consume dispatcher-backed dashboard metrics from the unified runtime capture layer.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 4.5,
           "dependencies": [
@@ -188,7 +189,9 @@
             "Production code can extract chain, forge, KES, and mempool metrics from protocol 1 raw capture.",
             "The typed production model matches the current live test inventory.",
             "The extraction layer consumes shared raw capture and does not own transport or reconnect behavior."
-          ]
+          ],
+          "completedAt": "2026-05-18T00:05:22Z",
+          "completionNotes": "Added production protocol 1 typed metric decoding, added fresh-only metric snapshot reads in raw capture, and updated NodeMonitor to prefer the complete overlapping protocol 1 dashboard subset while preserving peer counters from protocol 2 or datapoints. Focused tracing and NodeMonitor tests now cover precedence, stale or incomplete fallback, and mixed-source peer behavior."
         },
         {
           "id": "task-521",
@@ -198,6 +201,7 @@
           "priority": "high",
           "estimatedHours": 3.5,
           "dependencies": [
+            "task-510",
             "task-511"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/tracing/",
@@ -224,6 +228,7 @@
           "priority": "high",
           "estimatedHours": 3.0,
           "dependencies": [
+            "task-510",
             "task-511"
           ],
           "targetPath": "src/main/kotlin/com/swiftmako/jormanager/tracing/",
