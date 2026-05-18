@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-18T00:31:56Z",
-    "version": "2.0.5",
+    "updated": "2026-05-18T00:45:35Z",
+    "version": "2.0.6",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -43,7 +43,7 @@
           "id": "task-500",
           "title": "Codify the final single-connection trace-forward architecture",
           "description": "Turn the newly proven protocol and signal findings into the accepted final tracing architecture for JorManager, replacing the older transitional design assumptions that remain in code and docs.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 2.0,
           "dependencies": [],
@@ -247,7 +247,9 @@
             "Production runtime can extract startup and structured node-state datapoints from protocol 3 raw capture.",
             "NodeAddBlock is no longer misinterpreted as block height.",
             "Protocol 3 extraction remains one contributor to unified dashboard signals rather than a standalone dashboard transport architecture."
-          ]
+          ],
+          "completedAt": "2026-05-18T00:45:35Z",
+          "completionNotes": "Promoted protocol 3 typed extraction into production with a shared TraceForwardProtocol3Extractor downstream of raw capture, widened the runtime datapoint manifest so NodeStartupInfo is actually requested and retained, rewired NodeMonitor to consume protocol 3 through the shared extractor seam, and documented the accepted production boundary in task-522 research. Focused tracing and NodeMonitor tests passed."
         }
       ]
     },

@@ -16,6 +16,9 @@ object TraceForwardFixtures {
 
     fun pinnedNodeStateReply(): ByteArray = msgDataPointsReply(*fullNodeStateDataPoints().toTypedArray())
 
+    fun pinnedNodeStateWithStartupReply(): ByteArray =
+        msgDataPointsReply(*fullNodeStateWithStartupDataPoints().toTypedArray())
+
     fun chunkedNodeStateReply(): ByteArray = CHUNKED_NODE_STATE_REPLY_HEX.hexToByteArray()
 
     fun msgDataPointsRequest(names: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES): ByteArray =
@@ -306,6 +309,15 @@ object TraceForwardFixtures {
             dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
             dataPoint(NodeStateDataPointDecoder.KEY_TXS_PROCESSED_NUM, "123456"),
         )
+
+    fun fullNodeStateWithStartupDataPoints(): List<DataPointFixture> =
+        fullNodeStateDataPoints() +
+            dataPoint(
+                NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                """
+                {"era":"Conway","epochLength":432000,"slotLength":1,"slotsPerKESPeriod":129600}
+                """.trimIndent(),
+            )
 
     fun traceObjectsArray(vararg traceObjects: ForwardedTraceObjectFixture): CborArray =
         CborArray.create().apply {
