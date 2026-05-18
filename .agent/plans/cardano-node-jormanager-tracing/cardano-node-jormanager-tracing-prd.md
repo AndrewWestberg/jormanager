@@ -851,12 +851,15 @@ should now be re-thought around the final single-connection design documented in
 - Block persistence remains downstream of shared raw trace-object capture.
 - Shared raw capture now uses freshness-gated dashboard reads plus teardown invalidation so disconnected tracing sessions do not leave stale healthy-looking node stats on the dashboard.
 - Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-511-raw-capture-freshness-and-invalidation.md`.
+- `task-520` is complete.
+- Production protocol `1` typed extraction for chain, forge, KES, and mempool metrics now lives in `TracingMetricDecoder`, and `NodeMonitor` prefers that source only when a fresh metric snapshot can satisfy the full overlapping dashboard subset without regressing peer counters.
+- Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-520-protocol1-typed-metric-promotion.md`.
 
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-17T23:46:10Z
+- **Last Updated:** 2026-05-18T00:05:22Z
 
 ---
 

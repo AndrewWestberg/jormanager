@@ -17,6 +17,7 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import com.swiftmako.jormanager.tracing.NodeStateMetrics
 import com.swiftmako.jormanager.tracing.TraceForwardNodeStateDecoder
+import com.swiftmako.jormanager.tracing.TracingMetricDecoder
 import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import java.io.IOException
 import java.time.Duration
@@ -68,6 +69,7 @@ class NodeMonitor
         @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
         private val tracingRawCaptureService: TracingRawCaptureService,
+        private val tracingMetricDecoder: TracingMetricDecoder = TracingMetricDecoder(),
         private val nodeStateDecoder: NodeStateDataPointDecoder = NodeStateDataPointDecoder(),
         private val traceForwardNodeStateDecoder: TraceForwardNodeStateDecoder = TraceForwardNodeStateDecoder(),
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
@@ -336,21 +338,27 @@ class NodeMonitor
             node: Node,
             epochLength: Long,
         ): NodeStateMetrics? {
-            node.tracingPort?.let {
-                tracingRawCaptureService.latestFreshDataPointSnapshot(node.id!!, rawSnapshotMaxAge)
+            val nodeId = node.id ?: return null
+            val freshDataPointMetrics =
+                tracingRawCaptureService.latestFreshDataPointSnapshot(nodeId, rawSnapshotMaxAge)
                     ?.toMessage()
                     ?.let(nodeStateDecoder::decode)
+            node.tracingPort?.let {
+                tracingRawCaptureService.latestFreshMetricSnapshot(nodeId, rawSnapshotMaxAge)
+                    ?.let { snapshot -> tracingMetricDecoder.decode(snapshot.metrics).toNodeStateMetrics(peers = 0, incomingPeers = 0) }
                     ?.let { metrics ->
-                        return metrics.withDerivedSlot(epochLength)
+                        val peerState = loadForwardedNodeState(nodeId)
+                        return metrics.copy(
+                            peers = peerState?.peers ?: freshDataPointMetrics?.peers ?: 0,
+                            incomingPeers = peerState?.incomingPeers ?: freshDataPointMetrics?.incomingPeers ?: 0,
+                        )
                     }
 
-                val forwardedState =
-                    tracingRawCaptureService
-                        .recentFreshTraceObjectBatches(node.id, rawSnapshotMaxAge)
-                        .mapNotNull { batch -> traceForwardNodeStateDecoder.decode(batch.toMessage()) }
-                        .fold(null as com.swiftmako.jormanager.tracing.ForwardedNodeState?) { acc, next ->
-                            acc?.merge(next) ?: next
-                        }
+                freshDataPointMetrics?.let { metrics ->
+                        return metrics.withDerivedSlot(epochLength)
+                }
+
+                val forwardedState = loadForwardedNodeState(nodeId)
 
                 forwardedState?.let { state ->
                     val slot = state.slot ?: return@let
@@ -372,6 +380,14 @@ class NodeMonitor
 
             return null
         }
+
+        private fun loadForwardedNodeState(nodeId: Long): com.swiftmako.jormanager.tracing.ForwardedNodeState? =
+            tracingRawCaptureService
+                .recentFreshTraceObjectBatches(nodeId, rawSnapshotMaxAge)
+                .mapNotNull { batch -> traceForwardNodeStateDecoder.decode(batch.toMessage()) }
+                .fold(null as com.swiftmako.jormanager.tracing.ForwardedNodeState?) { acc, next ->
+                    acc?.merge(next) ?: next
+                }
 
         private fun resolveEpochLength(genesisShelleyFileId: Long): Long =
             fileRepository.findByIdOrNull(genesisShelleyFileId)
