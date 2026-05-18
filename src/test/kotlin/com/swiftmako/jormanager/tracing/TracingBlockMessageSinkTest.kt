@@ -80,10 +80,10 @@ class TracingBlockMessageSinkTest {
                     nodeRepository = nodeRepository,
                     hostRepository = hostRepository,
                     nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,

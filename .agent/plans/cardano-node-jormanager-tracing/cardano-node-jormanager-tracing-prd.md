@@ -868,12 +868,16 @@ should now be re-thought around the final single-connection design documented in
 - `task-531` is complete.
 - Production block persistence remains downstream of unified raw capture and `TraceForwardProtocol2Extractor`; task-531 finished the remaining convergence step by registering the protocol `2` extractor as a shared Spring dependency and adding explicit sink-level delegation coverage instead of introducing a new block-signal service.
 - No new research note was required for task-531 because the task only clarified and regression-tested the already accepted block boundary rather than changing its durable architecture.
+- `task-540` is complete.
+- The final live production transport seam is now named `TraceForwardConnectionRunner`, which keeps the accepted one-connection-per-core-node runtime ownership explicit without preserving transitional session-client terminology.
+- Active tracing tests and live probes no longer present separate trace-object or datapoint sessions as the target runtime topology, and focused socket-backed coverage now proves the unified runner performs one forwarding handshake plus protocol `1`/`2`/`3` startup on a single muxed connection.
+- No new research note was required for task-540 because the task removed stale naming and test assumptions without changing the accepted transport architecture.
 
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-18T01:18:00Z
+- **Last Updated:** 2026-05-18T01:33:25Z
 
 ---
 

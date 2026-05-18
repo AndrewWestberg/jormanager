@@ -35,7 +35,7 @@ class TracingConnectionManager(
     private val nodeRepository: NodeRepository,
     private val hostRepository: HostRepository,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
-    private val sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
+    private val connectionRunnerFactory: TraceForwardConnectionRunnerFactory = SocketTraceForwardConnectionRunnerFactory(),
     private val messageSink: TracingRawCaptureService,
     private val reconnectDelayMillis: Long = DEFAULT_RECONNECT_DELAY_MILLIS,
 ) : SmartLifecycle,
@@ -134,12 +134,12 @@ class TracingConnectionManager(
             }
 
             existing?.shutdown()
-            val sessionClient = sessionClientFactory.create()
+            val connectionRunner = connectionRunnerFactory.create()
             val connection =
                 ManagedTracingConnection(
                     target = target,
-                    sessionClient = sessionClient,
-                    job = launch { runConnectionLoop(target, sessionClient) },
+                    connectionRunner = connectionRunner,
+                    job = launch { runConnectionLoop(target, connectionRunner) },
                     messageSink = messageSink,
                 )
             managedConnections[nodeId] = connection
@@ -153,12 +153,12 @@ class TracingConnectionManager(
 
     private suspend fun runConnectionLoop(
         target: TracingNodeTarget,
-        sessionClient: TraceForwardSessionClient,
+        connectionRunner: TraceForwardConnectionRunner,
     ) {
         while (shouldKeepRunning(target)) {
             try {
                 log.info { "Opening tracing connection to ${target.hostname}:${target.tracingPort} for node ${target.nodeId}" }
-                sessionClient.runSession(target.hostname, target.tracingPort) { message ->
+                connectionRunner.runConnection(target.hostname, target.tracingPort) { message ->
                     messageSink.onMessage(target.nodeId, message)
                 }
             } catch (e: CancellationException) {
@@ -177,7 +177,7 @@ class TracingConnectionManager(
             delay(reconnectDelayMillis)
         }
         messageSink.clearNode(target.nodeId)
-        sessionClient.close()
+        connectionRunner.close()
     }
 
     private suspend fun shouldKeepRunning(target: TracingNodeTarget): Boolean =
@@ -207,13 +207,13 @@ class TracingConnectionManager(
 
     private data class ManagedTracingConnection(
         val target: TracingNodeTarget,
-        val sessionClient: TraceForwardSessionClient,
+        val connectionRunner: TraceForwardConnectionRunner,
         val job: Job,
         val messageSink: TracingRawCaptureService,
     ) {
         fun shutdown() {
             messageSink.clearNode(target.nodeId)
-            sessionClient.close()
+            connectionRunner.close()
             job.cancel()
         }
     }

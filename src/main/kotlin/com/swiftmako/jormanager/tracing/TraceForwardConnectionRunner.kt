@@ -19,8 +19,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
-interface TraceForwardSessionClient {
-    suspend fun runSession(
+interface TraceForwardConnectionRunner {
+    suspend fun runConnection(
         hostname: String,
         port: Int,
         onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -29,24 +29,24 @@ interface TraceForwardSessionClient {
     fun close()
 }
 
-fun interface TraceForwardSessionClientFactory {
-    fun create(): TraceForwardSessionClient
+fun interface TraceForwardConnectionRunnerFactory {
+    fun create(): TraceForwardConnectionRunner
 }
 
-class SocketTraceForwardSessionClientFactory : TraceForwardSessionClientFactory {
-    override fun create(): TraceForwardSessionClient = SocketTraceForwardSessionClient()
+class SocketTraceForwardConnectionRunnerFactory : TraceForwardConnectionRunnerFactory {
+    override fun create(): TraceForwardConnectionRunner = SocketTraceForwardConnectionRunner()
 }
 
-class SocketTraceForwardSessionClient(
+class SocketTraceForwardConnectionRunner(
     private val requestedDataPointNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
     private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetAllMetrics,
     private val networkMagic: Long = DEFAULT_NETWORK_MAGIC,
     private val requestBlocking: Boolean = true,
     private val requestCount: Int = DEFAULT_REQUEST_COUNT,
-) : TraceForwardSessionClient {
+) : TraceForwardConnectionRunner {
     private val activeMux = AtomicReference<Mux?>(null)
 
-    override suspend fun runSession(
+    override suspend fun runConnection(
         hostname: String,
         port: Int,
         onMessage: suspend (TraceForwardMessage) -> Unit,
