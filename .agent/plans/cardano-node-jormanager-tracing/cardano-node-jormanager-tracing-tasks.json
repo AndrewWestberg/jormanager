@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-18T01:01:45Z",
-    "version": "2.0.7",
+    "updated": "2026-05-18T01:18:00Z",
+    "version": "2.0.8",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -294,7 +294,7 @@
           "id": "task-531",
           "title": "Refactor block persistence flow to consume the unified tracing signal inventory",
           "description": "Update the block-monitoring and tracing persistence path so it consumes forged/adopted block events from the unified trace-object capture service instead of isolated decoder plumbing.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 3.5,
           "dependencies": [
@@ -314,7 +314,9 @@
             "Block persistence consumes the unified trace-object signal stream cleanly.",
             "No isolated per-feature tracing transport path remains.",
             "Forged and adopted block handling stays downstream of unified protocol 2 extraction."
-          ]
+          ],
+          "completedAt": "2026-05-18T01:18:00Z",
+          "completionNotes": "Confirmed the live block path was already downstream of unified raw capture and shared protocol 2 extraction, then finished the remaining convergence work by registering TraceForwardProtocol2Extractor as a shared Spring dependency and adding explicit sink-level delegation coverage plus downstream BlockMonitor-preservation verification. No new block-signal service was needed."
         }
       ]
     },

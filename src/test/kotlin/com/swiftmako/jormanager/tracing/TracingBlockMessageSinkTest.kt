@@ -17,6 +17,8 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -159,6 +161,43 @@ class TracingBlockMessageSinkTest {
 
             assertThat(savedBlock.get()?.status).isEqualTo("created")
             assertThat(savedBlock.get()?.hash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
+        }
+
+    @Test
+    fun sinkDelegatesBlockDecodeToInjectedSharedProtocol2Extractor() =
+        runBlocking {
+            val node = coreNode()
+            val nodeId = requireNotNull(node.id)
+            val host = host()
+            val nodeRepository = mockk<NodeRepository>()
+            val hostRepository = mockk<HostRepository>()
+            val persistenceService = mockk<TracingBlockPersistenceService>()
+            val protocol2Extractor = mockk<TraceForwardProtocol2Extractor>()
+            val batch =
+                TracingRawTraceObjectBatch(
+                    nodeId = nodeId,
+                    capturedAt = java.time.Instant.parse("2026-05-12T00:00:00Z"),
+                    traceObjects = adoptedBlockReply().traceObjects,
+                )
+            val event = adoptedBlockEvent()
+
+            every { nodeRepository.findById(nodeId) } returns Optional.of(node)
+            every { hostRepository.findById(node.hostId) } returns Optional.of(host)
+            every { protocol2Extractor.decodeBlockEvents(batch) } returns listOf(event)
+            coEvery { persistenceService.persistTracingCandidateBlock(node, host, event) } returns null
+
+            val sink =
+                TracingBlockMessageSink(
+                    nodeRepository = nodeRepository,
+                    hostRepository = hostRepository,
+                    tracingBlockPersistenceService = persistenceService,
+                    protocol2Extractor = protocol2Extractor,
+                )
+
+            sink.onTraceObjectBatch(nodeId, batch)
+
+            verify(exactly = 1) { protocol2Extractor.decodeBlockEvents(batch) }
+            coVerify(exactly = 1) { persistenceService.persistTracingCandidateBlock(node, host, event) }
         }
 
     @Test

@@ -6,7 +6,9 @@ import com.google.iot.cbor.CborObject
 import com.google.iot.cbor.CborTextString
 import org.json.JSONArray
 import org.json.JSONObject
+import org.springframework.stereotype.Component
 
+@Component
 class TraceForwardProtocol2Extractor {
     fun decodeNodeState(batches: Iterable<TracingRawTraceObjectBatch>): ForwardedNodeState? =
         batches
