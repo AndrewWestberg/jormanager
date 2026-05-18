@@ -865,12 +865,15 @@ should now be re-thought around the final single-connection design documented in
 - `NodeMonitor` now consumes `TracingDashboardSignalService` as the shared tracing-side dashboard seam instead of directly assembling protocol `1`/`2`/`3` snapshots itself.
 - The shared dashboard seam preserves startup-info availability without widening `NodeStats` and now explicitly enforces the intended precedence that fresh protocol `2` connection counters override protocol `3` peer values even when protocol `1` metrics are absent.
 - Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-530-node-monitor-dashboard-signal-seam.md`.
+- `task-531` is complete.
+- Production block persistence remains downstream of unified raw capture and `TraceForwardProtocol2Extractor`; task-531 finished the remaining convergence step by registering the protocol `2` extractor as a shared Spring dependency and adding explicit sink-level delegation coverage instead of introducing a new block-signal service.
+- No new research note was required for task-531 because the task only clarified and regression-tested the already accepted block boundary rather than changing its durable architecture.
 
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-18T01:01:45Z
+- **Last Updated:** 2026-05-18T01:18:00Z
 
 ---
 
