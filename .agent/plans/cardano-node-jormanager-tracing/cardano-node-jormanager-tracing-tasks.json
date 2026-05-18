@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-18T00:45:35Z",
-    "version": "2.0.6",
+    "updated": "2026-05-18T01:01:45Z",
+    "version": "2.0.7",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -68,7 +68,7 @@
           "id": "task-501",
           "title": "Refactor planning artifacts to the final tracing architecture",
           "description": "Update the tracing PRD and tasks graph so they describe the final single-connection architecture rather than the earlier transitional implementation baseline.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 1.5,
           "dependencies": [
@@ -197,7 +197,7 @@
           "id": "task-521",
           "title": "Promote protocol 2 typed extraction for block and connection-counter trace objects into production",
           "description": "Move the test-proven trace-object decoding for forged/adopted blocks and connection manager counters into the unified runtime signal layer.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 3.5,
           "dependencies": [
@@ -226,7 +226,7 @@
           "id": "task-522",
           "title": "Promote protocol 3 typed extraction for startup and structured node-state datapoints into production",
           "description": "Move the proven structured datapoint decoding into the unified runtime signal layer and align it with the corrected NodeAddBlock semantics.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 3.0,
           "dependencies": [
@@ -263,7 +263,7 @@
           "id": "task-530",
           "title": "Refactor NodeMonitor to consume the unified tracing signal inventory",
           "description": "Update NodeMonitor so its dashboard state is derived from the unified protocol 1/2/3 signal inventory instead of the earlier short-lived datapoint-centric implementation.",
-          "status": "pending",
+          "status": "completed",
           "priority": "high",
           "estimatedHours": 5.0,
           "dependencies": [
@@ -286,7 +286,9 @@
             "NodeMonitor depends on the unified tracing runtime instead of separate ad hoc protocol clients.",
             "Dashboard fields come from the live-proven protocol family for each signal.",
             "Peer counts remain sourced from protocol 2 where live evidence says protocol 1 does not provide them."
-          ]
+          ],
+          "completedAt": "2026-05-18T01:01:45Z",
+          "completionNotes": "Extracted dashboard signal assembly out of NodeMonitor into the new shared TracingDashboardSignalService, preserved startup metadata availability without widening NodeStats, and added focused seam-level plus monitor-level tests. Verification also surfaced and fixed a live precedence gap so fresh protocol 2 connection counters now override protocol 3 peer values even when protocol 1 metrics are absent."
         },
         {
           "id": "task-531",

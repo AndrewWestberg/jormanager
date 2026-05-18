@@ -13,6 +13,7 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.tracing.TraceForwardMessage
+import com.swiftmako.jormanager.tracing.TracingDashboardSignalService
 import com.swiftmako.jormanager.tracing.TracingRawMetricSnapshot
 import com.swiftmako.jormanager.tracing.TracingRawMetricValue
 import com.swiftmako.jormanager.tracing.TracingMetricDecoder
@@ -345,6 +346,36 @@ class NodeMonitorTest {
         }
 
     @Test
+    fun freshProtocol2PeerCountersOverrideProtocol3PeerValuesWithoutProtocol1Metrics() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.onMessage(
+                coreNode.id!!,
+                TraceForwardFixtures
+                    .msgTraceObjectsReply(
+                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                    ).toTraceObjectsReply(),
+            )
+            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(6)
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+        }
+
+    @Test
     fun incompleteProtocol1MetricsFallBackToDatapoints() =
         runBlocking {
             val coreNode = node(isDefault = true)
@@ -609,7 +640,7 @@ class NodeMonitorTest {
             moshi = moshi,
             nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
             latestNodeStats = latestNodeStats,
-            tracingRawCaptureService = tracingRawCaptureService,
+            tracingDashboardSignalService = TracingDashboardSignalService(tracingRawCaptureService),
             startupDelayMillis = 0L,
             sampleIntervalMillis = 50L,
             publishDelayMillis = 10L,

@@ -3,7 +3,6 @@ package com.swiftmako.jormanager.monitors
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.HostConnection
-import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.File
@@ -14,11 +13,7 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.tracing.NodeStateMetrics
-import com.swiftmako.jormanager.tracing.TraceForwardProtocol2Extractor
-import com.swiftmako.jormanager.tracing.TraceForwardProtocol3Extractor
-import com.swiftmako.jormanager.tracing.TracingMetricDecoder
-import com.swiftmako.jormanager.tracing.TracingRawCaptureService
+import com.swiftmako.jormanager.tracing.TracingDashboardSignalService
 import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
@@ -68,10 +63,7 @@ class NodeMonitor
         private val moshi: Moshi,
         @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
         @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
-        private val tracingRawCaptureService: TracingRawCaptureService,
-        private val tracingMetricDecoder: TracingMetricDecoder = TracingMetricDecoder(),
-        private val traceForwardProtocol3Extractor: TraceForwardProtocol3Extractor = TraceForwardProtocol3Extractor(),
-        private val traceForwardProtocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
+        private val tracingDashboardSignalService: TracingDashboardSignalService,
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
         private val sampleIntervalMillis: Long = SAMPLE_INTERVAL_MS,
         private val publishDelayMillis: Long = PUBLISH_DELAY_MS,
@@ -314,12 +306,11 @@ class NodeMonitor
             timestamp: Long,
             epochLength: Long,
         ): NodeStats {
-            val host = hostRepository.findByIdOrNull(node.hostId)
-            if (host == null || node.tracingPort == null) {
+            if (hostRepository.findByIdOrNull(node.hostId) == null || node.tracingPort == null) {
                 return nullNodeStats(node, timestamp, epochLength)
             }
 
-            val metrics = loadNodeStateMetrics(host, node, epochLength)
+            val metrics = loadNodeStateMetrics(node, epochLength)
             return if (metrics != null && metrics.blockHeight > 0L) {
                 metrics.toNodeStats(
                     timestamp = timestamp,
@@ -333,57 +324,13 @@ class NodeMonitor
             }
         }
 
-        private suspend fun loadNodeStateMetrics(
-            host: Host,
+        private fun loadNodeStateMetrics(
             node: Node,
             epochLength: Long,
-        ): NodeStateMetrics? {
-            val nodeId = node.id ?: return null
-            val freshDataPointMetrics =
-                tracingRawCaptureService.latestFreshDataPointSnapshot(nodeId, rawSnapshotMaxAge)
-                    ?.let(traceForwardProtocol3Extractor::decodeNodeStateMetrics)
-            node.tracingPort?.let {
-                tracingRawCaptureService.latestFreshMetricSnapshot(nodeId, rawSnapshotMaxAge)
-                    ?.let { snapshot -> tracingMetricDecoder.decode(snapshot.metrics).toNodeStateMetrics(peers = 0, incomingPeers = 0) }
-                    ?.let { metrics ->
-                        val peerState = loadForwardedNodeState(nodeId)
-                        return metrics.copy(
-                            peers = peerState?.peers ?: freshDataPointMetrics?.peers ?: 0,
-                            incomingPeers = peerState?.incomingPeers ?: freshDataPointMetrics?.incomingPeers ?: 0,
-                        )
-                    }
-
-                freshDataPointMetrics?.let { metrics ->
-                        return metrics.withDerivedSlot(epochLength)
-                }
-
-                val forwardedState = loadForwardedNodeState(nodeId)
-
-                forwardedState?.let { state ->
-                    val slot = state.slot ?: return@let
-                    val blockHeight = state.blockHeight ?: return@let
-                    val epoch = slot / epochLength
-                    val slotInEpoch = slot % epochLength
-                    return NodeStateMetrics(
-                        peers = state.peers ?: 0,
-                        incomingPeers = state.incomingPeers ?: 0,
-                        blockHeight = blockHeight,
-                        remainingKESPeriods = 0,
-                        epoch = epoch,
-                        slot = slot,
-                        slotInEpoch = slotInEpoch,
-                        txsProcessed = 0,
-                    )
-                }
+        ) =
+            node.id?.let { nodeId ->
+                tracingDashboardSignalService.loadSignals(nodeId, epochLength, rawSnapshotMaxAge)?.nodeStateMetrics
             }
-
-            return null
-        }
-
-        private fun loadForwardedNodeState(nodeId: Long): com.swiftmako.jormanager.tracing.ForwardedNodeState? =
-            traceForwardProtocol2Extractor.decodeNodeState(
-                tracingRawCaptureService.recentFreshTraceObjectBatches(nodeId, rawSnapshotMaxAge)
-            )
 
         private fun resolveEpochLength(genesisShelleyFileId: Long): Long =
             fileRepository.findByIdOrNull(genesisShelleyFileId)
@@ -456,11 +403,4 @@ class NodeMonitor
             private const val SAMPLE_INTERVAL_MS = 5000L
             private const val PUBLISH_DELAY_MS = 3000L
         }
-    }
-
-private fun NodeStateMetrics.withDerivedSlot(epochLength: Long): NodeStateMetrics =
-    if (slot > 0L) {
-        this
-    } else {
-        copy(slot = epoch * epochLength + slotInEpoch)
-    }
+}

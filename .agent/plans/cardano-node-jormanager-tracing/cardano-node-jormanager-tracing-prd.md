@@ -858,12 +858,19 @@ should now be re-thought around the final single-connection design documented in
 - Production protocol `2` typed extraction now lives in `TraceForwardProtocol2Extractor`, and `NodeMonitor` plus `TracingBlockMessageSink` consume block events, connection counters, and `AddedToCurrentChain` fallback state through that shared seam downstream of raw capture.
 - The accepted task-521 protocol contract now explicitly preserves adopted hash decoding from `toMachine.blockHash`, forged hash decoding from `toMachine.block`, and compatibility with both short fixture `Forge.*` namespaces and live-proven `Forge.Loop.*` namespaces.
 - Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-521-protocol2-typed-extraction-contracts.md`.
+- `task-522` is complete.
+- Production protocol `3` typed extraction now lives in `TraceForwardProtocol3Extractor`, which keeps startup metadata and structured node-state datapoints downstream of shared raw capture without reintroducing a protocol-3-only dashboard architecture.
+- Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-522-protocol3-typed-extraction-boundary.md`.
+- `task-530` is complete.
+- `NodeMonitor` now consumes `TracingDashboardSignalService` as the shared tracing-side dashboard seam instead of directly assembling protocol `1`/`2`/`3` snapshots itself.
+- The shared dashboard seam preserves startup-info availability without widening `NodeStats` and now explicitly enforces the intended precedence that fresh protocol `2` connection counters override protocol `3` peer values even when protocol `1` metrics are absent.
+- Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-530-node-monitor-dashboard-signal-seam.md`.
 
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-18T00:31:56Z
+- **Last Updated:** 2026-05-18T01:01:45Z
 
 ---
 
