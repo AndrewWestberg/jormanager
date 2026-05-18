@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-18T00:05:22Z",
-    "version": "2.0.4",
+    "updated": "2026-05-18T00:31:56Z",
+    "version": "2.0.5",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -218,7 +218,9 @@
             "Production runtime can extract block-monitor and peer-counter signals from protocol 2 raw capture.",
             "No runtime dependence remains on legacy log scraping or on protocol 1 for peer counters.",
             "Forged and adopted block extraction remains downstream of the shared raw capture layer rather than a per-feature transport path."
-          ]
+          ],
+          "completedAt": "2026-05-18T00:31:56Z",
+          "completionNotes": "Added a shared production protocol 2 typed extractor for block events, connection counters, and AddedToCurrentChain fallback state; rewired NodeMonitor and TracingBlockMessageSink to consume it downstream of shared raw capture; preserved fresh-only fallback behavior; and documented the accepted Forge.Loop namespace compatibility plus forged/adopted hash-field contracts in task-521 research. Focused tracing and NodeMonitor tests passed."
         },
         {
           "id": "task-522",

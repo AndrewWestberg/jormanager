@@ -98,12 +98,13 @@ object TraceForwardFixtures {
     fun adoptedBlockTraceObject(
         slot: Long = 7_403_221L,
         blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
+        namespace: List<String> = listOf("Forge", "AdoptedBlock"),
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
                 {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
+                  "toNamespace": ${jsonArray(namespace)},
                   "toMachine": {"kind":"TraceAdoptedBlock","slot":$slot,"blockHash":"$blockHash","blockSize":1234},
                   "toSeverity": "Info",
                   "toDetails": "DNormal",
@@ -118,13 +119,35 @@ object TraceForwardFixtures {
         slot: Long = 7_403_221L,
         blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
         blockNo: Long = 7_403_221L,
+        namespace: List<String> = listOf("Forge", "ForgedBlock"),
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
                 {
-                  "toNamespace": ["Forge", "ForgedBlock"],
+                  "toNamespace": ${jsonArray(namespace)},
                   "toMachine": {"kind":"TraceForgedBlock","slot":$slot,"block":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash"},
+                  "toSeverity": "Info",
+                  "toDetails": "DNormal",
+                  "toHostname": "core-node-1",
+                  "toThreadId": "trace-forward-1",
+                  "toTimestamp": "2026-05-12T00:00:00Z"
+                }
+                """.trimIndent(),
+        )
+
+    fun forgedBlockHashOnlyTraceObject(
+        slot: Long = 7_403_221L,
+        blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
+        blockNo: Long = 7_403_221L,
+        namespace: List<String> = listOf("Forge", "ForgedBlock"),
+    ): ForwardedTraceObjectFixture =
+        ForwardedTraceObjectFixture(
+            traceObjectJson =
+                """
+                {
+                  "toNamespace": ${jsonArray(namespace)},
+                  "toMachine": {"kind":"TraceForgedBlock","slot":$slot,"blockHash":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash"},
                   "toSeverity": "Info",
                   "toDetails": "DNormal",
                   "toHostname": "core-node-1",
@@ -283,6 +306,15 @@ object TraceForwardFixtures {
             dataPoint(NodeStateDataPointDecoder.KEY_SLOT_IN_EPOCH, "321"),
             dataPoint(NodeStateDataPointDecoder.KEY_TXS_PROCESSED_NUM, "123456"),
         )
+
+    fun traceObjectsArray(vararg traceObjects: ForwardedTraceObjectFixture): CborArray =
+        CborArray.create().apply {
+            traceObjects.forEach { traceObject ->
+                add(CborTextString.create(traceObject.traceObjectJson))
+            }
+        }
+
+    private fun jsonArray(values: List<String>): String = values.joinToString(prefix = "[\"", separator = "\", \"", postfix = "\"]")
 
     fun missingNodeStateKeyReply(): ByteArray =
         msgDataPointsReply(

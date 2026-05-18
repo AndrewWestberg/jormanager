@@ -41,6 +41,23 @@ class TraceForwardAdoptedBlockDecoderTest {
     }
 
     @Test
+    fun decodesLiveLoopNamespacedForwardedBlockTraceObjects() {
+        val adopted =
+            decoder.decode(
+                TraceForwardFixtures.adoptedBlockTraceObject(namespace = listOf("Forge", "Loop", "AdoptedBlock")).traceObjectJson
+            )
+        val forged =
+            decoder.decode(
+                TraceForwardFixtures.forgedBlockTraceObject(namespace = listOf("Forge", "Loop", "ForgedBlock")).traceObjectJson
+            )
+
+        assertThat(adopted?.status).isEqualTo("completed")
+        assertThat(adopted?.blockHash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
+        assertThat(forged?.status).isEqualTo("created")
+        assertThat(forged?.blockHash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
+    }
+
+    @Test
     fun ignoresUnknownNamespace() {
         val event = decoder.decode(TraceForwardFixtures.unknownNamespaceTraceObject().traceObjectJson)
 
@@ -78,6 +95,13 @@ class TraceForwardAdoptedBlockDecoderTest {
     @Test
     fun ignoresWrapperOnlyBlockHash() {
         val event = decoder.decode(TraceForwardFixtures.wrapperOnlyBlockHashTraceObject().traceObjectJson)
+
+        assertThat(event).isNull()
+    }
+
+    @Test
+    fun ignoresForgedTraceObjectWithoutMachineBlockField() {
+        val event = decoder.decode(TraceForwardFixtures.forgedBlockHashOnlyTraceObject().traceObjectJson)
 
         assertThat(event).isNull()
     }

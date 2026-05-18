@@ -854,12 +854,16 @@ should now be re-thought around the final single-connection design documented in
 - `task-520` is complete.
 - Production protocol `1` typed extraction for chain, forge, KES, and mempool metrics now lives in `TracingMetricDecoder`, and `NodeMonitor` prefers that source only when a fresh metric snapshot can satisfy the full overlapping dashboard subset without regressing peer counters.
 - Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-520-protocol1-typed-metric-promotion.md`.
+- `task-521` is complete.
+- Production protocol `2` typed extraction now lives in `TraceForwardProtocol2Extractor`, and `NodeMonitor` plus `TracingBlockMessageSink` consume block events, connection counters, and `AddedToCurrentChain` fallback state through that shared seam downstream of raw capture.
+- The accepted task-521 protocol contract now explicitly preserves adopted hash decoding from `toMachine.blockHash`, forged hash decoding from `toMachine.block`, and compatibility with both short fixture `Forge.*` namespaces and live-proven `Forge.Loop.*` namespaces.
+- Durable runtime note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-521-protocol2-typed-extraction-contracts.md`.
 
 ## Status
 
 - **Status:** Re-opened For Final Architecture Alignment
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-18T00:05:22Z
+- **Last Updated:** 2026-05-18T00:31:56Z
 
 ---
 
