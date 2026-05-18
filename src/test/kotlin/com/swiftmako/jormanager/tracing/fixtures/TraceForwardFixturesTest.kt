@@ -24,6 +24,8 @@ class TraceForwardFixturesTest {
         assertThat(List(names.size()) { index -> names.elementAt(index).toJsonString().trim('"') })
             .containsExactlyElementsIn(NodeStateDataPointDecoder.REQUESTED_NAMES)
             .inOrder()
+        assertThat(List(names.size()) { index -> names.elementAt(index).toJsonString().trim('"') })
+            .contains(NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO)
     }
 
     @Test

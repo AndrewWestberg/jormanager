@@ -14,9 +14,9 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
-import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import com.swiftmako.jormanager.tracing.NodeStateMetrics
 import com.swiftmako.jormanager.tracing.TraceForwardProtocol2Extractor
+import com.swiftmako.jormanager.tracing.TraceForwardProtocol3Extractor
 import com.swiftmako.jormanager.tracing.TracingMetricDecoder
 import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import java.io.IOException
@@ -70,7 +70,7 @@ class NodeMonitor
         @param:Qualifier("latestNodeStats") private val latestNodeStats: AtomicReference<NodeStats>,
         private val tracingRawCaptureService: TracingRawCaptureService,
         private val tracingMetricDecoder: TracingMetricDecoder = TracingMetricDecoder(),
-        private val nodeStateDecoder: NodeStateDataPointDecoder = NodeStateDataPointDecoder(),
+        private val traceForwardProtocol3Extractor: TraceForwardProtocol3Extractor = TraceForwardProtocol3Extractor(),
         private val traceForwardProtocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
         private val sampleIntervalMillis: Long = SAMPLE_INTERVAL_MS,
@@ -341,8 +341,7 @@ class NodeMonitor
             val nodeId = node.id ?: return null
             val freshDataPointMetrics =
                 tracingRawCaptureService.latestFreshDataPointSnapshot(nodeId, rawSnapshotMaxAge)
-                    ?.toMessage()
-                    ?.let(nodeStateDecoder::decode)
+                    ?.let(traceForwardProtocol3Extractor::decodeNodeStateMetrics)
             node.tracingPort?.let {
                 tracingRawCaptureService.latestFreshMetricSnapshot(nodeId, rawSnapshotMaxAge)
                     ?.let { snapshot -> tracingMetricDecoder.decode(snapshot.metrics).toNodeStateMetrics(peers = 0, incomingPeers = 0) }

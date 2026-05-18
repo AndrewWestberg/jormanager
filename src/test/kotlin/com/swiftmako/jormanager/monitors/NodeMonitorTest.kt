@@ -322,6 +322,29 @@ class NodeMonitorTest {
         }
 
     @Test
+    fun protocol3ExtractorBackedDatapointsStillDriveFallbackStats() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.onMessage(coreNode.id!!, TraceForwardFixtures.pinnedNodeStateWithStartupReply().toDataPointsReply())
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.slot).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(36)
+        }
+
+    @Test
     fun incompleteProtocol1MetricsFallBackToDatapoints() =
         runBlocking {
             val coreNode = node(isDefault = true)
