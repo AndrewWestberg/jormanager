@@ -388,6 +388,71 @@ class NodeMonitorTest {
         }
 
     @Test
+    fun staleTraceObjectsDoNotSupplyPeerCountersWhenProtocol1MetricsAreFresh() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val latestNodeStats = AtomicReference<NodeStats>(null)
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    latestNodeStats = latestNodeStats,
+                    tracingRawCaptureService = rawCapture,
+                )
+
+            rawCapture.recordMetricSnapshotForTest(coreNode.id!!, metricSnapshot(nodeId = coreNode.id))
+            rawCapture.recordTraceObjectBatchForTest(
+                nodeId = coreNode.id,
+                batch =
+                    com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
+                        nodeId = coreNode.id,
+                        capturedAt = Instant.now().minusSeconds(60),
+                        traceObjects = TraceForwardFixtures.traceObjectsArray(
+                            TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                        ),
+                    ),
+            )
+            monitor.start()
+            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            monitor.stopAndWait()
+
+            assertThat(latestNodeStats.get()?.peers).isEqualTo(0)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
+        }
+
+    @Test
+    fun staleTraceObjectsDoNotSupplyChainFallbackWithoutOtherFreshSnapshots() =
+        runBlocking {
+            val coreNode = node(isDefault = true)
+            val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
+            val rawCapture = rawCaptureService(coreNode)
+            val monitor =
+                createMonitor(
+                    nodes = listOf(coreNode),
+                    tracingRawCaptureService = rawCapture,
+                    onSend = { _, payload -> sentMessages += payload },
+                )
+
+            rawCapture.recordTraceObjectBatchForTest(
+                nodeId = coreNode.id!!,
+                batch =
+                    com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
+                        nodeId = coreNode.id,
+                        capturedAt = Instant.now().minusSeconds(60),
+                        traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
+                    ),
+            )
+            monitor.start()
+            waitUntil { sentMessages.isNotEmpty() }
+            monitor.stopAndWait()
+
+            @Suppress("UNCHECKED_CAST")
+            val nodeStatsEvents = sentMessages.last().data as List<NodeStats>
+            assertThat(nodeStatsEvents.last().blockHeight).isNull()
+            assertThat(nodeStatsEvents.last().slot).isNull()
+        }
+
+    @Test
     fun startBackfillsTracingSettingsForLegacyCoreNodes() =
         runBlocking {
             val legacyCoreNode =

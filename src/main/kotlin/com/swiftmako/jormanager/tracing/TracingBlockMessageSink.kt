@@ -11,7 +11,7 @@ class TracingBlockMessageSink(
     private val nodeRepository: NodeRepository,
     private val hostRepository: HostRepository,
     private val tracingBlockPersistenceService: TracingBlockPersistenceService,
-    private val decoder: TraceForwardAdoptedBlockDecoder = TraceForwardAdoptedBlockDecoder(),
+    private val protocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
 ) : TraceForwardMessageSink {
     private val log = LoggerFactory.getLogger("TracingBlockMessageSink")
 
@@ -38,7 +38,7 @@ class TracingBlockMessageSink(
             return
         }
 
-        decoder.decode(batch.toMessage()).forEach { event ->
+        protocol2Extractor.decodeBlockEvents(batch).forEach { event ->
             runCatching {
                 tracingBlockPersistenceService.persistTracingCandidateBlock(node, host, event)
             }.onFailure { throwable ->

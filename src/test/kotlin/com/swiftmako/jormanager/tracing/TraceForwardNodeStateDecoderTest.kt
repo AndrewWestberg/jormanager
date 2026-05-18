@@ -38,6 +38,24 @@ class TraceForwardNodeStateDecoderTest {
         assertThat(decoded?.incomingPeers).isEqualTo(3)
     }
 
+    @Test
+    fun ignoresMalformedTraceObjectWhenMergingState() {
+        val reply =
+            TraceForwardFixtures
+                .msgTraceObjectsReply(
+                    TraceForwardFixtures.malformedMachineJsonTraceObject(),
+                    TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 4, inbound = 5),
+                    TraceForwardFixtures.nodeStateTraceObject(),
+                ).toTraceObjectsReply()
+
+        val decoded = decoder.decode(reply)
+
+        assertThat(decoded?.blockHeight).isEqualTo(7_403_221L)
+        assertThat(decoded?.slot).isEqualTo(7_403_221L)
+        assertThat(decoded?.peers).isEqualTo(4)
+        assertThat(decoded?.incomingPeers).isEqualTo(5)
+    }
+
     private fun ByteArray.toTraceObjectsReply(): TraceForwardMessage.TraceObjectsReply =
         ByteArrayInputStream(this).use { input ->
             val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray

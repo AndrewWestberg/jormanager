@@ -16,7 +16,7 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.tracing.NodeStateDataPointDecoder
 import com.swiftmako.jormanager.tracing.NodeStateMetrics
-import com.swiftmako.jormanager.tracing.TraceForwardNodeStateDecoder
+import com.swiftmako.jormanager.tracing.TraceForwardProtocol2Extractor
 import com.swiftmako.jormanager.tracing.TracingMetricDecoder
 import com.swiftmako.jormanager.tracing.TracingRawCaptureService
 import java.io.IOException
@@ -71,7 +71,7 @@ class NodeMonitor
         private val tracingRawCaptureService: TracingRawCaptureService,
         private val tracingMetricDecoder: TracingMetricDecoder = TracingMetricDecoder(),
         private val nodeStateDecoder: NodeStateDataPointDecoder = NodeStateDataPointDecoder(),
-        private val traceForwardNodeStateDecoder: TraceForwardNodeStateDecoder = TraceForwardNodeStateDecoder(),
+        private val traceForwardProtocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
         private val startupDelayMillis: Long = STARTUP_DELAY_MS,
         private val sampleIntervalMillis: Long = SAMPLE_INTERVAL_MS,
         private val publishDelayMillis: Long = PUBLISH_DELAY_MS,
@@ -382,12 +382,9 @@ class NodeMonitor
         }
 
         private fun loadForwardedNodeState(nodeId: Long): com.swiftmako.jormanager.tracing.ForwardedNodeState? =
-            tracingRawCaptureService
-                .recentFreshTraceObjectBatches(nodeId, rawSnapshotMaxAge)
-                .mapNotNull { batch -> traceForwardNodeStateDecoder.decode(batch.toMessage()) }
-                .fold(null as com.swiftmako.jormanager.tracing.ForwardedNodeState?) { acc, next ->
-                    acc?.merge(next) ?: next
-                }
+            traceForwardProtocol2Extractor.decodeNodeState(
+                tracingRawCaptureService.recentFreshTraceObjectBatches(nodeId, rawSnapshotMaxAge)
+            )
 
         private fun resolveEpochLength(genesisShelleyFileId: Long): Long =
             fileRepository.findByIdOrNull(genesisShelleyFileId)
