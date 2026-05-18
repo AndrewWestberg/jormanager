@@ -429,7 +429,7 @@ class LiveTraceForwardIntegrationTest {
 
     @Test
     @Timeout(15)
-    fun liveTraceObjectsSessionToGld() =
+    fun liveTraceObjectsProtocolProbeToGld() =
         runBlocking {
             assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
 
@@ -467,7 +467,7 @@ class LiveTraceForwardIntegrationTest {
                 }
 
             println("live trace objects messages: ${traceReplies.map { it::class.simpleName }}")
-            println("live data point messages (same mux session): ${dataReplies.map { it::class.simpleName }}")
+            println("live data point messages (same mux connection): ${dataReplies.map { it::class.simpleName }}")
             traceReplies.filterIsInstance<TraceForwardMessage.TraceObjectsReply>().forEachIndexed { index, reply ->
                 println("trace objects reply[$index] size=${reply.traceObjects.size()}")
                 for (i in 0 until reply.traceObjects.size()) {
@@ -480,7 +480,7 @@ class LiveTraceForwardIntegrationTest {
 
     @Test
     @Timeout(15)
-    fun liveDataPointSessionToGld() =
+    fun liveDataPointProtocolProbeToGld() =
         runBlocking {
             assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
 

@@ -330,7 +330,7 @@
           "id": "task-540",
           "title": "Remove transitional session clients and stale test assumptions",
           "description": "Delete or simplify runtime/session code, tests, and active planning assumptions that only existed to support the older sibling-session or datapoint-centric transition path.",
-          "status": "pending",
+          "status": "completed",
           "priority": "medium",
           "estimatedHours": 2.5,
           "dependencies": [
@@ -351,7 +351,9 @@
             "The codebase no longer carries transitional runtime topology as an active design.",
             "Tests align with the final architecture only.",
             "Active planning artifacts no longer instruct future work to use sibling per-family sessions."
-          ]
+          ],
+          "completedAt": "2026-05-18T01:33:25Z",
+          "completionNotes": "Replaced the last active TraceForwardSessionClient seam with TraceForwardConnectionRunner, kept TracingConnectionManager as the single connection owner, updated active tracing tests/probe names away from session-centric topology, and added a socket-backed proof that the unified runner performs one handshake plus protocol 1/2/3 startup on a single muxed connection. Focused tracing tests passed after aligning the decoder harness with the final startup behavior."
         },
         {
           "id": "task-541",

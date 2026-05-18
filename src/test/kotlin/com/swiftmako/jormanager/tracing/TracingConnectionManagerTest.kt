@@ -28,10 +28,10 @@ class TracingConnectionManagerTest {
                 createManager(
                     nodes = listOf(node),
                     hostById = mapOf(node.hostId to host()),
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -57,7 +57,7 @@ class TracingConnectionManagerTest {
         }
 
     @Test
-    fun reconnectsAfterTraceSessionDisconnect() =
+    fun reconnectsAfterTraceConnectionDisconnect() =
         runBlocking {
             val attempts = AtomicInteger(0)
             val manager =
@@ -65,10 +65,10 @@ class TracingConnectionManagerTest {
                     nodes = listOf(coreNode()),
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 50L,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -89,7 +89,7 @@ class TracingConnectionManagerTest {
         }
 
     @Test
-    fun deletingNodeTearsDownActiveTracingSession() =
+    fun deletingNodeTearsDownActiveTracingConnection() =
         runBlocking {
             val nodesChannel = MutableSharedFlow<Node>(extraBufferCapacity = 8)
             val closed = AtomicReference(false)
@@ -101,10 +101,10 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(node.hostId to host()),
                     nodesChannel = nodesChannel,
                     reconnectDelayMillis = 50L,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -131,7 +131,7 @@ class TracingConnectionManagerTest {
         }
 
     @Test
-    fun stopPreventsReconnectAfterSessionEnds() =
+    fun stopPreventsReconnectAfterConnectionEnds() =
         runBlocking {
             val attempts = AtomicInteger(0)
             val manager =
@@ -139,10 +139,10 @@ class TracingConnectionManagerTest {
                     nodes = listOf(coreNode()),
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 100L,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -167,7 +167,7 @@ class TracingConnectionManagerTest {
         }
 
     @Test
-    fun idleSessionDoesNotReconnectWhileSocketStaysOpen() =
+    fun idleConnectionDoesNotReconnectWhileSocketStaysOpen() =
         runBlocking {
             val attempts = AtomicInteger(0)
             val closed = AtomicReference(false)
@@ -176,10 +176,10 @@ class TracingConnectionManagerTest {
                     nodes = listOf(coreNode()),
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 50L,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -215,10 +215,10 @@ class TracingConnectionManagerTest {
                     nodes = listOf(node),
                     hostById = mapOf(1L to host()),
                     messageSink = captureService,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -316,10 +316,10 @@ class TracingConnectionManagerTest {
                     nodes = listOf(node),
                     hostById = mapOf(node.hostId to host()),
                     messageSink = captureService,
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -351,10 +351,10 @@ class TracingConnectionManagerTest {
                 createManager(
                     nodes = listOf(coreNode()),
                     hostById = mapOf(1L to host()),
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -378,7 +378,7 @@ class TracingConnectionManagerTest {
         }
 
     @Test
-    fun ineligibleNodesNeverOpenTracingSessions() =
+    fun ineligibleNodesNeverOpenTracingConnections() =
         runBlocking {
             val attempts = AtomicInteger(0)
             val manager =
@@ -389,10 +389,10 @@ class TracingConnectionManagerTest {
                         coreNode(tracingPort = null, id = 3L),
                     ),
                     hostById = mapOf(1L to host(), 2L to host(), 3L to host()),
-                    sessionClientFactory =
-                        TraceForwardSessionClientFactory {
-                            object : TraceForwardSessionClient {
-                                override suspend fun runSession(
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
                                     hostname: String,
                                     port: Int,
                                     onMessage: suspend (TraceForwardMessage) -> Unit,
@@ -420,7 +420,7 @@ class TracingConnectionManagerTest {
         hostById: Map<Long, Host>,
         nodesChannel: MutableSharedFlow<Node> = MutableSharedFlow(extraBufferCapacity = 8),
         reconnectDelayMillis: Long = 50L,
-        sessionClientFactory: TraceForwardSessionClientFactory = SocketTraceForwardSessionClientFactory(),
+        connectionRunnerFactory: TraceForwardConnectionRunnerFactory = SocketTraceForwardConnectionRunnerFactory(),
         messageSink: TracingRawCaptureService = createRawCaptureService(coreNode()),
     ): TracingConnectionManager {
         val nodeRepository = mockk<NodeRepository>()
@@ -435,7 +435,7 @@ class TracingConnectionManagerTest {
             nodeRepository = nodeRepository,
             hostRepository = hostRepository,
             nodesChannel = nodesChannel,
-            sessionClientFactory = sessionClientFactory,
+            connectionRunnerFactory = connectionRunnerFactory,
             messageSink = messageSink,
             reconnectDelayMillis = reconnectDelayMillis,
         )
