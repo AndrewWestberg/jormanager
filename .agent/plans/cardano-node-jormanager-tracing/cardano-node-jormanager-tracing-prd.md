@@ -872,12 +872,16 @@ should now be re-thought around the final single-connection design documented in
 - The final live production transport seam is now named `TraceForwardConnectionRunner`, which keeps the accepted one-connection-per-core-node runtime ownership explicit without preserving transitional session-client terminology.
 - Active tracing tests and live probes no longer present separate trace-object or datapoint sessions as the target runtime topology, and focused socket-backed coverage now proves the unified runner performs one forwarding handshake plus protocol `1`/`2`/`3` startup on a single muxed connection.
 - No new research note was required for task-540 because the task removed stale naming and test assumptions without changing the accepted transport architecture.
+- `task-541` is complete.
+- Final live verification uncovered a repo-local false-negative regression in `LiveTraceForwardIntegrationTest.kt`, not a clockwork environment regression: the harness had drifted into over-large protocol `2` batch requests and top-level-only `kind` extraction even though clockwork forwarded trace objects still exposed the real discriminator under `data.kind`.
+- The task-541 harness fix restored truthful one-connection clockwork live verification without widening production runtime code: short shared-capture verification now again shows non-zero protocol `2` replies, recovered block-event kinds including `TraceAdoptedBlock`, and explicit block plus peer-related protocol `2` namespaces from `clockwork:18401`.
+- Durable verification note recorded in `.agent/plans/cardano-node-jormanager-tracing/research/task-541-live-verification-regression-fix.md`.
 
 ## Status
 
-- **Status:** Re-opened For Final Architecture Alignment
+- **Status:** Completed
 - **Started:** 2026-05-12
-- **Last Updated:** 2026-05-18T01:33:25Z
+- **Last Updated:** 2026-05-18T13:24:27Z
 
 ---
 

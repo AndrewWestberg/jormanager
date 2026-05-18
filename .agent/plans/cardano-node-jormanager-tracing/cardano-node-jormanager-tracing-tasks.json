@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Cardano Node And JorManager Tracing Final Architecture Tasks",
     "created": "2026-05-12",
-    "updated": "2026-05-18T01:18:00Z",
-    "version": "2.0.8",
+    "updated": "2026-05-18T13:24:27Z",
+    "version": "2.0.9",
     "totalTasks": 10,
     "prdReference": ".agent/plans/cardano-node-jormanager-tracing/cardano-node-jormanager-tracing-prd.md",
     "description": "Re-think the current transitional tracing implementation into the final elegant single-connection architecture anchored by task-500 research, then implement runtime tracing/data capture from core nodes using one muxed connection that captures all three mini-protocol families before JorManager-specific filtering.",
@@ -359,7 +359,7 @@
           "id": "task-541",
           "title": "Run final live verification and synchronize docs",
           "description": "Run the final live verification suite against the block producer and synchronize final implementation notes into the plan artifacts.",
-          "status": "pending",
+          "status": "completed",
           "priority": "medium",
           "estimatedHours": 2.0,
           "dependencies": [
@@ -379,7 +379,9 @@
             "Final runtime architecture is verified live.",
             "Documentation is synchronized to the final implementation truth.",
             "No active planning artifact still presents sibling-session topology as the desired end state."
-          ]
+          ],
+          "completedAt": "2026-05-18T13:24:27Z",
+          "completionNotes": "Diagnosed and fixed a false-negative clockwork live-verification regression in LiveTraceForwardIntegrationTest: the harness was over-requesting protocol-2 trace batches and reading trace kinds from the wrong JSON level. After the fix, the one-connection clockwork verification path again showed non-zero protocol-2 replies plus recovered block and peer-related trace families, and the PRD/research/task artifacts were synchronized to that final live truth."
         }
       ]
     }

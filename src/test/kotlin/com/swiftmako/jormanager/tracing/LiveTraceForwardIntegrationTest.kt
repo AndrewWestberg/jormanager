@@ -53,10 +53,10 @@ class LiveTraceForwardIntegrationTest {
                     host = CLOCKWORK_HOST,
                     port = CLOCKWORK_PORT,
                     durationMillis = 8_000L,
-                    traceRequestCount = 1_000,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
-                    ekgRequest = EkgRequest.GetAllMetrics,
+                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
                 )
 
             println("single connection ekg replies=${capture.ekgReplies.size}")
@@ -75,7 +75,7 @@ class LiveTraceForwardIntegrationTest {
                     host = CLOCKWORK_HOST,
                     port = CLOCKWORK_PORT,
                     durationMillis = 8_000L,
-                    traceRequestCount = 1_000,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
                 )
@@ -107,10 +107,10 @@ class LiveTraceForwardIntegrationTest {
                     host = CLOCKWORK_HOST,
                     port = CLOCKWORK_PORT,
                     durationMillis = 8_000L,
-                    traceRequestCount = 1_000,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
-                    ekgRequest = EkgRequest.GetAllMetrics,
+                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
                 )
 
             val metricNames = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
@@ -269,7 +269,7 @@ class LiveTraceForwardIntegrationTest {
                     host = CLOCKWORK_HOST,
                     port = CLOCKWORK_PORT,
                     durationMillis = 8_000L,
-                    traceRequestCount = 1_000,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
                     ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
@@ -321,6 +321,25 @@ class LiveTraceForwardIntegrationTest {
 
             println("mempool trace matches (${matching.size}):")
             matching.forEach(::println)
+        }
+
+    @Test
+    @Timeout(30)
+    fun liveClockworkTraceObjectInventoryPrintsKindsAndNamespaces() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val traceReplies = collectTraceObjectReplies(host = CLOCKWORK_HOST, port = CLOCKWORK_PORT, collectionWindowMillis = 8_000L)
+            val machineJson =
+                traceReplies
+                    .flatMap { reply -> (0 until reply.traceObjects.size()).map(reply.traceObjects::elementAt) }
+                    .mapNotNull { it.traceObjectMachineJsonOrNull() }
+
+            val traceKinds = machineJson.mapNotNull(::traceKindOrNull).distinct().sorted()
+            val traceNamespaces = machineJson.mapNotNull(::traceNamespaceOrNull).distinct().sorted()
+
+            println("clockwork trace kinds (${traceKinds.size})=$traceKinds")
+            println("clockwork trace namespaces (${traceNamespaces.size})=$traceNamespaces")
         }
 
     @Test
@@ -589,7 +608,7 @@ class LiveTraceForwardIntegrationTest {
                     host = HOST,
                     port = PORT,
                     durationMillis = 2_000L,
-                    traceRequestCount = 100,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = true,
                     dataPointNames = NodeStateDataPointDecoder.REQUESTED_NAMES,
                     ekgRequest = EkgRequest.GetAllMetrics,
@@ -636,6 +655,7 @@ class LiveTraceForwardIntegrationTest {
         private const val CLOCKWORK_PORT = 18401
         private const val NETWORK_MAGIC = 141L
         private val LIVE_TIMEOUT = Duration.ofSeconds(10)
+        private const val LIVE_TRACE_REQUEST_COUNT = 25
         private const val COLLECTION_WINDOW_MILLIS = 2_000L
         private val RUN_LIVE_TRACING_TESTS = System.getenv("JORMANAGER_RUN_LIVE_TRACING_TESTS") == "true"
 
@@ -1408,7 +1428,14 @@ private fun List<TraceForwardMessage.DataPointsReply>.extractLatestJsonDataPoint
 
 private fun traceKindOrNull(machineJson: String): String? =
     runCatching {
-        JSONObject(machineJson).optString("kind").takeIf { it.isNotBlank() }
+        val root = JSONObject(machineJson)
+        root.optString("kind").takeIf { it.isNotBlank() }
+            ?: root.optJSONObject("data")?.optString("kind")?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+private fun traceNamespaceOrNull(machineJson: String): String? =
+    runCatching {
+        JSONObject(machineJson).optString("ns").takeIf { it.isNotBlank() }
     }.getOrNull()
 
 private fun Flow<EkgReply>.collectEkgRepliesInBackground(
