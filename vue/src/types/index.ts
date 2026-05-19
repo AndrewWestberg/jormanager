@@ -60,15 +60,17 @@ export interface KESSeries {
 export interface NodeStatEvent {
   nodeName: string
   timestamp: number
-  blockHeight: number
-  peers: number
-  incomingPeers: number
-  remainingKESPeriods: number
-  epoch: number
-  slotInEpoch: number
+  blockHeight: number | null
+  peers: number | null
+  incomingPeers: number | null
+  remainingKESPeriods: number | null
+  epoch: number | null
+  slotInEpoch: number | null
   epochLength: number
-  txsProcessed: number
+  txsProcessed: number | null
   color: string
+  default?: boolean
+  isDefault?: boolean
 }
 
 export interface Toast {

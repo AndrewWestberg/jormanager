@@ -110,7 +110,7 @@ class LiveTraceForwardIntegrationTest {
                     traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
-                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
+                    ekgRequest = EkgRequest.GetAllMetrics,
                 )
 
             val metricNames = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
@@ -122,6 +122,44 @@ class LiveTraceForwardIntegrationTest {
             interesting.forEach(::println)
 
             assertThat(capture.ekgReplies.size).isAtLeast(0)
+        }
+
+    @Test
+    @Timeout(30)
+    fun liveClockworkPeerMetricsAreCapturedFromGetMetrics() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val replies =
+                collectEkgReplies(
+                    host = CLOCKWORK_HOST,
+                    port = CLOCKWORK_PORT,
+                    durationMillis = 8_000L,
+                    request = EkgRequest.GetMetrics(CLOCKWORK_PEER_METRIC_NAMES),
+                )
+
+            val metricMap = replies.lastOrNull()?.metrics.orEmpty()
+            val observedPeerMetrics = CLOCKWORK_PEER_METRIC_NAMES.filter(metricMap::containsKey)
+            val missingPeerMetrics = CLOCKWORK_PEER_METRIC_NAMES.filterNot(metricMap::containsKey)
+            val peerMetrics = metricMap.toClockworkPeerMetrics()
+
+            println("clockwork peer metric raw map:")
+            metricMap
+                .filterKeys { it in CLOCKWORK_PEER_METRIC_NAMES }
+                .toSortedMap()
+                .forEach { (name, value) ->
+                    println("$name=$value")
+                }
+            println("clockwork observed peer metrics (${observedPeerMetrics.size})=$observedPeerMetrics")
+            println("clockwork missing peer metrics (${missingPeerMetrics.size})=$missingPeerMetrics")
+            println("clockwork typed peer metrics=$peerMetrics")
+
+            assertThat(replies).isNotEmpty()
+            assertThat(metricMap.keys).containsAtLeastElementsIn(CLOCKWORK_PEER_METRIC_NAMES)
+            assertThat(peerMetrics).isNotNull()
+            assertThat(peerMetrics!!.incomingPeers).isAtLeast(0)
+            assertThat(peerMetrics.outgoingPeers).isAtLeast(0)
+            assertThat(peerMetrics.activePeers).isAtLeast(0)
         }
 
     @Test
@@ -272,7 +310,7 @@ class LiveTraceForwardIntegrationTest {
                     traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
                     traceSingleReplyMode = false,
                     dataPointNames = ALL_DATAPOINT_NAMES,
-                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
+                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES + CLOCKWORK_PEER_METRIC_NAMES),
                 )
 
             val metricMap = capture.ekgReplies.lastOrNull()?.metrics.orEmpty()
@@ -280,6 +318,7 @@ class LiveTraceForwardIntegrationTest {
             val forgeMetrics = metricMap.toForgeMetrics()
             val kesMetrics = metricMap.toKesMetrics()
             val mempoolMetrics = metricMap.toMempoolMetrics()
+            val peerMetrics = metricMap.toClockworkPeerMetrics()
             val startupInfo = capture.dataPointReplies.extractLatestJsonDataPoint("NodeStartupInfo")
             val traceKinds =
                 capture.traceReplies
@@ -297,13 +336,78 @@ class LiveTraceForwardIntegrationTest {
             println("dashboard forge metrics=$forgeMetrics")
             println("dashboard kes metrics=$kesMetrics")
             println("dashboard mempool metrics=$mempoolMetrics")
+            println("dashboard peer metrics=$peerMetrics")
             println("dashboard startup info=$startupInfo")
             println("dashboard trace kinds (${traceKinds.size})=$traceKinds")
 
             assertThat(chainMetrics).isNotNull()
             assertThat(forgeMetrics).isNotNull()
             assertThat(kesMetrics).isNotNull()
+            assertThat(peerMetrics).isNotNull()
             assertThat(startupInfo).isNotNull()
+        }
+
+    @Test
+    @Timeout(30)
+    fun liveClockworkProductionSignalResolutionPrintsRootCauseCandidates() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val capture =
+                captureAllProtocols(
+                    host = CLOCKWORK_HOST,
+                    port = CLOCKWORK_PORT,
+                    durationMillis = 8_000L,
+                    traceRequestCount = LIVE_TRACE_REQUEST_COUNT,
+                    traceSingleReplyMode = false,
+                    dataPointNames = NodeStateDataPointDecoder.REQUESTED_NAMES,
+                    ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES + CLOCKWORK_PEER_METRIC_NAMES),
+                )
+
+            val mergedMap = capture.dataPointReplies.mergeDataPointReplies().dataPoints.toDataPointMap()
+            val metricKeys = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
+            val chainMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toChainMetrics()
+            val kesMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toKesMetrics()
+            val mempoolMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toMempoolMetrics()
+            val dashboardMetricReplies =
+                collectEkgReplies(
+                    host = CLOCKWORK_HOST,
+                    port = CLOCKWORK_PORT,
+                    durationMillis = 8_000L,
+                    request = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES),
+                )
+            val productionDataReplies = collectDataPointReplies(NodeStateDataPointDecoder.REQUESTED_NAMES, host = CLOCKWORK_HOST, port = CLOCKWORK_PORT)
+            val traceKinds =
+                capture.traceReplies
+                    .flatMap { reply -> (0 until reply.traceObjects.size()).map(reply.traceObjects::elementAt) }
+                    .mapNotNull { it.traceObjectMachineJsonOrNull() }
+                    .mapNotNull(::traceKindOrNull)
+                    .distinct()
+                    .sorted()
+
+            System.err.println("production-resolution getAllMetrics reply count=${capture.ekgReplies.size}")
+            System.err.println("production-resolution getMetrics reply count=${dashboardMetricReplies.size}")
+            System.err.println("production-resolution metric keys (${metricKeys.size})=$metricKeys")
+            System.err.println("production-resolution typed chain metrics=$chainMetrics")
+            System.err.println("production-resolution typed kes metrics=$kesMetrics")
+            System.err.println("production-resolution typed mempool metrics=$mempoolMetrics")
+            System.err.println("production-resolution captureAllProtocols datapoint replies=${capture.dataPointReplies.size}")
+            System.err.println("production-resolution direct requested datapoint replies=${productionDataReplies.size}")
+            capture.dataPointReplies.forEachIndexed { index, reply ->
+                val map = reply.dataPoints.toDataPointMap()
+                val nonEmpty = map.filterValues { it != null }.keys.sorted()
+                System.err.println("production-resolution datapoint reply[$index] names=${map.keys.sorted()} nonEmpty=$nonEmpty")
+            }
+            productionDataReplies.forEachIndexed { index, reply ->
+                val map = reply.dataPoints.toDataPointMap()
+                val nonEmpty = map.filterValues { it != null }.mapValues { it.value!!.decodeToString() }.toSortedMap()
+                System.err.println("production-resolution direct requested reply[$index] nonEmpty=$nonEmpty")
+            }
+            System.err.println("production-resolution merged datapoint names=${mergedMap.keys.sorted()}")
+            System.err.println("production-resolution merged non-empty datapoints=${mergedMap.filterValues { it != null }.mapValues { it.value!!.decodeToString() }.toSortedMap()}")
+            System.err.println("production-resolution trace kinds (${traceKinds.size})=$traceKinds")
+
+            assertThat(true).isTrue()
         }
 
     @Test
@@ -340,6 +444,54 @@ class LiveTraceForwardIntegrationTest {
 
             println("clockwork trace kinds (${traceKinds.size})=$traceKinds")
             println("clockwork trace namespaces (${traceNamespaces.size})=$traceNamespaces")
+        }
+
+    @Test
+    @Timeout(30)
+    fun liveClockworkPeerTraceDiscoveryPrintsObservedObjects() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val traceReplies = collectTraceObjectReplies(host = CLOCKWORK_HOST, port = CLOCKWORK_PORT, collectionWindowMillis = 8_000L)
+            val matching =
+                traceReplies
+                    .flatMap { reply -> (0 until reply.traceObjects.size()).map(reply.traceObjects::elementAt) }
+                    .mapNotNull { traceObject -> traceObject.traceObjectMachineJsonOrNull()?.let { machineJson -> traceObject.toJsonString() to machineJson } }
+                    .filter { (rawTraceObject, machineJson) ->
+                        PEER_TRACE_OBJECT_HINTS.any(rawTraceObject::contains) || PEER_TRACE_OBJECT_HINTS.any(machineJson::contains)
+                    }
+
+            println("clockwork peer trace matches (${matching.size}):")
+            matching.forEach { (rawTraceObject, machineJson) ->
+                println("raw=$rawTraceObject")
+                println("machine=$machineJson")
+            }
+        }
+
+    @Test
+    @Timeout(30)
+    fun liveClockworkBlockTraceDiscoveryPrintsObservedObjects() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val traceReplies = collectTraceObjectReplies(host = CLOCKWORK_HOST, port = CLOCKWORK_PORT, collectionWindowMillis = 8_000L, singleReplyMode = false)
+            traceReplies.forEachIndexed { replyIndex, reply ->
+                println("clockwork short block discovery reply[$replyIndex] traceObjects=${reply.traceObjects.size()}")
+                for (objectIndex in 0 until reply.traceObjects.size()) {
+                    val rawTraceObject = reply.traceObjects.elementAt(objectIndex).traceObjectJsonOrNull()
+                    println("clockwork short block discovery reply[$replyIndex][$objectIndex] raw=$rawTraceObject")
+                }
+            }
+            val matching =
+                traceReplies
+                    .flatMap { reply -> (0 until reply.traceObjects.size()).map(reply.traceObjects::elementAt) }
+                    .mapNotNull { traceObject -> traceObject.traceObjectJsonOrNull()?.let { rawTraceObject -> rawTraceObject to traceKindOrNull(rawTraceObject) } }
+                    .filter { (rawTraceObject, _) -> BLOCK_TRACE_OBJECT_HINTS.any(rawTraceObject::contains) }
+
+            println("clockwork block trace matches (${matching.size}):")
+            matching.forEach { (rawTraceObject, kind) ->
+                println("kind=$kind raw=$rawTraceObject")
+            }
         }
 
     @Test
@@ -386,20 +538,21 @@ class LiveTraceForwardIntegrationTest {
                     host = CLOCKWORK_HOST,
                     port = CLOCKWORK_PORT,
                     durationMillis = 8_000L,
-                    request = EkgRequest.GetMetrics(DIRECT_EKG_EXPECTED_METRIC_NAMES),
+                    request = EkgRequest.GetMetrics(CLOCKWORK_PEER_METRIC_NAMES),
                 )
 
             val observed = replies.flatMap { it.metrics.keys }.distinct().sorted()
-            val missing = DIRECT_EKG_EXPECTED_METRIC_NAMES.filterNot(observed::contains)
+            val missing = CLOCKWORK_PEER_METRIC_NAMES.filterNot(observed::contains)
 
-            println("direct ekg expected metric names (${DIRECT_EKG_EXPECTED_METRIC_NAMES.size}):")
-            DIRECT_EKG_EXPECTED_METRIC_NAMES.forEach(::println)
+            println("direct ekg expected peer metric names (${CLOCKWORK_PEER_METRIC_NAMES.size}):")
+            CLOCKWORK_PEER_METRIC_NAMES.forEach(::println)
             println("direct ekg observed metric names (${observed.size}):")
             observed.forEach(::println)
             println("direct ekg missing metric names (${missing.size}):")
             missing.forEach(::println)
 
             assertThat(replies).isNotEmpty()
+            assertThat(observed).containsAtLeastElementsIn(CLOCKWORK_PEER_METRIC_NAMES)
         }
 
     @Test
@@ -444,6 +597,53 @@ class LiveTraceForwardIntegrationTest {
             }
             println("clockwork 5m ekg metric names (${ekgMetricNames.size}):")
             ekgMetricNames.forEach(::println)
+        }
+
+    @Test
+    @Timeout(930)
+    fun liveClockworkForgeObserverCapturesRealForwardedBlockEvents() =
+        runBlocking {
+            assumeTrue(RUN_LIVE_TRACING_TESTS) { "Set JORMANAGER_RUN_LIVE_TRACING_TESTS=true to run live tracing tests" }
+
+            val replies =
+                collectTraceObjectReplies(
+                    host = CLOCKWORK_HOST,
+                    port = CLOCKWORK_PORT,
+                    collectionWindowMillis = 900_000L,
+                    singleReplyMode = false,
+                )
+
+            val decoder = TraceForwardAdoptedBlockDecoder()
+            val blockEvents = replies.flatMap(decoder::decode)
+            val forged = blockEvents.filter { it.status == "created" }
+            val adopted = blockEvents.filter { it.status == "completed" }
+            val traceObjectJson =
+                replies
+                    .flatMap { reply -> (0 until reply.traceObjects.size()).map(reply.traceObjects::elementAt) }
+                    .mapNotNull { traceObject -> traceObject.traceObjectJsonOrNull() }
+            val traceKinds = traceObjectJson.mapNotNull(::traceKindOrNull).distinct().sorted()
+            val traceNamespaces = traceObjectJson.mapNotNull(::traceNamespaceOrNull).distinct().sorted()
+            val forgeCandidates = traceObjectJson.filter { json -> BLOCK_TRACE_OBJECT_HINTS.any(json::contains) }
+
+            println("clockwork forge observer reply count=${replies.size}")
+            println("clockwork forge observer trace kinds (${traceKinds.size})=$traceKinds")
+            println("clockwork forge observer trace namespaces (${traceNamespaces.size})=$traceNamespaces")
+            replies.forEachIndexed { replyIndex, reply ->
+                println("clockwork forge observer reply[$replyIndex] traceObjects=${reply.traceObjects.size()}")
+                for (objectIndex in 0 until reply.traceObjects.size()) {
+                    val rawTraceObject = reply.traceObjects.elementAt(objectIndex).traceObjectJsonOrNull()
+                    println("clockwork forge observer reply[$replyIndex][$objectIndex] raw=$rawTraceObject")
+                }
+            }
+            println("clockwork forge observer forge candidates (${forgeCandidates.size}):")
+            forgeCandidates.forEach(::println)
+            println("clockwork forge observer block events (${blockEvents.size}):")
+            blockEvents.forEach(::println)
+
+            assertThat(replies).isNotEmpty()
+            assertThat(blockEvents).isNotEmpty()
+            assertThat(forged).isNotEmpty()
+            assertThat(adopted).isNotEmpty()
         }
 
     @Test
@@ -687,22 +887,22 @@ class LiveTraceForwardIntegrationTest {
                 "txsSyncDuration",
                 "forging_enabled",
                 "node.start.time",
-                "connectionManager.incomingConns",
-                "connectionManager.outgoingConns",
-                "connectionManager.duplexConns",
-                "connectionManager.fullDuplexConns",
-                "connectionManager.unidirectionalConns",
+                "connectionManager.inboundConns_int",
+                "connectionManager.outboundConns_int",
+                "connectionManager.duplexConns_int",
+                "connectionManager.fullDuplexConns_int",
+                "connectionManager.unidirectionalConns_int",
                 "peerSelection.cold",
                 "peerSelection.warm",
                 "peerSelection.hot",
                 "peerSelection.RootPeers",
                 "peerSelection.KnownPeers",
                 "peerSelection.EstablishedPeers",
-                "peerSelection.ActivePeers",
+                "peerSelection.ActivePeers_int",
                 "peerSelection.ColdPeersPromotions",
                 "peerSelection.WarmPeersDemotions",
                 "peerSelection.WarmPeersPromotions",
-                "peerSelection.ActivePeersDemotions",
+                "peerSelection.ActivePeersDemotions_int",
                 "peerSelection.KnownBigLedgerPeers",
                 "peerSelection.EstablishedBigLedgerPeers",
                 "peerSelection.ActiveBigLedgerPeers",
@@ -786,6 +986,30 @@ class LiveTraceForwardIntegrationTest {
                 "Mempool",
             )
 
+        private val PEER_TRACE_OBJECT_HINTS =
+            listOf(
+                "ConnectionManager",
+                "PeerSelection",
+                "InboundGovernor",
+                "ResourceStats",
+                "Resources",
+                "peer",
+                "Peer",
+                "inbound",
+                "outbound",
+                "duplex",
+            )
+
+        private val BLOCK_TRACE_OBJECT_HINTS =
+            listOf(
+                "TraceForgedBlock",
+                "TraceAdoptedBlock",
+                "AddedToCurrentChain",
+                "Forge.Loop.ForgedBlock",
+                "Forge.Loop.AdoptedBlock",
+                "ChainDB.AddBlockEvent.AddedToCurrentChain",
+            )
+
         private val EKG_INTERESTING_HINTS =
             listOf(
                 "remainingKESPeriods",
@@ -833,40 +1057,11 @@ class LiveTraceForwardIntegrationTest {
                 "cardano.node.metrics.blockReplayProgress_real",
             )
 
-        private val DIRECT_EKG_EXPECTED_METRIC_NAMES =
+        private val CLOCKWORK_PEER_METRIC_NAMES =
             listOf(
-                "cardano.node.metrics.connectionManager.fullDuplexConns",
-                "cardano.node.metrics.connectionManager.duplexConns",
-                "cardano.node.metrics.connectionManager.unidirectionalConns",
-                "cardano.node.metrics.connectionManager.incomingConns",
-                "cardano.node.metrics.connectionManager.outgoingConns",
-                "cardano.node.metrics.peerSelection.cold",
-                "cardano.node.metrics.peerSelection.warm",
-                "cardano.node.metrics.peerSelection.hot",
-                "cardano.node.metrics.peerSelection.RootPeers",
-                "cardano.node.metrics.peerSelection.KnownPeers",
-                "cardano.node.metrics.peerSelection.EstablishedPeers",
-                "cardano.node.metrics.peerSelection.ActivePeers",
-                "cardano.node.metrics.peerSelection.ColdPeersPromotions",
-                "cardano.node.metrics.peerSelection.WarmPeersDemotions",
-                "cardano.node.metrics.peerSelection.WarmPeersPromotions",
-                "cardano.node.metrics.peerSelection.ActivePeersDemotions",
-                "cardano.node.metrics.peerSelection.KnownBigLedgerPeers",
-                "cardano.node.metrics.peerSelection.EstablishedBigLedgerPeers",
-                "cardano.node.metrics.peerSelection.ActiveBigLedgerPeers",
-                "cardano.node.metrics.peerSelection.KnownLocalRootPeers",
-                "cardano.node.metrics.peerSelection.EstablishedLocalRootPeers",
-                "cardano.node.metrics.peerSelection.ActiveLocalRootPeers",
-                "cardano.node.metrics.peerSelection.KnownNonRootPeers",
-                "cardano.node.metrics.peerSelection.EstablishedNonRootPeers",
-                "cardano.node.metrics.peerSelection.ActiveNonRootPeers",
-                "cardano.node.metrics.peerSelection.KnownBootstrapPeers",
-                "cardano.node.metrics.peerSelection.EstablishedBootstrapPeers",
-                "cardano.node.metrics.peerSelection.ActiveBootstrapPeers",
-                "cardano.node.metrics.inboundGovernor.idle",
-                "cardano.node.metrics.inboundGovernor.cold",
-                "cardano.node.metrics.inboundGovernor.warm",
-                "cardano.node.metrics.inboundGovernor.hot",
+                "cardano.node.metrics.connectionManager.inboundConns_int",
+                "cardano.node.metrics.connectionManager.outboundConns_int",
+                "cardano.node.metrics.peerSelection.ActivePeers_int",
             )
 
         private val KES_EXPECTED_METRIC_NAMES =
@@ -1117,6 +1312,7 @@ private suspend fun collectTraceObjectReplies(
     host: String = "127.0.0.1",
     port: Int = 18400,
     collectionWindowMillis: Long = 2_000L,
+    singleReplyMode: Boolean = true,
 ): List<TraceForwardMessage.TraceObjectsReply> {
     val replies = CopyOnWriteArrayList<TraceForwardMessage>()
     val selector = ActorSelectorManager(Dispatchers.IO)
@@ -1127,7 +1323,7 @@ private suspend fun collectTraceObjectReplies(
             noDelay = true
             keepAlive = true
         }.use { socket ->
-            val protocol = ForwardingTraceObjectsProtocol(singleReplyMode = true)
+            val protocol = ForwardingTraceObjectsProtocol(singleReplyMode = singleReplyMode)
             val collector = protocol.messages.collectInBackground(replies)
             try {
                 val mux = Mux(socket.connection())
@@ -1168,6 +1364,12 @@ private data class MempoolMetrics(
     val txsSyncDuration: Long? = null,
     val txsSyncDurationTotal: Long? = null,
     val txsMempoolTimeoutSoft: Long? = null,
+)
+
+private data class ClockworkPeerMetrics(
+    val incomingPeers: Long,
+    val outgoingPeers: Long,
+    val activePeers: Long,
 )
 
 private data class ChainMetrics(
@@ -1363,6 +1565,17 @@ private fun Map<String, String>.toMempoolMetrics(): MempoolMetrics =
         txsMempoolTimeoutSoft = get("cardano.node.metrics.txsMempoolTimeoutSoft_counter")?.decodeEkgCounterValue(),
     )
 
+private fun Map<String, String>.toClockworkPeerMetrics(): ClockworkPeerMetrics? {
+    val incomingPeers = get("cardano.node.metrics.connectionManager.inboundConns_int")?.decodeEkgIntValue() ?: return null
+    val outgoingPeers = get("cardano.node.metrics.connectionManager.outboundConns_int")?.decodeEkgIntValue() ?: return null
+    val activePeers = get("cardano.node.metrics.peerSelection.ActivePeers_int")?.decodeEkgIntValue() ?: return null
+    return ClockworkPeerMetrics(
+        incomingPeers = incomingPeers,
+        outgoingPeers = outgoingPeers,
+        activePeers = activePeers,
+    )
+}
+
 private fun Map<String, String>.toChainMetrics(): ChainMetrics? {
     val blockNum = get("cardano.node.metrics.blockNum_int")?.decodeEkgIntValue() ?: return null
     val slotNum = get("cardano.node.metrics.slotNum_int")?.decodeEkgIntValue() ?: return null
@@ -1426,6 +1639,33 @@ private fun List<TraceForwardMessage.DataPointsReply>.extractLatestJsonDataPoint
         reply.dataPoints.toDataPointMap()[name]?.decodeToString()
     }
 
+private fun List<TraceForwardMessage.DataPointsReply>.mergeDataPointReplies(): TraceForwardMessage.DataPointsReply {
+    val mergedByName = linkedMapOf<String, com.google.iot.cbor.CborObject>()
+    forEach { reply ->
+        for (index in 0 until reply.dataPoints.size()) {
+            val pair = reply.dataPoints.elementAt(index) as? com.google.iot.cbor.CborArray ?: continue
+            if (pair.size() != 2) {
+                continue
+            }
+            val name = (pair.elementAt(0) as? com.google.iot.cbor.CborTextString)?.stringValue() ?: continue
+            mergedByName[name] = pair.elementAt(1)
+        }
+    }
+
+    return TraceForwardMessage.DataPointsReply(
+        com.google.iot.cbor.CborArray.create().apply {
+            mergedByName.forEach { (name, value) ->
+                add(
+                    com.google.iot.cbor.CborArray.create().apply {
+                        add(com.google.iot.cbor.CborTextString.create(name))
+                        add(value)
+                    }
+                )
+            }
+        }
+    )
+}
+
 private fun traceKindOrNull(machineJson: String): String? =
     runCatching {
         val root = JSONObject(machineJson)
@@ -1486,6 +1726,14 @@ private fun com.google.iot.cbor.CborArray.toDataPointMap(): Map<String, ByteArra
 private fun com.google.iot.cbor.CborObject.traceObjectMachineJsonOrNull(): String? =
     when (this) {
         is CborArray -> elementAtOrNull(2)?.traceObjectMachineJsonOrNull()
+        is CborTextString -> stringValue()
+        is CborByteString -> byteArrayValue()[0].decodeToString()
+        else -> null
+    }
+
+private fun com.google.iot.cbor.CborObject.traceObjectJsonOrNull(): String? =
+    when (this) {
+        is CborArray -> elementAtOrNull(2)?.traceObjectJsonOrNull()
         is CborTextString -> stringValue()
         is CborByteString -> byteArrayValue()[0].decodeToString()
         else -> null

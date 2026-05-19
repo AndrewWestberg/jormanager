@@ -4,6 +4,9 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import io.github.oshai.kotlinlogging.KotlinLogging
+import io.ktor.utils.io.ClosedByteChannelException
+import java.io.EOFException
+import java.net.SocketException
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -151,6 +154,8 @@ class TracingConnectionManager(
             managedConnections.keys.toSet()
         }
 
+    internal fun isExpectedDisconnect(throwable: Throwable): Boolean = throwable.isExpectedDisconnect()
+
     private suspend fun runConnectionLoop(
         target: TracingNodeTarget,
         connectionRunner: TraceForwardConnectionRunner,
@@ -165,7 +170,11 @@ class TracingConnectionManager(
                 throw e
             } catch (e: Throwable) {
                 if (shouldKeepRunning(target)) {
-                    log.warn(e) { "Tracing connection ended for node ${target.nodeId}" }
+                    if (isExpectedDisconnect(e)) {
+                        log.info { "Tracing connection closed for node ${target.nodeId}; reconnecting in ${reconnectDelayMillis}ms (${e.rootCauseMessage()})" }
+                    } else {
+                        log.warn(e) { "Tracing connection ended for node ${target.nodeId}" }
+                    }
                 }
             }
 
@@ -188,7 +197,7 @@ class TracingConnectionManager(
             }
 
     private fun resolveTarget(node: Node): TracingNodeTarget? {
-        if (node.id == null || node.isDeleted || node.type != "core" || node.tracingPort == null) {
+        if (node.id == null || node.isDeleted || node.type !in setOf("core", "relay") || node.tracingPort == null) {
             return null
         }
 
@@ -228,3 +237,16 @@ class TracingConnectionManager(
         private const val DEFAULT_RECONNECT_DELAY_MILLIS = 5_000L
     }
 }
+
+private fun Throwable.isExpectedDisconnect(): Boolean =
+    this is ClosedByteChannelException ||
+        this is EOFException ||
+        (this is SocketException && message?.contains("connection reset", ignoreCase = true) == true) ||
+        (cause?.let { nested -> nested !== this && nested.isExpectedDisconnect() } == true)
+
+private fun Throwable.rootCauseMessage(): String =
+    generateSequence(this) { current -> current.cause?.takeIf { it !== current } }
+        .last()
+        .message
+        ?: this::class.simpleName
+        ?: "unknown error"

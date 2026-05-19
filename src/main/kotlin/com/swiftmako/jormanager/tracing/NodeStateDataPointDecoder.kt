@@ -187,10 +187,10 @@ private fun parseNodeStartupInfo(rawJson: String): NodeStartupInfo? =
     runCatching {
         val root = JSONObject(rawJson)
         NodeStartupInfo(
-            era = root.optNullableString("era"),
-            epochLength = root.optLongOrNull("epochLength"),
-            slotLength = root.optLongOrNull("slotLength"),
-            slotsPerKESPeriod = root.optLongOrNull("slotsPerKESPeriod"),
+            era = root.optNullableString("era") ?: root.optNullableString("suiEra"),
+            epochLength = root.optLongOrNull("epochLength") ?: root.optLongOrNull("suiEpochLength"),
+            slotLength = root.optLongOrNull("slotLength") ?: root.optLongOrNull("suiSlotLength"),
+            slotsPerKESPeriod = root.optLongOrNull("slotsPerKESPeriod") ?: root.optLongOrNull("suiSlotsPerKESPeriod"),
         )
     }.getOrNull()?.takeIf {
         it.era != null ||

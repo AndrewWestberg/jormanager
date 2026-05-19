@@ -200,4 +200,171 @@ describe('store/jormanager - getters', () => {
       expect(typeof store.isDebug).toBe('boolean')
     })
   })
+
+  describe('saveNodeStats', () => {
+    it('ignores null chart samples and preserves existing epoch values', () => {
+      const store = useJorManagerStore()
+      store.epoch = 38855
+      store.slot = 1234
+
+      store.saveNodeStats([
+        {
+          nodeName: 'GPOOL',
+          timestamp: 1000,
+          blockHeight: null,
+          peers: null,
+          incomingPeers: null,
+          remainingKESPeriods: null,
+          epoch: null,
+          slotInEpoch: null,
+          epochLength: 432000,
+          txsProcessed: null,
+          color: '#fff',
+          isDefault: true
+        }
+      ])
+
+      expect(store.epoch).toBe(38855)
+      expect(store.slot).toBe(1234)
+      expect(store.blockHeightSeries).toEqual([])
+      expect(store.peersSeries).toEqual([])
+      expect(store.incomingPeersSeries).toEqual([])
+      expect(store.txsProcessedSeries).toEqual([])
+    })
+
+    it('uses the default node for epoch and slot tracking', () => {
+      const store = useJorManagerStore()
+
+      store.saveNodeStats([
+        {
+          nodeName: 'relay-a',
+          timestamp: 1000,
+          blockHeight: 1,
+          peers: 2,
+          incomingPeers: 3,
+          remainingKESPeriods: 10,
+          epoch: 400,
+          slotInEpoch: 50,
+          epochLength: 432000,
+          txsProcessed: 5,
+          color: '#111',
+          isDefault: false
+        },
+        {
+          nodeName: 'GPOOL',
+          timestamp: 1001,
+          blockHeight: 2,
+          peers: 4,
+          incomingPeers: 5,
+          remainingKESPeriods: 11,
+          epoch: 401,
+          slotInEpoch: 60,
+          epochLength: 432000,
+          txsProcessed: 6,
+          color: '#222',
+          isDefault: true
+        }
+      ])
+
+      expect(store.epoch).toBe(401)
+      expect(store.slot).toBe(60)
+    })
+
+    it('recognizes the live websocket default field', () => {
+      const store = useJorManagerStore()
+
+      store.saveNodeStats([
+        {
+          nodeName: 'GPOOL',
+          timestamp: 1001,
+          blockHeight: 2,
+          peers: 4,
+          incomingPeers: 5,
+          remainingKESPeriods: 11,
+          epoch: 401,
+          slotInEpoch: 60,
+          epochLength: 432000,
+          txsProcessed: 6,
+          color: '#222',
+          default: true
+        }
+      ])
+
+      expect(store.epoch).toBe(401)
+      expect(store.slot).toBe(60)
+    })
+
+    it('uses the first non-null epoch when no default node has reported yet', () => {
+      const store = useJorManagerStore()
+
+      store.saveNodeStats([
+        {
+          nodeName: 'core-a',
+          timestamp: 1000,
+          blockHeight: 3,
+          peers: 1,
+          incomingPeers: 2,
+          remainingKESPeriods: 12,
+          epoch: 402,
+          slotInEpoch: 70,
+          epochLength: 432000,
+          txsProcessed: 7,
+          color: '#333',
+          isDefault: false
+        }
+      ])
+
+      expect(store.epoch).toBe(402)
+      expect(store.slot).toBe(70)
+    })
+
+    it('replaces series array entries when appending chart points', () => {
+      const store = useJorManagerStore()
+
+      store.saveNodeStats([
+        {
+          nodeName: 'GPOOL',
+          timestamp: 1000,
+          blockHeight: 10,
+          peers: 2,
+          incomingPeers: 1,
+          remainingKESPeriods: 11,
+          epoch: 401,
+          slotInEpoch: 60,
+          epochLength: 432000,
+          txsProcessed: 6,
+          color: '#222',
+          default: true
+        }
+      ])
+
+      const previousBlockSeriesEntry = store.blockHeightSeries[0]
+      const previousPeerSeriesEntry = store.peersSeries[0]
+      const previousIncomingSeriesEntry = store.incomingPeersSeries[0]
+      const previousTxSeriesEntry = store.txsProcessedSeries[0]
+
+      store.saveNodeStats([
+        {
+          nodeName: 'GPOOL',
+          timestamp: 2000,
+          blockHeight: 11,
+          peers: 3,
+          incomingPeers: 2,
+          remainingKESPeriods: 11,
+          epoch: 401,
+          slotInEpoch: 61,
+          epochLength: 432000,
+          txsProcessed: 7,
+          color: '#222',
+          default: true
+        }
+      ])
+
+      expect(store.blockHeightSeries[0]).not.toBe(previousBlockSeriesEntry)
+      expect(store.peersSeries[0]).not.toBe(previousPeerSeriesEntry)
+      expect(store.incomingPeersSeries[0]).not.toBe(previousIncomingSeriesEntry)
+      expect(store.txsProcessedSeries[0]).not.toBe(previousTxSeriesEntry)
+      expect(store.blockHeightSeries[0].data).toEqual([[1000, 10], [2000, 11]])
+    })
+  })
 })

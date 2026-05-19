@@ -7,7 +7,9 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.ktor.utils.io.ClosedByteChannelException
 import java.io.IOException
+import java.net.SocketException
 import java.time.Instant
 import java.util.Optional
 import java.util.concurrent.atomic.AtomicInteger
@@ -86,6 +88,21 @@ class TracingConnectionManagerTest {
             manager.start()
             waitUntil { attempts.get() >= 2 }
             manager.stopAndWait()
+        }
+
+    @Test
+    fun classifiesExpectedSocketResetDisconnects() =
+        runBlocking {
+            val manager =
+                createManager(
+                    nodes = listOf(coreNode()),
+                    hostById = mapOf(1L to host()),
+                )
+
+            assertThat(manager.isExpectedDisconnect(ClosedByteChannelException(SocketException("Connection reset")))).isTrue()
+            assertThat(manager.isExpectedDisconnect(SocketException("Connection reset"))).isTrue()
+            assertThat(manager.isExpectedDisconnect(IOException("wrapper", SocketException("Connection reset")))).isTrue()
+            assertThat(manager.isExpectedDisconnect(IOException("synthetic disconnect"))).isFalse()
         }
 
     @Test
@@ -384,11 +401,10 @@ class TracingConnectionManagerTest {
             val manager =
                 createManager(
                     nodes = listOf(
-                        coreNode(type = "relay", tracingPort = 12790),
                         coreNode(type = "pool", tracingPort = 12791, id = 2L),
                         coreNode(tracingPort = null, id = 3L),
                     ),
-                    hostById = mapOf(1L to host(), 2L to host(), 3L to host()),
+                    hostById = mapOf(2L to host(), 3L to host()),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory {
                             object : TraceForwardConnectionRunner {
@@ -411,6 +427,41 @@ class TracingConnectionManagerTest {
 
             assertThat(attempts.get()).isEqualTo(0)
             assertThat(manager.managedNodeIds()).isEmpty()
+
+            manager.stopAndWait()
+        }
+
+    @Test
+    fun relayNodesWithTracingPortsOpenTracingConnections() =
+        runBlocking {
+            val attempts = AtomicInteger(0)
+            val relayNode = coreNode(type = "relay", tracingPort = 12790)
+            val manager =
+                createManager(
+                    nodes = listOf(relayNode),
+                    hostById = mapOf(relayNode.hostId to host()),
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory {
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    attempts.incrementAndGet()
+                                    awaitCancellation()
+                                }
+
+                                override fun close() {
+                                }
+                            }
+                        },
+                )
+
+            manager.start()
+            waitUntil { attempts.get() == 1 }
+
+            assertThat(manager.managedNodeIds()).containsExactly(relayNode.id)
 
             manager.stopAndWait()
         }
@@ -472,7 +523,7 @@ class TracingConnectionManagerTest {
     private fun traceObjectsReply() =
         TraceForwardMessage.TraceObjectsReply(
             com.google.iot.cbor.CborArray.create().apply {
-                add(com.google.iot.cbor.CborTextString.create("{\"toNamespace\":[\"Forge\",\"AdoptedBlock\"],\"toMachine\":{\"kind\":\"TraceAdoptedBlock\",\"slot\":1,\"blockHash\":\"abc\"},\"toHostname\":\"host\",\"toTimestamp\":\"2026-05-12T00:00:00Z\"}"))
+                add(com.google.iot.cbor.CborTextString.create("{\"at\":\"2026-05-19T00:54:58.004191817Z\",\"ns\":\"Forge.Loop.AdoptedBlock\",\"data\":{\"kind\":\"TraceAdoptedBlock\",\"slot\":1,\"blockHash\":\"abc\"},\"host\":\"host\"}"))
             }
         )
 

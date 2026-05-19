@@ -564,38 +564,55 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     saveNodeStats(nodeStatEvents: NodeStatEvent[]) {
       for (const nodeStats of nodeStatEvents) {
+        const isDefaultNode = nodeStats.isDefault === true || nodeStats.default === true
+        const shouldUseForEpoch = isDefaultNode || this.epoch === 0
+
         // Block height series
-        let index = findIndex(this.blockHeightSeries, ['name', nodeStats.nodeName])
-        if (index > -1) {
-          this.blockHeightSeries[index].data.push([nodeStats.timestamp, nodeStats.blockHeight])
-          this.blockHeightSeries[index].data = this.blockHeightSeries[index].data.slice(-60)
-          this.nodeColors[index] = nodeStats.color
-        } else {
-          const heightData: SeriesDataPoint = {
-            name: nodeStats.nodeName,
-            data: [[nodeStats.timestamp, nodeStats.blockHeight]]
+        if (nodeStats.blockHeight != null) {
+          let index = findIndex(this.blockHeightSeries, ['name', nodeStats.nodeName])
+          if (index > -1) {
+            const nextData = [...this.blockHeightSeries[index].data, [nodeStats.timestamp, nodeStats.blockHeight] as [number, number]].slice(-60)
+            this.blockHeightSeries[index] = {
+              ...this.blockHeightSeries[index],
+              data: nextData
+            }
+            this.nodeColors[index] = nodeStats.color
+            this.blockHeightSeries = [...this.blockHeightSeries]
+            this.nodeColors = [...this.nodeColors]
+          } else {
+            const heightData: SeriesDataPoint = {
+              name: nodeStats.nodeName,
+              data: [[nodeStats.timestamp, nodeStats.blockHeight]]
+            }
+            this.blockHeightSeries.push(heightData)
+            this.blockHeightSeries = sortBy(this.blockHeightSeries, ['name'])
+            const newIndex = this.blockHeightSeries.findIndex(s => s.name === nodeStats.nodeName)
+            this.nodeColors[newIndex] = nodeStats.color
+            this.nodeColors = [...this.nodeColors]
           }
-          this.blockHeightSeries.push(heightData)
-          this.blockHeightSeries = sortBy(this.blockHeightSeries, ['name'])
-          const newIndex = this.blockHeightSeries.findIndex(s => s.name === nodeStats.nodeName)
-          this.nodeColors[newIndex] = nodeStats.color
         }
 
         // Peers series
-        const index1 = findIndex(this.peersSeries, ['name', nodeStats.nodeName])
-        if (index1 > -1) {
-          this.peersSeries[index1].data.push([nodeStats.timestamp, nodeStats.peers])
-          this.peersSeries[index1].data = this.peersSeries[index1].data.slice(-60)
-        } else {
-          this.peersSeries.push({
-            name: nodeStats.nodeName,
-            data: [[nodeStats.timestamp, nodeStats.peers]]
-          })
-          this.peersSeries = sortBy(this.peersSeries, ['name'])
+        if (nodeStats.peers != null) {
+          const index1 = findIndex(this.peersSeries, ['name', nodeStats.nodeName])
+          if (index1 > -1) {
+            const nextData = [...this.peersSeries[index1].data, [nodeStats.timestamp, nodeStats.peers] as [number, number]].slice(-60)
+            this.peersSeries[index1] = {
+              ...this.peersSeries[index1],
+              data: nextData
+            }
+            this.peersSeries = [...this.peersSeries]
+          } else {
+            this.peersSeries.push({
+              name: nodeStats.nodeName,
+              data: [[nodeStats.timestamp, nodeStats.peers]]
+            })
+            this.peersSeries = sortBy(this.peersSeries, ['name'])
+          }
         }
 
         // KES remaining
-        const daysRemaining = nodeStats.remainingKESPeriods * 1.5
+        const daysRemaining = nodeStats.remainingKESPeriods != null ? nodeStats.remainingKESPeriods * 1.5 : 0
         if (daysRemaining > 0) {
           let low = 0, ok = 0, good = 0
           if (daysRemaining <= 5) {
@@ -624,39 +641,49 @@ export const useJorManagerStore = defineStore('jormanager', {
         }
 
         // Epoch/slot tracking
-        if (nodeStats.epoch !== this.epoch) {
+        if (shouldUseForEpoch && nodeStats.epoch != null && nodeStats.epoch !== this.epoch) {
           this.epoch = nodeStats.epoch
           this.slot = 0
         }
-        if (nodeStats.slotInEpoch !== this.slot) {
+        if (shouldUseForEpoch && nodeStats.slotInEpoch != null && nodeStats.slotInEpoch !== this.slot) {
           this.slot = nodeStats.slotInEpoch
         }
-        if (nodeStats.epochLength !== this.epochLength) {
+        if (shouldUseForEpoch && nodeStats.epochLength !== this.epochLength) {
           this.epochLength = nodeStats.epochLength
         }
 
         // Incoming peers series
-        const index3 = findIndex(this.incomingPeersSeries, ['name', nodeStats.nodeName])
-        if (index3 > -1) {
-          this.incomingPeersSeries[index3].data.push([nodeStats.timestamp, nodeStats.incomingPeers])
-          this.incomingPeersSeries[index3].data = this.incomingPeersSeries[index3].data.slice(-60)
-        } else {
-          this.incomingPeersSeries.push({
-            name: nodeStats.nodeName,
-            data: [[nodeStats.timestamp, nodeStats.incomingPeers]]
-          })
-          this.incomingPeersSeries = sortBy(this.incomingPeersSeries, ['name'])
+        if (nodeStats.incomingPeers != null) {
+          const index3 = findIndex(this.incomingPeersSeries, ['name', nodeStats.nodeName])
+          if (index3 > -1) {
+            const nextData = [...this.incomingPeersSeries[index3].data, [nodeStats.timestamp, nodeStats.incomingPeers] as [number, number]].slice(-60)
+            this.incomingPeersSeries[index3] = {
+              ...this.incomingPeersSeries[index3],
+              data: nextData
+            }
+            this.incomingPeersSeries = [...this.incomingPeersSeries]
+          } else {
+            this.incomingPeersSeries.push({
+              name: nodeStats.nodeName,
+              data: [[nodeStats.timestamp, nodeStats.incomingPeers]]
+            })
+            this.incomingPeersSeries = sortBy(this.incomingPeersSeries, ['name'])
+          }
         }
 
         // Txs processed series
         const index4 = findIndex(this.txsProcessedSeries, ['name', nodeStats.nodeName])
         if (index4 > -1) {
-          if (nodeStats.txsProcessed > 0) {
-            this.txsProcessedSeries[index4].data.push([nodeStats.timestamp, nodeStats.txsProcessed])
-            this.txsProcessedSeries[index4].data = this.txsProcessedSeries[index4].data.slice(-60)
+          if (nodeStats.txsProcessed != null && nodeStats.txsProcessed > 0) {
+            const nextData = [...this.txsProcessedSeries[index4].data, [nodeStats.timestamp, nodeStats.txsProcessed] as [number, number]].slice(-60)
+            this.txsProcessedSeries[index4] = {
+              ...this.txsProcessedSeries[index4],
+              data: nextData
+            }
+            this.txsProcessedSeries = [...this.txsProcessedSeries]
           }
         } else {
-          if (nodeStats.txsProcessed > 0) {
+          if (nodeStats.txsProcessed != null && nodeStats.txsProcessed > 0) {
             this.txsProcessedSeries.push({
               name: nodeStats.nodeName,
               data: [[nodeStats.timestamp, nodeStats.txsProcessed]]

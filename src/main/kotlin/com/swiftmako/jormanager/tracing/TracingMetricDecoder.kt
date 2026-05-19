@@ -40,27 +40,32 @@ data class TracingMetricSnapshot(
     val forge: TracingForgeMetrics,
     val kes: TracingKesMetrics?,
     val mempool: TracingMempoolMetrics,
+    val peers: TracingPeerMetrics,
 ) {
     fun toNodeStateMetrics(
         peers: Int,
         incomingPeers: Int,
     ): NodeStateMetrics? {
         val chain = chain ?: return null
-        val kes = kes ?: return null
-        val remainingKesPeriods = kes.remainingKesPeriods.toNodeStatsIntOrNull() ?: return null
-        val txsProcessed = mempool.txsProcessedNum ?: return null
+        val resolvedPeers = peers.takeIf { it > 0 } ?: this.peers.outgoingConnections?.toInt() ?: 0
+        val resolvedIncomingPeers = incomingPeers.takeIf { it > 0 } ?: this.peers.incomingConnections?.toInt() ?: 0
         return NodeStateMetrics(
-            peers = peers,
-            incomingPeers = incomingPeers,
+            peers = resolvedPeers,
+            incomingPeers = resolvedIncomingPeers,
             blockHeight = chain.blockNum,
-            remainingKESPeriods = remainingKesPeriods,
+            remainingKESPeriods = kes?.remainingKesPeriods?.toNodeStatsIntOrNull() ?: 0,
             epoch = chain.epoch,
             slot = chain.slotNum,
             slotInEpoch = chain.slotInEpoch,
-            txsProcessed = txsProcessed,
+            txsProcessed = mempool.txsProcessedNum ?: 0,
         )
     }
 }
+
+data class TracingPeerMetrics(
+    val outgoingConnections: Long? = null,
+    val incomingConnections: Long? = null,
+)
 
 class TracingMetricDecoder {
     fun decode(metrics: Map<String, TracingRawMetricValue>): TracingMetricSnapshot =
@@ -69,6 +74,7 @@ class TracingMetricDecoder {
             forge = metrics.toForgeMetrics(),
             kes = metrics.toKesMetrics(),
             mempool = metrics.toMempoolMetrics(),
+            peers = metrics.toPeerMetrics(),
         )
 
     private fun Map<String, TracingRawMetricValue>.toKesMetrics(): TracingKesMetrics? {
@@ -120,6 +126,12 @@ class TracingMetricDecoder {
             adopted = counter(FORGE_ADOPTED),
         )
 
+    private fun Map<String, TracingRawMetricValue>.toPeerMetrics(): TracingPeerMetrics =
+        TracingPeerMetrics(
+            outgoingConnections = intGauge(OUTBOUND_CONNS),
+            incomingConnections = intGauge(INBOUND_CONNS),
+        )
+
     private fun Map<String, TracingRawMetricValue>.counter(name: String): Long? =
         (this[name] as? TracingRawMetricValue.Counter)?.value
 
@@ -133,6 +145,35 @@ class TracingMetricDecoder {
         label(name)?.toDoubleOrNull()
 
     companion object {
+        val DASHBOARD_REQUEST_NAMES =
+            listOf(
+                BLOCK_NUM,
+                SLOT_NUM,
+                SLOT_IN_EPOCH,
+                EPOCH,
+                DENSITY,
+                TIP_BLOCK,
+                FORGING_ENABLED,
+                FORGE_ABOUT_TO_LEAD,
+                FORGE_NODE_NOT_LEADER,
+                FORGE_NODE_IS_LEADER,
+                FORGED_SLOT_LAST,
+                FORGE_FORGED,
+                FORGE_ADOPTED,
+                OPERATIONAL_CERTIFICATE_START_KES_PERIOD,
+                OPERATIONAL_CERTIFICATE_EXPIRY_KES_PERIOD,
+                CURRENT_KES_PERIOD,
+                REMAINING_KES_PERIODS,
+                TXS_IN_MEMPOOL,
+                MEMPOOL_BYTES,
+                TXS_PROCESSED_NUM,
+                TXS_SYNC_DURATION,
+                TXS_SYNC_DURATION_TOTAL,
+                TXS_MEMPOOL_TIMEOUT_SOFT,
+                OUTBOUND_CONNS,
+                INBOUND_CONNS,
+            )
+
         const val BLOCK_NUM = "cardano.node.metrics.blockNum_int"
         const val SLOT_NUM = "cardano.node.metrics.slotNum_int"
         const val SLOT_IN_EPOCH = "cardano.node.metrics.slotInEpoch_int"
@@ -159,6 +200,8 @@ class TracingMetricDecoder {
         const val TXS_SYNC_DURATION = "cardano.node.metrics.txsSyncDuration_int"
         const val TXS_SYNC_DURATION_TOTAL = "cardano.node.metrics.txsSyncDurationTotal_counter"
         const val TXS_MEMPOOL_TIMEOUT_SOFT = "cardano.node.metrics.txsMempoolTimeoutSoft_counter"
+        const val OUTBOUND_CONNS = "cardano.node.metrics.connectionManager.outboundConns_int"
+        const val INBOUND_CONNS = "cardano.node.metrics.connectionManager.inboundConns_int"
     }
 }
 

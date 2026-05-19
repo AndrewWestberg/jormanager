@@ -61,6 +61,28 @@ class TraceForwardProtocol3ExtractorTest {
         assertThat(decoded?.startupInfo).isNull()
     }
 
+    @Test
+    fun startupInfoSupportsSuiPrefixedLiveKeys() {
+        val decoded =
+            extractor.decode(
+                TraceForwardFixtures.msgDataPointsReply(
+                    TraceForwardFixtures.dataPoint(
+                        NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                        "{\"suiEra\":\"Dijkstra\",\"suiEpochLength\":3600,\"suiSlotLength\":1,\"suiSlotsPerKESPeriod\":129600}"
+                    ),
+                ).toDataPointsReply()
+            )
+
+        assertThat(decoded?.startupInfo).isEqualTo(
+            NodeStartupInfo(
+                era = "Dijkstra",
+                epochLength = 3_600L,
+                slotLength = 1L,
+                slotsPerKESPeriod = 129_600L,
+            )
+        )
+    }
+
     private fun ByteArray.toDataPointsReply(): TraceForwardMessage.DataPointsReply =
         ByteArrayInputStream(this).use { input ->
             val payload = CborReader.createFromInputStream(input).readDataItem() as CborArray
