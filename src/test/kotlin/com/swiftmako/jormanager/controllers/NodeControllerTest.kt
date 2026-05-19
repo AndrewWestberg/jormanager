@@ -293,6 +293,46 @@ class NodeControllerTest {
     }
 
     @Test
+    fun renderEnvContentIncludesTracingValuesForCoreNodes() {
+        val target = createTarget()
+
+        val env =
+            target.renderEnvContent(
+                nodeType = NodeController.NODE_TYPE_CORE,
+                nodeName = "core1",
+                nodeFolder = "/srv/cardano/core1",
+                listen = "0.0.0.0",
+                port = 3001,
+                tracingHost = "0.0.0.0",
+                tracingPort = 12790,
+            )
+
+        assertThat(env).contains("TRACING_HOST=0.0.0.0")
+        assertThat(env).contains("TRACING_PORT=12790")
+        assertThat(env).contains("SHELLEY_OPCERT=/srv/cardano/core1/core1.node.opcert")
+    }
+
+    @Test
+    fun renderEnvContentPreservesParentCoreTracingValuesForPoolRewrite() {
+        val target = createTarget()
+
+        val env =
+            target.renderEnvContent(
+                nodeType = NodeController.NODE_TYPE_POOL,
+                nodeName = "core1",
+                nodeFolder = "/srv/cardano/core1",
+                listen = "127.0.0.1",
+                port = 6001,
+                tracingHost = "10.0.0.5",
+                tracingPort = 12795,
+            )
+
+        assertThat(env).contains("TRACING_HOST=10.0.0.5")
+        assertThat(env).contains("TRACING_PORT=12795")
+        assertThat(env).contains("BULK_CREDENTIALS=/srv/cardano/core1/credentials.json")
+    }
+
+    @Test
     fun renderManagedConfigBuildsCoreDispatcherTracingShape() {
         val target = createTarget()
 

@@ -551,7 +551,7 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun startDoesNotBackfillTracingSettingsForLegacyRelayNodes() =
+    fun startBackfillsTracingSettingsForLegacyRelayNodes() =
         runBlocking {
             val legacyRelayNode =
                 node(
@@ -572,8 +572,14 @@ class NodeMonitorTest {
             monitor.start()
             monitor.stopAndWait()
 
-            verify(exactly = 0) {
-                nodeRepository.save(any())
+            verify {
+                nodeRepository.save(
+                    withArg { savedNode ->
+                        assertThat(savedNode.id).isEqualTo(legacyRelayNode.id)
+                        assertThat(savedNode.tracingHost).isEqualTo("0.0.0.0")
+                        assertThat(savedNode.tracingPort).isEqualTo(legacyRelayNode.promPort + 1)
+                    }
+                )
             }
         }
 
