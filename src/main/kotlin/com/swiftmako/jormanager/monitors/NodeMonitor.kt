@@ -307,10 +307,16 @@ class NodeMonitor
             epochLength: Long,
         ): NodeStats {
             if (hostRepository.findByIdOrNull(node.hostId) == null || node.tracingPort == null) {
+                if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+                    log.info("Tracing debug: loadNodeStats node=${node.name} returning nullNodeStats because host missing or tracingPort null")
+                }
                 return nullNodeStats(node, timestamp, epochLength)
             }
 
             val metrics = loadNodeStateMetrics(node, epochLength)
+            if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+                log.info("Tracing debug: loadNodeStats node=${node.name} metrics=$metrics epochLength=$epochLength")
+            }
             return if (metrics != null && metrics.blockHeight > 0L) {
                 metrics.toNodeStats(
                     timestamp = timestamp,
@@ -320,6 +326,9 @@ class NodeMonitor
                     epochLength = epochLength,
                 )
             } else {
+                if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+                    log.info("Tracing debug: loadNodeStats node=${node.name} returning nullNodeStats because metrics=${metrics ?: "null"}")
+                }
                 nullNodeStats(node, timestamp, epochLength)
             }
         }
@@ -362,7 +371,7 @@ class NodeMonitor
             )
 
         private fun shouldMonitorNode(node: Node): Boolean =
-            !node.isDeleted && node.type == "core" && node.tracingPort != null
+            !node.isDeleted && node.type in setOf("core", "relay") && node.tracingPort != null
 
         private fun nextAlignedDelay(intervalMillis: Long): Long {
             val now = System.currentTimeMillis()

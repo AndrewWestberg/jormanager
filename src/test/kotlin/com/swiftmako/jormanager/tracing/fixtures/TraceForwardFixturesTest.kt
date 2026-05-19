@@ -61,8 +61,8 @@ class TraceForwardFixturesTest {
         assertThat(reply.size()).isEqualTo(2)
         assertThat(reply.elementAt(0).toJsonString()).isEqualTo("3")
         assertThat(traceObjects.size()).isEqualTo(1)
-        assertThat(traceObjects.elementAt(0).toJsonString()).contains("\\\"toNamespace\\\"")
-        assertThat(traceObjects.elementAt(0).toJsonString()).contains("Forge")
+        assertThat(traceObjects.elementAt(0).toJsonString()).contains("\\\"ns\\\"")
+        assertThat(traceObjects.elementAt(0).toJsonString()).contains("Forge.Loop.AdoptedBlock")
     }
 
     @Test
@@ -98,8 +98,8 @@ class TraceForwardFixturesTest {
         val traceObject = TraceForwardFixtures.adoptedBlockTraceObject()
         val traceObjectJson = JSONObject(traceObject.traceObjectJson)
 
-        assertThat(traceObject.namespace()).containsExactly("Forge", "AdoptedBlock").inOrder()
-        assertThat(traceObjectJson.has("toMachine")).isTrue()
+        assertThat(traceObject.namespace()).containsExactly("Forge.Loop.AdoptedBlock")
+        assertThat(traceObjectJson.has("data")).isTrue()
         assertThat(traceObject.toMachineJson()).contains("\"kind\":\"TraceAdoptedBlock\"")
         assertThat(traceObject.toMachineJson()).contains("\"slot\":7403221")
         assertThat(traceObject.toMachineJson()).contains("\"blockHash\":")
@@ -114,15 +114,15 @@ class TraceForwardFixturesTest {
         val nonNumericSlot = TraceForwardFixtures.nonNumericSlotTraceObject()
         val wrapperOnlyBlockHash = TraceForwardFixtures.wrapperOnlyBlockHashTraceObject()
 
-        assertThat(malformed.namespace()).containsExactly("Forge", "AdoptedBlock").inOrder()
+        assertThat(malformed.namespace()).containsExactly("Forge.Loop.AdoptedBlock")
         assertThat(malformed.toMachineJson()).endsWith(",")
-        assertThat(unknownNamespace.namespace()).containsExactly("ChainDB", "AddBlockEvent").inOrder()
+        assertThat(unknownNamespace.namespace()).containsExactly("Some.Unknown.Namespace")
         assertThat(unknownNamespace.toMachineJson()).contains("\"SomeOtherEvent\"")
         assertThat(missingBlockHash.toMachineJson()).doesNotContain("blockHash")
-        assertThat(wrongKind.namespace()).containsExactly("Forge", "AdoptedBlock").inOrder()
+        assertThat(wrongKind.namespace()).containsExactly("Forge.Loop.AdoptedBlock")
         assertThat(wrongKind.toMachineJson()).contains("\"SomeOtherEvent\"")
         assertThat(nonNumericSlot.toMachineJson()).contains("\"slot\":\"oops\"")
-        assertThat(wrapperOnlyBlockHash.traceObjectJson).contains("\"blockHash\": \"wrapper-value\"")
+        assertThat(wrapperOnlyBlockHash.traceObjectJson).contains("\"blockHash\":\"wrapper-value\"")
     }
 
     @Test

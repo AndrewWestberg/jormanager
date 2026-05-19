@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const chartOptions = computed(() => ({
   chart: {
-    id: 'vuechart',
+    id: `stacked-bar-chart-${props.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     animations: {
       enabled: false
     },

@@ -39,7 +39,7 @@ class SocketTraceForwardConnectionRunnerFactory : TraceForwardConnectionRunnerFa
 
 class SocketTraceForwardConnectionRunner(
     private val requestedDataPointNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
-    private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetAllMetrics,
+    private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetMetrics(TracingMetricDecoder.DASHBOARD_REQUEST_NAMES),
     private val networkMagic: Long = DEFAULT_NETWORK_MAGIC,
     private val requestBlocking: Boolean = true,
     private val requestCount: Int = DEFAULT_REQUEST_COUNT,

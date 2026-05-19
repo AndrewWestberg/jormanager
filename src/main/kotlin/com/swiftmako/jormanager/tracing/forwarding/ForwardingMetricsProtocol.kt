@@ -27,6 +27,7 @@ sealed interface ForwardingMetricsRequest {
 
 class ForwardingMetricsProtocol(
     private val request: ForwardingMetricsRequest = ForwardingMetricsRequest.GetAllMetrics,
+    private val singleReplyMode: Boolean = false,
 ) : MiniProtocol(protocolId = 0x0001) {
     private var state = State.Request
         set(value) {
@@ -95,7 +96,7 @@ class ForwardingMetricsProtocol(
                             rawJson = cborArray.toJsonString(),
                         )
                     )
-                    state = State.DoneToSend
+                    state = if (singleReplyMode) State.DoneToSend else State.Request
                 }
 
                 else -> error("Unexpected metrics message id")
@@ -181,7 +182,7 @@ class ForwardingMetricsProtocol(
     companion object {
         private const val MSG_REQUEST_ID = 0L
         private const val MSG_METRICS_REPLY_ID = 1L
-        private const val MSG_DONE_ID = 1L
+        private const val MSG_DONE_ID = 2L
         private const val GET_ALL_METRICS_REQUEST_ID = 0L
         private const val GET_METRICS_REQUEST_ID = 1L
         private const val RESPONSE_METRICS_TAG = 0L

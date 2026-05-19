@@ -196,7 +196,7 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun tracedRelayDoesNotStartMonitoring() =
+    fun tracedRelayPublishesNodeStats() =
         runBlocking {
             val relayNode = node(id = 1L, name = "relay-a", type = "relay", tracingPort = 12790)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
@@ -210,10 +210,13 @@ class NodeMonitorTest {
 
             rawCapture.onMessage(relayNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
-            Thread.sleep(150)
+            waitUntil { sentMessages.isNotEmpty() }
             monitor.stopAndWait()
 
-            assertThat(sentMessages).isEmpty()
+            @Suppress("UNCHECKED_CAST")
+            val nodeStatsEvents = sentMessages.last().data as List<NodeStats>
+            assertThat(nodeStatsEvents.last().nodeName).isEqualTo("relay-a")
+            assertThat(nodeStatsEvents.last().blockHeight).isEqualTo(7_403_221L)
         }
 
     @Test
@@ -237,18 +240,17 @@ class NodeMonitorTest {
                 coreNode.id!!,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
-                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 2, inbound = 3),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
                         TraceForwardFixtures.nodeStateTraceObject(),
                     ).toTraceObjectsReply(),
             )
             monitor.start()
-            waitUntil {
-                latestNodeStats.get()?.peers == 2 && latestNodeStats.get()?.incomingPeers == 3 && sentMessages.isNotEmpty()
-            }
+            waitUntil { latestNodeStats.get()?.peers == 2 && sentMessages.isNotEmpty() }
             monitor.stopAndWait()
 
             assertThat(latestNodeStats.get()?.peers).isEqualTo(2)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(3)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
             assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
         }
 
@@ -293,7 +295,7 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun staleProtocol1MetricsFallBackToDatapoints() =
+    fun staleProtocol1MetricsRemainUsable() =
         runBlocking {
             val coreNode = node(isDefault = true)
             val latestNodeStats = AtomicReference<NodeStats>(null)
@@ -315,10 +317,10 @@ class NodeMonitorTest {
             )
             rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
-            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
             monitor.stopAndWait()
 
-            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(8_888_888L)
             assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(36)
         }
 
@@ -362,7 +364,11 @@ class NodeMonitorTest {
                 coreNode.id!!,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
-                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
                     ).toTraceObjectsReply(),
             )
             rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
@@ -371,12 +377,12 @@ class NodeMonitorTest {
             monitor.stopAndWait()
 
             assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(6)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(7)
             assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
         }
 
     @Test
-    fun incompleteProtocol1MetricsFallBackToDatapoints() =
+    fun incompleteProtocol1MetricsStillPublishUsableNodeStats() =
         runBlocking {
             val coreNode = node(isDefault = true)
             val latestNodeStats = AtomicReference<NodeStats>(null)
@@ -401,11 +407,12 @@ class NodeMonitorTest {
             )
             rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
-            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
+            waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
             monitor.stopAndWait()
 
-            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
-            assertThat(latestNodeStats.get()?.txsProcessed).isEqualTo(123_456L)
+            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(8_888_888L)
+            assertThat(latestNodeStats.get()?.txsProcessed).isEqualTo(0L)
+            assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(36)
         }
 
     @Test
@@ -429,16 +436,20 @@ class NodeMonitorTest {
                 coreNode.id,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
-                        TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
+                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
                     ).toTraceObjectsReply(),
             )
             monitor.start()
-            waitUntil { latestNodeStats.get()?.peers == 5 && latestNodeStats.get()?.incomingPeers == 6 }
+            waitUntil { latestNodeStats.get()?.peers == 5 && latestNodeStats.get()?.incomingPeers == 0 }
             monitor.stopAndWait()
 
             assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
             assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(6)
+            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
         }
 
     @Test
@@ -462,7 +473,7 @@ class NodeMonitorTest {
                         nodeId = coreNode.id,
                         capturedAt = Instant.now().minusSeconds(60),
                         traceObjects = TraceForwardFixtures.traceObjectsArray(
-                            TraceForwardFixtures.connectionManagerCountersTraceObject(outbound = 5, inbound = 6),
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
                         ),
                     ),
             )

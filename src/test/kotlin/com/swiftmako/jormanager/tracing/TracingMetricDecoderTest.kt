@@ -53,10 +53,17 @@ class TracingMetricDecoderTest {
                     txsMempoolTimeoutSoft = 12L,
                 )
             )
+        assertThat(snapshot.peers)
+            .isEqualTo(
+                TracingPeerMetrics(
+                    outgoingConnections = 13L,
+                    incomingConnections = 14L,
+                )
+            )
     }
 
     @Test
-    fun toNodeStateMetricsReturnsNullWhenCompleteDashboardSubsetIsMissing() {
+    fun toNodeStateMetricsFallsBackToZeroWhenOptionalDashboardMetricsAreMissing() {
         val snapshot =
             decoder.decode(
                 fullMetricMap().filterKeys {
@@ -64,7 +71,46 @@ class TracingMetricDecoderTest {
                 }
             )
 
-        assertThat(snapshot.toNodeStateMetrics(peers = 2, incomingPeers = 3)).isNull()
+        assertThat(snapshot.toNodeStateMetrics(peers = 0, incomingPeers = 0))
+            .isEqualTo(
+                NodeStateMetrics(
+                    peers = 13,
+                    incomingPeers = 14,
+                    blockHeight = 7_403_221L,
+                    remainingKESPeriods = 36,
+                    epoch = 490L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 0L,
+                )
+            )
+    }
+
+    @Test
+    fun toNodeStateMetricsFallsBackToZeroWhenKesMetricsAreMissing() {
+        val snapshot =
+            decoder.decode(
+                fullMetricMap().filterKeys {
+                    it != TracingMetricDecoder.REMAINING_KES_PERIODS &&
+                        it != TracingMetricDecoder.OPERATIONAL_CERTIFICATE_START_KES_PERIOD &&
+                        it != TracingMetricDecoder.OPERATIONAL_CERTIFICATE_EXPIRY_KES_PERIOD &&
+                        it != TracingMetricDecoder.CURRENT_KES_PERIOD
+                }
+            )
+
+        assertThat(snapshot.toNodeStateMetrics(peers = 0, incomingPeers = 0))
+            .isEqualTo(
+                NodeStateMetrics(
+                    peers = 13,
+                    incomingPeers = 14,
+                    blockHeight = 7_403_221L,
+                    remainingKESPeriods = 0,
+                    epoch = 490L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 123_456L,
+                )
+            )
     }
 
     @Test
@@ -82,11 +128,11 @@ class TracingMetricDecoderTest {
         assertThat(snapshot.chain?.density).isNull()
         assertThat(snapshot.chain?.tipBlock).isNull()
         assertThat(snapshot.forge.forged).isNull()
-        assertThat(snapshot.toNodeStateMetrics(peers = 2, incomingPeers = 3))
+        assertThat(snapshot.toNodeStateMetrics(peers = 0, incomingPeers = 0))
             .isEqualTo(
                 NodeStateMetrics(
-                    peers = 2,
-                    incomingPeers = 3,
+                    peers = 13,
+                    incomingPeers = 14,
                     blockHeight = 7_403_221L,
                     remainingKESPeriods = 36,
                     epoch = 490L,
@@ -95,6 +141,28 @@ class TracingMetricDecoderTest {
                     txsProcessed = 123_456L,
                 )
             )
+    }
+
+    @Test
+    fun decodeSupportsClockworkPrefixedPeerMetricNames() {
+        val snapshot =
+            decoder.decode(
+                fullMetricMap() +
+                    mapOf(
+                        TracingMetricDecoder.OUTBOUND_CONNS to TracingRawMetricValue.IntGauge(21L),
+                        TracingMetricDecoder.INBOUND_CONNS to TracingRawMetricValue.IntGauge(22L),
+                    ),
+            )
+
+        assertThat(snapshot.peers)
+            .isEqualTo(
+                TracingPeerMetrics(
+                    outgoingConnections = 21L,
+                    incomingConnections = 22L,
+                )
+            )
+        assertThat(snapshot.toNodeStateMetrics(peers = 0, incomingPeers = 0)?.peers).isEqualTo(21)
+        assertThat(snapshot.toNodeStateMetrics(peers = 0, incomingPeers = 0)?.incomingPeers).isEqualTo(22)
     }
 
     private fun fullMetricMap(): Map<String, TracingRawMetricValue> =
@@ -122,5 +190,7 @@ class TracingMetricDecoderTest {
             TracingMetricDecoder.TXS_SYNC_DURATION to TracingRawMetricValue.IntGauge(10L),
             TracingMetricDecoder.TXS_SYNC_DURATION_TOTAL to TracingRawMetricValue.Counter(11L),
             TracingMetricDecoder.TXS_MEMPOOL_TIMEOUT_SOFT to TracingRawMetricValue.Counter(12L),
+            TracingMetricDecoder.OUTBOUND_CONNS to TracingRawMetricValue.IntGauge(13L),
+            TracingMetricDecoder.INBOUND_CONNS to TracingRawMetricValue.IntGauge(14L),
         )
 }

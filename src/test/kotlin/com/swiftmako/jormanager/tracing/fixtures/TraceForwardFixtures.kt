@@ -101,20 +101,14 @@ object TraceForwardFixtures {
     fun adoptedBlockTraceObject(
         slot: Long = 7_403_221L,
         blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
-        namespace: List<String> = listOf("Forge", "AdoptedBlock"),
+        namespace: String = "Forge.Loop.AdoptedBlock",
+        host: String = "core-node-1",
+        at: String = "2026-05-12T00:00:00Z",
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ${jsonArray(namespace)},
-                  "toMachine": {"kind":"TraceAdoptedBlock","slot":$slot,"blockHash":"$blockHash","blockSize":1234},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"$at","ns":"$namespace","data":{"blockHash":"$blockHash","blockSize":1234,"kind":"TraceAdoptedBlock","slot":$slot},"sev":"Info","thread":"104","host":"$host"}
                 """.trimIndent(),
         )
 
@@ -122,41 +116,25 @@ object TraceForwardFixtures {
         slot: Long = 7_403_221L,
         blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
         blockNo: Long = 7_403_221L,
-        namespace: List<String> = listOf("Forge", "ForgedBlock"),
+        namespace: String = "Forge.Loop.ForgedBlock",
+        host: String = "core-node-1",
+        at: String = "2026-05-12T00:00:00Z",
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ${jsonArray(namespace)},
-                  "toMachine": {"kind":"TraceForgedBlock","slot":$slot,"block":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash"},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"$at","ns":"$namespace","data":{"block":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash","kind":"TraceForgedBlock","slot":$slot},"sev":"Info","thread":"104","host":"$host"}
                 """.trimIndent(),
         )
 
     fun forgedBlockHashOnlyTraceObject(
         slot: Long = 7_403_221L,
         blockHash: String = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
-        blockNo: Long = 7_403_221L,
-        namespace: List<String> = listOf("Forge", "ForgedBlock"),
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ${jsonArray(namespace)},
-                  "toMachine": {"kind":"TraceForgedBlock","slot":$slot,"blockHash":"$blockHash","blockNo":$blockNo,"blockPrev":"prevhash"},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-12T00:00:00Z","ns":"Forge.Loop.ForgedBlock","data":{"blockHash":"$blockHash","blockNo":7403221,"blockPrev":"prevhash","kind":"TraceForgedBlock","slot":$slot},"sev":"Info","thread":"104","host":"core-node-1"}
                 """.trimIndent(),
         )
 
@@ -164,55 +142,43 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
-                  "toMachine": "{\"kind\":\"TraceAdoptedBlock\",\"slot\":42,",
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-12T00:00:00Z","ns":"Forge.Loop.AdoptedBlock","data":"{\"kind\":\"TraceAdoptedBlock\",\"slot\":42,","sev":"Info","thread":"104","host":"core-node-1"}
                 """.trimIndent(),
         )
 
     fun nodeStateTraceObject(
         blockHeight: Long = 7_403_221L,
         slot: Long = 7_403_221L,
+        host: String = "core-node-1",
+        at: String = "2026-05-12T00:00:00Z",
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["ChainDB.AddBlockEvent.AddedToCurrentChain"],
-                  "toMachine": {"kind":"AddedToCurrentChain","newSuffixSelectView":{"blockNo":$blockHeight,"slotNo":$slot},"newtip":"hash@$slot"},
-                  "toSeverity": "Notice",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"$at","ns":"ChainDB.AddBlockEvent.AddedToCurrentChain","data":{"kind":"AddedToCurrentChain","newSuffixSelectView":{"blockNo":$blockHeight,"issueNo":16,"issuerHash":"257f8e6911f9ed6031d4520bd473ce9a488dc76f4f1b967b35c120b1","kind":"PraosTiebreakerView","slotNo":$slot,"tieBreakVRF":"3fe116703897dbfd67acf060d681680733f5414c1d4d7cf247cbff27ccee33bb9b9bb7503e71e2b7f95fb07b40a32b00133047df33f3bb7105e25c94ce357aa8","weightBoost":0},"newtip":"hash@$slot"},"sev":"Notice","thread":"78","host":"$host"}
                 """.trimIndent(),
         )
 
-    fun connectionManagerCountersTraceObject(
-        outbound: Int = 2,
-        inbound: Int = 2,
-        duplex: Int = 2,
-        fullDuplex: Int = 2,
-        unidirectional: Int = 0,
+    fun clockworkPeerTraceObject(
+        namespace: String = "ChainSync.Client.DownloadedHeader",
+        kind: String = "DownloadedHeader",
+        connectionId: String = "127.0.0.1:7001 127.0.0.1:7000",
     ): ForwardedTraceObjectFixture =
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
                 {
-                  "toNamespace": ["Net.ConnectionManager.Remote.ConnectionManagerCounters"],
-                  "toMachine": {"kind":"ConnectionManagerCounters","state":{"duplex":$duplex,"fullDuplex":$fullDuplex,"inbound":$inbound,"outbound":$outbound,"unidirectional":$unidirectional}},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
+                  "at": "2026-05-18T22:06:38.210132193Z",
+                  "ns": "$namespace",
+                  "data": {
+                    "kind": "$kind",
+                    "peer": {
+                      "connectionId": "$connectionId"
+                    }
+                  },
+                  "sev": "Info",
+                  "thread": "149",
+                  "host": "clockwork"
                 }
                 """.trimIndent(),
         )
@@ -221,15 +187,7 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["ChainDB", "AddBlockEvent"],
-                  "toMachine": {"kind":"SomeOtherEvent","slot":42,"blockHash":"abc123"},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-19T00:54:58.004191817Z","ns":"Some.Unknown.Namespace","data":{"kind":"SomeOtherEvent","slot":42,"blockHash":"abc123"},"sev":"Info","thread":"104","host":"clockwork"}
                 """.trimIndent(),
         )
 
@@ -237,15 +195,7 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
-                  "toMachine": {"kind":"TraceAdoptedBlock","slot":42},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-19T00:54:58.004191817Z","ns":"Forge.Loop.AdoptedBlock","data":{"kind":"TraceAdoptedBlock","slot":42},"sev":"Info","thread":"104","host":"clockwork"}
                 """.trimIndent(),
         )
 
@@ -253,15 +203,7 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
-                  "toMachine": {"kind":"SomeOtherEvent","slot":42,"blockHash":"abc123"},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-19T00:54:58.004191817Z","ns":"Forge.Loop.AdoptedBlock","data":{"kind":"SomeOtherEvent","slot":42,"blockHash":"abc123"},"sev":"Info","thread":"104","host":"clockwork"}
                 """.trimIndent(),
         )
 
@@ -269,15 +211,7 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
-                  "toMachine": {"kind":"TraceAdoptedBlock","slot":"oops","blockHash":"abc123"},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-19T00:54:58.004191817Z","ns":"Forge.Loop.AdoptedBlock","data":{"kind":"TraceAdoptedBlock","slot":"oops","blockHash":"abc123"},"sev":"Info","thread":"104","host":"clockwork"}
                 """.trimIndent(),
         )
 
@@ -285,16 +219,7 @@ object TraceForwardFixtures {
         ForwardedTraceObjectFixture(
             traceObjectJson =
                 """
-                {
-                  "toNamespace": ["Forge", "AdoptedBlock"],
-                  "blockHash": "wrapper-value",
-                  "toMachine": {"kind":"TraceAdoptedBlock","slot":42},
-                  "toSeverity": "Info",
-                  "toDetails": "DNormal",
-                  "toHostname": "core-node-1",
-                  "toThreadId": "trace-forward-1",
-                  "toTimestamp": "2026-05-12T00:00:00Z"
-                }
+                {"at":"2026-05-19T00:54:58.004191817Z","ns":"Forge.Loop.AdoptedBlock","blockHash":"wrapper-value","data":{"kind":"TraceAdoptedBlock","slot":42},"sev":"Info","thread":"104","host":"clockwork"}
                 """.trimIndent(),
         )
 
@@ -325,8 +250,6 @@ object TraceForwardFixtures {
                 add(CborTextString.create(traceObject.traceObjectJson))
             }
         }
-
-    private fun jsonArray(values: List<String>): String = values.joinToString(prefix = "[\"", separator = "\", \"", postfix = "\"]")
 
     fun missingNodeStateKeyReply(): ByteArray =
         msgDataPointsReply(
@@ -403,7 +326,7 @@ object TraceForwardFixtures {
     ): DataPointFixture = DataPointFixture(name = name, rawJsonValue = rawJsonValue)
 
     private fun cborBytes(item: com.google.iot.cbor.CborObject): ByteArray {
-        val buffer = ByteBuffer.allocate(1024)
+        val buffer = ByteBuffer.allocate(8192)
         CborWriter.createFromByteBuffer(buffer).writeDataItem(item)
         buffer.flip()
         return ByteArray(buffer.remaining()).also { buffer.get(it) }
@@ -438,19 +361,17 @@ data class ForwardedTraceObjectFixture(
     val traceObjectJson: String,
 ) {
     fun toMachineJson(): String =
-        readJsonObject().get("toMachine").let { machine ->
+        readJsonObject().get("data").let { machine ->
             when (machine) {
                 is JSONObject -> machine.toString()
                 is JSONArray -> machine.toString()
                 is String -> machine
-                else -> error("Unsupported toMachine type: ${machine::class.java.name}")
+                else -> error("Unsupported data type: ${machine::class.java.name}")
             }
         }
 
     fun namespace(): List<String> =
-        readJsonObject()
-            .getJSONArray("toNamespace")
-            .let { namespace -> (0 until namespace.length()).map(namespace::getString) }
+        listOf(readJsonObject().getString("ns"))
 
     private fun readJsonObject(): JSONObject = JSONObject(traceObjectJson)
 }

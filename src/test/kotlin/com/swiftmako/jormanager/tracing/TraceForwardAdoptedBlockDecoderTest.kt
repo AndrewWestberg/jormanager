@@ -52,14 +52,8 @@ class TraceForwardAdoptedBlockDecoderTest {
 
     @Test
     fun decodesLiveLoopNamespacedForwardedBlockTraceObjects() {
-        val adopted =
-            decoder.decode(
-                TraceForwardFixtures.adoptedBlockTraceObject(namespace = listOf("Forge", "Loop", "AdoptedBlock")).traceObjectJson
-            )
-        val forged =
-            decoder.decode(
-                TraceForwardFixtures.forgedBlockTraceObject(namespace = listOf("Forge", "Loop", "ForgedBlock")).traceObjectJson
-            )
+        val adopted = decoder.decode(TraceForwardFixtures.adoptedBlockTraceObject().traceObjectJson)
+        val forged = decoder.decode(TraceForwardFixtures.forgedBlockTraceObject().traceObjectJson)
 
         assertThat(adopted?.status).isEqualTo("completed")
         assertThat(adopted?.blockHash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
@@ -207,7 +201,8 @@ class TraceForwardAdoptedBlockDecoderTest {
 
             val metricsRequest = frames[1].payload as CborArray
             assertThat((metricsRequest.elementAt(0) as CborInteger).longValue()).isEqualTo(0L)
-            assertThat((metricsRequest.elementAt(1) as CborInteger).longValue()).isEqualTo(0L)
+            val metricsRequestBody = metricsRequest.elementAt(1) as CborArray
+            assertThat((metricsRequestBody.elementAt(0) as CborInteger).longValue()).isEqualTo(1L)
 
             val traceRequest = frames[2].payload as CborArray
             assertThat(traceRequest.toJsonString()).isEqualTo(
