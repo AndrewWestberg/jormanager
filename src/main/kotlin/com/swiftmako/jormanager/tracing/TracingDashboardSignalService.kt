@@ -140,7 +140,10 @@ private fun List<TracingRawDataPointSnapshot>.mergeDataPointsSnapshot(nodeId: Lo
             mergedByName.forEach { (name, value) ->
                 add(
                     com.google.iot.cbor.CborArray.create().apply {
-                        add(com.google.iot.cbor.CborTextString.create(name))
+                        add(
+                            com.google.iot.cbor.CborTextString
+                                .create(name)
+                        )
                         add(value)
                     }
                 )

@@ -113,7 +113,10 @@ class LiveTraceForwardIntegrationTest {
                     ekgRequest = EkgRequest.GetAllMetrics,
                 )
 
-            val metricNames = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
+            val metricNames = capture.ekgReplies
+                .flatMap { it.metrics.keys }
+                .distinct()
+                .sorted()
             val interesting = metricNames.filter { name -> EKG_INTERESTING_HINTS.any(name::contains) }
 
             println("ekg unique metric names (${metricNames.size}):")
@@ -313,7 +316,10 @@ class LiveTraceForwardIntegrationTest {
                     ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES + CLOCKWORK_PEER_METRIC_NAMES),
                 )
 
-            val metricMap = capture.ekgReplies.lastOrNull()?.metrics.orEmpty()
+            val metricMap = capture.ekgReplies
+                .lastOrNull()
+                ?.metrics
+                .orEmpty()
             val chainMetrics = metricMap.toChainMetrics()
             val forgeMetrics = metricMap.toForgeMetrics()
             val kesMetrics = metricMap.toKesMetrics()
@@ -364,11 +370,29 @@ class LiveTraceForwardIntegrationTest {
                     ekgRequest = EkgRequest.GetMetrics(DASHBOARD_EXPECTED_METRIC_NAMES + CLOCKWORK_PEER_METRIC_NAMES),
                 )
 
-            val mergedMap = capture.dataPointReplies.mergeDataPointReplies().dataPoints.toDataPointMap()
-            val metricKeys = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
-            val chainMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toChainMetrics()
-            val kesMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toKesMetrics()
-            val mempoolMetrics = capture.ekgReplies.lastOrNull()?.metrics.orEmpty().toMempoolMetrics()
+            val mergedMap = capture.dataPointReplies
+                .mergeDataPointReplies()
+                .dataPoints
+                .toDataPointMap()
+            val metricKeys = capture.ekgReplies
+                .flatMap { it.metrics.keys }
+                .distinct()
+                .sorted()
+            val chainMetrics = capture.ekgReplies
+                .lastOrNull()
+                ?.metrics
+                .orEmpty()
+                .toChainMetrics()
+            val kesMetrics = capture.ekgReplies
+                .lastOrNull()
+                ?.metrics
+                .orEmpty()
+                .toKesMetrics()
+            val mempoolMetrics = capture.ekgReplies
+                .lastOrNull()
+                ?.metrics
+                .orEmpty()
+                .toMempoolMetrics()
             val dashboardMetricReplies =
                 collectEkgReplies(
                     host = CLOCKWORK_HOST,
@@ -511,7 +535,10 @@ class LiveTraceForwardIntegrationTest {
                     ekgRequest = EkgRequest.GetMetrics(MEMPOOL_EXPECTED_METRIC_NAMES),
                 )
 
-            val observedMetricNames = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
+            val observedMetricNames = capture.ekgReplies
+                .flatMap { it.metrics.keys }
+                .distinct()
+                .sorted()
             val typedSnapshots = capture.ekgReplies.map { it.metrics.toMempoolMetrics() }
             val matchingTrace =
                 capture.traceReplies
@@ -587,7 +614,10 @@ class LiveTraceForwardIntegrationTest {
                     .distinctBy { it.key }
                     .sortedBy { it.key }
 
-            val ekgMetricNames = capture.ekgReplies.flatMap { it.metrics.keys }.distinct().sorted()
+            val ekgMetricNames = capture.ekgReplies
+                .flatMap { it.metrics.keys }
+                .distinct()
+                .sorted()
 
             println("clockwork 5m trace matches (${interestingTrace.size}):")
             interestingTrace.forEach(::println)
@@ -837,7 +867,11 @@ class LiveTraceForwardIntegrationTest {
                     .mapNotNull { it.traceObjectMachineJsonOrNull() }
                     .filter { json -> KES_TRACE_OBJECT_HINTS.any(json::contains) }
 
-            val dataPoints = dataReplies.singleOrNull()?.dataPoints?.toDataPointMap().orEmpty()
+            val dataPoints = dataReplies
+                .singleOrNull()
+                ?.dataPoints
+                ?.toDataPointMap()
+                .orEmpty()
             val nonEmpty = dataPoints.filterValues { it != null }
 
             println("clockwork KES trace matches (${traceJson.size}):")
@@ -1093,22 +1127,23 @@ class LiveTraceForwardIntegrationTest {
             )
 
         private val DASHBOARD_EXPECTED_METRIC_NAMES =
-            (listOf(
-                "cardano.node.metrics.blockNum_int",
-                "cardano.node.metrics.slotNum_int",
-                "cardano.node.metrics.slotInEpoch_int",
-                "cardano.node.metrics.epoch_int",
-                "cardano.node.metrics.density_real",
-                "cardano.node.metrics.tipBlock",
-                "cardano.node.metrics.forging_enabled_int",
-                "cardano.node.metrics.Forge.about-to-lead_counter",
-                "cardano.node.metrics.Forge.node-not-leader_counter",
-                "cardano.node.metrics.Forge.node-is-leader_counter",
-                "cardano.node.metrics.forgedSlotLast_int",
-                "cardano.node.metrics.Forge.forged_counter",
-                "cardano.node.metrics.Forge.adopted_counter",
-            ) + KES_EXPECTED_METRIC_NAMES + MEMPOOL_EXPECTED_METRIC_NAMES).distinct()
-
+            (
+                listOf(
+                    "cardano.node.metrics.blockNum_int",
+                    "cardano.node.metrics.slotNum_int",
+                    "cardano.node.metrics.slotInEpoch_int",
+                    "cardano.node.metrics.epoch_int",
+                    "cardano.node.metrics.density_real",
+                    "cardano.node.metrics.tipBlock",
+                    "cardano.node.metrics.forging_enabled_int",
+                    "cardano.node.metrics.Forge.about-to-lead_counter",
+                    "cardano.node.metrics.Forge.node-not-leader_counter",
+                    "cardano.node.metrics.Forge.node-is-leader_counter",
+                    "cardano.node.metrics.forgedSlotLast_int",
+                    "cardano.node.metrics.Forge.forged_counter",
+                    "cardano.node.metrics.Forge.adopted_counter",
+                ) + KES_EXPECTED_METRIC_NAMES + MEMPOOL_EXPECTED_METRIC_NAMES
+            ).distinct()
     }
 }
 
@@ -1657,7 +1692,10 @@ private fun List<TraceForwardMessage.DataPointsReply>.mergeDataPointReplies(): T
             mergedByName.forEach { (name, value) ->
                 add(
                     com.google.iot.cbor.CborArray.create().apply {
-                        add(com.google.iot.cbor.CborTextString.create(name))
+                        add(
+                            com.google.iot.cbor.CborTextString
+                                .create(name)
+                        )
                         add(value)
                     }
                 )

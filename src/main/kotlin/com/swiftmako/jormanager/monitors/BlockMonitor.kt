@@ -107,19 +107,20 @@ class BlockMonitor
                                     )
                                 }
                             } else if (chainBlock?.hash?.startsWith(hash) == true) {
-                                blockRepository.save(
-                                    unvalidatedBlock.copy(
-                                        hash = chainBlock.hash,
-                                        pool = pool,
-                                        status = "forged",
-                                    )
-                                ).also {
-                                    log.info("Forged Block: $it")
-                                    webSocketTemplate.convertAndSend(
-                                        "/topic/messages",
-                                        SocketResponse.Success(type = "block", data = it),
-                                    )
-                                }
+                                blockRepository
+                                    .save(
+                                        unvalidatedBlock.copy(
+                                            hash = chainBlock.hash,
+                                            pool = pool,
+                                            status = "forged",
+                                        )
+                                    ).also {
+                                        log.info("Forged Block: $it")
+                                        webSocketTemplate.convertAndSend(
+                                            "/topic/messages",
+                                            SocketResponse.Success(type = "block", data = it),
+                                        )
+                                    }
                             } else {
                                 blockRepository.save(unvalidatedBlock.copy(pool = pool, status = "orphaned")).also {
                                     log.error("Orphaned Block: $it")

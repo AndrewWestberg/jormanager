@@ -57,6 +57,7 @@ class TracingConnectionManager(
     private val managedConnections = mutableMapOf<Long, ManagedTracingConnection>()
     private var nodeCollectorJob: Job? = null
     private var seedJob: Job? = null
+
     @Volatile
     private var isShuttingDown = false
 
@@ -201,6 +202,9 @@ class TracingConnectionManager(
             return null
         }
 
+        val nodeId = requireNotNull(node.id)
+        val tracingPort = requireNotNull(node.tracingPort)
+
         val host = hostRepository.findById(node.hostId).orElse(null)
         if (host == null) {
             log.error { "Unable to start tracing for node ${node.name}: host ${node.hostId} not found" }
@@ -208,9 +212,9 @@ class TracingConnectionManager(
         }
 
         return TracingNodeTarget(
-            nodeId = node.id,
+            nodeId = nodeId,
             hostname = host.hostname,
-            tracingPort = node.tracingPort,
+            tracingPort = tracingPort,
         )
     }
 

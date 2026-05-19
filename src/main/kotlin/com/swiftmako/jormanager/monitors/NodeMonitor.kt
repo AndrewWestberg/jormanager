@@ -105,35 +105,10 @@ class NodeMonitor
         override fun start() {
             log.info("Starting NodeMonitor...")
 
-            backfillTracingSettingsIfNecessary()
             loadLedgerValuesIfNecessary()
             monitorNodes()
             seedNodes()
             collectAndGroupStats()
-        }
-
-        private fun backfillTracingSettingsIfNecessary() {
-            runCatching {
-                nodeRepository.findAll().forEach { node ->
-                    if (node.type == "pool" && (node.tracingPort != null || node.tracingHost != null)) {
-                        nodeRepository.save(node.copy(tracingHost = null, tracingPort = null))
-                        return@forEach
-                    }
-
-                    if (node.isDeleted || node.type !in setOf("core", "relay") || node.tracingPort != null || node.promPort <= 0) {
-                        return@forEach
-                    }
-
-                    nodeRepository.save(
-                        node.copy(
-                            tracingHost = node.tracingHost ?: "0.0.0.0",
-                            tracingPort = node.promPort + 1,
-                        )
-                    )
-                }
-            }.onFailure { throwable ->
-                log.error("Error backfilling node tracing settings!", throwable)
-            }
         }
 
         @OptIn(DelicateCoroutinesApi::class)
@@ -307,14 +282,18 @@ class NodeMonitor
             epochLength: Long,
         ): NodeStats {
             if (hostRepository.findByIdOrNull(node.hostId) == null || node.tracingPort == null) {
-                if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+                if (com.swiftmako.jormanager.tracing
+                        .isTracingDebugEnabled()
+                ) {
                     log.info("Tracing debug: loadNodeStats node=${node.name} returning nullNodeStats because host missing or tracingPort null")
                 }
                 return nullNodeStats(node, timestamp, epochLength)
             }
 
             val metrics = loadNodeStateMetrics(node, epochLength)
-            if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+            if (com.swiftmako.jormanager.tracing
+                    .isTracingDebugEnabled()
+            ) {
                 log.info("Tracing debug: loadNodeStats node=${node.name} metrics=$metrics epochLength=$epochLength")
             }
             return if (metrics != null && metrics.blockHeight > 0L) {
@@ -326,7 +305,9 @@ class NodeMonitor
                     epochLength = epochLength,
                 )
             } else {
-                if (com.swiftmako.jormanager.tracing.isTracingDebugEnabled()) {
+                if (com.swiftmako.jormanager.tracing
+                        .isTracingDebugEnabled()
+                ) {
                     log.info("Tracing debug: loadNodeStats node=${node.name} returning nullNodeStats because metrics=${metrics ?: "null"}")
                 }
                 nullNodeStats(node, timestamp, epochLength)
@@ -336,18 +317,17 @@ class NodeMonitor
         private fun loadNodeStateMetrics(
             node: Node,
             epochLength: Long,
-        ) =
-            node.id?.let { nodeId ->
-                tracingDashboardSignalService.loadSignals(nodeId, epochLength, rawSnapshotMaxAge)?.nodeStateMetrics
-            }
+        ) = node.id?.let { nodeId ->
+            tracingDashboardSignalService.loadSignals(nodeId, epochLength, rawSnapshotMaxAge)?.nodeStateMetrics
+        }
 
         private fun resolveEpochLength(genesisShelleyFileId: Long): Long =
-            fileRepository.findByIdOrNull(genesisShelleyFileId)
+            fileRepository
+                .findByIdOrNull(genesisShelleyFileId)
                 ?.toEpochLength()
                 ?: DEFAULT_EPOCH_LENGTH
 
-        private fun File.toEpochLength(): Long =
-            shelleyGenesisAdapter.fromJson(content)?.epochLength ?: DEFAULT_EPOCH_LENGTH
+        private fun File.toEpochLength(): Long = shelleyGenesisAdapter.fromJson(content)?.epochLength ?: DEFAULT_EPOCH_LENGTH
 
         private fun nullNodeStats(
             node: Node,
@@ -370,8 +350,7 @@ class NodeMonitor
                 epochLength = epochLength,
             )
 
-        private fun shouldMonitorNode(node: Node): Boolean =
-            !node.isDeleted && node.type in setOf("core", "relay") && node.tracingPort != null
+        private fun shouldMonitorNode(node: Node): Boolean = !node.isDeleted && node.type in setOf("core", "relay") && node.tracingPort != null
 
         private fun nextAlignedDelay(intervalMillis: Long): Long {
             val now = System.currentTimeMillis()
@@ -406,10 +385,10 @@ class NodeMonitor
             }
         }
 
-    companion object {
+        companion object {
             private const val DEFAULT_EPOCH_LENGTH = 432000L
             private const val STARTUP_DELAY_MS = 5000L
             private const val SAMPLE_INTERVAL_MS = 5000L
             private const val PUBLISH_DELAY_MS = 3000L
         }
-}
+    }

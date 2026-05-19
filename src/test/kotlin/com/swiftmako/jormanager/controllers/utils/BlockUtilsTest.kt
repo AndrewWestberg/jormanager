@@ -110,6 +110,25 @@ class BlockUtilsTest {
                 ),
         )
 
+    private val nodeStatsGuild =
+        AtomicReference(
+            NodeStats(
+                isDefault = true,
+                timestamp = 0L,
+                nodeName = "",
+                color = "",
+                peers = 2,
+                blockHeight = null,
+                remainingKESPeriods = null,
+                epoch = 82L,
+                slot = 82L * 3600L + 257L,
+                slotInEpoch = 257L,
+                txsProcessed = 15L,
+                incomingPeers = 15,
+                epochLength = 3600,
+            )
+        )
+
     private val shelleyGuild =
         GenesisShelley(
             activeSlotsCoeff = 0.05,
@@ -149,7 +168,7 @@ class BlockUtilsTest {
         val testnetTransitionEpoch = target.getShelleyTransitionEpoch(byronTest, shelleyTest)
         assertThat(testnetTransitionEpoch).isEqualTo(74)
 
-        target = BlockUtils(nodeStatsTest, "/usr/local/lib/libsodium.so")
+        target = BlockUtils(nodeStatsGuild, "/usr/local/lib/libsodium.so")
         val guildTransitionEpoch = target.getShelleyTransitionEpoch(byronGuild, shelleyGuild)
         assertThat(guildTransitionEpoch).isEqualTo(0)
     }

@@ -135,14 +135,18 @@ class TraceForwardFixturesTest {
         assertThat((missingReply.elementAt(1) as CborArray).size()).isEqualTo(7)
         assertThat((((nothingReply.elementAt(1) as CborArray).elementAt(5) as CborArray).elementAt(1) as CborArray).size()).isEqualTo(0)
         assertThat(
-            (((((malformedReply.elementAt(1) as CborArray).elementAt(4) as CborArray).elementAt(1) as CborArray).elementAt(0) as CborByteString)
-                .byteArrayValue()[0]
-                .decodeToString())
+            (
+                ((((malformedReply.elementAt(1) as CborArray).elementAt(4) as CborArray).elementAt(1) as CborArray).elementAt(0) as CborByteString)
+                    .byteArrayValue()[0]
+                    .decodeToString()
+            )
         ).isEqualTo("\"oops\"")
         assertThat(
-            (((((overflowingReply.elementAt(1) as CborArray).elementAt(0) as CborArray).elementAt(1) as CborArray).elementAt(0) as CborByteString)
-                .byteArrayValue()[0]
-                .decodeToString())
+            (
+                ((((overflowingReply.elementAt(1) as CborArray).elementAt(0) as CborArray).elementAt(1) as CborArray).elementAt(0) as CborByteString)
+                    .byteArrayValue()[0]
+                    .decodeToString()
+            )
         ).isEqualTo("2147483648")
     }
 

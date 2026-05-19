@@ -38,8 +38,8 @@ class ForwardingProposeVersions(
 }
 
 object ForwardingHandshakeDecoder {
-    fun decode(cborArray: CborArray): ForwardingAcceptVersion {
-        return when (val messageId = cborArray.elementToLong(0)) {
+    fun decode(cborArray: CborArray): ForwardingAcceptVersion =
+        when (val messageId = cborArray.elementToLong(0)) {
             MESSAGE_ID_ACCEPT -> {
                 ForwardingAcceptVersion(
                     versionNumber = cborArray.elementToLong(1),
@@ -50,7 +50,6 @@ object ForwardingHandshakeDecoder {
             MESSAGE_ID_REFUSE -> throw IllegalStateException("Forwarding handshake refused: ${cborArray.toJsonString()}")
             else -> throw IllegalStateException("Unexpected forwarding handshake message id: $messageId")
         }
-    }
 
     private const val MESSAGE_ID_ACCEPT = 1L
     private const val MESSAGE_ID_REFUSE = 2L

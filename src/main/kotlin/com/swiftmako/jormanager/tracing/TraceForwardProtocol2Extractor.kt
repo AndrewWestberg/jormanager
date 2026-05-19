@@ -10,11 +10,9 @@ import org.springframework.stereotype.Component
 
 @Component
 class TraceForwardProtocol2Extractor {
-    fun decodeNodeState(batches: Iterable<TracingRawTraceObjectBatch>): ForwardedNodeState? =
-        mergeNodeStates(batches.flatMap { batch -> batch.toMessage().traceObjectsJson() })
+    fun decodeNodeState(batches: Iterable<TracingRawTraceObjectBatch>): ForwardedNodeState? = mergeNodeStates(batches.flatMap { batch -> batch.toMessage().traceObjectsJson() })
 
-    fun decodeNodeState(reply: TraceForwardMessage.TraceObjectsReply): ForwardedNodeState? =
-        mergeNodeStates(reply.traceObjectsJson())
+    fun decodeNodeState(reply: TraceForwardMessage.TraceObjectsReply): ForwardedNodeState? = mergeNodeStates(reply.traceObjectsJson())
 
     fun decodeNodeState(traceObjectJson: String): ForwardedNodeState? =
         runCatching {
@@ -50,8 +48,7 @@ class TraceForwardProtocol2Extractor {
 
     fun decodeBlockEvents(batch: TracingRawTraceObjectBatch): List<ForwardedBlockEvent> = decodeBlockEvents(batch.toMessage())
 
-    fun decodeBlockEvents(reply: TraceForwardMessage.TraceObjectsReply): List<ForwardedBlockEvent> =
-        reply.traceObjectsJson().mapNotNull(::decodeBlockEvent)
+    fun decodeBlockEvents(reply: TraceForwardMessage.TraceObjectsReply): List<ForwardedBlockEvent> = reply.traceObjectsJson().mapNotNull(::decodeBlockEvent)
 
     fun decodeBlockEvent(traceObjectJson: String): ForwardedBlockEvent? =
         runCatching {
@@ -112,12 +109,9 @@ class TraceForwardProtocol2Extractor {
             else -> toJsonString()
         }
 
-    private fun CborArray.elementAtOrNull(index: Int): CborObject? =
-        if (index in 0 until size()) elementAt(index) else null
+    private fun CborArray.elementAtOrNull(index: Int): CborObject? = if (index in 0 until size()) elementAt(index) else null
 
-    private fun JSONObject.namespace(): List<String> {
-        return optString(NS_FIELD, null)?.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
-    }
+    private fun JSONObject.namespace(): List<String> = optString(NS_FIELD, null)?.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
 
     private fun JSONObject.machineObject(): JSONObject? =
         when (val machine = opt(DATA_FIELD)) {
@@ -143,8 +137,7 @@ class TraceForwardProtocol2Extractor {
         return (opt(fieldName) as? Number)?.toInt()
     }
 
-    private fun JSONObject.optNonBlankString(fieldName: String): String? =
-        optString(fieldName, null)?.takeUnless(String::isNullOrBlank)
+    private fun JSONObject.optNonBlankString(fieldName: String): String? = optString(fieldName, null)?.takeUnless(String::isNullOrBlank)
 
     private data class DecodedBlockEvent(
         val status: String,

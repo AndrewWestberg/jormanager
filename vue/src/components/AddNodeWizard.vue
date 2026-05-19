@@ -643,7 +643,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
 import { FormWizard, TabContent } from 'vue3-form-wizard'
@@ -663,6 +663,7 @@ import {
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { lovelaceToAda } from '@/utils/filters'
+import { isCustomTracingListen, syncTracingListenForHost } from '@/utils/tracing'
 
 interface Relay {
   addr: string | null
@@ -726,6 +727,7 @@ const emitter = useEventBus()
 const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
 const fileContents = ref<Record<string, File | null>>({})
 const pendingAction = ref<string | null>(null)
+const hasCustomizedTracingListen = ref(false)
 
 const formNode = ref({
   spendingPassword: null as string | null,
@@ -791,6 +793,7 @@ const formNode = ref({
 })
 
 const nodeColors = computed(() => nodes.value.map(n => n.color))
+const selectedHost = computed(() => store.hosts.find(host => host.id === formNode.value.host) ?? null)
 
 // Key for FormWizard - changes when type changes to force re-render with correct tabs
 const wizardKey = computed(() => `wizard-${formNode.value.type || 'none'}`)
@@ -858,6 +861,31 @@ const metadataLogoState = computed(() => {
   const logo = formNode.value.metadata.extended.info.logo
   return logo != null && logo.length > 0 && logo.startsWith('https://')
 })
+
+watch(
+  selectedHost,
+  () => {
+    formNode.value.tracingListen = syncTracingListenForHost(
+      formNode.value.tracingListen,
+      selectedHost.value,
+      hasCustomizedTracingListen.value
+    )
+  },
+  { immediate: true }
+)
+
+watch(
+  () => formNode.value.tracingListen,
+  (nextValue, previousValue) => {
+    if (previousValue === undefined) {
+      return
+    }
+
+    if (isCustomTracingListen(nextValue, selectedHost.value)) {
+      hasCustomizedTracingListen.value = true
+    }
+  }
+)
 
 function handleFileUpload(event: Event, field: string) {
   const target = event.target as HTMLInputElement
@@ -986,7 +1014,7 @@ onMounted(() => {
       formNode.value.poolMargin = (parent as any).poolMargin || 0.03
     }
   }
-  
+
   emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 

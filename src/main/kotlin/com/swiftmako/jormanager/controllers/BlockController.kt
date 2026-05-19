@@ -403,19 +403,19 @@ class BlockController
                                         .collect { (slot, coreNode) ->
                                             val d =
                                                 async {
-                                                    requireNotNull(coreNode.poolId)
+                                                    val poolId = requireNotNull(coreNode.poolId)
                                                     val sigma =
                                                         if (request.requestType == "futureEpoch") {
-                                                            ledger.futurePoolIdToSigma[coreNode.poolId]
-                                                                ?: throw IOException("No sigma found for poolId ${coreNode.poolId}")
+                                                            ledger.futurePoolIdToSigma[poolId]
+                                                                ?: throw IOException("No sigma found for poolId $poolId")
                                                         } else {
-                                                            ledger.poolIdToSigma[coreNode.poolId]
-                                                                ?: throw IOException("No sigma found for poolId ${coreNode.poolId}")
+                                                            ledger.poolIdToSigma[poolId]
+                                                                ?: throw IOException("No sigma found for poolId $poolId")
                                                         }
 
                                                     val poolVrfSkey =
                                                         mutex.withLock {
-                                                            poolIdToVrfSkey[coreNode.poolId] ?: run {
+                                                            poolIdToVrfSkey[poolId] ?: run {
                                                                 val vrfSkeyFile =
                                                                     fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
                                                                         ?: throw IOException("No VRF Skey for ${coreNode.name}")
@@ -427,7 +427,7 @@ class BlockController
                                                                 val reader =
                                                                     CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
                                                                 (reader.readDataItem() as CborByteString).byteArrayValue()[0].also {
-                                                                    poolIdToVrfSkey[coreNode.poolId] = it
+                                                                    poolIdToVrfSkey[poolId] = it
                                                                 }
                                                             }
                                                         }
@@ -454,7 +454,7 @@ class BlockController
                                                     if (isSlotLeader) {
                                                         mutex.withLock {
                                                             log.info("${coreNode.name}: Selected for slot $slot")
-                                                            val key = "${coreNode.name}|${coreNode.poolId}"
+                                                            val key = "${coreNode.name}|$poolId"
                                                             val count = leadershipCount[key] ?: 0
                                                             leadershipCount[key] = count + 1
 
@@ -479,14 +479,14 @@ class BlockController
                                                                             ),
                                                                         pool = coreNode.name,
                                                                         host =
-                                                                            poolIdToHostname[coreNode.poolId]
+                                                                            poolIdToHostname[poolId]
                                                                                 ?: hostRepository
                                                                                     .findByIdOrNull(
                                                                                         coreNode.hostId
                                                                                     )!!
                                                                                     .hostname
                                                                                     .also {
-                                                                                        poolIdToHostname[coreNode.poolId] = it
+                                                                                        poolIdToHostname[poolId] = it
                                                                                     },
                                                                         slot = slot,
                                                                         epoch = epoch,

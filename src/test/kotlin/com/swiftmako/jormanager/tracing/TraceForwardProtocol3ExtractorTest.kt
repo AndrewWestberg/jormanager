@@ -48,13 +48,14 @@ class TraceForwardProtocol3ExtractorTest {
     fun malformedStartupInfoFailsSafelyWithoutBreakingNodeStateMetrics() {
         val decoded =
             extractor.decode(
-                TraceForwardFixtures.msgDataPointsReply(
-                    *TraceForwardFixtures.fullNodeStateDataPoints().toTypedArray(),
-                    TraceForwardFixtures.dataPoint(
-                        NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
-                        "{\"epochLength\":\"oops\"}",
-                    ),
-                ).toDataPointsReply()
+                TraceForwardFixtures
+                    .msgDataPointsReply(
+                        *TraceForwardFixtures.fullNodeStateDataPoints().toTypedArray(),
+                        TraceForwardFixtures.dataPoint(
+                            NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                            "{\"epochLength\":\"oops\"}",
+                        ),
+                    ).toDataPointsReply()
             )
 
         assertThat(decoded?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
@@ -65,12 +66,13 @@ class TraceForwardProtocol3ExtractorTest {
     fun startupInfoSupportsSuiPrefixedLiveKeys() {
         val decoded =
             extractor.decode(
-                TraceForwardFixtures.msgDataPointsReply(
-                    TraceForwardFixtures.dataPoint(
-                        NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
-                        "{\"suiEra\":\"Dijkstra\",\"suiEpochLength\":3600,\"suiSlotLength\":1,\"suiSlotsPerKESPeriod\":129600}"
-                    ),
-                ).toDataPointsReply()
+                TraceForwardFixtures
+                    .msgDataPointsReply(
+                        TraceForwardFixtures.dataPoint(
+                            NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                            "{\"suiEra\":\"Dijkstra\",\"suiEpochLength\":3600,\"suiSlotLength\":1,\"suiSlotsPerKESPeriod\":129600}"
+                        ),
+                    ).toDataPointsReply()
             )
 
         assertThat(decoded?.startupInfo).isEqualTo(

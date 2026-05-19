@@ -248,7 +248,10 @@ class TraceForwardAdoptedBlockDecoderTest {
             replies
         }
 
-    private fun handleTraceObjectReplyConnection(socket: Socket, serverResponses: List<ByteArray>) {
+    private fun handleTraceObjectReplyConnection(
+        socket: Socket,
+        serverResponses: List<ByteArray>
+    ) {
         socket.soTimeout = 2_000
         val input = socket.getInputStream()
         val output = socket.getOutputStream()
@@ -310,7 +313,10 @@ class TraceForwardAdoptedBlockDecoderTest {
         ) + remainingFrames
     }
 
-    private fun muxFrame(protocolId: Int, payload: ByteArray): ByteArray {
+    private fun muxFrame(
+        protocolId: Int,
+        payload: ByteArray
+    ): ByteArray {
         val frame = ByteBuffer.allocate(8 + payload.size)
         frame.putInt(0)
         frame.putShort((protocolId xor 0x8000).toShort())
@@ -333,23 +339,26 @@ class TraceForwardAdoptedBlockDecoderTest {
     }
 
     private fun expectedHandshakeProposal(): CborObject =
-        CborReader.createFromByteArray(
-            ByteBuffer.allocate(64).apply {
-                CborWriter.createFromByteBuffer(this).writeDataItem(
-                    CborArray.create().apply {
-                        add(CborInteger.create(0L))
-                        add(
-                            com.google.iot.cbor.CborMap.create(
-                                mutableMapOf<CborObject, CborObject>(
-                                    CborInteger.create(1L) to CborInteger.create(141L)
+        CborReader
+            .createFromByteArray(
+                ByteBuffer
+                    .allocate(64)
+                    .apply {
+                        CborWriter.createFromByteBuffer(this).writeDataItem(
+                            CborArray.create().apply {
+                                add(CborInteger.create(0L))
+                                add(
+                                    com.google.iot.cbor.CborMap.create(
+                                        mutableMapOf<CborObject, CborObject>(
+                                            CborInteger.create(1L) to CborInteger.create(141L)
+                                        )
+                                    )
                                 )
-                            )
+                            }
                         )
-                    }
-                )
-                flip()
-            }.let { buffer -> ByteArray(buffer.remaining()).also { buffer.get(it) } }
-        ).readDataItem()
+                        flip()
+                    }.let { buffer -> ByteArray(buffer.remaining()).also { buffer.get(it) } }
+            ).readDataItem()
 
     private data class ObservedMuxFrame(
         val protocolId: Int,

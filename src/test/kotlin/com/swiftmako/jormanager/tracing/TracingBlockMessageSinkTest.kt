@@ -206,64 +206,64 @@ class TracingBlockMessageSinkTest {
     @Test
     fun persistsSentinelEpochWhenBlockUtilsCannotResolveEpochYet() =
         runBlocking {
-        val blockRepository = mockk<BlockRepository>()
-        val fileRepository = mockk<FileRepository>()
-        val blockUtils = mockk<BlockUtils>()
-        val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
-        val service =
-            TracingBlockPersistenceService(
-                blockRepository = blockRepository,
-                fileRepository = fileRepository,
-                webSocketTemplate = webSocketTemplate,
-                blockUtils = blockUtils,
-                byronGenesisAdapter = byronGenesisAdapter,
-                shelleyGenesisAdapter = shelleyGenesisAdapter,
-            )
-        val node = coreNode()
-        val host = host()
+            val blockRepository = mockk<BlockRepository>()
+            val fileRepository = mockk<FileRepository>()
+            val blockUtils = mockk<BlockUtils>()
+            val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+            val service =
+                TracingBlockPersistenceService(
+                    blockRepository = blockRepository,
+                    fileRepository = fileRepository,
+                    webSocketTemplate = webSocketTemplate,
+                    blockUtils = blockUtils,
+                    byronGenesisAdapter = byronGenesisAdapter,
+                    shelleyGenesisAdapter = shelleyGenesisAdapter,
+                )
+            val node = coreNode()
+            val host = host()
 
-        every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
-        every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
-        every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(-1L, -1L)
-        every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
-        every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
-        every { blockRepository.save(any()) } answers { firstArg() }
+            every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
+            every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
+            every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(-1L, -1L)
+            every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
+            every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
+            every { blockRepository.save(any()) } answers { firstArg() }
 
-        val savedBlock = service.persistTracingCandidateBlock(node, host, adoptedBlockEvent())
+            val savedBlock = service.persistTracingCandidateBlock(node, host, adoptedBlockEvent())
 
-        assertThat(savedBlock?.epoch).isEqualTo(-1L)
-        assertThat(savedBlock?.slotInEpoch).isEqualTo(-1L)
+            assertThat(savedBlock?.epoch).isEqualTo(-1L)
+            assertThat(savedBlock?.slotInEpoch).isEqualTo(-1L)
         }
 
     @Test
     fun duplicateTracingEventsDoNotCreateDuplicateBlocks() =
         runBlocking {
-        val blockRepository = mockk<BlockRepository>()
-        val fileRepository = mockk<FileRepository>()
-        val blockUtils = mockk<BlockUtils>()
-        val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
-        val service =
-            TracingBlockPersistenceService(
-                blockRepository = blockRepository,
-                fileRepository = fileRepository,
-                webSocketTemplate = webSocketTemplate,
-                blockUtils = blockUtils,
-                byronGenesisAdapter = byronGenesisAdapter,
-                shelleyGenesisAdapter = shelleyGenesisAdapter,
-            )
-        val node = coreNode()
-        val host = host()
+            val blockRepository = mockk<BlockRepository>()
+            val fileRepository = mockk<FileRepository>()
+            val blockUtils = mockk<BlockUtils>()
+            val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+            val service =
+                TracingBlockPersistenceService(
+                    blockRepository = blockRepository,
+                    fileRepository = fileRepository,
+                    webSocketTemplate = webSocketTemplate,
+                    blockUtils = blockUtils,
+                    byronGenesisAdapter = byronGenesisAdapter,
+                    shelleyGenesisAdapter = shelleyGenesisAdapter,
+                )
+            val node = coreNode()
+            val host = host()
 
-        every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
-        every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
-        every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
-        every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
-        every { blockRepository.findBySlot(7_403_221L) } returns listOf(existingBlock())
+            every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
+            every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
+            every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
+            every { blockRepository.findBySlot(7_403_221L) } returns listOf(existingBlock())
 
-        val savedBlock = service.persistTracingCandidateBlock(node, host, adoptedBlockEvent())
+            val savedBlock = service.persistTracingCandidateBlock(node, host, adoptedBlockEvent())
 
-        assertThat(savedBlock).isNull()
-        verify(exactly = 0) { blockRepository.save(any()) }
+            assertThat(savedBlock).isNull()
+            verify(exactly = 0) { blockRepository.save(any()) }
         }
 
     @Test
@@ -351,6 +351,7 @@ class TracingBlockMessageSinkTest {
     fun rawCaptureRecordsTraceBatchBeforePersistenceRuns() =
         runBlocking {
             val node = coreNode()
+            val nodeId = requireNotNull(node.id)
             val host = host()
             val blockRepository = mockk<BlockRepository>()
             val fileRepository = mockk<FileRepository>()
@@ -359,7 +360,7 @@ class TracingBlockMessageSinkTest {
             val blockUtils = mockk<BlockUtils>()
             val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
 
-            every { nodeRepository.findById(node.id!!) } returns Optional.of(node)
+            every { nodeRepository.findById(nodeId) } returns Optional.of(node)
             every { hostRepository.findById(node.hostId) } returns Optional.of(host)
             every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
             every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
@@ -384,9 +385,9 @@ class TracingBlockMessageSinkTest {
                 )
             val rawCaptureService = TracingRawCaptureService(sink)
 
-            rawCaptureService.onMessage(node.id!!, adoptedBlockReply())
+            rawCaptureService.onMessage(nodeId, adoptedBlockReply())
 
-            assertThat(rawCaptureService.recentTraceObjectBatches(node.id)).hasSize(1)
+            assertThat(rawCaptureService.recentTraceObjectBatches(nodeId)).hasSize(1)
             verify(exactly = 1) { blockRepository.save(any()) }
         }
 

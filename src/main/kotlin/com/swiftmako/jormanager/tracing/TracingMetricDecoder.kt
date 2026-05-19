@@ -132,17 +132,13 @@ class TracingMetricDecoder {
             incomingConnections = intGauge(INBOUND_CONNS),
         )
 
-    private fun Map<String, TracingRawMetricValue>.counter(name: String): Long? =
-        (this[name] as? TracingRawMetricValue.Counter)?.value
+    private fun Map<String, TracingRawMetricValue>.counter(name: String): Long? = (this[name] as? TracingRawMetricValue.Counter)?.value
 
-    private fun Map<String, TracingRawMetricValue>.intGauge(name: String): Long? =
-        (this[name] as? TracingRawMetricValue.IntGauge)?.value
+    private fun Map<String, TracingRawMetricValue>.intGauge(name: String): Long? = (this[name] as? TracingRawMetricValue.IntGauge)?.value
 
-    private fun Map<String, TracingRawMetricValue>.label(name: String): String? =
-        (this[name] as? TracingRawMetricValue.Label)?.value
+    private fun Map<String, TracingRawMetricValue>.label(name: String): String? = (this[name] as? TracingRawMetricValue.Label)?.value
 
-    private fun Map<String, TracingRawMetricValue>.realLabel(name: String): Double? =
-        label(name)?.toDoubleOrNull()
+    private fun Map<String, TracingRawMetricValue>.realLabel(name: String): Double? = label(name)?.toDoubleOrNull()
 
     companion object {
         val DASHBOARD_REQUEST_NAMES =
@@ -205,5 +201,4 @@ class TracingMetricDecoder {
     }
 }
 
-private fun Long.toNodeStatsIntOrNull(): Int? =
-    takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }?.toInt()
+private fun Long.toNodeStatsIntOrNull(): Int? = takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }?.toInt()
