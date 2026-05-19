@@ -32,8 +32,7 @@ class TraceForwardNodeStateDecoderTest {
                         host = "clockwork",
                         at = "2026-05-19T00:45:00.003969274Z",
                     )
-                )
-                .toTraceObjectsReply()
+                ).toTraceObjectsReply()
 
         val decoded = decoder.decode(reply)
 
@@ -106,7 +105,9 @@ class TraceForwardNodeStateDecoderTest {
 
     private fun ByteArray.toTraceObjectsReply(): TraceForwardMessage.TraceObjectsReply =
         ByteArrayInputStream(this).use { input ->
-            val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray
+            val payload = com.google.iot.cbor.CborReader
+                .createFromInputStream(input)
+                .readDataItem() as com.google.iot.cbor.CborArray
             TraceForwardMessage.TraceObjectsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
         }
 }

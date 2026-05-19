@@ -10,6 +10,7 @@ import com.swiftmako.jormanager.spring.config.Configuration
 import io.mockk.every
 import io.mockk.mockk
 import okhttp3.OkHttpClient
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.springframework.data.repository.findByIdOrNull
@@ -82,45 +83,44 @@ class NodeControllerTest {
         type: String,
         name: String = "tickr",
         processorThreads: Int = 8,
-    ) =
-        CreateNodeRequest(
-            color = "#0000FF",
-            hostId = 1L,
-            name = name,
-            isDefault = false,
-            type = type,
-            processorThreads = processorThreads,
-            listen = "127.0.0.1",
-            port = 6001,
-            prometheusListen = "127.0.0.1",
-            enableTracingListener = true,
-            tracingListen = "0.0.0.0",
-            genesisByronFileId = 1L,
-            genesisShelleyFileId = 2L,
-            genesisAlonzoFileId = 3L,
-            genesisConwayFileId = 4L,
-            generateColdKeys = true,
-            coldSKey = null,
-            coldVKey = null,
-            coldCounter = null,
-            generateVRFKeys = true,
-            vrfSKey = null,
-            vrfVKey = null,
-            generateKESKeys = true,
-            kesSKey = null,
-            kesVKey = null,
-            registrationFeesAccount = 1L,
-            ownerStakingAccount = 2L,
-            rewardsStakingAccount = 3L,
-            poolPledge = 250000000000L.toBigInteger(),
-            poolCost = 340000000L.toBigInteger(),
-            poolMargin = "0.05",
-            relays = emptyList(),
-            metadata = null,
-            sudoPassword = "asdfasdf",
-            spendingPassword = "asdfasdf",
-            parentId = null,
-        )
+    ) = CreateNodeRequest(
+        color = "#0000FF",
+        hostId = 1L,
+        name = name,
+        isDefault = false,
+        type = type,
+        processorThreads = processorThreads,
+        listen = "127.0.0.1",
+        port = 6001,
+        prometheusListen = "127.0.0.1",
+        enableTracingListener = true,
+        tracingListen = "0.0.0.0",
+        genesisByronFileId = 1L,
+        genesisShelleyFileId = 2L,
+        genesisAlonzoFileId = 3L,
+        genesisConwayFileId = 4L,
+        generateColdKeys = true,
+        coldSKey = null,
+        coldVKey = null,
+        coldCounter = null,
+        generateVRFKeys = true,
+        vrfSKey = null,
+        vrfVKey = null,
+        generateKESKeys = true,
+        kesSKey = null,
+        kesVKey = null,
+        registrationFeesAccount = 1L,
+        ownerStakingAccount = 2L,
+        rewardsStakingAccount = 3L,
+        poolPledge = 250000000000L.toBigInteger(),
+        poolCost = 340000000L.toBigInteger(),
+        poolMargin = "0.05",
+        relays = emptyList(),
+        metadata = null,
+        sudoPassword = "asdfasdf",
+        spendingPassword = "asdfasdf",
+        parentId = null,
+    )
 
     @Test
     fun allocatePrometheusPortReturnsFirstFreePort() {
@@ -160,7 +160,10 @@ class NodeControllerTest {
             hostRepository = mockk(relaxed = true),
             fileRepository = mockk(relaxed = true),
             walletRepository = mockk(relaxed = true),
-            walletUtils = mockk(relaxed = true),
+            walletUtils =
+                mockk(relaxed = true) {
+                    every { isValidSpendingPassword(any()) } returns true
+                },
             transactionRepository = mockk(relaxed = true),
             webSocketTemplate = mockk(relaxed = true),
             nodesChannel = mockk(relaxed = true),
@@ -218,6 +221,19 @@ class NodeControllerTest {
         val listenerArgument = target.renderTracingListenerArgument("0.0.0.0", null)
 
         assertThat(listenerArgument).isNull()
+    }
+
+    @Test
+    fun createNodeRejectsDisabledTracingListener() {
+        val target = createTarget()
+
+        val exception =
+            assertThrows<RuntimeException> {
+                target.createNode(createRequest(NodeController.NODE_TYPE_RELAY).copy(enableTracingListener = false))
+            }
+
+        assertThat(exception.cause).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(exception.cause).hasMessageThat().isEqualTo("Tracing listener must be enabled!")
     }
 
     @Test
@@ -373,7 +389,13 @@ class NodeControllerTest {
         assertThat(forwarder.get("disconnQueueSize").asInt()).isEqualTo(128)
         assertThat(forwarder.get("maxReconnectDelay").asInt()).isEqualTo(30)
 
-        assertThat(root.get("TraceOptions").get("Forge.AdoptedBlock").get("severity").asText()).isEqualTo("Info")
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("Forge.AdoptedBlock")
+                .get("severity")
+                .asText()
+        ).isEqualTo("Info")
         assertThat(root.get("TraceOptions").get("Resources")).isNull()
         assertThat(root.fieldNames().asSequence().toList())
             .containsAtLeast(
@@ -425,9 +447,20 @@ class NodeControllerTest {
         assertThat(root.get("minSeverity").asText()).isEqualTo("Critical")
         assertThat(root.get("PeerSharing").asBoolean()).isTrue()
         assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(4)
-        assertThat(root.get("TraceOptions").get("").get("backends").map { it.asText() })
-            .containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
-        assertThat(root.get("TraceOptions").get("Forge.AdoptedBlock").get("severity").asText()).isEqualTo("Info")
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("")
+                .get("backends")
+                .map { it.asText() }
+        ).containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("Forge.AdoptedBlock")
+                .get("severity")
+                .asText()
+        ).isEqualTo("Info")
         assertThat(root.get("TraceOptionForwarder")).isNotNull()
         assertThat(root.fieldNames().asSequence().toList())
             .containsAtLeast(

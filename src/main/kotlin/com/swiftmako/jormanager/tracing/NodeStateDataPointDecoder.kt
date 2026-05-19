@@ -51,8 +51,7 @@ data class NodeStateMetrics(
 }
 
 class NodeStateDataPointDecoder {
-    fun decode(reply: TraceForwardMessage.DataPointsReply): NodeStateMetrics? =
-        reply.dataPoints.toDataPointValueMap()?.let(::decodeValues)
+    fun decode(reply: TraceForwardMessage.DataPointsReply): NodeStateMetrics? = reply.dataPoints.toDataPointValueMap()?.let(::decodeValues)
 
     internal fun decodeValues(values: Map<String, ByteArray?>): NodeStateMetrics? =
         runCatching {
@@ -105,7 +104,6 @@ class NodeStateDataPointDecoder {
                 KEY_NODE_STARTUP_INFO,
                 KEY_NODE_ADD_BLOCK,
             )
-
     }
 }
 
@@ -131,8 +129,7 @@ internal fun CborArray.toDataPointValueMap(): Map<String, ByteArray?>? {
     return decoded
 }
 
-internal fun Map<String, ByteArray?>.parseNodeStartupInfo(): NodeStartupInfo? =
-    findValue(NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO)?.decodeToString()?.let(::parseNodeStartupInfo)
+internal fun Map<String, ByteArray?>.parseNodeStartupInfo(): NodeStartupInfo? = findValue(NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO)?.decodeToString()?.let(::parseNodeStartupInfo)
 
 private fun CborArray.readMaybeValue(): ByteArray? =
     when (size()) {
@@ -153,17 +150,13 @@ private fun CborByteString.joinedByteArrayValue(): ByteArray {
     }
 }
 
-private fun Map<String, ByteArray?>.requireInt(vararg keys: String): Int? =
-    findValue(*keys)?.parseIntegerValue()?.intValueExact()
+private fun Map<String, ByteArray?>.requireInt(vararg keys: String): Int? = findValue(*keys)?.parseIntegerValue()?.intValueExact()
 
-private fun Map<String, ByteArray?>.requireLong(vararg keys: String): Long? =
-    findValue(*keys)?.parseIntegerValue()?.longValueExact()
+private fun Map<String, ByteArray?>.requireLong(vararg keys: String): Long? = findValue(*keys)?.parseIntegerValue()?.longValueExact()
 
-private fun Map<String, ByteArray?>.findValue(vararg keys: String): ByteArray? =
-    keys.firstNotNullOfOrNull(::get)
+private fun Map<String, ByteArray?>.findValue(vararg keys: String): ByteArray? = keys.firstNotNullOfOrNull(::get)
 
-private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? =
-    findValue(NodeStateDataPointDecoder.KEY_NODE_ADD_BLOCK)?.decodeToString()?.let(::parseNodeAddBlock)
+private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? = findValue(NodeStateDataPointDecoder.KEY_NODE_ADD_BLOCK)?.decodeToString()?.let(::parseNodeAddBlock)
 
 private fun parseNodeAddBlock(rawJson: String): NodeAddBlockValue? =
     runCatching {
@@ -199,8 +192,7 @@ private fun parseNodeStartupInfo(rawJson: String): NodeStartupInfo? =
             it.slotsPerKESPeriod != null
     }
 
-private fun JSONObject.optNullableString(key: String): String? =
-    optString(key).takeIf { it.isNotBlank() }
+private fun JSONObject.optNullableString(key: String): String? = optString(key).takeIf { it.isNotBlank() }
 
 private fun JSONObject.optLongOrNull(key: String): Long? {
     if (!has(key) || isNull(key)) {

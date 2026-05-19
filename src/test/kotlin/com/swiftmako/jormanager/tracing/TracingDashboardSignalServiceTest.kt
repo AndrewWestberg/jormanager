@@ -30,131 +30,137 @@ class TracingDashboardSignalServiceTest {
     private val service = TracingDashboardSignalService(rawCapture)
 
     @Test
-    fun freshProtocol1MetricsWinForOverlappingFields() = runBlocking {
-        rawCapture.recordMetricSnapshotForTest(nodeId = 1L, snapshot = metricSnapshot(nodeId = 1L, blockNum = 8_888_888L, slotNum = 8_888_889L, slotInEpoch = 222L, epoch = 500L, remainingKesPeriods = 40L, txsProcessedNum = 999_999L))
-        rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+    fun freshProtocol1MetricsWinForOverlappingFields() =
+        runBlocking {
+            rawCapture.recordMetricSnapshotForTest(nodeId = 1L, snapshot = metricSnapshot(nodeId = 1L, blockNum = 8_888_888L, slotNum = 8_888_889L, slotInEpoch = 222L, epoch = 500L, remainingKesPeriods = 40L, txsProcessedNum = 999_999L))
+            rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
 
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
 
-        assertThat(signals?.nodeStateMetrics).isEqualTo(
-            NodeStateMetrics(
-                peers = 12,
-                incomingPeers = 7,
-                blockHeight = 8_888_888L,
-                remainingKESPeriods = 40,
-                epoch = 500L,
-                slot = 8_888_889L,
-                slotInEpoch = 222L,
-                txsProcessed = 999_999L,
+            assertThat(signals?.nodeStateMetrics).isEqualTo(
+                NodeStateMetrics(
+                    peers = 12,
+                    incomingPeers = 7,
+                    blockHeight = 8_888_888L,
+                    remainingKESPeriods = 40,
+                    epoch = 500L,
+                    slot = 8_888_889L,
+                    slotInEpoch = 222L,
+                    txsProcessed = 999_999L,
+                )
             )
-        )
-    }
+        }
 
     @Test
-    fun staleProtocol1MetricsRemainUsableWhenNoFresherSignalsExist() = runBlocking {
-        rawCapture.recordMetricSnapshotForTest(
-            nodeId = 1L,
-            snapshot = metricSnapshot(nodeId = 1L, capturedAt = Instant.now().minusSeconds(60))
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isEqualTo(
-            NodeStateMetrics(
-                peers = 0,
-                incomingPeers = 0,
-                blockHeight = 7_403_221L,
-                remainingKESPeriods = 36,
-                epoch = 490L,
-                slot = 7_403_221L,
-                slotInEpoch = 321L,
-                txsProcessed = 123_456L,
+    fun staleProtocol1MetricsRemainUsableWhenNoFresherSignalsExist() =
+        runBlocking {
+            rawCapture.recordMetricSnapshotForTest(
+                nodeId = 1L,
+                snapshot = metricSnapshot(nodeId = 1L, capturedAt = Instant.now().minusSeconds(60))
             )
-        )
-    }
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics).isEqualTo(
+                NodeStateMetrics(
+                    peers = 0,
+                    incomingPeers = 0,
+                    blockHeight = 7_403_221L,
+                    remainingKESPeriods = 36,
+                    epoch = 490L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 123_456L,
+                )
+            )
+        }
 
     @Test
-    fun protocol1PeerMetricsRemainAvailableWhenNoProtocol2OrDatapointPeersExist() = runBlocking {
-        rawCapture.recordMetricSnapshotForTest(
-            nodeId = 1L,
-            snapshot =
-                metricSnapshot(
-                    nodeId = 1L,
-                    metrics = fullProtocol1MetricMap(outboundConnections = 9L, inboundConnections = 4L),
-                ),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(9)
-        assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(4)
-    }
-
-    @Test
-    fun protocol1ClockworkPeerMetricsPopulateDashboardPeers() = runBlocking {
-        rawCapture.recordMetricSnapshotForTest(
-            nodeId = 1L,
-            snapshot =
-                metricSnapshot(
-                    nodeId = 1L,
-                    metrics = fullProtocol1MetricMap(outboundConnections = 11L, inboundConnections = 3L),
-                ),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(11)
-        assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(3)
-    }
-
-    @Test
-    fun protocol2CountersOverrideProtocol3PeersWhenFresh() = runBlocking {
-        rawCapture.recordTraceObjectBatchForTest(
-            nodeId = 1L,
-            batch =
-                TracingRawTraceObjectBatch(
-                    nodeId = 1L,
-                    capturedAt = Instant.now(),
-                    traceObjects = TraceForwardFixtures.traceObjectsArray(
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
+    fun protocol1PeerMetricsRemainAvailableWhenNoProtocol2OrDatapointPeersExist() =
+        runBlocking {
+            rawCapture.recordMetricSnapshotForTest(
+                nodeId = 1L,
+                snapshot =
+                    metricSnapshot(
+                        nodeId = 1L,
+                        metrics = fullProtocol1MetricMap(outboundConnections = 9L, inboundConnections = 4L),
                     ),
-                ),
-        )
-        rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            )
 
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
 
-        assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(5)
-        assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(7)
-        assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
-    }
+            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(9)
+            assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(4)
+        }
 
     @Test
-    fun clockworkPeerTraceObjectsSupplyDistinctPeerCountWhenCountersAreUnavailable() = runBlocking {
-        rawCapture.recordTraceObjectBatchForTest(
-            nodeId = 1L,
-            batch =
-                TracingRawTraceObjectBatch(
-                    nodeId = 1L,
-                    capturedAt = Instant.now(),
-                    traceObjects =
-                        TraceForwardFixtures.traceObjectsArray(
-                            TraceForwardFixtures.clockworkPeerTraceObject(namespace = "ChainSync.Client.DownloadedHeader", kind = "DownloadedHeader"),
-                            TraceForwardFixtures.clockworkPeerTraceObject(namespace = "BlockFetch.Client.SendFetchRequest", kind = "SendFetchRequest"),
-                            TraceForwardFixtures.nodeStateTraceObject(),
+    fun protocol1ClockworkPeerMetricsPopulateDashboardPeers() =
+        runBlocking {
+            rawCapture.recordMetricSnapshotForTest(
+                nodeId = 1L,
+                snapshot =
+                    metricSnapshot(
+                        nodeId = 1L,
+                        metrics = fullProtocol1MetricMap(outboundConnections = 11L, inboundConnections = 3L),
+                    ),
+            )
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(11)
+            assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(3)
+        }
+
+    @Test
+    fun protocol2CountersOverrideProtocol3PeersWhenFresh() =
+        runBlocking {
+            rawCapture.recordTraceObjectBatchForTest(
+                nodeId = 1L,
+                batch =
+                    TracingRawTraceObjectBatch(
+                        nodeId = 1L,
+                        capturedAt = Instant.now(),
+                        traceObjects = TraceForwardFixtures.traceObjectsArray(
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
+                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
                         ),
-                ),
-        )
+                    ),
+            )
+            rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
 
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
 
-        assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(1)
-        assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
-    }
+            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(5)
+            assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(7)
+            assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
+        }
+
+    @Test
+    fun clockworkPeerTraceObjectsSupplyDistinctPeerCountWhenCountersAreUnavailable() =
+        runBlocking {
+            rawCapture.recordTraceObjectBatchForTest(
+                nodeId = 1L,
+                batch =
+                    TracingRawTraceObjectBatch(
+                        nodeId = 1L,
+                        capturedAt = Instant.now(),
+                        traceObjects =
+                            TraceForwardFixtures.traceObjectsArray(
+                                TraceForwardFixtures.clockworkPeerTraceObject(namespace = "ChainSync.Client.DownloadedHeader", kind = "DownloadedHeader"),
+                                TraceForwardFixtures.clockworkPeerTraceObject(namespace = "BlockFetch.Client.SendFetchRequest", kind = "SendFetchRequest"),
+                                TraceForwardFixtures.nodeStateTraceObject(),
+                            ),
+                    ),
+            )
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(1)
+            assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
+        }
 
     @Test
     fun staleProtocol2CountersDoNotSupplyPeersOrChainFallback() {
@@ -177,132 +183,142 @@ class TracingDashboardSignalServiceTest {
     }
 
     @Test
-    fun incompleteProtocol1MetricsStillSupplyUsableChainState() = runBlocking {
-        rawCapture.recordMetricSnapshotForTest(
-            1L,
-            metricSnapshot(
-                nodeId = 1L,
-                metrics = fullProtocol1MetricMap(blockNum = 8_888_888L, txsProcessedNum = null),
-            ),
-        )
-        rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isEqualTo(
-            NodeStateMetrics(
-                peers = 12,
-                incomingPeers = 7,
-                blockHeight = 8_888_888L,
-                remainingKESPeriods = 36,
-                epoch = 490L,
-                slot = 7_403_221L,
-                slotInEpoch = 321L,
-                txsProcessed = 0L,
-            )
-        )
-    }
-
-    @Test
-    fun protocol2AddedToCurrentChainSuppliesChainFallback() = runBlocking {
-        rawCapture.recordTraceObjectBatchForTest(
-            nodeId = 1L,
-            batch =
-                TracingRawTraceObjectBatch(
+    fun incompleteProtocol1MetricsStillSupplyUsableChainState() =
+        runBlocking {
+            rawCapture.recordMetricSnapshotForTest(
+                1L,
+                metricSnapshot(
                     nodeId = 1L,
-                    capturedAt = Instant.now(),
-                    traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
+                    metrics = fullProtocol1MetricMap(blockNum = 8_888_888L, txsProcessedNum = null),
                 ),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isEqualTo(
-            NodeStateMetrics(
-                peers = 0,
-                incomingPeers = 0,
-                blockHeight = 7_403_221L,
-                remainingKESPeriods = 0,
-                epoch = 17L,
-                slot = 7_403_221L,
-                slotInEpoch = 59_221L,
-                txsProcessed = 0L,
             )
-        )
-    }
+            rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics).isEqualTo(
+                NodeStateMetrics(
+                    peers = 12,
+                    incomingPeers = 7,
+                    blockHeight = 8_888_888L,
+                    remainingKESPeriods = 36,
+                    epoch = 490L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 0L,
+                )
+            )
+        }
 
     @Test
-    fun protocol3StartupInfoRemainsAvailableWithoutDashboardMetrics() = runBlocking {
-        rawCapture.onMessage(
-            1L,
-            TraceForwardFixtures.msgDataPointsReply(
-                TraceForwardFixtures.dataPoint(
-                    NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
-                    "{\"era\":\"Conway\",\"epochLength\":432000,\"slotLength\":1,\"slotsPerKESPeriod\":129600}",
-                ),
-            ).toDataPointsReply(),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isNull()
-        assertThat(signals?.startupInfo).isEqualTo(
-            NodeStartupInfo(
-                era = "Conway",
-                epochLength = 432_000L,
-                slotLength = 1L,
-                slotsPerKESPeriod = 129_600L,
+    fun protocol2AddedToCurrentChainSuppliesChainFallback() =
+        runBlocking {
+            rawCapture.recordTraceObjectBatchForTest(
+                nodeId = 1L,
+                batch =
+                    TracingRawTraceObjectBatch(
+                        nodeId = 1L,
+                        capturedAt = Instant.now(),
+                        traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
+                    ),
             )
-        )
-    }
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics).isEqualTo(
+                NodeStateMetrics(
+                    peers = 0,
+                    incomingPeers = 0,
+                    blockHeight = 7_403_221L,
+                    remainingKESPeriods = 0,
+                    epoch = 17L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 59_221L,
+                    txsProcessed = 0L,
+                )
+            )
+        }
 
     @Test
-    fun recentProtocol3RepliesAreMergedBeforeDecoding() = runBlocking {
-        rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
-        rawCapture.onMessage(
-            1L,
-            TraceForwardFixtures.msgDataPointsReply(
-                TraceForwardFixtures.dataPoint(
-                    NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
-                    "{\"era\":\"Conway\",\"epochLength\":432000,\"slotLength\":1,\"slotsPerKESPeriod\":129600}"
-                ),
-            ).toDataPointsReply(),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isEqualTo(
-            NodeStateMetrics(
-                peers = 12,
-                incomingPeers = 7,
-                blockHeight = 7_403_221L,
-                remainingKESPeriods = 36,
-                epoch = 490L,
-                slot = 7_403_221L,
-                slotInEpoch = 321L,
-                txsProcessed = 123_456L,
+    fun protocol3StartupInfoRemainsAvailableWithoutDashboardMetrics() =
+        runBlocking {
+            rawCapture.onMessage(
+                1L,
+                TraceForwardFixtures
+                    .msgDataPointsReply(
+                        TraceForwardFixtures.dataPoint(
+                            NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                            "{\"era\":\"Conway\",\"epochLength\":432000,\"slotLength\":1,\"slotsPerKESPeriod\":129600}",
+                        ),
+                    ).toDataPointsReply(),
             )
-        )
-        assertThat(signals?.startupInfo).isEqualTo(
-            NodeStartupInfo(
-                era = "Conway",
-                epochLength = 432_000L,
-                slotLength = 1L,
-                slotsPerKESPeriod = 129_600L,
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics).isNull()
+            assertThat(signals?.startupInfo).isEqualTo(
+                NodeStartupInfo(
+                    era = "Conway",
+                    epochLength = 432_000L,
+                    slotLength = 1L,
+                    slotsPerKESPeriod = 129_600L,
+                )
             )
-        )
-    }
+        }
+
+    @Test
+    fun recentProtocol3RepliesAreMergedBeforeDecoding() =
+        runBlocking {
+            rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(
+                1L,
+                TraceForwardFixtures
+                    .msgDataPointsReply(
+                        TraceForwardFixtures.dataPoint(
+                            NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO,
+                            "{\"era\":\"Conway\",\"epochLength\":432000,\"slotLength\":1,\"slotsPerKESPeriod\":129600}"
+                        ),
+                    ).toDataPointsReply(),
+            )
+
+            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
+
+            assertThat(signals?.nodeStateMetrics).isEqualTo(
+                NodeStateMetrics(
+                    peers = 12,
+                    incomingPeers = 7,
+                    blockHeight = 7_403_221L,
+                    remainingKESPeriods = 36,
+                    epoch = 490L,
+                    slot = 7_403_221L,
+                    slotInEpoch = 321L,
+                    txsProcessed = 123_456L,
+                )
+            )
+            assertThat(signals?.startupInfo).isEqualTo(
+                NodeStartupInfo(
+                    era = "Conway",
+                    epochLength = 432_000L,
+                    slotLength = 1L,
+                    slotsPerKESPeriod = 129_600L,
+                )
+            )
+        }
 }
 
 private fun ByteArray.toDataPointsReply(): TraceForwardMessage.DataPointsReply =
     ByteArrayInputStream(this).use { input ->
-        val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray
+        val payload = com.google.iot.cbor.CborReader
+            .createFromInputStream(input)
+            .readDataItem() as com.google.iot.cbor.CborArray
         TraceForwardMessage.DataPointsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
     }
 
 private fun ByteArray.toTraceObjectsReply(): TraceForwardMessage.TraceObjectsReply =
     ByteArrayInputStream(this).use { input ->
-        val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray
+        val payload = com.google.iot.cbor.CborReader
+            .createFromInputStream(input)
+            .readDataItem() as com.google.iot.cbor.CborArray
         TraceForwardMessage.TraceObjectsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
     }
 
@@ -324,13 +340,12 @@ private fun metricSnapshot(
             remainingKesPeriods = remainingKesPeriods,
             txsProcessedNum = txsProcessedNum,
         ),
-) =
-    TracingRawMetricSnapshot(
-        nodeId = nodeId,
-        capturedAt = capturedAt,
-        metrics = metrics,
-        rawJson = "metrics",
-    )
+) = TracingRawMetricSnapshot(
+    nodeId = nodeId,
+    capturedAt = capturedAt,
+    metrics = metrics,
+    rawJson = "metrics",
+)
 
 private fun fullProtocol1MetricMap(
     blockNum: Long = 7_403_221L,

@@ -59,12 +59,13 @@ class HostController
                 val nodeVersion = hostConnection.command("${host.cardanoNodePath} --version")
                 hostInfo += "      cardano-node: $nodeVersion"
 
-                if (host.jcliPath?.isNotBlank() == true) {
+                val jcliPath = host.jcliPath
+                if (!jcliPath.isNullOrBlank()) {
                     // make sure jcli exists
-                    if (!hostConnection.commandFileExists(host.jcliPath)) {
-                        throw SSHRuntimeException("File at '${host.jcliPath}' does not exist!")
+                    if (!hostConnection.commandFileExists(jcliPath)) {
+                        throw SSHRuntimeException("File at '$jcliPath' does not exist!")
                     }
-                    val jcliVersion = hostConnection.command("${host.jcliPath} --version")
+                    val jcliVersion = hostConnection.command("$jcliPath --version")
                     hostInfo += "              jcli: $jcliVersion"
                 }
                 host.id

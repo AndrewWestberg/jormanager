@@ -137,8 +137,7 @@ class TracingRawCaptureService(
             ?.filter { it.capturedAt.plus(maxAge).isAfter(now) }
             .orEmpty()
 
-    fun recentTraceObjectBatches(nodeId: Long): List<TracingRawTraceObjectBatch> =
-        traceObjectBatchBuffer[nodeId].orEmpty()
+    fun recentTraceObjectBatches(nodeId: Long): List<TracingRawTraceObjectBatch> = traceObjectBatchBuffer[nodeId].orEmpty()
 
     fun recentFreshTraceObjectBatches(
         nodeId: Long,

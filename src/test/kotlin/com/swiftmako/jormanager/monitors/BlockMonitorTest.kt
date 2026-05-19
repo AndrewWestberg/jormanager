@@ -143,34 +143,32 @@ class BlockMonitorTest {
         slot: Long = 500L,
         hash: String = "abcd",
         status: String = "completed",
-    ) =
-        Block(
-            id = 1L,
-            at = "2026-05-14T00:00:00Z",
-            pool = "---",
-            host = "managed-host.example",
-            slot = slot,
-            epoch = 123L,
-            slotInEpoch = 45L,
-            hash = hash,
-            status = status,
-        )
+    ) = Block(
+        id = 1L,
+        at = "2026-05-14T00:00:00Z",
+        pool = "---",
+        host = "managed-host.example",
+        slot = slot,
+        epoch = 123L,
+        slotInEpoch = 45L,
+        hash = hash,
+        status = status,
+    )
 
     private fun chainBlock(
         slot: Long = 500L,
         hash: String = "abcd1234",
         poolId: String = "pool1xyz",
-    ) =
-        ChainBlock(
-            id = 1L,
-            blockNumber = 99L,
-            slotNumber = slot,
-            hash = hash,
-            prevHash = "prev",
-            etaV = "eta",
-            poolId = poolId,
-            leaderVrf = "vrf",
-        )
+    ) = ChainBlock(
+        id = 1L,
+        blockNumber = 99L,
+        slotNumber = slot,
+        hash = hash,
+        prevHash = "prev",
+        etaV = "eta",
+        poolId = poolId,
+        leaderVrf = "vrf",
+    )
 
     private fun node(
         id: Long = 1L,
@@ -178,28 +176,27 @@ class BlockMonitorTest {
         type: String = "core",
         poolId: String? = null,
         isDeleted: Boolean = false,
-    ) =
-        Node(
-            id = id,
-            hostId = 1L,
-            color = "#123456",
-            type = type,
-            processorThreads = 1,
-            name = name,
-            listen = "0.0.0.0",
-            port = 3001,
-            promPort = 12789,
-            tracingHost = "0.0.0.0",
-            genesisByronFileId = 1L,
-            genesisShelleyFileId = 2L,
-            genesisAlonzoFileId = 3L,
-            genesisConwayFileId = 4L,
-            configFileId = 5L,
-            poolId = poolId,
-            isDefault = false,
-            isDeleted = isDeleted,
-            tracingPort = 12790,
-        )
+    ) = Node(
+        id = id,
+        hostId = 1L,
+        color = "#123456",
+        type = type,
+        processorThreads = 1,
+        name = name,
+        listen = "0.0.0.0",
+        port = 3001,
+        promPort = 12789,
+        tracingHost = "0.0.0.0",
+        genesisByronFileId = 1L,
+        genesisShelleyFileId = 2L,
+        genesisAlonzoFileId = 3L,
+        genesisConwayFileId = 4L,
+        configFileId = 5L,
+        poolId = poolId,
+        isDefault = false,
+        isDeleted = isDeleted,
+        tracingPort = 12790,
+    )
 
     private fun waitUntil(
         timeoutMillis: Long = 2_000L,

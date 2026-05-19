@@ -129,13 +129,14 @@ class NodeMonitorTest {
     fun staleRawSnapshotPublishesNullValuedFallback() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
             val rawCapture = rawCaptureService(coreNode)
             rawCapture.recordDataPointSnapshotForTest(
-                nodeId = coreNode.id!!,
+                nodeId = coreNodeId,
                 snapshot =
                     com.swiftmako.jormanager.tracing.TracingRawDataPointSnapshot(
-                        nodeId = coreNode.id,
+                        nodeId = coreNodeId,
                         capturedAt = Instant.now().minusSeconds(60),
                         dataPoints = TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply().dataPoints,
                     ),
@@ -162,6 +163,7 @@ class NodeMonitorTest {
         runBlocking {
             val defaultRelay = node(id = 1L, name = "relay-a", type = "relay", isDefault = true, tracingPort = null)
             val coreNode = node(id = 2L, name = "core-a", isDefault = false)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference(
                 NodeStats(
                     isDefault = true,
@@ -187,7 +189,7 @@ class NodeMonitorTest {
                     tracingRawCaptureService = rawCapture,
                 )
 
-            rawCapture.onMessage(coreNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.nodeName == "old-default" }
             monitor.stopAndWait()
@@ -199,6 +201,7 @@ class NodeMonitorTest {
     fun tracedRelayPublishesNodeStats() =
         runBlocking {
             val relayNode = node(id = 1L, name = "relay-a", type = "relay", tracingPort = 12790)
+            val relayNodeId = requireNotNull(relayNode.id)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
             val rawCapture = rawCaptureService(relayNode)
             val monitor =
@@ -208,7 +211,7 @@ class NodeMonitorTest {
                     onSend = { _, payload -> sentMessages += payload },
                 )
 
-            rawCapture.onMessage(relayNode.id!!, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(relayNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { sentMessages.isNotEmpty() }
             monitor.stopAndWait()
@@ -223,6 +226,7 @@ class NodeMonitorTest {
     fun traceObjectsCanSupplyConnectionCountersWhenDatapointsDoNot() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val sentMessages = CopyOnWriteArrayList<Pair<String, SocketResponse.Success<*>>>()
             val rawCapture = rawCaptureService(coreNode)
@@ -237,7 +241,7 @@ class NodeMonitorTest {
                 )
 
             rawCapture.onMessage(
-                coreNode.id!!,
+                coreNodeId,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
                         TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
@@ -258,6 +262,7 @@ class NodeMonitorTest {
     fun freshProtocol1MetricsWinOverDatapointsForOverlappingFields() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -268,9 +273,9 @@ class NodeMonitorTest {
                 )
 
             rawCapture.recordMetricSnapshotForTest(
-                coreNode.id!!,
+                coreNodeId,
                 metricSnapshot(
-                    nodeId = coreNode.id,
+                    nodeId = coreNodeId,
                     blockNum = 8_888_888L,
                     slotNum = 8_888_889L,
                     slotInEpoch = 222L,
@@ -279,7 +284,7 @@ class NodeMonitorTest {
                     txsProcessedNum = 999_999L,
                 )
             )
-            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
             monitor.stopAndWait()
@@ -298,6 +303,7 @@ class NodeMonitorTest {
     fun staleProtocol1MetricsRemainUsable() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -308,14 +314,14 @@ class NodeMonitorTest {
                 )
 
             rawCapture.recordMetricSnapshotForTest(
-                coreNode.id!!,
+                coreNodeId,
                 metricSnapshot(
-                    nodeId = coreNode.id,
+                    nodeId = coreNodeId,
                     blockNum = 8_888_888L,
                     capturedAt = Instant.now().minusSeconds(60),
                 )
             )
-            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
             monitor.stopAndWait()
@@ -328,6 +334,7 @@ class NodeMonitorTest {
     fun protocol3ExtractorBackedDatapointsStillDriveFallbackStats() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -337,7 +344,7 @@ class NodeMonitorTest {
                     tracingRawCaptureService = rawCapture,
                 )
 
-            rawCapture.onMessage(coreNode.id!!, TraceForwardFixtures.pinnedNodeStateWithStartupReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateWithStartupReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
             monitor.stopAndWait()
@@ -351,6 +358,7 @@ class NodeMonitorTest {
     fun freshProtocol2PeerCountersOverrideProtocol3PeerValuesWithoutProtocol1Metrics() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -361,7 +369,7 @@ class NodeMonitorTest {
                 )
 
             rawCapture.onMessage(
-                coreNode.id!!,
+                coreNodeId,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
                         TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
@@ -371,7 +379,7 @@ class NodeMonitorTest {
                         TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
                     ).toTraceObjectsReply(),
             )
-            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
             monitor.stopAndWait()
@@ -385,6 +393,7 @@ class NodeMonitorTest {
     fun incompleteProtocol1MetricsStillPublishUsableNodeStats() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -395,9 +404,9 @@ class NodeMonitorTest {
                 )
 
             rawCapture.recordMetricSnapshotForTest(
-                coreNode.id!!,
+                coreNodeId,
                 metricSnapshot(
-                    nodeId = coreNode.id,
+                    nodeId = coreNodeId,
                     metrics =
                         fullProtocol1MetricMap(
                             blockNum = 8_888_888L,
@@ -405,7 +414,7 @@ class NodeMonitorTest {
                         )
                 )
             )
-            rawCapture.onMessage(coreNode.id, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
+            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
             monitor.start()
             waitUntil { latestNodeStats.get()?.blockHeight == 8_888_888L }
             monitor.stopAndWait()
@@ -419,6 +428,7 @@ class NodeMonitorTest {
     fun freshProtocol1MetricsStillUseProtocol2PeerCountersWhenAvailable() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -429,11 +439,11 @@ class NodeMonitorTest {
                 )
 
             rawCapture.recordMetricSnapshotForTest(
-                coreNode.id!!,
-                metricSnapshot(nodeId = coreNode.id)
+                coreNodeId,
+                metricSnapshot(nodeId = coreNodeId)
             )
             rawCapture.onMessage(
-                coreNode.id,
+                coreNodeId,
                 TraceForwardFixtures
                     .msgTraceObjectsReply(
                         TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
@@ -456,6 +466,7 @@ class NodeMonitorTest {
     fun staleTraceObjectsDoNotSupplyPeerCountersWhenProtocol1MetricsAreFresh() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val latestNodeStats = AtomicReference<NodeStats>(null)
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -465,12 +476,12 @@ class NodeMonitorTest {
                     tracingRawCaptureService = rawCapture,
                 )
 
-            rawCapture.recordMetricSnapshotForTest(coreNode.id!!, metricSnapshot(nodeId = coreNode.id))
+            rawCapture.recordMetricSnapshotForTest(coreNodeId, metricSnapshot(nodeId = coreNodeId))
             rawCapture.recordTraceObjectBatchForTest(
-                nodeId = coreNode.id,
+                nodeId = coreNodeId,
                 batch =
                     com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
-                        nodeId = coreNode.id,
+                        nodeId = coreNodeId,
                         capturedAt = Instant.now().minusSeconds(60),
                         traceObjects = TraceForwardFixtures.traceObjectsArray(
                             TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
@@ -489,6 +500,7 @@ class NodeMonitorTest {
     fun staleTraceObjectsDoNotSupplyChainFallbackWithoutOtherFreshSnapshots() =
         runBlocking {
             val coreNode = node(isDefault = true)
+            val coreNodeId = requireNotNull(coreNode.id)
             val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
             val rawCapture = rawCaptureService(coreNode)
             val monitor =
@@ -499,10 +511,10 @@ class NodeMonitorTest {
                 )
 
             rawCapture.recordTraceObjectBatchForTest(
-                nodeId = coreNode.id!!,
+                nodeId = coreNodeId,
                 batch =
                     com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
-                        nodeId = coreNode.id,
+                        nodeId = coreNodeId,
                         capturedAt = Instant.now().minusSeconds(60),
                         traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
                     ),
@@ -518,101 +530,28 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun startBackfillsTracingSettingsForLegacyCoreNodes() =
+    fun startDoesNotRewriteTracingSettings() =
         runBlocking {
-            val legacyCoreNode =
-                node(
-                    id = 1L,
-                    name = "core-a",
-                    type = "core",
-                    isDefault = true,
-                    tracingPort = null,
-                ).copy(tracingHost = null)
-            val nodeRepository = mockk<NodeRepository>(relaxed = true)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(legacyCoreNode),
-                    nodeRepositoryOverride = nodeRepository,
-                    tracingRawCaptureService = rawCaptureService(legacyCoreNode),
-                )
-
-            monitor.start()
-            monitor.stopAndWait()
-
-            verify {
-                nodeRepository.save(
-                    withArg { savedNode ->
-                        assertThat(savedNode.id).isEqualTo(legacyCoreNode.id)
-                        assertThat(savedNode.tracingHost).isEqualTo("0.0.0.0")
-                        assertThat(savedNode.tracingPort).isEqualTo(legacyCoreNode.promPort + 1)
-                    }
-                )
-            }
-        }
-
-    @Test
-    fun startBackfillsTracingSettingsForLegacyRelayNodes() =
-        runBlocking {
-            val legacyRelayNode =
+            val existingNode =
                 node(
                     id = 1L,
                     name = "relay-a",
                     type = "relay",
                     isDefault = true,
-                    tracingPort = null,
-                ).copy(tracingHost = null)
+                    tracingPort = 12795,
+                ).copy(tracingHost = "127.0.0.1")
             val nodeRepository = mockk<NodeRepository>(relaxed = true)
             val monitor =
                 createMonitor(
-                    nodes = listOf(legacyRelayNode),
+                    nodes = listOf(existingNode),
                     nodeRepositoryOverride = nodeRepository,
-                    tracingRawCaptureService = rawCaptureService(legacyRelayNode),
+                    tracingRawCaptureService = rawCaptureService(existingNode),
                 )
 
             monitor.start()
             monitor.stopAndWait()
 
-            verify {
-                nodeRepository.save(
-                    withArg { savedNode ->
-                        assertThat(savedNode.id).isEqualTo(legacyRelayNode.id)
-                        assertThat(savedNode.tracingHost).isEqualTo("0.0.0.0")
-                        assertThat(savedNode.tracingPort).isEqualTo(legacyRelayNode.promPort + 1)
-                    }
-                )
-            }
-        }
-
-    @Test
-    fun startClearsLegacyPoolTracingSettings() =
-        runBlocking {
-            val legacyPool =
-                node(
-                    id = 2L,
-                    name = "pool-a",
-                    type = "pool",
-                    tracingPort = 12791,
-                )
-            val nodeRepository = mockk<NodeRepository>(relaxed = true)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(legacyPool),
-                    nodeRepositoryOverride = nodeRepository,
-                    tracingRawCaptureService = rawCaptureService(legacyPool),
-                )
-
-            monitor.start()
-            monitor.stopAndWait()
-
-            verify {
-                nodeRepository.save(
-                    withArg { savedNode ->
-                        assertThat(savedNode.id).isEqualTo(legacyPool.id)
-                        assertThat(savedNode.tracingHost).isNull()
-                        assertThat(savedNode.tracingPort).isNull()
-                    }
-                )
-            }
+            verify(exactly = 0) { nodeRepository.save(any()) }
         }
 
     private fun createMonitor(
@@ -667,29 +606,35 @@ class NodeMonitorTest {
 
     private fun ByteArray.toDataPointsReply(): TraceForwardMessage.DataPointsReply =
         ByteArrayInputStream(this).use { input ->
-            val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray
+            val payload = com.google.iot.cbor.CborReader
+                .createFromInputStream(input)
+                .readDataItem() as com.google.iot.cbor.CborArray
             TraceForwardMessage.DataPointsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
         }
 
     private fun ByteArray.toTraceObjectsReply(): TraceForwardMessage.TraceObjectsReply =
         ByteArrayInputStream(this).use { input ->
-            val payload = com.google.iot.cbor.CborReader.createFromInputStream(input).readDataItem() as com.google.iot.cbor.CborArray
+            val payload = com.google.iot.cbor.CborReader
+                .createFromInputStream(input)
+                .readDataItem() as com.google.iot.cbor.CborArray
             TraceForwardMessage.TraceObjectsReply(payload.elementAt(1) as com.google.iot.cbor.CborArray)
         }
 
     private fun rawCaptureService(node: Node): TracingRawCaptureService =
-        TracingRawCaptureService(
-            tracingBlockMessageSink =
-                com.swiftmako.jormanager.tracing.TracingBlockMessageSink(
-                    nodeRepository = mockk<NodeRepository>().apply {
-                        every { findById(node.id!!) } returns Optional.of(node)
-                    },
-                    hostRepository = mockk<HostRepository>().apply {
-                        every { findById(node.hostId) } returns Optional.of(host(node.hostId))
-                    },
-                    tracingBlockPersistenceService = mockk(relaxed = true),
-                )
-        )
+        requireNotNull(node.id).let { nodeId ->
+            TracingRawCaptureService(
+                tracingBlockMessageSink =
+                    com.swiftmako.jormanager.tracing.TracingBlockMessageSink(
+                        nodeRepository = mockk<NodeRepository>().apply {
+                            every { findById(nodeId) } returns Optional.of(node)
+                        },
+                        hostRepository = mockk<HostRepository>().apply {
+                            every { findById(node.hostId) } returns Optional.of(host(node.hostId))
+                        },
+                        tracingBlockPersistenceService = mockk(relaxed = true),
+                    )
+            )
+        }
 
     private fun metricSnapshot(
         nodeId: Long,
@@ -709,13 +654,12 @@ class NodeMonitorTest {
                 remainingKesPeriods = remainingKesPeriods,
                 txsProcessedNum = txsProcessedNum,
             ),
-    ) =
-        TracingRawMetricSnapshot(
-            nodeId = nodeId,
-            capturedAt = capturedAt,
-            metrics = metrics,
-            rawJson = "metrics",
-        )
+    ) = TracingRawMetricSnapshot(
+        nodeId = nodeId,
+        capturedAt = capturedAt,
+        metrics = metrics,
+        rawJson = "metrics",
+    )
 
     private fun fullProtocol1MetricMap(
         blockNum: Long = 7_403_221L,
@@ -792,29 +736,28 @@ class NodeMonitorTest {
         isDefault: Boolean = false,
         tracingPort: Int? = 12790,
         promPort: Int = 12789,
-    ) =
-        Node(
-            id = id,
-            hostId = id,
-            color = "#123456",
-            type = type,
-            processorThreads = 1,
-            name = name,
-            listen = "0.0.0.0",
-            port = 3001,
-            promPort = promPort,
-            tracingHost = "0.0.0.0",
-            genesisByronFileId = 1L,
-            genesisShelleyFileId = 2L,
-            genesisAlonzoFileId = 3L,
-            genesisConwayFileId = 4L,
-            configFileId = 5L,
-            poolPledge = java.math.BigInteger.ONE,
-            poolCost = java.math.BigInteger.ONE,
-            poolMargin = "0.01",
-            isDefault = isDefault,
-            tracingPort = tracingPort,
-        )
+    ) = Node(
+        id = id,
+        hostId = id,
+        color = "#123456",
+        type = type,
+        processorThreads = 1,
+        name = name,
+        listen = "0.0.0.0",
+        port = 3001,
+        promPort = promPort,
+        tracingHost = "0.0.0.0",
+        genesisByronFileId = 1L,
+        genesisShelleyFileId = 2L,
+        genesisAlonzoFileId = 3L,
+        genesisConwayFileId = 4L,
+        configFileId = 5L,
+        poolPledge = java.math.BigInteger.ONE,
+        poolCost = java.math.BigInteger.ONE,
+        poolMargin = "0.01",
+        isDefault = isDefault,
+        tracingPort = tracingPort,
+    )
 
     private fun waitUntil(
         timeoutMillis: Long = 2_000L,

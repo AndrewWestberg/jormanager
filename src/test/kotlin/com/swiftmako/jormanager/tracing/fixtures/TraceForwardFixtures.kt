@@ -16,8 +16,7 @@ object TraceForwardFixtures {
 
     fun pinnedNodeStateReply(): ByteArray = msgDataPointsReply(*fullNodeStateDataPoints().toTypedArray())
 
-    fun pinnedNodeStateWithStartupReply(): ByteArray =
-        msgDataPointsReply(*fullNodeStateWithStartupDataPoints().toTypedArray())
+    fun pinnedNodeStateWithStartupReply(): ByteArray = msgDataPointsReply(*fullNodeStateWithStartupDataPoints().toTypedArray())
 
     fun chunkedNodeStateReply(): ByteArray = CHUNKED_NODE_STATE_REPLY_HEX.hexToByteArray()
 
@@ -340,8 +339,7 @@ object TraceForwardFixtures {
 
     private const val BLOCKING_REQUEST_ID = 0L
 
-    private fun String.hexToByteArray(): ByteArray =
-        chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    private fun String.hexToByteArray(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
     private const val CHUNKED_NODE_STATE_REPLY_HEX =
         "82038882781f636f6e6e656374696f6e4d616e616765722e6f7574676f696e67436f6e6e738142313282781f636f6e6e656374696f6e4d616e616765722e696e636f6d696e67436f6e6e738141378268626c6f636b4e756d814737343033323231827372656d61696e696e674b4553506572696f647381423336826565706f636881433439308267736c6f744e756d815f433734304433323231ff826b736c6f74496e45706f63688143333231826f74787350726f6365737365644e756d8146313233343536"
@@ -370,8 +368,7 @@ data class ForwardedTraceObjectFixture(
             }
         }
 
-    fun namespace(): List<String> =
-        listOf(readJsonObject().getString("ns"))
+    fun namespace(): List<String> = listOf(readJsonObject().getString("ns"))
 
     private fun readJsonObject(): JSONObject = JSONObject(traceObjectJson)
 }

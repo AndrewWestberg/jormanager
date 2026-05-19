@@ -140,8 +140,7 @@ class NodeStateDataPointDecoderTest {
         assertThat(decoder.decode(reply)).isNull()
     }
 
-    private fun fullReply(): TraceForwardMessage.DataPointsReply =
-        TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply()
+    private fun fullReply(): TraceForwardMessage.DataPointsReply = TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply()
 
     private fun ByteArray.toDataPointsReply(): TraceForwardMessage.DataPointsReply =
         ByteArrayInputStream(this).use { input ->

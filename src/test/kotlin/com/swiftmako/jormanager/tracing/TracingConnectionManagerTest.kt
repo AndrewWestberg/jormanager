@@ -226,6 +226,7 @@ class TracingConnectionManagerTest {
     fun unifiedIngressCapturesMetricsTraceObjectsAndDataPoints() =
         runBlocking {
             val node = coreNode()
+            val nodeId = requireNotNull(node.id)
             val captureService = createRawCaptureService(node)
             val manager =
                 createManager(
@@ -264,62 +265,69 @@ class TracingConnectionManagerTest {
 
             manager.start()
             waitUntil {
-                captureService.latestMetricSnapshot(node.id!!)?.metrics?.size == 3 &&
-                    captureService.latestDataPointSnapshot(node.id)?.dataPoints?.size() == 1 &&
-                    captureService.recentTraceObjectBatches(node.id).isNotEmpty()
+                captureService.latestMetricSnapshot(nodeId)?.metrics?.size == 3 &&
+                    captureService.latestDataPointSnapshot(nodeId)?.dataPoints?.size() == 1 &&
+                    captureService.recentTraceObjectBatches(nodeId).isNotEmpty()
             }
 
-            val metricSnapshot = captureService.latestMetricSnapshot(node.id!!)
+            val metricSnapshot = captureService.latestMetricSnapshot(nodeId)
             assertThat(metricSnapshot?.metrics?.get("counter")).isEqualTo(TracingRawMetricValue.Counter(3))
             assertThat(metricSnapshot?.metrics?.get("gauge")).isEqualTo(TracingRawMetricValue.IntGauge(7))
             assertThat(metricSnapshot?.metrics?.get("label")).isEqualTo(TracingRawMetricValue.Label("hello"))
-            assertThat(captureService.latestDataPointSnapshot(node.id)?.toMessage()?.dataPoints?.size()).isEqualTo(1)
-            assertThat(captureService.recentTraceObjectBatches(node.id)).hasSize(1)
+            assertThat(
+                captureService
+                    .latestDataPointSnapshot(nodeId)
+                    ?.toMessage()
+                    ?.dataPoints
+                    ?.size()
+            ).isEqualTo(1)
+            assertThat(captureService.recentTraceObjectBatches(nodeId)).hasSize(1)
 
             manager.stopAndWait()
 
-            assertThat(captureService.latestMetricSnapshot(node.id)).isNull()
-            assertThat(captureService.latestDataPointSnapshot(node.id)).isNull()
-            assertThat(captureService.recentTraceObjectBatches(node.id)).isEmpty()
+            assertThat(captureService.latestMetricSnapshot(nodeId)).isNull()
+            assertThat(captureService.latestDataPointSnapshot(nodeId)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(nodeId)).isEmpty()
         }
 
     @Test
     fun clearNodeEvictsFreshSnapshotsAndTraceBatches() =
         runBlocking {
             val node = coreNode()
+            val nodeId = requireNotNull(node.id)
             val captureService = createRawCaptureService(node)
 
             captureService.recordMetricSnapshotForTest(
-                node.id!!,
+                nodeId,
                 TracingRawMetricSnapshot(
-                    nodeId = node.id,
+                    nodeId = nodeId,
                     capturedAt = Instant.now(),
                     metrics = mapOf("counter" to TracingRawMetricValue.Counter(1)),
                     rawJson = "metrics",
                 ),
             )
             captureService.recordDataPointSnapshotForTest(
-                node.id,
+                nodeId,
                 TracingRawDataPointSnapshot(
-                    nodeId = node.id,
+                    nodeId = nodeId,
                     capturedAt = Instant.now(),
                     dataPoints = dataPointsReply().dataPoints,
                 ),
             )
             captureService.recordTraceObjectBatchForTest(
-                node.id,
+                nodeId,
                 TracingRawTraceObjectBatch(
-                    nodeId = node.id,
+                    nodeId = nodeId,
                     capturedAt = Instant.now(),
                     traceObjects = traceObjectsReply().traceObjects,
                 ),
             )
 
-            captureService.clearNode(node.id)
+            captureService.clearNode(nodeId)
 
-            assertThat(captureService.latestMetricSnapshot(node.id)).isNull()
-            assertThat(captureService.latestDataPointSnapshot(node.id)).isNull()
-            assertThat(captureService.recentTraceObjectBatches(node.id)).isEmpty()
+            assertThat(captureService.latestMetricSnapshot(nodeId)).isNull()
+            assertThat(captureService.latestDataPointSnapshot(nodeId)).isNull()
+            assertThat(captureService.recentTraceObjectBatches(nodeId)).isEmpty()
         }
 
     @Test
@@ -436,6 +444,7 @@ class TracingConnectionManagerTest {
         runBlocking {
             val attempts = AtomicInteger(0)
             val relayNode = coreNode(type = "relay", tracingPort = 12790)
+            val relayNodeId = requireNotNull(relayNode.id)
             val manager =
                 createManager(
                     nodes = listOf(relayNode),
@@ -461,7 +470,7 @@ class TracingConnectionManagerTest {
             manager.start()
             waitUntil { attempts.get() == 1 }
 
-            assertThat(manager.managedNodeIds()).containsExactly(relayNode.id)
+            assertThat(manager.managedNodeIds()).containsExactly(relayNodeId)
 
             manager.stopAndWait()
         }
@@ -493,10 +502,11 @@ class TracingConnectionManagerTest {
     }
 
     private fun createRawCaptureService(node: Node): TracingRawCaptureService {
+        val nodeId = requireNotNull(node.id)
         val nodeRepository = mockk<NodeRepository>()
         val hostRepository = mockk<HostRepository>()
         val blockService = mockk<TracingBlockPersistenceService>(relaxed = true)
-        every { nodeRepository.findById(node.id!!) } returns Optional.of(node)
+        every { nodeRepository.findById(nodeId) } returns Optional.of(node)
         every { hostRepository.findById(node.hostId) } returns Optional.of(host())
         return TracingRawCaptureService(
             tracingBlockMessageSink =
@@ -513,8 +523,14 @@ class TracingConnectionManagerTest {
             com.google.iot.cbor.CborArray.create().apply {
                 add(
                     com.google.iot.cbor.CborArray.create().apply {
-                        add(com.google.iot.cbor.CborTextString.create("NodeInfo"))
-                        add(com.google.iot.cbor.CborArray.create())
+                        add(
+                            com.google.iot.cbor.CborTextString
+                                .create("NodeInfo")
+                        )
+                        add(
+                            com.google.iot.cbor.CborArray
+                                .create()
+                        )
                     }
                 )
             }
@@ -523,7 +539,10 @@ class TracingConnectionManagerTest {
     private fun traceObjectsReply() =
         TraceForwardMessage.TraceObjectsReply(
             com.google.iot.cbor.CborArray.create().apply {
-                add(com.google.iot.cbor.CborTextString.create("{\"at\":\"2026-05-19T00:54:58.004191817Z\",\"ns\":\"Forge.Loop.AdoptedBlock\",\"data\":{\"kind\":\"TraceAdoptedBlock\",\"slot\":1,\"blockHash\":\"abc\"},\"host\":\"host\"}"))
+                add(
+                    com.google.iot.cbor.CborTextString
+                        .create("{\"at\":\"2026-05-19T00:54:58.004191817Z\",\"ns\":\"Forge.Loop.AdoptedBlock\",\"data\":{\"kind\":\"TraceAdoptedBlock\",\"slot\":1,\"blockHash\":\"abc\"},\"host\":\"host\"}")
+                )
             }
         )
 
@@ -532,26 +551,25 @@ class TracingConnectionManagerTest {
         type: String = "core",
         tracingPort: Int? = 12790,
         hostId: Long = 1L,
-    ) =
-        Node(
-            id = id,
-            hostId = hostId,
-            color = "#123456",
-            type = type,
-            processorThreads = 1,
-            name = "core-a",
-            listen = "0.0.0.0",
-            port = 3001,
-            promPort = 12789,
-            tracingHost = "0.0.0.0",
-            genesisByronFileId = 1L,
-            genesisShelleyFileId = 2L,
-            genesisAlonzoFileId = 3L,
-            genesisConwayFileId = 4L,
-            configFileId = 5L,
-            isDefault = false,
-            tracingPort = tracingPort,
-        )
+    ) = Node(
+        id = id,
+        hostId = hostId,
+        color = "#123456",
+        type = type,
+        processorThreads = 1,
+        name = "core-a",
+        listen = "0.0.0.0",
+        port = 3001,
+        promPort = 12789,
+        tracingHost = "0.0.0.0",
+        genesisByronFileId = 1L,
+        genesisShelleyFileId = 2L,
+        genesisAlonzoFileId = 3L,
+        genesisConwayFileId = 4L,
+        configFileId = 5L,
+        isDefault = false,
+        tracingPort = tracingPort,
+    )
 
     private fun host() =
         Host(

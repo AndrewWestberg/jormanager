@@ -181,6 +181,9 @@ class NodeController
                 if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                     throw IllegalArgumentException("Invalid spending password!")
                 }
+                if (!request.enableTracingListener) {
+                    throw IllegalArgumentException("Tracing listener must be enabled!")
+                }
                 log.debug(request.toString())
                 val host =
                     hostRepository.findByIdOrNull(request.hostId)
@@ -213,7 +216,7 @@ class NodeController
                         val tracingPort =
                             allocateTracingPort(promPort) { port ->
                                 isPortUsed(hostConnection, port)
-                            }.takeIf { request.enableTracingListener }
+                            }
                         createEnvFile(
                             hostConnection,
                             request.type,
@@ -261,7 +264,7 @@ class NodeController
                                 listen = request.listen,
                                 port = request.port,
                                 promPort = promPort,
-                                tracingHost = request.tracingListen.takeIf { tracingPort != null },
+                                tracingHost = request.tracingListen,
                                 genesisByronFileId = request.genesisByronFileId,
                                 genesisShelleyFileId = request.genesisShelleyFileId,
                                 genesisAlonzoFileId = request.genesisAlonzoFileId,
@@ -1057,7 +1060,7 @@ class NodeController
                                     tracingPort =
                                         allocateTracingPort(promPort) { port ->
                                             isPortUsed(hostConnection, port)
-                                        }.takeIf { request.enableTracingListener }
+                                        }
                                     createEnvFile(
                                         hostConnection,
                                         request.type,
@@ -1191,7 +1194,7 @@ class NodeController
                                     listen = request.listen,
                                     port = request.port,
                                     promPort = promPort,
-                                    tracingHost = request.tracingListen.takeIf { tracingPort != null },
+                                    tracingHost = request.tracingListen,
                                     genesisByronFileId = request.genesisByronFileId,
                                     genesisShelleyFileId = request.genesisShelleyFileId,
                                     genesisAlonzoFileId = request.genesisAlonzoFileId,
@@ -2672,12 +2675,13 @@ class NodeController
                         witnessCount++ // the core.node.skey is always a witness
                         signingKeys.append("--signing-key-file /tmp/core.node.skey ")
 
+                        val nodeId = requireNotNull(node.id)
                         val relays =
-                            relayRepository.findByNodeId(requireNotNull(node.id)).let { relays ->
+                            relayRepository.findByNodeId(nodeId).let { relays ->
                                 relayRepository.deleteAll(relays)
                                 request.relays.map { relay ->
                                     Relay(
-                                        nodeId = node.id,
+                                        nodeId = nodeId,
                                         addr = relay.addr,
                                         port = relay.port
                                     ).also { relayRepository.save(it) }
@@ -3284,7 +3288,7 @@ class NodeController
                 $tracingEnv
                     """.trimMargin()
                 }
-                }
+            }
         }
 
         private fun createBulkCredentials(
@@ -3390,7 +3394,7 @@ class NodeController
                         Regex(""""MaxConcurrencyDeadline.*,""""),
                         """"MaxConcurrencyDeadline": $maxConcurrencyDeadline,"""
                     )
-            */
+             */
             configFileContent?.let {
                 log.debug("Creating $nodeFolder/config.json from db file ${configFile.name}")
                 hostConnection.commandWriteFile("$nodeFolder/config.json", it)
@@ -3469,15 +3473,17 @@ class NodeController
             root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
 
             LEGACY_TRACING_KEYS_TO_REMOVE.forEach(root::remove)
-            root.fieldNames().asSequence().toList()
+            root
+                .fieldNames()
+                .asSequence()
+                .toList()
                 .filter {
                     it.startsWith("Trace") &&
                         it != "TraceOptions" &&
                         it != "TraceOptionForwarder" &&
                         it != "TraceOptionMetricsPrefix" &&
                         it != "TraceOptionResourceFrequency"
-                }
-                .forEach(root::remove)
+                }.forEach(root::remove)
         }
 
         private fun maybeCreateCheckpointsFile(
@@ -3487,7 +3493,8 @@ class NodeController
             nodeFolder: String,
         ) {
             val checkpointsFileName =
-                objectMapper.readTree(configFileContent)
+                objectMapper
+                    .readTree(configFileContent)
                     .path("CheckpointsFile")
                     .takeIf { !it.isMissingNode && it.isTextual }
                     ?.asText()
@@ -3553,7 +3560,7 @@ class NodeController
                 |  --host-addr ${'$'}{HOST_ADDR} \
                 |  --port ${'$'}{PORT} \
                 |  --config ${'$'}{CONFIG} \
-                ${listenerLine}|  > ${request.name}.log 2>&1 &
+                $listenerLine|  > ${request.name}.log 2>&1 &
                 |echo ${'$'}! > ${request.name}.pid
                 |cd ${'$'}OLDPWD
                 |echo "Started with logfile ${request.name}.log"
@@ -3577,7 +3584,7 @@ class NodeController
                 |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
                 |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
                 |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
-                ${listenerLine}|  > ${request.name}.log 2>&1 &
+                $listenerLine|  > ${request.name}.log 2>&1 &
                 |echo ${'$'}! > ${request.name}.pid
                 |cd ${'$'}OLDPWD
                 |echo "Started with logfile ${request.name}.log"
@@ -3621,7 +3628,7 @@ class NodeController
                 |  --host-addr ${'$'}{HOST_ADDR} \
                 |  --port ${'$'}{PORT} \
                 |  --config ${'$'}{CONFIG} \
-                ${listenerLine}|KillSignal=SIGINT
+                $listenerLine|KillSignal=SIGINT
                 |SyslogIdentifier=$name-node
                 |
                 |[Install]
@@ -3655,7 +3662,7 @@ class NodeController
                 |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
                 |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
                 |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
-                ${listenerLine}|KillSignal=SIGINT
+                $listenerLine|KillSignal=SIGINT
                 |SyslogIdentifier=$name-node
                 |
                 |[Install]
@@ -3687,7 +3694,7 @@ class NodeController
                 |  --port ${'$'}{PORT} \
                 |  --config ${'$'}{CONFIG} \
                 |  --bulk-credentials-file ${'$'}{BULK_CREDENTIALS} \
-                ${listenerLine}|KillSignal=SIGINT
+                $listenerLine|KillSignal=SIGINT
                 |SyslogIdentifier=$name-node
                 |
                 |[Install]
