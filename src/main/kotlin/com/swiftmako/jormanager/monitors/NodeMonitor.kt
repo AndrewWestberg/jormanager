@@ -120,7 +120,7 @@ class NodeMonitor
                         return@forEach
                     }
 
-                    if (node.isDeleted || node.type != "core" || node.tracingPort != null || node.promPort <= 0) {
+                    if (node.isDeleted || node.type !in setOf("core", "relay") || node.tracingPort != null || node.promPort <= 0) {
                         return@forEach
                     }
 

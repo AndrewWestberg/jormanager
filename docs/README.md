@@ -13,3 +13,4 @@ There are places where we intentionally trade a bit lower security for more ease
 - [JorManager 6.0.0 Upgrade Guide](jormanager_6.0.0_upgrade_guide.md)
 - [JorManager 7.0.0 Upgrade Guide](jormanager_7.0.0_upgrade_guide.md)
 - [JorManager 7.0.3 Upgrade Guide](jormanager_7.0.3_upgrade_guide.md)
+- [JorManager 11.1.x Upgrade Guide](jormanager_11.1.x_upgrade_guide.md)

@@ -1054,20 +1054,20 @@ class NodeController
                                         hostConnection,
                                         nodeFolder
                                     )
-                                        createEnvFile(
-                                            hostConnection,
-                                            request.type,
-                                            request.name,
-                                            nodeFolder,
-                                            request.listen,
-                                            request.port,
-                                            request.tracingListen,
-                                            null,
-                                        )
-                                        tracingPort =
-                                            allocateTracingPort(promPort) { port ->
-                                                isPortUsed(hostConnection, port)
-                                            }.takeIf { request.enableTracingListener }
+                                    tracingPort =
+                                        allocateTracingPort(promPort) { port ->
+                                            isPortUsed(hostConnection, port)
+                                        }.takeIf { request.enableTracingListener }
+                                    createEnvFile(
+                                        hostConnection,
+                                        request.type,
+                                        request.name,
+                                        nodeFolder,
+                                        request.listen,
+                                        request.port,
+                                        request.tracingListen,
+                                        tracingPort,
+                                    )
                                     createSystemdFile(
                                         request = request,
                                         startupNodeType = request.type,
@@ -1108,7 +1108,7 @@ class NodeController
                                             coreNode.listen,
                                             coreNode.port,
                                             coreNode.tracingHost ?: request.tracingListen,
-                                            null,
+                                            coreNode.tracingPort,
                                         )
                                         val credentials = mutableListOf<MutableList<Key>>()
                                         // core node's pool
@@ -1191,7 +1191,7 @@ class NodeController
                                     listen = request.listen,
                                     port = request.port,
                                     promPort = promPort,
-                                    tracingHost = null,
+                                    tracingHost = request.tracingListen.takeIf { tracingPort != null },
                                     genesisByronFileId = request.genesisByronFileId,
                                     genesisShelleyFileId = request.genesisShelleyFileId,
                                     genesisAlonzoFileId = request.genesisAlonzoFileId,
@@ -1218,7 +1218,7 @@ class NodeController
                                     itnPublicKeyId = itnPublicKeyId,
                                     metadataUrl = metadataUrl,
                                     extendedMetadataUrl = extendedMetadataUrl,
-                                    tracingPort = null,
+                                    tracingPort = tracingPort,
                                 )
                             val savedNode = nodeRepository.save(node)
 
@@ -3215,15 +3215,38 @@ class NodeController
             tracingHost: String,
             tracingPort: Int?,
         ): String {
+            hostConnection.commandWriteFile(
+                "$nodeFolder/env",
+                renderEnvContent(
+                    nodeType = nodeType,
+                    nodeName = nodeName,
+                    nodeFolder = nodeFolder,
+                    listen = listen,
+                    port = port,
+                    tracingHost = tracingHost,
+                    tracingPort = tracingPort,
+                )
+            )
+            return hostConnection.command("chmod 400 $nodeFolder/env")
+        }
+
+        internal fun renderEnvContent(
+            nodeType: String,
+            nodeName: String,
+            nodeFolder: String,
+            listen: String,
+            port: Int,
+            tracingHost: String,
+            tracingPort: Int?,
+        ): String {
             val tracingEnv =
                 tracingPort?.let {
                     "|TRACING_HOST=$tracingHost\n|TRACING_PORT=$tracingPort\n"
                 } ?: ""
-            when (nodeType) {
+
+            return when (nodeType) {
                 NODE_TYPE_RELAY -> {
-                    hostConnection.commandWriteFile(
-                        "$nodeFolder/env",
-                        """
+                    """
                 |TOPOLOGY=$nodeFolder/topology.json
                 |DATABASE_PATH=$nodeFolder/db
                 |SOCKET_PATH=$nodeFolder/db/socket
@@ -3231,14 +3254,11 @@ class NodeController
                 |PORT=$port
                 |CONFIG=$nodeFolder/config.json
                 $tracingEnv
-                        """.trimMargin()
-                    )
+                    """.trimMargin()
                 }
 
                 NODE_TYPE_CORE -> {
-                    hostConnection.commandWriteFile(
-                        "$nodeFolder/env",
-                        """
+                    """
                 |TOPOLOGY=$nodeFolder/topology.json
                 |DATABASE_PATH=$nodeFolder/db
                 |SOCKET_PATH=$nodeFolder/db/socket
@@ -3249,14 +3269,11 @@ class NodeController
                 |SHELLEY_VRF_KEY=$nodeFolder/$nodeName.vrf.skey
                 |SHELLEY_OPCERT=$nodeFolder/$nodeName.node.opcert
                 $tracingEnv
-                        """.trimMargin()
-                    )
+                    """.trimMargin()
                 }
 
-                NODE_TYPE_POOL -> {
-                    hostConnection.commandWriteFile(
-                        "$nodeFolder/env",
-                        """
+                else -> {
+                    """
                 |TOPOLOGY=$nodeFolder/topology.json
                 |DATABASE_PATH=$nodeFolder/db
                 |SOCKET_PATH=$nodeFolder/db/socket
@@ -3265,11 +3282,9 @@ class NodeController
                 |CONFIG=$nodeFolder/config.json
                 |BULK_CREDENTIALS=$nodeFolder/credentials.json
                 $tracingEnv
-                        """.trimMargin()
-                    )
+                    """.trimMargin()
                 }
-            }
-            return hostConnection.command("chmod 400 $nodeFolder/env")
+                }
         }
 
         private fun createBulkCredentials(
