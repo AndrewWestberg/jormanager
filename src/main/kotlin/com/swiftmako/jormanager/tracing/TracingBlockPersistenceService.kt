@@ -49,7 +49,7 @@ class TracingBlockPersistenceService(
         val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, event.slot)
         val candidateBlock =
             Block(
-                at = event.timestamp,
+                at = blockUtils.slotToTimestamp(byron, shelley, event.slot),
                 pool = "---",
                 host = host.hostname,
                 slot = event.slot,

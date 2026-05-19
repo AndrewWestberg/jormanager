@@ -45,7 +45,7 @@ class TraceForwardAdoptedBlockDecoderTest {
                 blockHash = "6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc",
                 timestamp = "2026-05-12T00:00:00Z",
                 hostname = "core-node-1",
-                status = "created",
+                status = "completed",
             )
         )
     }
@@ -57,7 +57,7 @@ class TraceForwardAdoptedBlockDecoderTest {
 
         assertThat(adopted?.status).isEqualTo("completed")
         assertThat(adopted?.blockHash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
-        assertThat(forged?.status).isEqualTo("created")
+        assertThat(forged?.status).isEqualTo("completed")
         assertThat(forged?.blockHash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
     }
 

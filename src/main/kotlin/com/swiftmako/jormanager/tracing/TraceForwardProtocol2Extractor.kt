@@ -63,7 +63,7 @@ class TraceForwardProtocol2Extractor {
                         DecodedBlockEvent(status = "completed", blockHash = machine.optNonBlankString(BLOCK_HASH_FIELD) ?: return null)
 
                     traceObject.namespace() in FORGED_BLOCK_NAMESPACES && machine.optString(KIND_FIELD) == FORGED_BLOCK_KIND ->
-                        DecodedBlockEvent(status = "created", blockHash = machine.optNonBlankString(BLOCK_FIELD) ?: return null)
+                        DecodedBlockEvent(status = "completed", blockHash = machine.optNonBlankString(BLOCK_FIELD) ?: return null)
 
                     else -> return null
                 }

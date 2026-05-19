@@ -55,6 +55,7 @@ class TracingBlockMessageSinkTest {
             every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
             every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
             every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
             every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
             every { blockRepository.save(any()) } answers {
                 firstArg<Block>().also { savedBlock.set(it) }
@@ -106,7 +107,7 @@ class TracingBlockMessageSinkTest {
 
             assertThat(savedBlock.get()).isEqualTo(
                 Block(
-                    at = "2026-05-12T00:00:00Z",
+                    at = "2026-05-12T12:00:00.000 AM UTC",
                     pool = "---",
                     host = host.hostname,
                     slot = 7_403_221L,
@@ -137,6 +138,7 @@ class TracingBlockMessageSinkTest {
             every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
             every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
             every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
             every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
             every { blockRepository.save(any()) } answers {
                 firstArg<Block>().also { savedBlock.set(it) }
@@ -159,7 +161,8 @@ class TracingBlockMessageSinkTest {
 
             sink.onMessage(1L, forgedBlockReply())
 
-            assertThat(savedBlock.get()?.status).isEqualTo("created")
+            assertThat(savedBlock.get()?.status).isEqualTo("completed")
+            assertThat(savedBlock.get()?.at).isEqualTo("2026-05-12T12:00:00.000 AM UTC")
             assertThat(savedBlock.get()?.hash).isEqualTo("6dc4f778bf6ff15f8f3c7c3d98e6c6c8321df6e3e97e2cb7f1f1d6ca0b5c4abc")
         }
 
@@ -222,6 +225,7 @@ class TracingBlockMessageSinkTest {
         every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
         every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
         every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(-1L, -1L)
+        every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
         every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
         every { blockRepository.save(any()) } answers { firstArg() }
 
@@ -253,6 +257,7 @@ class TracingBlockMessageSinkTest {
         every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
         every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
         every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+        every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
         every { blockRepository.findBySlot(7_403_221L) } returns listOf(existingBlock())
 
         val savedBlock = service.persistTracingCandidateBlock(node, host, adoptedBlockEvent())
@@ -359,6 +364,7 @@ class TracingBlockMessageSinkTest {
             every { fileRepository.findById(node.genesisByronFileId) } returns Optional.of(byronGenesisFile())
             every { fileRepository.findById(node.genesisShelleyFileId) } returns Optional.of(shelleyGenesisFile())
             every { blockUtils.getEpochAndSlot(any(), any(), 7_403_221L) } returns Pair(490L, 321L)
+            every { blockUtils.slotToTimestamp(any(), any(), 7_403_221L) } returns "2026-05-12T12:00:00.000 AM UTC"
             every { blockRepository.findBySlot(7_403_221L) } returns emptyList()
             every { blockRepository.save(any()) } answers { firstArg() }
 

@@ -123,7 +123,7 @@ class CardanoUtils
         companion object {
             private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L
             private const val BYRON_TO_SHELLEY_EPOCHS_TESTNET = 74L
-            private const val BYRON_TO_SHELLEY_EPOCHS_GUILD = 1L
+            private const val BYRON_TO_SHELLEY_EPOCHS_GUILD = 2L
             private const val BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV = 1L
             private const val BYRON_TO_SHELLEY_EPOCHS_PREVIEW = 0L
             private const val BYRON_TO_SHELLEY_EPOCHS_PREPROD = 4L
