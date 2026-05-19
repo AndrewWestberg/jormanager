@@ -80,9 +80,11 @@ class TracingBlockMessageSinkTest {
                 TracingConnectionManager(
                     nodeRepository = nodeRepository,
                     hostRepository = hostRepository,
+                    fileRepository = fileRepository,
+                    shelleyGenesisAdapter = shelleyGenesisAdapter,
                     nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -438,7 +440,7 @@ class TracingBlockMessageSinkTest {
         File(
             id = 12L,
             name = "shelley.json",
-            content = """{"activeSlotsCoeff":0.05,"networkId":"mainnet","slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}""",
+            content = """{"activeSlotsCoeff":0.05,"networkId":"mainnet","networkMagic":764824073,"slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}""",
         )
 
     private fun coreNode() =

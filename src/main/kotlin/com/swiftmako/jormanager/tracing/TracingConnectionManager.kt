@@ -1,6 +1,9 @@
 package com.swiftmako.jormanager.tracing
 
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.SmartLifecycle
@@ -37,6 +41,8 @@ import org.springframework.stereotype.Component
 class TracingConnectionManager(
     private val nodeRepository: NodeRepository,
     private val hostRepository: HostRepository,
+    private val fileRepository: FileRepository,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
     private val connectionRunnerFactory: TraceForwardConnectionRunnerFactory = SocketTraceForwardConnectionRunnerFactory(),
     private val messageSink: TracingRawCaptureService,
@@ -138,7 +144,7 @@ class TracingConnectionManager(
             }
 
             existing?.shutdown()
-            val connectionRunner = connectionRunnerFactory.create()
+            val connectionRunner = connectionRunnerFactory.create(target.networkMagic)
             val connection =
                 ManagedTracingConnection(
                     target = target,
@@ -202,6 +208,7 @@ class TracingConnectionManager(
             return null
         }
 
+        val networkMagic = resolveNetworkMagic(node) ?: return null
         val nodeId = requireNotNull(node.id)
         val tracingPort = requireNotNull(node.tracingPort)
 
@@ -215,7 +222,35 @@ class TracingConnectionManager(
             nodeId = nodeId,
             hostname = host.hostname,
             tracingPort = tracingPort,
+            networkMagic = networkMagic,
         )
+    }
+
+    private fun resolveNetworkMagic(node: Node): Long? {
+        val shelleyGenesisFile =
+            fileRepository.findByIdOrNull(node.genesisShelleyFileId)
+        if (shelleyGenesisFile == null) {
+            log.error { "Unable to start tracing for node ${node.name}: Shelley genesis file ${node.genesisShelleyFileId} not found" }
+            return null
+        }
+
+        val shelley =
+            runCatching { shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content) }
+                .onFailure { error ->
+                    log.error(error) { "Unable to start tracing for node ${node.name}: failed to parse Shelley genesis file ${shelleyGenesisFile.name}" }
+                }.getOrNull()
+        if (shelley == null) {
+            log.error { "Unable to start tracing for node ${node.name}: Shelley genesis file ${shelleyGenesisFile.name} was empty or invalid" }
+            return null
+        }
+
+        val networkMagic = shelley.networkMagic
+        if (networkMagic == null) {
+            log.error { "Unable to start tracing for node ${node.name}: Shelley genesis file ${shelleyGenesisFile.name} is missing networkMagic" }
+            return null
+        }
+
+        return networkMagic
     }
 
     private data class ManagedTracingConnection(
@@ -235,6 +270,7 @@ class TracingConnectionManager(
         val nodeId: Long,
         val hostname: String,
         val tracingPort: Int,
+        val networkMagic: Long,
     )
 
     companion object {

@@ -20,6 +20,10 @@ import org.junit.jupiter.api.Test
 class TraceForwardAdoptedBlockDecoderTest {
     private val decoder = TraceForwardAdoptedBlockDecoder()
 
+    companion object {
+        private const val NETWORK_MAGIC = 764_824_073L
+    }
+
     @Test
     fun decodesValidForwardedAdoptedBlockTraceObject() {
         val event = decoder.decode(TraceForwardFixtures.adoptedBlockTraceObject().traceObjectJson)
@@ -184,7 +188,7 @@ class TraceForwardAdoptedBlockDecoderTest {
 
                 val failure =
                     runCatching {
-                        SocketTraceForwardConnectionRunner().runConnection("127.0.0.1", serverSocket.localPort) { }
+                        SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC).runConnection("127.0.0.1", serverSocket.localPort) { }
                     }.exceptionOrNull()
 
                 check(completion.await(5, TimeUnit.SECONDS)) { "Timed out waiting for socket runner proof" }
@@ -234,7 +238,7 @@ class TraceForwardAdoptedBlockDecoderTest {
                     }
 
                 runCatching {
-                    SocketTraceForwardConnectionRunner().runConnection("127.0.0.1", serverSocket.localPort) { message ->
+                    SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC).runConnection("127.0.0.1", serverSocket.localPort) { message ->
                         if (message is TraceForwardMessage.TraceObjectsReply) {
                             replies += message
                         }
@@ -331,7 +335,7 @@ class TraceForwardAdoptedBlockDecoderTest {
             CborArray.create().apply {
                 add(CborInteger.create(1L))
                 add(CborInteger.create(1L))
-                add(CborInteger.create(141L))
+                add(CborInteger.create(NETWORK_MAGIC))
             }
         )
         buffer.flip()
@@ -350,7 +354,7 @@ class TraceForwardAdoptedBlockDecoderTest {
                                 add(
                                     com.google.iot.cbor.CborMap.create(
                                         mutableMapOf<CborObject, CborObject>(
-                                            CborInteger.create(1L) to CborInteger.create(141L)
+                                            CborInteger.create(1L) to CborInteger.create(NETWORK_MAGIC)
                                         )
                                     )
                                 )

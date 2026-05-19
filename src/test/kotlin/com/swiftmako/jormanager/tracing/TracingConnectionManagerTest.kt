@@ -1,8 +1,12 @@
 package com.swiftmako.jormanager.tracing
 
 import com.google.common.truth.Truth.assertThat
+import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import io.mockk.every
@@ -20,6 +24,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 class TracingConnectionManagerTest {
+    private val shelleyGenesisAdapter = Moshi.Builder().build().adapter(GenesisShelley::class.java)
+
     @Test
     fun startSeedsEligibleNodesAndConnects() =
         runBlocking {
@@ -31,7 +37,7 @@ class TracingConnectionManagerTest {
                     nodes = listOf(node),
                     hostById = mapOf(node.hostId to host()),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -68,7 +74,7 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -119,7 +125,7 @@ class TracingConnectionManagerTest {
                     nodesChannel = nodesChannel,
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -157,7 +163,7 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 100L,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -194,7 +200,7 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(1L to host()),
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -234,7 +240,7 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(1L to host()),
                     messageSink = captureService,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -342,7 +348,7 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(node.hostId to host()),
                     messageSink = captureService,
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -377,7 +383,7 @@ class TracingConnectionManagerTest {
                     nodes = listOf(coreNode()),
                     hostById = mapOf(1L to host()),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -414,7 +420,43 @@ class TracingConnectionManagerTest {
                     ),
                     hostById = mapOf(2L to host(), 3L to host()),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
+                            object : TraceForwardConnectionRunner {
+                                override suspend fun runConnection(
+                                    hostname: String,
+                                    port: Int,
+                                    onMessage: suspend (TraceForwardMessage) -> Unit,
+                                ) {
+                                    attempts.incrementAndGet()
+                                }
+
+                                override fun close() {
+                                }
+                            }
+                        },
+                )
+
+            manager.start()
+            Thread.sleep(100)
+
+            assertThat(attempts.get()).isEqualTo(0)
+            assertThat(manager.managedNodeIds()).isEmpty()
+
+            manager.stopAndWait()
+        }
+
+    @Test
+    fun nodesMissingNetworkMagicAreSkipped() =
+        runBlocking {
+            val attempts = AtomicInteger(0)
+            val node = coreNode()
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(node.hostId to host()),
+                    shelleyGenesisFileByNodeId = mapOf(requireNotNull(node.id) to shelleyGenesisFile(networkMagic = null)),
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -450,7 +492,7 @@ class TracingConnectionManagerTest {
                     nodes = listOf(relayNode),
                     hostById = mapOf(relayNode.hostId to host()),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory {
+                        TraceForwardConnectionRunnerFactory { _ ->
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -480,20 +522,28 @@ class TracingConnectionManagerTest {
         hostById: Map<Long, Host>,
         nodesChannel: MutableSharedFlow<Node> = MutableSharedFlow(extraBufferCapacity = 8),
         reconnectDelayMillis: Long = 50L,
+        shelleyGenesisFileByNodeId: Map<Long, File> = emptyMap(),
         connectionRunnerFactory: TraceForwardConnectionRunnerFactory = SocketTraceForwardConnectionRunnerFactory(),
         messageSink: TracingRawCaptureService = createRawCaptureService(coreNode()),
     ): TracingConnectionManager {
         val nodeRepository = mockk<NodeRepository>()
         val hostRepository = mockk<HostRepository>()
+        val fileRepository = mockk<FileRepository>()
 
         every { nodeRepository.findAll() } returns nodes
         hostById.forEach { (configuredHostId, host) ->
             every { hostRepository.findById(configuredHostId) } returns Optional.of(host)
         }
+        nodes.forEach { node ->
+            every { fileRepository.findById(node.genesisShelleyFileId) } returns
+                Optional.of(shelleyGenesisFileByNodeId[requireNotNull(node.id)] ?: shelleyGenesisFile())
+        }
 
         return TracingConnectionManager(
             nodeRepository = nodeRepository,
             hostRepository = hostRepository,
+            fileRepository = fileRepository,
+            shelleyGenesisAdapter = shelleyGenesisAdapter,
             nodesChannel = nodesChannel,
             connectionRunnerFactory = connectionRunnerFactory,
             messageSink = messageSink,
@@ -517,6 +567,18 @@ class TracingConnectionManagerTest {
                 )
         )
     }
+
+    private fun shelleyGenesisFile(networkMagic: Long? = 764_824_073L) =
+        File(
+            id = 2L,
+            name = "shelley.json",
+            content =
+                if (networkMagic == null) {
+                    """{"activeSlotsCoeff":0.05,"networkId":"mainnet","slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}"""
+                } else {
+                    """{"activeSlotsCoeff":0.05,"networkId":"mainnet","networkMagic":$networkMagic,"slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}"""
+                },
+        )
 
     private fun dataPointsReply() =
         TraceForwardMessage.DataPointsReply(

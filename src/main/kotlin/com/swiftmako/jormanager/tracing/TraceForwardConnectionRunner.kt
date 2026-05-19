@@ -30,17 +30,17 @@ interface TraceForwardConnectionRunner {
 }
 
 fun interface TraceForwardConnectionRunnerFactory {
-    fun create(): TraceForwardConnectionRunner
+    fun create(networkMagic: Long): TraceForwardConnectionRunner
 }
 
 class SocketTraceForwardConnectionRunnerFactory : TraceForwardConnectionRunnerFactory {
-    override fun create(): TraceForwardConnectionRunner = SocketTraceForwardConnectionRunner()
+    override fun create(networkMagic: Long): TraceForwardConnectionRunner = SocketTraceForwardConnectionRunner(networkMagic = networkMagic)
 }
 
 class SocketTraceForwardConnectionRunner(
     private val requestedDataPointNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
     private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetMetrics(TracingMetricDecoder.DASHBOARD_REQUEST_NAMES),
-    private val networkMagic: Long = DEFAULT_NETWORK_MAGIC,
+    private val networkMagic: Long,
     private val requestBlocking: Boolean = true,
     private val requestCount: Int = DEFAULT_REQUEST_COUNT,
 ) : TraceForwardConnectionRunner {
@@ -87,7 +87,6 @@ class SocketTraceForwardConnectionRunner(
 
     companion object {
         internal const val DEFAULT_REQUEST_COUNT = 25
-        private const val DEFAULT_NETWORK_MAGIC = 141L
     }
 }
 
