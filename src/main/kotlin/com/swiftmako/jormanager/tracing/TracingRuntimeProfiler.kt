@@ -263,9 +263,13 @@ class TracingRuntimeProfiler {
 
     private class NodeProfile {
         @Volatile var nodeName: String = "unknown"
+
         @Volatile var nodeType: String = "unknown"
+
         @Volatile var hostname: String = "unknown"
+
         @Volatile var tracingPort: Int = -1
+
         @Volatile var enableTraceObjects: Boolean = false
 
         val connectionOpens = AtomicLong(0L)

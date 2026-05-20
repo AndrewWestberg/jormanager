@@ -11,6 +11,7 @@ import io.ktor.network.sockets.InetSocketAddress
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.connection
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
@@ -65,54 +66,59 @@ class SocketTraceForwardConnectionRunner(
         port: Int,
         onMessage: suspend (TraceForwardMessage) -> Unit,
     ) {
-        aSocket(ActorSelectorManager(Dispatchers.IO))
-            .tcp()
-            .connect(InetSocketAddress(hostname, port)) {
-                noDelay = true
-                keepAlive = true
-            }.use { socket ->
-                val mux = Mux(socket.connection())
-                activeMux.set(mux)
-                val metricsProtocol =
-                    ForwardingMetricsProtocol(
-                        request = metricsRequest,
-                        singleReplyMode = false,
-                        pollInterval = metricsPollInterval,
-                    )
-                val dataPointsProtocol =
-                    ForwardingDataPointsProtocol(
-                        requestedNames = requestedDataPointNames,
-                        singleReplyMode = false,
-                        pollInterval = dataPointPollInterval,
-                    )
-                val metricsCollector = metricsProtocol.messages.collectInBackground(onMessage)
-                val dataPointCollector = dataPointsProtocol.messages.collectInBackground(onMessage)
-                val traceObjectsProtocol =
-                    if (enableTraceObjects) {
-                        ForwardingTraceObjectsProtocol(
-                            requestBlocking = requestBlocking,
-                            requestCount = requestCount,
+        val selector = ActorSelectorManager(coroutineContext)
+        try {
+            aSocket(selector)
+                .tcp()
+                .connect(InetSocketAddress(hostname, port)) {
+                    noDelay = true
+                    keepAlive = true
+                }.use { socket ->
+                    val mux = Mux(socket.connection())
+                    activeMux.set(mux)
+                    val metricsProtocol =
+                        ForwardingMetricsProtocol(
+                            request = metricsRequest,
                             singleReplyMode = false,
+                            pollInterval = metricsPollInterval,
                         )
-                    } else {
-                        null
+                    val dataPointsProtocol =
+                        ForwardingDataPointsProtocol(
+                            requestedNames = requestedDataPointNames,
+                            singleReplyMode = false,
+                            pollInterval = dataPointPollInterval,
+                        )
+                    val metricsCollector = metricsProtocol.messages.collectInBackground(onMessage)
+                    val dataPointCollector = dataPointsProtocol.messages.collectInBackground(onMessage)
+                    val traceObjectsProtocol =
+                        if (enableTraceObjects) {
+                            ForwardingTraceObjectsProtocol(
+                                requestBlocking = requestBlocking,
+                                requestCount = requestCount,
+                                singleReplyMode = false,
+                            )
+                        } else {
+                            null
+                        }
+                    val traceObjectCollector = traceObjectsProtocol?.messages?.collectInBackground(onMessage)
+                    try {
+                        mux.execute(ForwardingHandshakeProtocol(networkMagic))
+                        val protocols = buildList {
+                            add(metricsProtocol)
+                            traceObjectsProtocol?.let(::add)
+                            add(dataPointsProtocol)
+                        }
+                        mux.execute(*protocols.toTypedArray())
+                    } finally {
+                        metricsCollector.cancelAndJoin()
+                        traceObjectCollector?.cancelAndJoin()
+                        dataPointCollector.cancelAndJoin()
+                        activeMux.compareAndSet(mux, null)
                     }
-                val traceObjectCollector = traceObjectsProtocol?.messages?.collectInBackground(onMessage)
-                try {
-                    mux.execute(ForwardingHandshakeProtocol(networkMagic))
-                    val protocols = buildList {
-                        add(metricsProtocol)
-                        traceObjectsProtocol?.let(::add)
-                        add(dataPointsProtocol)
-                    }
-                    mux.execute(*protocols.toTypedArray())
-                } finally {
-                    metricsCollector.cancelAndJoin()
-                    traceObjectCollector?.cancelAndJoin()
-                    dataPointCollector.cancelAndJoin()
-                    activeMux.compareAndSet(mux, null)
                 }
-            }
+        } finally {
+            selector.close()
+        }
     }
 
     override fun close() {

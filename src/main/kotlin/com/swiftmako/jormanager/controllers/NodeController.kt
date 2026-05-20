@@ -189,6 +189,7 @@ class NodeController
                 val host =
                     hostRepository.findByIdOrNull(request.hostId)
                         ?: throw IOException("Invalid HostId: ${request.hostId}")
+                val tracingListen = request.tracingListen ?: if (host.isRemote) "0.0.0.0" else "127.0.0.1"
                 val hostConnection = HostConnection(host)
                 // validate sudo password right away
                 hostConnection.sudoCommand("pwd", request.sudoPassword)
@@ -225,7 +226,7 @@ class NodeController
                             nodeFolder,
                             request.listen,
                             request.port,
-                            request.tracingListen,
+                            tracingListen,
                             tracingPort,
                         )
                         createSystemdFile(
@@ -235,7 +236,7 @@ class NodeController
                             hostConnection = hostConnection,
                             name = request.name,
                             processorThreads = request.processorThreads,
-                            tracingHost = request.tracingListen,
+                            tracingHost = tracingListen,
                             tracingPort = tracingPort,
                         )
                         createManualStartupScripts(
@@ -243,7 +244,7 @@ class NodeController
                             startupNodeType = request.type,
                             host = host,
                             hostConnection = hostConnection,
-                            tracingHost = request.tracingListen,
+                            tracingHost = tracingListen,
                             tracingPort = tracingPort,
                         )
 
@@ -265,7 +266,7 @@ class NodeController
                                 listen = request.listen,
                                 port = request.port,
                                 promPort = promPort,
-                                tracingHost = request.tracingListen,
+                                tracingHost = tracingListen,
                                 genesisByronFileId = request.genesisByronFileId,
                                 genesisShelleyFileId = request.genesisShelleyFileId,
                                 genesisAlonzoFileId = request.genesisAlonzoFileId,
@@ -1069,7 +1070,7 @@ class NodeController
                                         nodeFolder,
                                         request.listen,
                                         request.port,
-                                        request.tracingListen,
+                                        tracingListen,
                                         tracingPort,
                                     )
                                     createSystemdFile(
@@ -1079,7 +1080,7 @@ class NodeController
                                         hostConnection = hostConnection,
                                         name = request.name,
                                         processorThreads = request.processorThreads,
-                                        tracingHost = request.tracingListen,
+                                        tracingHost = tracingListen,
                                         tracingPort = tracingPort,
                                     )
                                     createManualStartupScripts(
@@ -1087,7 +1088,7 @@ class NodeController
                                         startupNodeType = request.type,
                                         host = host,
                                         hostConnection = hostConnection,
-                                        tracingHost = request.tracingListen,
+                                        tracingHost = tracingListen,
                                         tracingPort = tracingPort,
                                     )
                                     Pair(configFileId, promPort)
@@ -1111,7 +1112,7 @@ class NodeController
                                             nodeFolder,
                                             coreNode.listen,
                                             coreNode.port,
-                                            coreNode.tracingHost ?: request.tracingListen,
+                                            coreNode.tracingHost ?: tracingListen,
                                             coreNode.tracingPort,
                                         )
                                         val credentials = mutableListOf<MutableList<Key>>()
@@ -1177,7 +1178,7 @@ class NodeController
                                             hostConnection = hostConnection,
                                             name = coreNode.name,
                                             processorThreads = 4 + credentials.size,
-                                            tracingHost = coreNode.tracingHost ?: request.tracingListen,
+                                            tracingHost = coreNode.tracingHost ?: tracingListen,
                                             tracingPort = coreNode.tracingPort,
                                         )
 
@@ -1195,7 +1196,7 @@ class NodeController
                                     listen = request.listen,
                                     port = request.port,
                                     promPort = promPort,
-                                    tracingHost = request.tracingListen,
+                                    tracingHost = tracingListen,
                                     genesisByronFileId = request.genesisByronFileId,
                                     genesisShelleyFileId = request.genesisShelleyFileId,
                                     genesisAlonzoFileId = request.genesisAlonzoFileId,

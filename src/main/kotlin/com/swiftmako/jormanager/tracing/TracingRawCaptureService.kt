@@ -236,7 +236,11 @@ internal fun TracingRawDataPointSnapshot.approximatePayloadBytes(): Int {
 internal fun TracingRawTraceObjectBatch.approximatePayloadBytes(): Int {
     var total = 0
     for (index in 0 until traceObjects.size()) {
-        total += traceObjects.elementAt(index).toString().toByteArray().size
+        total += traceObjects
+            .elementAt(index)
+            .toString()
+            .toByteArray()
+            .size
     }
     return total
 }

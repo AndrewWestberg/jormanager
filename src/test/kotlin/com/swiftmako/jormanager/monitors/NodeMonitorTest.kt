@@ -36,7 +36,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 class NodeMonitorTest {
     private val moshi = Moshi.Builder().build()
     private val shelleyGenesisAdapter = moshi.adapter(GenesisShelley::class.java)
-    private val tracingRuntimeProfiler = com.swiftmako.jormanager.tracing.TracingRuntimeProfiler()
+    private val tracingRuntimeProfiler = com.swiftmako.jormanager.tracing
+        .TracingRuntimeProfiler()
 
     @Test
     fun startSelfSeedsEligibleCoreNodesAndPublishesGroupedNodeStats() =
