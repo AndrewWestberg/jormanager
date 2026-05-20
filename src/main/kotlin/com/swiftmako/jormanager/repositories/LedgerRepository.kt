@@ -323,7 +323,7 @@ object LedgerRepository {
                 }
             }
 
-    fun siblingHashCount(hash: String): Long = siblingHashCountCache[hash]!!
+    fun siblingHashCount(hash: String): Long = siblingHashCountCache.get(hash)
 
     fun insertBlockFetch(
         blockNumber: Long,

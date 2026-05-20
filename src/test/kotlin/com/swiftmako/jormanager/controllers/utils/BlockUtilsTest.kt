@@ -141,42 +141,46 @@ class BlockUtilsTest {
             maxKESEvolutions = 62L,
         )
 
+    private val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
+
     @Test
     fun `test getEpochAndSlot`() {
-        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
-//        val (epoch, slot) = target.getEpochAndSlot(byron, shelley, 7914957L)
-//        println("Epoch: $epoch, Slot: $slot")
-//        assertThat(epoch).isEqualTo(215L)
-//        assertThat(slot).isEqualTo(398157L)
-//
-//        val (epoch1, slot1) = target.getEpochAndSlot(byron, shelley, 5792939L)
-//        println("Epoch: $epoch1, Slot: $slot1")
-//        assertThat(epoch1).isEqualTo(211L)
-//        assertThat(slot1).isEqualTo(4139L)
+        val (epoch, slotInEpoch) = target.getEpochAndSlot(byron, shelley, 10_540_771L)
 
-        val (epoch2, slot2) = target.getEpochAndSlot(byron, shelley, 10540771)
-        println("Epoch: $epoch2, Slot: $slot2")
+        assertThat(epoch).isEqualTo(221L)
+        assertThat(slotInEpoch).isEqualTo(431_971L)
     }
 
     @Test
     fun `test getShelleyTransitionEpoch`() {
-        var target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
         val mainnetTransitionEpoch = target.getShelleyTransitionEpoch(byron, shelley)
         assertThat(mainnetTransitionEpoch).isEqualTo(208)
 
-        target = BlockUtils(nodeStatsTest, "/usr/local/lib/libsodium.so")
         val testnetTransitionEpoch = target.getShelleyTransitionEpoch(byronTest, shelleyTest)
         assertThat(testnetTransitionEpoch).isEqualTo(74)
 
-        target = BlockUtils(nodeStatsGuild, "/usr/local/lib/libsodium.so")
         val guildTransitionEpoch = target.getShelleyTransitionEpoch(byronGuild, shelleyGuild)
-        assertThat(guildTransitionEpoch).isEqualTo(0)
+        assertThat(guildTransitionEpoch).isEqualTo(2)
+    }
+
+    @Test
+    fun `slotToTimestamp is monotonic with slot`() {
+        val earlier = target.slotToTimestamp(byron, shelley, 14_021_149L)
+        val later = target.slotToTimestamp(byron, shelley, 14_021_150L)
+
+        assertThat(earlier).isLessThan(later)
+    }
+
+    @Test
+    fun `slotToTimestamp returns same value for same slot`() {
+        val first = target.slotToTimestamp(byron, shelley, 14_021_149L)
+        val second = target.slotToTimestamp(byron, shelley, 14_021_149L)
+
+        assertThat(first).isEqualTo(second)
     }
 
     @Test
     fun testOverlaySlot() {
-        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
-
         val firstSlotOfEpoch = 11404800L
         val testSlot = 11553190L
         val result = target.isOverlaySlot(firstSlotOfEpoch, testSlot, BigDecimal("0.56"))
@@ -192,8 +196,6 @@ class BlockUtilsTest {
     fun mkInputVRFTest() {
         // {"slot": SlotNo 852974, "praosEpochNonce": Nonce "7427c5045f75518be00b21c76e44660d3cc7616ee34e91f284bb19468d3f45c2"}
         // Jun 16 12:50:14 brainy vpool-node[2955488]: {"rho'": InputVRF {unInputVRF = "0ab5f206b2a97c3c328d8600dab04c2a2a13c670114d07742e808ee4778307bf"}}
-        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
-
         val result =
             target
                 .mkInputVRF(
@@ -213,8 +215,6 @@ class BlockUtilsTest {
         // vpool vrf skey
         val poolVrfSkey =
             "fd8b57ee76d8d9938a0fb5b61e63626e1604d900e84d0970d24bfd69b60fea98e7b493d575baa41450f7c8c82a462d6c7a5179d143536cdd1a50e8200e6db5d5".hexToByteArray()
-
-        val target = BlockUtils(nodeStats, "/usr/local/lib/libsodium.so")
 
         val result =
             target

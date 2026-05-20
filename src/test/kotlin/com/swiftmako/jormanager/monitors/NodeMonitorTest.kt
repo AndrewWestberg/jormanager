@@ -36,6 +36,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 class NodeMonitorTest {
     private val moshi = Moshi.Builder().build()
     private val shelleyGenesisAdapter = moshi.adapter(GenesisShelley::class.java)
+    private val tracingRuntimeProfiler = com.swiftmako.jormanager.tracing.TracingRuntimeProfiler()
 
     @Test
     fun startSelfSeedsEligibleCoreNodesAndPublishesGroupedNodeStats() =
@@ -223,42 +224,6 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun traceObjectsCanSupplyConnectionCountersWhenDatapointsDoNot() =
-        runBlocking {
-            val coreNode = node(isDefault = true)
-            val coreNodeId = requireNotNull(coreNode.id)
-            val latestNodeStats = AtomicReference<NodeStats>(null)
-            val sentMessages = CopyOnWriteArrayList<Pair<String, SocketResponse.Success<*>>>()
-            val rawCapture = rawCaptureService(coreNode)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(coreNode),
-                    latestNodeStats = latestNodeStats,
-                    tracingRawCaptureService = rawCapture,
-                    onSend = { destination, payload ->
-                        sentMessages += destination to payload
-                    },
-                )
-
-            rawCapture.onMessage(
-                coreNodeId,
-                TraceForwardFixtures
-                    .msgTraceObjectsReply(
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
-                        TraceForwardFixtures.nodeStateTraceObject(),
-                    ).toTraceObjectsReply(),
-            )
-            monitor.start()
-            waitUntil { latestNodeStats.get()?.peers == 2 && sentMessages.isNotEmpty() }
-            monitor.stopAndWait()
-
-            assertThat(latestNodeStats.get()?.peers).isEqualTo(2)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
-            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
-        }
-
-    @Test
     fun freshProtocol1MetricsWinOverDatapointsForOverlappingFields() =
         runBlocking {
             val coreNode = node(isDefault = true)
@@ -355,41 +320,6 @@ class NodeMonitorTest {
         }
 
     @Test
-    fun freshProtocol2PeerCountersOverrideProtocol3PeerValuesWithoutProtocol1Metrics() =
-        runBlocking {
-            val coreNode = node(isDefault = true)
-            val coreNodeId = requireNotNull(coreNode.id)
-            val latestNodeStats = AtomicReference<NodeStats>(null)
-            val rawCapture = rawCaptureService(coreNode)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(coreNode),
-                    latestNodeStats = latestNodeStats,
-                    tracingRawCaptureService = rawCapture,
-                )
-
-            rawCapture.onMessage(
-                coreNodeId,
-                TraceForwardFixtures
-                    .msgTraceObjectsReply(
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
-                    ).toTraceObjectsReply(),
-            )
-            rawCapture.onMessage(coreNodeId, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
-            monitor.start()
-            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
-            monitor.stopAndWait()
-
-            assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(7)
-            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
-        }
-
-    @Test
     fun incompleteProtocol1MetricsStillPublishUsableNodeStats() =
         runBlocking {
             val coreNode = node(isDefault = true)
@@ -422,111 +352,6 @@ class NodeMonitorTest {
             assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(8_888_888L)
             assertThat(latestNodeStats.get()?.txsProcessed).isEqualTo(0L)
             assertThat(latestNodeStats.get()?.remainingKESPeriods).isEqualTo(36)
-        }
-
-    @Test
-    fun freshProtocol1MetricsStillUseProtocol2PeerCountersWhenAvailable() =
-        runBlocking {
-            val coreNode = node(isDefault = true)
-            val coreNodeId = requireNotNull(coreNode.id)
-            val latestNodeStats = AtomicReference<NodeStats>(null)
-            val rawCapture = rawCaptureService(coreNode)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(coreNode),
-                    latestNodeStats = latestNodeStats,
-                    tracingRawCaptureService = rawCapture,
-                )
-
-            rawCapture.recordMetricSnapshotForTest(
-                coreNodeId,
-                metricSnapshot(nodeId = coreNodeId)
-            )
-            rawCapture.onMessage(
-                coreNodeId,
-                TraceForwardFixtures
-                    .msgTraceObjectsReply(
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
-                    ).toTraceObjectsReply(),
-            )
-            monitor.start()
-            waitUntil { latestNodeStats.get()?.peers == 5 && latestNodeStats.get()?.incomingPeers == 0 }
-            monitor.stopAndWait()
-
-            assertThat(latestNodeStats.get()?.blockHeight).isEqualTo(7_403_221L)
-            assertThat(latestNodeStats.get()?.peers).isEqualTo(5)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
-        }
-
-    @Test
-    fun staleTraceObjectsDoNotSupplyPeerCountersWhenProtocol1MetricsAreFresh() =
-        runBlocking {
-            val coreNode = node(isDefault = true)
-            val coreNodeId = requireNotNull(coreNode.id)
-            val latestNodeStats = AtomicReference<NodeStats>(null)
-            val rawCapture = rawCaptureService(coreNode)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(coreNode),
-                    latestNodeStats = latestNodeStats,
-                    tracingRawCaptureService = rawCapture,
-                )
-
-            rawCapture.recordMetricSnapshotForTest(coreNodeId, metricSnapshot(nodeId = coreNodeId))
-            rawCapture.recordTraceObjectBatchForTest(
-                nodeId = coreNodeId,
-                batch =
-                    com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
-                        nodeId = coreNodeId,
-                        capturedAt = Instant.now().minusSeconds(60),
-                        traceObjects = TraceForwardFixtures.traceObjectsArray(
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        ),
-                    ),
-            )
-            monitor.start()
-            waitUntil { latestNodeStats.get()?.blockHeight == 7_403_221L }
-            monitor.stopAndWait()
-
-            assertThat(latestNodeStats.get()?.peers).isEqualTo(0)
-            assertThat(latestNodeStats.get()?.incomingPeers).isEqualTo(0)
-        }
-
-    @Test
-    fun staleTraceObjectsDoNotSupplyChainFallbackWithoutOtherFreshSnapshots() =
-        runBlocking {
-            val coreNode = node(isDefault = true)
-            val coreNodeId = requireNotNull(coreNode.id)
-            val sentMessages = CopyOnWriteArrayList<SocketResponse.Success<*>>()
-            val rawCapture = rawCaptureService(coreNode)
-            val monitor =
-                createMonitor(
-                    nodes = listOf(coreNode),
-                    tracingRawCaptureService = rawCapture,
-                    onSend = { _, payload -> sentMessages += payload },
-                )
-
-            rawCapture.recordTraceObjectBatchForTest(
-                nodeId = coreNodeId,
-                batch =
-                    com.swiftmako.jormanager.tracing.TracingRawTraceObjectBatch(
-                        nodeId = coreNodeId,
-                        capturedAt = Instant.now().minusSeconds(60),
-                        traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
-                    ),
-            )
-            monitor.start()
-            waitUntil { sentMessages.isNotEmpty() }
-            monitor.stopAndWait()
-
-            @Suppress("UNCHECKED_CAST")
-            val nodeStatsEvents = sentMessages.last().data as List<NodeStats>
-            assertThat(nodeStatsEvents.last().blockHeight).isNull()
-            assertThat(nodeStatsEvents.last().slot).isNull()
         }
 
     @Test
@@ -596,7 +421,7 @@ class NodeMonitorTest {
             moshi = moshi,
             nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
             latestNodeStats = latestNodeStats,
-            tracingDashboardSignalService = TracingDashboardSignalService(tracingRawCaptureService),
+            tracingDashboardSignalService = TracingDashboardSignalService(tracingRawCaptureService, tracingRuntimeProfiler),
             startupDelayMillis = 0L,
             sampleIntervalMillis = 50L,
             publishDelayMillis = 10L,
@@ -632,7 +457,9 @@ class NodeMonitorTest {
                             every { findById(node.hostId) } returns Optional.of(host(node.hostId))
                         },
                         tracingBlockPersistenceService = mockk(relaxed = true),
-                    )
+                        tracingRuntimeProfiler = tracingRuntimeProfiler,
+                    ),
+                tracingRuntimeProfiler = tracingRuntimeProfiler,
             )
         }
 

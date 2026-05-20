@@ -55,7 +55,7 @@ class NodeConnectTest {
                                 ledger!!
                                     .esSnapshots.pstakeSet.stake
                                     .map { stakeItem ->
-                                        (stakeItem[0] as Map<String, String>)["key hash"] to
+                                        stakeItem[0].keyHash() to
                                             (stakeItem[1] as Double)
                                                 .toLong()
                                                 .toBigInteger()
@@ -66,7 +66,7 @@ class NodeConnectTest {
 //                    it[1] == "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114"
                                         it[1] == "3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"
                                     }.mapNotNull { delegation ->
-                                        val keyHash = (delegation[0] as Map<String, String>)["key hash"]
+                                        val keyHash = delegation[0].keyHash()
                                         stakeMap[keyHash]
                                     }.sumByBigInteger { it }
 
@@ -322,14 +322,14 @@ class NodeConnectTest {
             ledger!!
                 .esSnapshots.pstakeSet.stake
                 .map { stakeItem ->
-                    (stakeItem[0] as Map<String, String>)["key hash"] to (stakeItem[1] as Double).toLong().toBigInteger()
+                    stakeItem[0].keyHash() to (stakeItem[1] as Double).toLong().toBigInteger()
                 }.toMap()
         val activeStake =
             ledger.esSnapshots.pstakeSet.delegations
                 .filter {
                     it[1] == poolId
                 }.mapNotNull { delegation ->
-                    val keyHash = (delegation[0] as Map<String, String>)["key hash"]
+                    val keyHash = delegation[0].keyHash()
                     stakeMap[keyHash]
                 }.sumByBigInteger { it }
 
@@ -337,3 +337,5 @@ class NodeConnectTest {
         return BigDecimal(activeStake).divide(BigDecimal(totalStake), 34, RoundingMode.HALF_UP)
     }
 }
+
+private fun Any.keyHash(): String? = (this as? Map<*, *>)?.get("key hash") as? String

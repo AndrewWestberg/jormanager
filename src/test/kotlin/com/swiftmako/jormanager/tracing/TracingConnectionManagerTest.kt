@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test
 
 class TracingConnectionManagerTest {
     private val shelleyGenesisAdapter = Moshi.Builder().build().adapter(GenesisShelley::class.java)
+    private val tracingRuntimeProfiler = TracingRuntimeProfiler()
 
     @Test
     fun startSeedsEligibleNodesAndConnects() =
@@ -485,6 +486,7 @@ class TracingConnectionManagerTest {
     fun relayNodesWithTracingPortsOpenTracingConnections() =
         runBlocking {
             val attempts = AtomicInteger(0)
+            val traceObjectsEnabled = AtomicReference<Boolean?>(null)
             val relayNode = coreNode(type = "relay", tracingPort = 12790)
             val relayNodeId = requireNotNull(relayNode.id)
             val manager =
@@ -492,7 +494,8 @@ class TracingConnectionManagerTest {
                     nodes = listOf(relayNode),
                     hostById = mapOf(relayNode.hostId to host()),
                     connectionRunnerFactory =
-                        TraceForwardConnectionRunnerFactory { _ ->
+                        TraceForwardConnectionRunnerFactory { target ->
+                            traceObjectsEnabled.set(target.enableTraceObjects)
                             object : TraceForwardConnectionRunner {
                                 override suspend fun runConnection(
                                     hostname: String,
@@ -513,6 +516,7 @@ class TracingConnectionManagerTest {
             waitUntil { attempts.get() == 1 }
 
             assertThat(manager.managedNodeIds()).containsExactly(relayNodeId)
+            assertThat(traceObjectsEnabled.get()).isFalse()
 
             manager.stopAndWait()
         }
@@ -547,6 +551,7 @@ class TracingConnectionManagerTest {
             nodesChannel = nodesChannel,
             connectionRunnerFactory = connectionRunnerFactory,
             messageSink = messageSink,
+            tracingRuntimeProfiler = tracingRuntimeProfiler,
             reconnectDelayMillis = reconnectDelayMillis,
         )
     }
@@ -564,7 +569,9 @@ class TracingConnectionManagerTest {
                     nodeRepository = nodeRepository,
                     hostRepository = hostRepository,
                     tracingBlockPersistenceService = blockService,
-                )
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
+                ),
+            tracingRuntimeProfiler = tracingRuntimeProfiler,
         )
     }
 

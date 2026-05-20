@@ -46,6 +46,7 @@ class TracingConnectionManager(
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
     private val connectionRunnerFactory: TraceForwardConnectionRunnerFactory = SocketTraceForwardConnectionRunnerFactory(),
     private val messageSink: TracingRawCaptureService,
+    private val tracingRuntimeProfiler: TracingRuntimeProfiler,
     private val reconnectDelayMillis: Long = DEFAULT_RECONNECT_DELAY_MILLIS,
 ) : SmartLifecycle,
     CoroutineScope {
@@ -144,7 +145,21 @@ class TracingConnectionManager(
             }
 
             existing?.shutdown()
-            val connectionRunner = connectionRunnerFactory.create(target.networkMagic)
+            val connectionRunner =
+                connectionRunnerFactory.create(
+                    TracingTransportTarget(
+                        networkMagic = target.networkMagic,
+                        enableTraceObjects = target.nodeType == "core",
+                    ),
+                )
+            tracingRuntimeProfiler.registerNodeTarget(
+                nodeId = nodeId,
+                nodeName = node.name,
+                nodeType = target.nodeType,
+                hostname = target.hostname,
+                tracingPort = target.tracingPort,
+                enableTraceObjects = target.nodeType == "core",
+            )
             val connection =
                 ManagedTracingConnection(
                     target = target,
@@ -170,6 +185,7 @@ class TracingConnectionManager(
         while (shouldKeepRunning(target)) {
             try {
                 log.info { "Opening tracing connection to ${target.hostname}:${target.tracingPort} for node ${target.nodeId}" }
+                tracingRuntimeProfiler.recordConnectionOpened(target.nodeId)
                 connectionRunner.runConnection(target.hostname, target.tracingPort) { message ->
                     messageSink.onMessage(target.nodeId, message)
                 }
@@ -177,6 +193,7 @@ class TracingConnectionManager(
                 throw e
             } catch (e: Throwable) {
                 if (shouldKeepRunning(target)) {
+                    tracingRuntimeProfiler.recordConnectionClosed(target.nodeId, expected = isExpectedDisconnect(e))
                     if (isExpectedDisconnect(e)) {
                         log.info { "Tracing connection closed for node ${target.nodeId}; reconnecting in ${reconnectDelayMillis}ms (${e.rootCauseMessage()})" }
                     } else {
@@ -192,6 +209,7 @@ class TracingConnectionManager(
             messageSink.clearNode(target.nodeId)
             delay(reconnectDelayMillis)
         }
+        tracingRuntimeProfiler.recordConnectionClosed(target.nodeId, expected = true)
         messageSink.clearNode(target.nodeId)
         connectionRunner.close()
     }
@@ -220,6 +238,7 @@ class TracingConnectionManager(
 
         return TracingNodeTarget(
             nodeId = nodeId,
+            nodeType = node.type,
             hostname = host.hostname,
             tracingPort = tracingPort,
             networkMagic = networkMagic,
@@ -268,6 +287,7 @@ class TracingConnectionManager(
 
     private data class TracingNodeTarget(
         val nodeId: Long,
+        val nodeType: String,
         val hostname: String,
         val tracingPort: Int,
         val networkMagic: Long,

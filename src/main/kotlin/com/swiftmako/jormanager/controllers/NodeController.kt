@@ -46,6 +46,7 @@ import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.utils.Bech32
+import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.CardanoUtils
 import com.swiftmako.jormanager.utils.TransactionCache
 import java.io.File
@@ -298,7 +299,7 @@ class NodeController
                             } else {
                                 "--mainnet"
                             }
-                        val byronToShelleyEpochs = cardanoUtils.byronToShelleyEpochs
+                        val byronToShelleyEpochs = CardanoNetworkEpochs.byronToShelleyEpochs(genesisShelley)
                         val genesisByronFile =
                             fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))
                                 ?: throw IOException("Genesis Byron file for default node not found!")
@@ -905,9 +906,9 @@ class NodeController
                             val metadata =
                                 com.swiftmako.jormanager.model.metadata.pool.Metadata(
                                     name = requireNotNull(request.metadata?.name),
-                                    description = requireNotNull(request.metadata?.description),
-                                    ticker = requireNotNull(request.metadata?.ticker),
-                                    homepage = requireNotNull(request.metadata?.homepage),
+                                    description = requireNotNull(request.metadata.description),
+                                    ticker = requireNotNull(request.metadata.ticker),
+                                    homepage = requireNotNull(request.metadata.homepage),
                                     extended = extendedMetadataUrl
                                 )
                             val metadataJson = metadataAdapter.indent(" ").toJson(metadata)
@@ -1639,7 +1640,7 @@ class NodeController
                     fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
                         ?: throw IOException("Genesis shelley not found!")
                 val genesisShelley = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
-                val byronToShelleyEpochs = cardanoUtils.byronToShelleyEpochs
+                val byronToShelleyEpochs = CardanoNetworkEpochs.byronToShelleyEpochs(genesisShelley)
                 val magicString =
                     if (genesisShelley.networkId.equals("testnet", ignoreCase = true)) {
                         "--testnet-magic ${genesisShelley.networkMagic}"
@@ -1884,7 +1885,7 @@ class NodeController
                         .build()
                 val metadataResponse = okHttpClient.newCall(metadataRequest).execute()
                 if (metadataResponse.isSuccessful) {
-                    val metadata = metadataResponse.body!!.source().use { source -> metadataAdapter.fromJson(source) }
+                    val metadata = requireNotNull(metadataResponse.body).source().use { source -> metadataAdapter.fromJson(source) }
                     val extendedMetadataRequest =
                         Request
                             .Builder()
@@ -1895,7 +1896,7 @@ class NodeController
                     val extendedMetadataResponse = okHttpClient.newCall(extendedMetadataRequest).execute()
                     if (extendedMetadataResponse.isSuccessful) {
                         val extendedMetadata =
-                            extendedMetadataResponse.body!!
+                            requireNotNull(extendedMetadataResponse.body)
                                 .source()
                                 .use { source -> extendedMetadataAdapter.fromJson(source) }
                         webSocketTemplate.convertAndSend(
@@ -3445,7 +3446,7 @@ class NodeController
             prometheusListen: String,
             promPort: Int,
         ) {
-            val traceOptions = root.with("TraceOptions")
+            val traceOptions = (root.get("TraceOptions") as? ObjectNode) ?: root.putObject("TraceOptions")
 
             val rootTraceOptions = traceOptions.get("") as ObjectNode
             rootTraceOptions.remove("detail")
@@ -3455,22 +3456,43 @@ class NodeController
 
             val backends = objectMapper.createArrayNode().apply {
                 add(STDOUT_MACHINE_FORMAT_BACKEND)
-                add(FORWARDER_BACKEND)
+                if (nodeType == NODE_TYPE_CORE) {
+                    add(FORWARDER_BACKEND)
+                }
                 add("PrometheusSimple suffix $prometheusListen $promPort")
             }
             rootTraceOptions.set<ArrayNode>("backends", backends)
+
+            traceOptions.putObject("Forge.Loop").put("severity", "Silence")
+            traceOptions.putObject("Forge.Loop.ForgedBlock").put("severity", "Info")
+            traceOptions.putObject("Forge.Loop.AdoptedBlock").put("severity", "Info")
+            traceOptions.putObject("ChainDB.AddBlockEvent.AddedToCurrentChain").put("severity", "Silence")
+            traceOptions.putObject("Net.ConnectionManager.Remote").put("severity", "Silence")
+            traceOptions.putObject("Net.PeerSelection").put("severity", "Silence")
+            traceOptions.putObject("Net.InboundGovernor.Remote").put("severity", "Silence")
+            traceOptions.putObject("Net.InboundGovernor.Remote.InboundGovernorCounters").put("severity", "Silence")
+            traceOptions.putObject("ChainSync.Client.DownloadedHeader").put("severity", "Silence")
+            traceOptions.putObject("BlockFetch.Client.SendFetchRequest").put("severity", "Silence")
+            traceOptions.putObject("BlockFetch.Client.CompletedBlockFetch").put("severity", "Silence")
+            traceOptions.putObject("Resources").put("severity", "Silence")
+            traceOptions.putObject("Mempool.AddedTx").put("severity", "Silence")
+            traceOptions.putObject("Mempool.RemoveTxs").put("severity", "Silence")
 
             root.put("UseTraceDispatcher", true)
             root.put("TurnOnLogging", true)
             root.put("TurnOnLogMetrics", true)
             root.put("minSeverity", MIN_TRACE_SEVERITY)
 
-            val forwarderOptions = objectMapper.createObjectNode().apply {
-                put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
-                put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
-                put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
+            if (nodeType == NODE_TYPE_CORE) {
+                val forwarderOptions = objectMapper.createObjectNode().apply {
+                    put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
+                    put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
+                    put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
+                }
+                root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
+            } else {
+                root.remove("TraceOptionForwarder")
             }
-            root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
 
             LEGACY_TRACING_KEYS_TO_REMOVE.forEach(root::remove)
             root

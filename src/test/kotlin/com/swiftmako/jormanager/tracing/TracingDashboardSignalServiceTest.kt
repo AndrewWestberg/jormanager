@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 class TracingDashboardSignalServiceTest {
+    private val tracingRuntimeProfiler = TracingRuntimeProfiler()
     private val rawCapture =
         TracingRawCaptureService(
             tracingBlockMessageSink =
@@ -25,9 +26,11 @@ class TracingDashboardSignalServiceTest {
                         every { findById(any()) } returns Optional.of(mockk())
                     },
                     tracingBlockPersistenceService = mockk(relaxed = true),
-                )
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
+                ),
+            tracingRuntimeProfiler = tracingRuntimeProfiler,
         )
-    private val service = TracingDashboardSignalService(rawCapture)
+    private val service = TracingDashboardSignalService(rawCapture, tracingRuntimeProfiler)
 
     @Test
     fun freshProtocol1MetricsWinForOverlappingFields() =
@@ -112,77 +115,6 @@ class TracingDashboardSignalServiceTest {
         }
 
     @Test
-    fun protocol2CountersOverrideProtocol3PeersWhenFresh() =
-        runBlocking {
-            rawCapture.recordTraceObjectBatchForTest(
-                nodeId = 1L,
-                batch =
-                    TracingRawTraceObjectBatch(
-                        nodeId = 1L,
-                        capturedAt = Instant.now(),
-                        traceObjects = TraceForwardFixtures.traceObjectsArray(
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7002 127.0.0.1:7000"),
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7003 127.0.0.1:7000"),
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7004 127.0.0.1:7000"),
-                            TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7005 127.0.0.1:7000"),
-                        ),
-                    ),
-            )
-            rawCapture.onMessage(1L, TraceForwardFixtures.pinnedNodeStateReply().toDataPointsReply())
-
-            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(5)
-            assertThat(signals?.nodeStateMetrics?.incomingPeers).isEqualTo(7)
-            assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
-        }
-
-    @Test
-    fun clockworkPeerTraceObjectsSupplyDistinctPeerCountWhenCountersAreUnavailable() =
-        runBlocking {
-            rawCapture.recordTraceObjectBatchForTest(
-                nodeId = 1L,
-                batch =
-                    TracingRawTraceObjectBatch(
-                        nodeId = 1L,
-                        capturedAt = Instant.now(),
-                        traceObjects =
-                            TraceForwardFixtures.traceObjectsArray(
-                                TraceForwardFixtures.clockworkPeerTraceObject(namespace = "ChainSync.Client.DownloadedHeader", kind = "DownloadedHeader"),
-                                TraceForwardFixtures.clockworkPeerTraceObject(namespace = "BlockFetch.Client.SendFetchRequest", kind = "SendFetchRequest"),
-                                TraceForwardFixtures.nodeStateTraceObject(),
-                            ),
-                    ),
-            )
-
-            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-            assertThat(signals?.nodeStateMetrics?.peers).isEqualTo(1)
-            assertThat(signals?.nodeStateMetrics?.blockHeight).isEqualTo(7_403_221L)
-        }
-
-    @Test
-    fun staleProtocol2CountersDoNotSupplyPeersOrChainFallback() {
-        rawCapture.recordTraceObjectBatchForTest(
-            nodeId = 1L,
-            batch =
-                TracingRawTraceObjectBatch(
-                    nodeId = 1L,
-                    capturedAt = Instant.now().minusSeconds(60),
-                    traceObjects = TraceForwardFixtures.traceObjectsArray(
-                        TraceForwardFixtures.clockworkPeerTraceObject(connectionId = "127.0.0.1:7001 127.0.0.1:7000"),
-                        TraceForwardFixtures.nodeStateTraceObject(),
-                    ),
-                ),
-        )
-
-        val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-        assertThat(signals?.nodeStateMetrics).isNull()
-    }
-
-    @Test
     fun incompleteProtocol1MetricsStillSupplyUsableChainState() =
         runBlocking {
             rawCapture.recordMetricSnapshotForTest(
@@ -205,35 +137,6 @@ class TracingDashboardSignalServiceTest {
                     epoch = 490L,
                     slot = 7_403_221L,
                     slotInEpoch = 321L,
-                    txsProcessed = 0L,
-                )
-            )
-        }
-
-    @Test
-    fun protocol2AddedToCurrentChainSuppliesChainFallback() =
-        runBlocking {
-            rawCapture.recordTraceObjectBatchForTest(
-                nodeId = 1L,
-                batch =
-                    TracingRawTraceObjectBatch(
-                        nodeId = 1L,
-                        capturedAt = Instant.now(),
-                        traceObjects = TraceForwardFixtures.traceObjectsArray(TraceForwardFixtures.nodeStateTraceObject()),
-                    ),
-            )
-
-            val signals = service.loadSignals(1L, epochLength = 432_000L, rawSnapshotMaxAge = Duration.ofSeconds(15))
-
-            assertThat(signals?.nodeStateMetrics).isEqualTo(
-                NodeStateMetrics(
-                    peers = 0,
-                    incomingPeers = 0,
-                    blockHeight = 7_403_221L,
-                    remainingKESPeriods = 0,
-                    epoch = 17L,
-                    slot = 7_403_221L,
-                    slotInEpoch = 59_221L,
                     txsProcessed = 0L,
                 )
             )

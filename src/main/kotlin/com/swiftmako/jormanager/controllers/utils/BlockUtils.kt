@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.MsgRollForwardAdapter.LEADER_VRF_HEADER
+import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.Blake2b
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
@@ -124,34 +125,7 @@ class BlockUtils
         fun getShelleyTransitionEpoch(
             byron: GenesisByron,
             shelley: GenesisShelley
-        ): Long {
-            latestNodeStats.get()?.let { nodeStats ->
-                if (nodeStats.epoch == null || nodeStats.slot == null || nodeStats.slotInEpoch == null) {
-                    return -1L
-                }
-                val byronEpochLength = 10L * byron.protocolConsts.k
-                var calcSlot = 0L
-                var byronEpochs = nodeStats.epoch
-                val slotInEpoch = nodeStats.slotInEpoch
-                val slot = nodeStats.slot
-                var shelleyEpochs = 0L
-                while (byronEpochs >= 0L) {
-                    calcSlot = (byronEpochs * byronEpochLength) + (shelleyEpochs * shelley.epochLength) + slotInEpoch
-                    if (calcSlot == slot) {
-                        break
-                    }
-                    byronEpochs--
-                    shelleyEpochs++
-                }
-
-                if (calcSlot != slot || shelleyEpochs == 0L) {
-                    return -1L
-                }
-
-                return byronEpochs
-            }
-            return -1L
-        }
+        ): Long = CardanoNetworkEpochs.byronToShelleyEpochs(shelley)
 
         /**
          * true if this slot is reserved for the BFT nodes based on the decentralization parameter d

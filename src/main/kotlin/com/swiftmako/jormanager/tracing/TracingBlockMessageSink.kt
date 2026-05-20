@@ -11,6 +11,7 @@ class TracingBlockMessageSink(
     private val nodeRepository: NodeRepository,
     private val hostRepository: HostRepository,
     private val tracingBlockPersistenceService: TracingBlockPersistenceService,
+    private val tracingRuntimeProfiler: TracingRuntimeProfiler,
     private val protocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
 ) : TraceForwardMessageSink {
     private val log = LoggerFactory.getLogger("TracingBlockMessageSink")
@@ -38,12 +39,23 @@ class TracingBlockMessageSink(
             return
         }
 
-        protocol2Extractor.decodeBlockEvents(batch).forEach { event ->
+        val decodeStartedAt = System.nanoTime()
+        val decodedEvents = protocol2Extractor.decodeBlockEvents(batch)
+        val decodeNanos = System.nanoTime() - decodeStartedAt
+        val persistStartedAt = System.nanoTime()
+        decodedEvents.forEach { event ->
             runCatching {
                 tracingBlockPersistenceService.persistTracingCandidateBlock(node, host, event)
             }.onFailure { throwable ->
                 log.warn("Unable to persist tracing block event for node ${node.name}", throwable)
             }
         }
+        tracingRuntimeProfiler.recordBlockBatchProcessing(
+            nodeId = nodeId,
+            traceObjectCount = batch.traceObjects.size(),
+            blockEventCount = decodedEvents.size,
+            decodeNanos = decodeNanos,
+            persistNanos = System.nanoTime() - persistStartedAt,
+        )
     }
 }
