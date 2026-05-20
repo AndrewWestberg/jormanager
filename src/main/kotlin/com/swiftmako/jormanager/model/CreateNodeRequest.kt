@@ -16,7 +16,7 @@ data class CreateNodeRequest(
     @param:JsonProperty("port") val port: Int,
     @param:JsonProperty("prometheusListen") val prometheusListen: String = "127.0.0.1",
     @param:JsonProperty("enableTracingListener") val enableTracingListener: Boolean = true,
-    @param:JsonProperty("tracingListen") val tracingListen: String = "0.0.0.0",
+    @param:JsonProperty("tracingListen") val tracingListen: String? = null,
     @param:JsonProperty("genesisByron") val genesisByronFileId: Long,
     @param:JsonProperty("genesisShelley") val genesisShelleyFileId: Long,
     @param:JsonProperty("genesisAlonzo") val genesisAlonzoFileId: Long,

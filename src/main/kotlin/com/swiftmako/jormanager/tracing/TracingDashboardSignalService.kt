@@ -86,17 +86,19 @@ class TracingDashboardSignalService(
         if (isTracingDebugEnabled()) {
             log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=none startupInfo=${protocol3Data?.startupInfo} metricPresent=${latestMetricSnapshot != null}" }
         }
-        return protocol3Data?.startupInfo?.let { startupInfo ->
-            TracingDashboardSignals(nodeStateMetrics = null, startupInfo = startupInfo)
-        }.also {
-            tracingRuntimeProfiler.recordDashboardLoad(
-                nodeId = nodeId,
-                selectedSource = "none",
-                durationNanos = System.nanoTime() - startedAt,
-                recentDataPointSnapshots = recentSnapshotCount,
-                freshMetricPresent = freshMetricPresent,
-            )
-        }
+        return protocol3Data
+            ?.startupInfo
+            ?.let { startupInfo ->
+                TracingDashboardSignals(nodeStateMetrics = null, startupInfo = startupInfo)
+            }.also {
+                tracingRuntimeProfiler.recordDashboardLoad(
+                    nodeId = nodeId,
+                    selectedSource = "none",
+                    durationNanos = System.nanoTime() - startedAt,
+                    recentDataPointSnapshots = recentSnapshotCount,
+                    freshMetricPresent = freshMetricPresent,
+                )
+            }
     }
 }
 

@@ -1,0 +1,26 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="042" author="OpenCode">
+
+        <sql>
+            UPDATE nodes
+            SET tracing_host = '127.0.0.1'
+            FROM hosts
+            WHERE nodes.host_id = hosts.id
+              AND hosts.type = 'local'
+        </sql>
+
+        <sql>
+            UPDATE nodes
+            SET tracing_host = '0.0.0.0'
+            FROM hosts
+            WHERE nodes.host_id = hosts.id
+              AND hosts.type = 'remote'
+        </sql>
+
+        <dropDefaultValue tableName="nodes" columnName="tracing_host" columnDataType="varchar(255)"/>
+
+    </changeSet>
+</databaseChangeLog>
