@@ -14,6 +14,9 @@ import com.swiftmako.jormanager.tracing.TracingRawMetricValue
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
@@ -28,6 +31,7 @@ sealed interface ForwardingMetricsRequest {
 class ForwardingMetricsProtocol(
     private val request: ForwardingMetricsRequest = ForwardingMetricsRequest.GetAllMetrics,
     private val singleReplyMode: Boolean = false,
+    private val pollInterval: Duration = ZERO,
 ) : MiniProtocol(protocolId = 0x0001) {
     private var state = State.Request
         set(value) {
@@ -50,6 +54,7 @@ class ForwardingMetricsProtocol(
 
     private val _messages = MutableSharedFlow<TraceForwardMessage>(extraBufferCapacity = 4)
     val messages: Flow<TraceForwardMessage> = _messages
+    private var nextRequestAtNanos: Long? = null
 
     override fun shutdown() {
         state = if (state == State.Reply) State.DoneToSend else State.Done
@@ -58,6 +63,7 @@ class ForwardingMetricsProtocol(
     override suspend fun sendData(): ByteBuffer =
         when (state) {
             State.Request -> {
+                delayUntilNextRequest()
                 val payload = muxByteBufferPool.borrow()
                 buildRequest(payload)
                 state = State.Reply
@@ -96,6 +102,7 @@ class ForwardingMetricsProtocol(
                             rawJson = cborArray.toJsonString(),
                         )
                     )
+                    scheduleNextRequest()
                     state = if (singleReplyMode) State.DoneToSend else State.Request
                 }
 
@@ -132,6 +139,18 @@ class ForwardingMetricsProtocol(
     private fun buildDone(buffer: ByteBuffer) {
         val payload = CborArray.create().apply { add(CborInteger.create(MSG_DONE_ID)) }
         CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
+    }
+
+    private suspend fun delayUntilNextRequest() {
+        val scheduledAtNanos = nextRequestAtNanos ?: return
+        val remainingNanos = scheduledAtNanos - System.nanoTime()
+        if (remainingNanos > 0L) {
+            delay(Duration.parse("${remainingNanos}ns"))
+        }
+    }
+
+    private fun scheduleNextRequest() {
+        nextRequestAtNanos = if (pollInterval == ZERO) null else System.nanoTime() + pollInterval.inWholeNanoseconds
     }
 
     private fun decodeMetrics(item: CborObject): Map<String, TracingRawMetricValue> {

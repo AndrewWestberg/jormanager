@@ -73,70 +73,11 @@ class CardanoUtils
         fun getCurrentSlot(): Long = getSlotAtInstant(Instant.now())
 
         private fun getSlotAtInstant(now: Instant): Long {
+            val byronToShelleyEpochs = CardanoNetworkEpochs.byronToShelleyEpochs(getShelleyGenesis())
             val transTimeEnd = genesisStartTimeSec + (byronToShelleyEpochs * getShelleyGenesis().epochLength)
             val byronSlots = (genesisStartTimeSec - getByronGenesis().startTime) / 20L
             val transSlots = (byronToShelleyEpochs * getShelleyGenesis().epochLength) / 20L
             val currentTimeSec = now.epochSecond
             return byronSlots + transSlots + ((currentTimeSec - transTimeEnd) / getShelleyGenesis().slotLength)
-        }
-
-        val byronToShelleyEpochs by lazy {
-            if (getShelleyGenesis().networkId.equals("testnet", ignoreCase = true)) {
-                when (getShelleyGenesis().networkMagic) {
-                    GUILD_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_GUILD
-                    }
-
-                    VASIL_DEV_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV
-                    }
-
-                    PREVIEW_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_PREVIEW
-                    }
-
-                    PREPROD_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_PREPROD
-                    }
-
-                    MIXED_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_MIXED
-                    }
-
-                    REKT_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_REKT
-                    }
-
-                    SANCHO_NETWORK_MAGIC -> {
-                        BYRON_TO_SHELLEY_EPOCHS_SANCHO
-                    }
-
-                    else -> {
-                        BYRON_TO_SHELLEY_EPOCHS_TESTNET
-                    }
-                }
-            } else {
-                BYRON_TO_SHELLEY_EPOCHS_MAINNET
-            }
-        }
-
-        companion object {
-            private const val BYRON_TO_SHELLEY_EPOCHS_MAINNET = 208L
-            private const val BYRON_TO_SHELLEY_EPOCHS_TESTNET = 74L
-            private const val BYRON_TO_SHELLEY_EPOCHS_GUILD = 2L
-            private const val BYRON_TO_SHELLEY_EPOCHS_VASIL_DEV = 1L
-            private const val BYRON_TO_SHELLEY_EPOCHS_PREVIEW = 0L
-            private const val BYRON_TO_SHELLEY_EPOCHS_PREPROD = 4L
-            private const val BYRON_TO_SHELLEY_EPOCHS_MIXED = 0L
-            private const val BYRON_TO_SHELLEY_EPOCHS_REKT = 0L
-            private const val BYRON_TO_SHELLEY_EPOCHS_SANCHO = 0L
-
-            private const val GUILD_NETWORK_MAGIC = 141L
-            private const val VASIL_DEV_NETWORK_MAGIC = 9L
-            private const val PREVIEW_NETWORK_MAGIC = 2L
-            private const val PREPROD_NETWORK_MAGIC = 1L
-            private const val MIXED_NETWORK_MAGIC = 5L
-            private const val REKT_NETWORK_MAGIC = 7L
-            private const val SANCHO_NETWORK_MAGIC = 4L
         }
     }

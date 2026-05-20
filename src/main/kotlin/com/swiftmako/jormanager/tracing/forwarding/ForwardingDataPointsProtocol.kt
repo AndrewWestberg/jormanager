@@ -13,12 +13,16 @@ import com.swiftmako.jormanager.tracing.TraceForwardMessage
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 class ForwardingDataPointsProtocol(
     private val requestedNames: List<String>,
     private val singleReplyMode: Boolean = true,
+    private val pollInterval: Duration = ZERO,
 ) : MiniProtocol(protocolId = 0x0003) {
     private var state = State.Request
         set(value) {
@@ -41,6 +45,7 @@ class ForwardingDataPointsProtocol(
 
     private val _messages = MutableSharedFlow<TraceForwardMessage>(extraBufferCapacity = 4)
     val messages: Flow<TraceForwardMessage> = _messages
+    private var nextRequestAtNanos: Long? = null
 
     override fun shutdown() {
         state = if (state == State.Reply) State.DoneToSend else State.Done
@@ -49,6 +54,7 @@ class ForwardingDataPointsProtocol(
     override suspend fun sendData(): ByteBuffer =
         when (state) {
             State.Request -> {
+                delayUntilNextRequest()
                 val payload = muxByteBufferPool.borrow()
                 buildRequest(payload)
                 state = State.Reply
@@ -93,6 +99,9 @@ class ForwardingDataPointsProtocol(
                     else -> throw IOException("Unexpected data-point message id: $messageId")
                 }
             _messages.tryEmit(message)
+            if (message != TraceForwardMessage.Done) {
+                scheduleNextRequest()
+            }
             state =
                 when {
                     message == TraceForwardMessage.Done -> State.Done
@@ -114,6 +123,18 @@ class ForwardingDataPointsProtocol(
     private fun buildDone(buffer: ByteBuffer) {
         val payload = CborArray.create().apply { add(CborInteger.create(MSG_DONE_ID)) }
         CborWriter.createFromByteBuffer(buffer).writeDataItem(payload)
+    }
+
+    private suspend fun delayUntilNextRequest() {
+        val scheduledAtNanos = nextRequestAtNanos ?: return
+        val remainingNanos = scheduledAtNanos - System.nanoTime()
+        if (remainingNanos > 0L) {
+            delay(Duration.parse("${remainingNanos}ns"))
+        }
+    }
+
+    private fun scheduleNextRequest() {
+        nextRequestAtNanos = if (pollInterval == ZERO) null else System.nanoTime() + pollInterval.inWholeNanoseconds
     }
 
     private enum class State {

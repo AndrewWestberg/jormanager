@@ -35,6 +35,7 @@ class TracingBlockMessageSinkTest {
     private val moshi = Moshi.Builder().build()
     private val byronGenesisAdapter = moshi.adapter(GenesisByron::class.java)
     private val shelleyGenesisAdapter = moshi.adapter(GenesisShelley::class.java)
+    private val tracingRuntimeProfiler = TracingRuntimeProfiler()
 
     @Test
     fun managerDeliveredTraceObjectsReplyPersistsCandidateBlock() =
@@ -74,8 +75,9 @@ class TracingBlockMessageSinkTest {
                             byronGenesisAdapter = byronGenesisAdapter,
                             shelleyGenesisAdapter = shelleyGenesisAdapter,
                         ),
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                 )
-            val rawCaptureService = TracingRawCaptureService(sink)
+            val rawCaptureService = TracingRawCaptureService(sink, tracingRuntimeProfiler)
             val manager =
                 TracingConnectionManager(
                     nodeRepository = nodeRepository,
@@ -100,6 +102,7 @@ class TracingBlockMessageSinkTest {
                             }
                         },
                     messageSink = rawCaptureService,
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                     reconnectDelayMillis = 50L,
                 )
 
@@ -159,6 +162,7 @@ class TracingBlockMessageSinkTest {
                             byronGenesisAdapter = byronGenesisAdapter,
                             shelleyGenesisAdapter = shelleyGenesisAdapter,
                         ),
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                 )
 
             sink.onMessage(1L, forgedBlockReply())
@@ -196,6 +200,7 @@ class TracingBlockMessageSinkTest {
                     nodeRepository = nodeRepository,
                     hostRepository = hostRepository,
                     tracingBlockPersistenceService = persistenceService,
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                     protocol2Extractor = protocol2Extractor,
                 )
 
@@ -340,6 +345,7 @@ class TracingBlockMessageSinkTest {
                             byronGenesisAdapter = byronGenesisAdapter,
                             shelleyGenesisAdapter = shelleyGenesisAdapter,
                         ),
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                 )
 
             every { nodeRepository.findById(1L) } returns Optional.empty()
@@ -384,8 +390,9 @@ class TracingBlockMessageSinkTest {
                             byronGenesisAdapter = byronGenesisAdapter,
                             shelleyGenesisAdapter = shelleyGenesisAdapter,
                         ),
+                    tracingRuntimeProfiler = tracingRuntimeProfiler,
                 )
-            val rawCaptureService = TracingRawCaptureService(sink)
+            val rawCaptureService = TracingRawCaptureService(sink, tracingRuntimeProfiler)
 
             rawCaptureService.onMessage(nodeId, adoptedBlockReply())
 

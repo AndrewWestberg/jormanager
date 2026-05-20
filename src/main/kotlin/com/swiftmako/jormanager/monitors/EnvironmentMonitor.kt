@@ -75,7 +75,7 @@ class EnvironmentMonitor
                             val remoteFileName = url.substringAfterLast('/')
                             val request = Request.Builder().url(url).build()
                             okHttpClient.newCall(request).execute().use { response ->
-                                response.body?.string()?.let { remoteContent ->
+                                response.body.string().let { remoteContent ->
                                     fileRepository.findByName(remoteFileName)?.let { dbFile ->
                                         if (dbFile.content != remoteContent) {
                                             fileRepository.save(dbFile.copy(content = remoteContent))

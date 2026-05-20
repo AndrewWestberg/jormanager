@@ -183,10 +183,10 @@ class BlockController
                             fileRepository.findByIdOrNull(node.genesisShelleyFileId)?.let { shelleyFile ->
                                 shelleyGenesisAdapter.fromJson(shelleyFile.content)?.let { shelley ->
                                     val (epoch, slotInEpoch) = blockUtils.getEpochAndSlot(byron, shelley, block.slot)
-                                    if (epoch > 0L && slotInEpoch > 0L) {
+                                    if (epoch >= 0L && slotInEpoch >= 0L) {
                                         blockRepository.save(block.copy(epoch = epoch, slotInEpoch = slotInEpoch))
                                     } else {
-                                        log.warn("blockutils returned bad epoch/slotInEpoch")
+                                        log.warn("blockutils returned bad epoch/slotInEpoch for block slot={} epoch={} slotInEpoch={}", block.slot, epoch, slotInEpoch)
                                         block
                                     }
                                 } ?: run {

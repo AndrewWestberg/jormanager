@@ -392,11 +392,24 @@ class NodeControllerTest {
         assertThat(
             root
                 .get("TraceOptions")
-                .get("Forge.AdoptedBlock")
+                .get("Forge.Loop.AdoptedBlock")
                 .get("severity")
                 .asText()
         ).isEqualTo("Info")
-        assertThat(root.get("TraceOptions").get("Resources")).isNull()
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
+                .get("severity")
+                .asText()
+        ).isEqualTo("Silence")
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("Resources")
+                .get("severity")
+                .asText()
+        ).isEqualTo("Silence")
         assertThat(root.fieldNames().asSequence().toList())
             .containsAtLeast(
                 "ConwayGenesisFile",
@@ -453,15 +466,22 @@ class NodeControllerTest {
                 .get("")
                 .get("backends")
                 .map { it.asText() }
-        ).containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
+        ).containsExactly("Stdout MachineFormat", "PrometheusSimple suffix 0.0.0.0 12900")
         assertThat(
             root
                 .get("TraceOptions")
-                .get("Forge.AdoptedBlock")
+                .get("Forge.Loop.AdoptedBlock")
                 .get("severity")
                 .asText()
         ).isEqualTo("Info")
-        assertThat(root.get("TraceOptionForwarder")).isNotNull()
+        assertThat(
+            root
+                .get("TraceOptions")
+                .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
+                .get("severity")
+                .asText()
+        ).isEqualTo("Silence")
+        assertThat(root.get("TraceOptionForwarder")).isNull()
         assertThat(root.fieldNames().asSequence().toList())
             .containsAtLeast(
                 "ConwayGenesisFile",
@@ -476,7 +496,6 @@ class NodeControllerTest {
                 "TurnOnLogging",
                 "TurnOnLogMetrics",
                 "minSeverity",
-                "TraceOptionForwarder",
             )
         assertThat(root.get("TraceBlockFetchDecisions")).isNull()
         assertThat(root.get("defaultBackends")).isNull()

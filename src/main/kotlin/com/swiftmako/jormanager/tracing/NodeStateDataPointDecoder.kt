@@ -1,5 +1,7 @@
 package com.swiftmako.jormanager.tracing
 
+import com.fasterxml.jackson.core.JsonFactory
+import com.fasterxml.jackson.core.JsonToken
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborTextString
@@ -7,7 +9,6 @@ import com.swiftmako.jormanager.model.NodeStats
 import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.math.BigInteger
-import org.json.JSONObject
 
 data class NodeStartupInfo(
     val era: String?,
@@ -129,7 +130,7 @@ internal fun CborArray.toDataPointValueMap(): Map<String, ByteArray?>? {
     return decoded
 }
 
-internal fun Map<String, ByteArray?>.parseNodeStartupInfo(): NodeStartupInfo? = findValue(NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO)?.decodeToString()?.let(::parseNodeStartupInfo)
+internal fun Map<String, ByteArray?>.parseNodeStartupInfo(): NodeStartupInfo? = findValue(NodeStateDataPointDecoder.KEY_NODE_STARTUP_INFO)?.let(::parseNodeStartupInfo)
 
 private fun CborArray.readMaybeValue(): ByteArray? =
     when (size()) {
@@ -156,66 +157,97 @@ private fun Map<String, ByteArray?>.requireLong(vararg keys: String): Long? = fi
 
 private fun Map<String, ByteArray?>.findValue(vararg keys: String): ByteArray? = keys.firstNotNullOfOrNull(::get)
 
-private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? = findValue(NodeStateDataPointDecoder.KEY_NODE_ADD_BLOCK)?.decodeToString()?.let(::parseNodeAddBlock)
+private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? = findValue(NodeStateDataPointDecoder.KEY_NODE_ADD_BLOCK)?.let(::parseNodeAddBlock)
 
-private fun parseNodeAddBlock(rawJson: String): NodeAddBlockValue? =
+private fun parseNodeAddBlock(rawJson: ByteArray): NodeAddBlockValue? =
     runCatching {
-        val root = JSONObject(rawJson)
-        if (root.optString(JSON_TAG_FIELD) != NODE_ADD_BLOCK_TAG) {
-            return null
-        }
+        tracingJsonFactory.createParser(rawJson).use { parser ->
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                return null
+            }
 
-        val contents = root.optJSONArray(JSON_CONTENTS_FIELD) ?: return null
-        if (contents.length() < NODE_ADD_BLOCK_CONTENTS_SIZE) {
-            return null
-        }
+            var tag: String? = null
+            var epoch: Long? = null
+            var slotInEpoch: Long? = null
 
-        NodeAddBlockValue(
-            epoch = contents.optLongOrNull(0) ?: return null,
-            slotInEpoch = contents.optLongOrNull(1) ?: return null,
-        )
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                val fieldName = parser.currentName() ?: continue
+                parser.nextToken()
+                when (fieldName) {
+                    JSON_TAG_FIELD -> tag = parser.valueAsString
+                    JSON_CONTENTS_FIELD -> {
+                        if (parser.currentToken != JsonToken.START_ARRAY) {
+                            parser.skipChildren()
+                            continue
+                        }
+
+                        var index = 0
+                        while (parser.nextToken() != JsonToken.END_ARRAY) {
+                            when (index) {
+                                0 -> epoch = parser.longValueOrNull()
+                                1 -> slotInEpoch = parser.longValueOrNull()
+                                else -> parser.skipChildren()
+                            }
+                            index++
+                        }
+
+                        if (index < NODE_ADD_BLOCK_CONTENTS_SIZE) {
+                            return null
+                        }
+                    }
+
+                    else -> parser.skipChildren()
+                }
+            }
+
+            if (tag != NODE_ADD_BLOCK_TAG) {
+                return null
+            }
+
+            NodeAddBlockValue(
+                epoch = epoch ?: return null,
+                slotInEpoch = slotInEpoch ?: return null,
+            )
+        }
     }.getOrNull()
 
-private fun parseNodeStartupInfo(rawJson: String): NodeStartupInfo? =
+private fun parseNodeStartupInfo(rawJson: ByteArray): NodeStartupInfo? =
     runCatching {
-        val root = JSONObject(rawJson)
-        NodeStartupInfo(
-            era = root.optNullableString("era") ?: root.optNullableString("suiEra"),
-            epochLength = root.optLongOrNull("epochLength") ?: root.optLongOrNull("suiEpochLength"),
-            slotLength = root.optLongOrNull("slotLength") ?: root.optLongOrNull("suiSlotLength"),
-            slotsPerKESPeriod = root.optLongOrNull("slotsPerKESPeriod") ?: root.optLongOrNull("suiSlotsPerKESPeriod"),
-        )
+        tracingJsonFactory.createParser(rawJson).use { parser ->
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                return null
+            }
+
+            var era: String? = null
+            var epochLength: Long? = null
+            var slotLength: Long? = null
+            var slotsPerKesPeriod: Long? = null
+
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                val fieldName = parser.currentName() ?: continue
+                parser.nextToken()
+                when (fieldName) {
+                    "era", "suiEra" -> if (era.isNullOrBlank()) era = parser.valueAsString?.takeIf(String::isNotBlank)
+                    "epochLength", "suiEpochLength" -> if (epochLength == null) epochLength = parser.longValueOrNull()
+                    "slotLength", "suiSlotLength" -> if (slotLength == null) slotLength = parser.longValueOrNull()
+                    "slotsPerKESPeriod", "suiSlotsPerKESPeriod" -> if (slotsPerKesPeriod == null) slotsPerKesPeriod = parser.longValueOrNull()
+                    else -> parser.skipChildren()
+                }
+            }
+
+            NodeStartupInfo(
+                era = era,
+                epochLength = epochLength,
+                slotLength = slotLength,
+                slotsPerKESPeriod = slotsPerKesPeriod,
+            )
+        }
     }.getOrNull()?.takeIf {
         it.era != null ||
             it.epochLength != null ||
             it.slotLength != null ||
             it.slotsPerKESPeriod != null
     }
-
-private fun JSONObject.optNullableString(key: String): String? = optString(key).takeIf { it.isNotBlank() }
-
-private fun JSONObject.optLongOrNull(key: String): Long? {
-    if (!has(key) || isNull(key)) {
-        return null
-    }
-
-    return when (val value = opt(key)) {
-        is Number -> value.toLong()
-        is String -> value.toLongOrNull()
-        else -> null
-    }
-}
-
-private fun org.json.JSONArray.optLongOrNull(index: Int): Long? {
-    if (index !in 0 until length() || isNull(index)) {
-        return null
-    }
-
-    return when (val value = opt(index)) {
-        is Number -> value.toLong()
-        else -> null
-    }
-}
 
 private fun ByteArray.parseIntegerValue(): BigInteger? =
     runCatching {
@@ -226,3 +258,12 @@ private data class NodeAddBlockValue(
     val epoch: Long,
     val slotInEpoch: Long,
 )
+
+private val tracingJsonFactory = JsonFactory()
+
+private fun com.fasterxml.jackson.core.JsonParser.longValueOrNull(): Long? =
+    when (currentToken()) {
+        JsonToken.VALUE_NUMBER_INT -> longValue
+        JsonToken.VALUE_STRING -> valueAsString?.toLongOrNull()
+        else -> null
+    }

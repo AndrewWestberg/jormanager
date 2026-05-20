@@ -12,9 +12,9 @@ data class TracingDashboardSignals(
 @Component
 class TracingDashboardSignalService(
     private val tracingRawCaptureService: TracingRawCaptureService,
+    private val tracingRuntimeProfiler: TracingRuntimeProfiler,
     private val tracingMetricDecoder: TracingMetricDecoder = TracingMetricDecoder(),
     private val traceForwardProtocol3Extractor: TraceForwardProtocol3Extractor = TraceForwardProtocol3Extractor(),
-    private val traceForwardProtocol2Extractor: TraceForwardProtocol2Extractor = TraceForwardProtocol2Extractor(),
 ) {
     private val log = KotlinLogging.logger("TracingDashboardSignalService")
 
@@ -23,19 +23,21 @@ class TracingDashboardSignalService(
         epochLength: Long,
         rawSnapshotMaxAge: Duration,
     ): TracingDashboardSignals? {
+        val startedAt = System.nanoTime()
         val recentDataPointSnapshots = tracingRawCaptureService.recentFreshDataPointSnapshots(nodeId, rawSnapshotMaxAge)
         val mergedDataPointSnapshot = recentDataPointSnapshots.mergeDataPointsSnapshot(nodeId)
         val protocol3Data =
             mergedDataPointSnapshot
                 ?.let(traceForwardProtocol3Extractor::decode)
         val freshDataPointMetrics = protocol3Data?.nodeStateMetrics
-        val peerState = loadForwardedNodeState(nodeId, rawSnapshotMaxAge)
         val latestMetricSnapshot = tracingRawCaptureService.latestMetricSnapshot(nodeId)
         val freshMetricSnapshot = tracingRawCaptureService.latestFreshMetricSnapshot(nodeId, rawSnapshotMaxAge)
+        val recentSnapshotCount = recentDataPointSnapshots.size
+        val freshMetricPresent = freshMetricSnapshot != null
 
         if (isTracingDebugEnabled()) {
             log.info {
-                "Tracing debug: loadSignals node=$nodeId epochLength=$epochLength recentDataPointSnapshots=${recentDataPointSnapshots.size} mergedDataPointNames=${mergedDataPointSnapshot?.dataPointNames()?.joinToString()} mergedNonEmpty=${mergedDataPointSnapshot?.nonEmptyDataPointNames()?.joinToString()} protocol3Metrics=$freshDataPointMetrics startupInfo=${protocol3Data?.startupInfo} peerState=$peerState metricKeys=${freshMetricSnapshot?.metrics?.keys?.sorted()?.joinToString()}"
+                "Tracing debug: loadSignals node=$nodeId epochLength=$epochLength recentDataPointSnapshots=${recentDataPointSnapshots.size} mergedDataPointNames=${mergedDataPointSnapshot?.dataPointNames()?.joinToString()} mergedNonEmpty=${mergedDataPointSnapshot?.nonEmptyDataPointNames()?.joinToString()} protocol3Metrics=$freshDataPointMetrics startupInfo=${protocol3Data?.startupInfo} metricKeys=${freshMetricSnapshot?.metrics?.keys?.sorted()?.joinToString()}"
             }
         }
 
@@ -43,54 +45,42 @@ class TracingDashboardSignalService(
             ?.let { snapshot -> tracingMetricDecoder.decode(snapshot.metrics).toNodeStateMetrics(peers = 0, incomingPeers = 0) }
             ?.let { metrics ->
                 if (isTracingDebugEnabled()) {
-                    log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=protocol1 metrics=$metrics peersSource=$peerState datapointPeers=$freshDataPointMetrics metricFresh=${freshMetricSnapshot != null}" }
+                    log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=protocol1 metrics=$metrics datapointPeers=$freshDataPointMetrics metricFresh=${freshMetricSnapshot != null}" }
                 }
                 return TracingDashboardSignals(
                     nodeStateMetrics =
                         metrics.copy(
-                            peers = peerState?.peers ?: freshDataPointMetrics?.peers ?: metrics.peers,
-                            incomingPeers = peerState?.incomingPeers ?: freshDataPointMetrics?.incomingPeers ?: metrics.incomingPeers,
+                            peers = freshDataPointMetrics?.peers ?: metrics.peers,
+                            incomingPeers = freshDataPointMetrics?.incomingPeers ?: metrics.incomingPeers,
                         ),
                     startupInfo = protocol3Data?.startupInfo,
-                )
+                ).also {
+                    tracingRuntimeProfiler.recordDashboardLoad(
+                        nodeId = nodeId,
+                        selectedSource = "protocol1",
+                        durationNanos = System.nanoTime() - startedAt,
+                        recentDataPointSnapshots = recentSnapshotCount,
+                        freshMetricPresent = freshMetricPresent,
+                    )
+                }
             }
 
         freshDataPointMetrics?.let { metrics ->
             if (isTracingDebugEnabled()) {
-                log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=protocol3 metrics=$metrics peerState=$peerState" }
+                log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=protocol3 metrics=$metrics" }
             }
             return TracingDashboardSignals(
-                nodeStateMetrics =
-                    metrics.withDerivedSlot(epochLength).copy(
-                        peers = peerState?.peers ?: metrics.peers,
-                        incomingPeers = peerState?.incomingPeers ?: metrics.incomingPeers,
-                    ),
+                nodeStateMetrics = metrics.withDerivedSlot(epochLength),
                 startupInfo = protocol3Data.startupInfo,
-            )
-        }
-
-        peerState?.let { state ->
-            val slot = state.slot ?: return@let
-            val blockHeight = state.blockHeight ?: return@let
-            val epoch = slot / epochLength
-            val slotInEpoch = slot % epochLength
-            if (isTracingDebugEnabled()) {
-                log.info { "Tracing debug: loadSignals node=$nodeId selectedSource=protocol2 state=$state" }
+            ).also {
+                tracingRuntimeProfiler.recordDashboardLoad(
+                    nodeId = nodeId,
+                    selectedSource = "protocol3",
+                    durationNanos = System.nanoTime() - startedAt,
+                    recentDataPointSnapshots = recentSnapshotCount,
+                    freshMetricPresent = freshMetricPresent,
+                )
             }
-            return TracingDashboardSignals(
-                nodeStateMetrics =
-                    NodeStateMetrics(
-                        peers = state.peers ?: 0,
-                        incomingPeers = state.incomingPeers ?: 0,
-                        blockHeight = blockHeight,
-                        remainingKESPeriods = 0,
-                        epoch = epoch,
-                        slot = slot,
-                        slotInEpoch = slotInEpoch,
-                        txsProcessed = 0,
-                    ),
-                startupInfo = protocol3Data?.startupInfo,
-            )
         }
 
         if (isTracingDebugEnabled()) {
@@ -98,16 +88,16 @@ class TracingDashboardSignalService(
         }
         return protocol3Data?.startupInfo?.let { startupInfo ->
             TracingDashboardSignals(nodeStateMetrics = null, startupInfo = startupInfo)
+        }.also {
+            tracingRuntimeProfiler.recordDashboardLoad(
+                nodeId = nodeId,
+                selectedSource = "none",
+                durationNanos = System.nanoTime() - startedAt,
+                recentDataPointSnapshots = recentSnapshotCount,
+                freshMetricPresent = freshMetricPresent,
+            )
         }
     }
-
-    private fun loadForwardedNodeState(
-        nodeId: Long,
-        rawSnapshotMaxAge: Duration,
-    ): ForwardedNodeState? =
-        traceForwardProtocol2Extractor.decodeNodeState(
-            tracingRawCaptureService.recentFreshTraceObjectBatches(nodeId, rawSnapshotMaxAge)
-        )
 }
 
 private fun List<TracingRawDataPointSnapshot>.mergeDataPointsSnapshot(nodeId: Long): TracingRawDataPointSnapshot? {

@@ -1,11 +1,11 @@
 package com.swiftmako.jormanager.tracing
 
+import com.fasterxml.jackson.core.JsonFactory
+import com.fasterxml.jackson.core.JsonToken
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborObject
 import com.google.iot.cbor.CborTextString
-import org.json.JSONArray
-import org.json.JSONObject
 import org.springframework.stereotype.Component
 
 @Component
@@ -14,69 +14,13 @@ class TraceForwardProtocol2Extractor {
 
     fun decodeNodeState(reply: TraceForwardMessage.TraceObjectsReply): ForwardedNodeState? = mergeNodeStates(reply.traceObjectsJson())
 
-    fun decodeNodeState(traceObjectJson: String): ForwardedNodeState? =
-        runCatching {
-            val traceObject = JSONObject(traceObjectJson)
-            val machine = traceObject.machineObject() ?: return null
-            when (traceObject.namespace()) {
-                ADDED_TO_CURRENT_CHAIN_NAMESPACE -> {
-                    if (machine.optString(KIND_FIELD) != ADDED_TO_CURRENT_CHAIN_KIND) {
-                        return null
-                    }
-
-                    val newSuffix = machine.optJSONObject(NEW_SUFFIX_SELECT_VIEW_FIELD) ?: return null
-                    val slot = newSuffix.optLongOrNull(SLOT_NO_FIELD) ?: return null
-                    val blockHeight = newSuffix.optLongOrNull(BLOCK_NO_FIELD) ?: return null
-                    ForwardedNodeState(slot = slot, blockHeight = blockHeight)
-                }
-
-                CONNECTION_COUNTERS_NAMESPACE -> {
-                    if (machine.optString(KIND_FIELD) != CONNECTION_COUNTERS_KIND) {
-                        return null
-                    }
-
-                    val state = machine.optJSONObject(STATE_FIELD) ?: return null
-                    ForwardedNodeState(
-                        peers = state.optIntOrNull(OUTBOUND_FIELD),
-                        incomingPeers = state.optIntOrNull(INBOUND_FIELD),
-                    )
-                }
-
-                else -> null
-            }
-        }.getOrNull()
+    fun decodeNodeState(traceObjectJson: String): ForwardedNodeState? = parseTraceObject(traceObjectJson)?.toNodeState()
 
     fun decodeBlockEvents(batch: TracingRawTraceObjectBatch): List<ForwardedBlockEvent> = decodeBlockEvents(batch.toMessage())
 
     fun decodeBlockEvents(reply: TraceForwardMessage.TraceObjectsReply): List<ForwardedBlockEvent> = reply.traceObjectsJson().mapNotNull(::decodeBlockEvent)
 
-    fun decodeBlockEvent(traceObjectJson: String): ForwardedBlockEvent? =
-        runCatching {
-            val traceObject = JSONObject(traceObjectJson)
-            val machine = traceObject.machineObject() ?: return null
-            val decoded =
-                when {
-                    traceObject.namespace() in ADOPTED_BLOCK_NAMESPACES && machine.optString(KIND_FIELD) == ADOPTED_BLOCK_KIND ->
-                        DecodedBlockEvent(status = "completed", blockHash = machine.optNonBlankString(BLOCK_HASH_FIELD) ?: return null)
-
-                    traceObject.namespace() in FORGED_BLOCK_NAMESPACES && machine.optString(KIND_FIELD) == FORGED_BLOCK_KIND ->
-                        DecodedBlockEvent(status = "completed", blockHash = machine.optNonBlankString(BLOCK_FIELD) ?: return null)
-
-                    else -> return null
-                }
-
-            val slot = machine.optLongOrNull(SLOT_FIELD) ?: return null
-            val timestamp = traceObject.optNonBlankString(AT_FIELD) ?: return null
-            val hostname = traceObject.optNonBlankString(HOST_FIELD) ?: return null
-
-            ForwardedBlockEvent(
-                slot = slot,
-                blockHash = decoded.blockHash,
-                timestamp = timestamp,
-                hostname = hostname,
-                status = decoded.status,
-            )
-        }.getOrNull()
+    fun decodeBlockEvent(traceObjectJson: String): ForwardedBlockEvent? = parseTraceObject(traceObjectJson)?.toBlockEvent()
 
     private fun TraceForwardMessage.TraceObjectsReply.traceObjectsJson(): List<String> =
         buildList(traceObjects.size()) {
@@ -88,17 +32,7 @@ class TraceForwardProtocol2Extractor {
     private fun mergeNodeStates(traceObjectsJson: Iterable<String>): ForwardedNodeState? {
         val decodedStates = traceObjectsJson.mapNotNull(::decodeNodeState)
         val mergedState = decodedStates.fold(null as ForwardedNodeState?) { acc, next -> acc?.merge(next) ?: next }
-        val distinctPeerConnections = traceObjectsJson.mapNotNull(::extractPeerConnectionId).toSet()
-
-        return mergedState?.let { state ->
-            if (distinctPeerConnections.isEmpty()) {
-                state
-            } else {
-                state.copy(peers = distinctPeerConnections.size)
-            }
-        } ?: distinctPeerConnections.takeIf { it.isNotEmpty() }?.let { peerConnections ->
-            ForwardedNodeState(peers = peerConnections.size)
-        }
+        return mergedState
     }
 
     private fun CborObject.toTraceObjectJsonOrNull(): String? =
@@ -111,33 +45,154 @@ class TraceForwardProtocol2Extractor {
 
     private fun CborArray.elementAtOrNull(index: Int): CborObject? = if (index in 0 until size()) elementAt(index) else null
 
-    private fun JSONObject.namespace(): List<String> = optString(NS_FIELD, null)?.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
+    private fun parseTraceObject(traceObjectJson: String): ParsedTraceObject? =
+        runCatching {
+            jsonFactory.createParser(traceObjectJson).use { parser ->
+                if (parser.nextToken() != JsonToken.START_OBJECT) {
+                    return null
+                }
 
-    private fun JSONObject.machineObject(): JSONObject? =
-        when (val machine = opt(DATA_FIELD)) {
-            is JSONObject -> machine
-            is JSONArray -> null
+                var namespace: String? = null
+                var at: String? = null
+                var host: String? = null
+                var kind: String? = null
+                var slot: Long? = null
+                var blockHash: String? = null
+                var block: String? = null
+                var addedToChainSlot: Long? = null
+                var addedToChainBlockHeight: Long? = null
+                var outboundPeers: Int? = null
+                var inboundPeers: Int? = null
+
+                while (parser.nextToken() != JsonToken.END_OBJECT) {
+                    val fieldName = parser.currentName() ?: continue
+                    parser.nextToken()
+                    when (fieldName) {
+                        NS_FIELD -> namespace = parser.valueAsString?.takeIf(String::isNotBlank)
+                        AT_FIELD -> at = parser.valueAsString?.takeIf(String::isNotBlank)
+                        HOST_FIELD -> host = parser.valueAsString?.takeIf(String::isNotBlank)
+                        DATA_FIELD -> {
+                            if (parser.currentToken != JsonToken.START_OBJECT) {
+                                parser.skipChildren()
+                                continue
+                            }
+
+                            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                                val dataFieldName = parser.currentName() ?: continue
+                                parser.nextToken()
+                                when (dataFieldName) {
+                                    KIND_FIELD -> kind = parser.valueAsString?.takeIf(String::isNotBlank)
+                                    SLOT_FIELD -> slot = parser.longValueOrNull()
+                                    BLOCK_HASH_FIELD -> blockHash = parser.valueAsString?.takeIf(String::isNotBlank)
+                                    BLOCK_FIELD -> block = parser.valueAsString?.takeIf(String::isNotBlank)
+                                    NEW_SUFFIX_SELECT_VIEW_FIELD -> {
+                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                            parser.skipChildren()
+                                            continue
+                                        }
+                                        while (parser.nextToken() != JsonToken.END_OBJECT) {
+                                            val suffixFieldName = parser.currentName() ?: continue
+                                            parser.nextToken()
+                                            when (suffixFieldName) {
+                                                SLOT_NO_FIELD -> addedToChainSlot = parser.longValueOrNull()
+                                                BLOCK_NO_FIELD -> addedToChainBlockHeight = parser.longValueOrNull()
+                                                else -> parser.skipChildren()
+                                            }
+                                        }
+                                    }
+
+                                    STATE_FIELD -> {
+                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                            parser.skipChildren()
+                                            continue
+                                        }
+                                        while (parser.nextToken() != JsonToken.END_OBJECT) {
+                                            val stateFieldName = parser.currentName() ?: continue
+                                            parser.nextToken()
+                                            when (stateFieldName) {
+                                                OUTBOUND_FIELD -> outboundPeers = parser.intValueOrNull()
+                                                INBOUND_FIELD -> inboundPeers = parser.intValueOrNull()
+                                                else -> parser.skipChildren()
+                                            }
+                                        }
+                                    }
+
+                                    else -> parser.skipChildren()
+                                }
+                            }
+                        }
+
+                        else -> parser.skipChildren()
+                    }
+                }
+
+                ParsedTraceObject(
+                    namespace = namespace,
+                    at = at,
+                    host = host,
+                    kind = kind,
+                    slot = slot,
+                    blockHash = blockHash,
+                    block = block,
+                    addedToChainSlot = addedToChainSlot,
+                    addedToChainBlockHeight = addedToChainBlockHeight,
+                    outboundPeers = outboundPeers,
+                    inboundPeers = inboundPeers,
+                )
+            }
+        }.getOrNull()
+
+    private fun ParsedTraceObject.toNodeState(): ForwardedNodeState? =
+        when {
+            namespace == ADDED_TO_CURRENT_CHAIN_NAMESPACE && kind == ADDED_TO_CURRENT_CHAIN_KIND ->
+                ForwardedNodeState(
+                    slot = addedToChainSlot ?: return null,
+                    blockHeight = addedToChainBlockHeight ?: return null,
+                )
+
+            namespace == CONNECTION_COUNTERS_NAMESPACE && kind == CONNECTION_COUNTERS_KIND ->
+                ForwardedNodeState(
+                    peers = outboundPeers,
+                    incomingPeers = inboundPeers,
+                )
+
             else -> null
         }
 
-    private fun extractPeerConnectionId(traceObjectJson: String): String? =
-        runCatching {
-            val traceObject = JSONObject(traceObjectJson)
-            val data = traceObject.optJSONObject(DATA_FIELD) ?: return null
-            data.optJSONObject(PEER_FIELD)?.optNonBlankString(CONNECTION_ID_FIELD)
-        }.getOrNull()
+    private fun ParsedTraceObject.toBlockEvent(): ForwardedBlockEvent? {
+        val decoded =
+            when {
+                namespace in ADOPTED_BLOCK_NAMESPACES && kind == ADOPTED_BLOCK_KIND ->
+                    DecodedBlockEvent(status = "completed", blockHash = blockHash ?: return null)
 
-    private fun JSONObject.optLongOrNull(fieldName: String): Long? {
-        if (!has(fieldName) || isNull(fieldName)) return null
-        return (opt(fieldName) as? Number)?.toLong()
+                namespace in FORGED_BLOCK_NAMESPACES && kind == FORGED_BLOCK_KIND ->
+                    DecodedBlockEvent(status = "completed", blockHash = block ?: return null)
+
+                else -> return null
+            }
+
+        return ForwardedBlockEvent(
+            slot = slot ?: return null,
+            blockHash = decoded.blockHash,
+            timestamp = at ?: return null,
+            hostname = host ?: return null,
+            status = decoded.status,
+        )
     }
 
-    private fun JSONObject.optIntOrNull(fieldName: String): Int? {
-        if (!has(fieldName) || isNull(fieldName)) return null
-        return (opt(fieldName) as? Number)?.toInt()
-    }
-
-    private fun JSONObject.optNonBlankString(fieldName: String): String? = optString(fieldName, null)?.takeUnless(String::isNullOrBlank)
+    private data class ParsedTraceObject(
+        val namespace: String?,
+        val at: String?,
+        val host: String?,
+        val kind: String?,
+        val slot: Long?,
+        val blockHash: String?,
+        val block: String?,
+        val addedToChainSlot: Long?,
+        val addedToChainBlockHeight: Long?,
+        val outboundPeers: Int?,
+        val inboundPeers: Int?,
+    )
 
     private data class DecodedBlockEvent(
         val status: String,
@@ -145,14 +200,13 @@ class TraceForwardProtocol2Extractor {
     )
 
     private companion object {
+        val jsonFactory: JsonFactory = JsonFactory()
         const val NS_FIELD = "ns"
         const val DATA_FIELD = "data"
         const val KIND_FIELD = "kind"
         const val SLOT_FIELD = "slot"
         const val BLOCK_HASH_FIELD = "blockHash"
         const val BLOCK_FIELD = "block"
-        const val PEER_FIELD = "peer"
-        const val CONNECTION_ID_FIELD = "connectionId"
         const val AT_FIELD = "at"
         const val HOST_FIELD = "host"
         const val NEW_SUFFIX_SELECT_VIEW_FIELD = "newSuffixSelectView"
@@ -164,17 +218,33 @@ class TraceForwardProtocol2Extractor {
         const val MACHINE_JSON_INDEX = 2
         val ADOPTED_BLOCK_NAMESPACES =
             setOf(
-                listOf("Forge.Loop.AdoptedBlock"),
+                "Forge.AdoptedBlock",
+                "Forge.Loop.AdoptedBlock",
             )
         const val ADOPTED_BLOCK_KIND = "TraceAdoptedBlock"
         val FORGED_BLOCK_NAMESPACES =
             setOf(
-                listOf("Forge.Loop.ForgedBlock"),
+                "Forge.ForgedBlock",
+                "Forge.Loop.ForgedBlock",
             )
         const val FORGED_BLOCK_KIND = "TraceForgedBlock"
-        val ADDED_TO_CURRENT_CHAIN_NAMESPACE = listOf("ChainDB.AddBlockEvent.AddedToCurrentChain")
+        const val ADDED_TO_CURRENT_CHAIN_NAMESPACE = "ChainDB.AddBlockEvent.AddedToCurrentChain"
         const val ADDED_TO_CURRENT_CHAIN_KIND = "AddedToCurrentChain"
-        val CONNECTION_COUNTERS_NAMESPACE = listOf("Net.ConnectionManager.Remote.ConnectionManagerCounters")
+        const val CONNECTION_COUNTERS_NAMESPACE = "Net.ConnectionManager.Remote.ConnectionManagerCounters"
         const val CONNECTION_COUNTERS_KIND = "ConnectionManagerCounters"
     }
 }
+
+private fun com.fasterxml.jackson.core.JsonParser.longValueOrNull(): Long? =
+    when (currentToken()) {
+        JsonToken.VALUE_NUMBER_INT -> longValue
+        JsonToken.VALUE_STRING -> valueAsString?.toLongOrNull()
+        else -> null
+    }
+
+private fun com.fasterxml.jackson.core.JsonParser.intValueOrNull(): Int? =
+    when (currentToken()) {
+        JsonToken.VALUE_NUMBER_INT -> valueAsInt
+        JsonToken.VALUE_STRING -> valueAsString?.toIntOrNull()
+        else -> null
+    }

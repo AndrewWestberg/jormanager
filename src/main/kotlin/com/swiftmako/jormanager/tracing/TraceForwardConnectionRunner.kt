@@ -11,6 +11,8 @@ import io.ktor.network.sockets.InetSocketAddress
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.connection
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,17 +32,29 @@ interface TraceForwardConnectionRunner {
 }
 
 fun interface TraceForwardConnectionRunnerFactory {
-    fun create(networkMagic: Long): TraceForwardConnectionRunner
+    fun create(target: TracingTransportTarget): TraceForwardConnectionRunner
 }
 
 class SocketTraceForwardConnectionRunnerFactory : TraceForwardConnectionRunnerFactory {
-    override fun create(networkMagic: Long): TraceForwardConnectionRunner = SocketTraceForwardConnectionRunner(networkMagic = networkMagic)
+    override fun create(target: TracingTransportTarget): TraceForwardConnectionRunner =
+        SocketTraceForwardConnectionRunner(
+            networkMagic = target.networkMagic,
+            enableTraceObjects = target.enableTraceObjects,
+        )
 }
+
+data class TracingTransportTarget(
+    val networkMagic: Long,
+    val enableTraceObjects: Boolean,
+)
 
 class SocketTraceForwardConnectionRunner(
     private val requestedDataPointNames: List<String> = NodeStateDataPointDecoder.REQUESTED_NAMES,
     private val metricsRequest: ForwardingMetricsRequest = ForwardingMetricsRequest.GetMetrics(TracingMetricDecoder.DASHBOARD_REQUEST_NAMES),
     private val networkMagic: Long,
+    private val enableTraceObjects: Boolean = true,
+    private val metricsPollInterval: Duration = DEFAULT_METRICS_POLL_INTERVAL,
+    private val dataPointPollInterval: Duration = DEFAULT_DATA_POINTS_POLL_INTERVAL,
     private val requestBlocking: Boolean = true,
     private val requestCount: Int = DEFAULT_REQUEST_COUNT,
 ) : TraceForwardConnectionRunner {
@@ -59,22 +73,42 @@ class SocketTraceForwardConnectionRunner(
             }.use { socket ->
                 val mux = Mux(socket.connection())
                 activeMux.set(mux)
-                val metricsProtocol = ForwardingMetricsProtocol(metricsRequest)
-                val protocol = ForwardingTraceObjectsProtocol(
-                    requestBlocking = requestBlocking,
-                    requestCount = requestCount,
-                    singleReplyMode = false,
-                )
-                val dataPointsProtocol = ForwardingDataPointsProtocol(requestedDataPointNames, singleReplyMode = false)
+                val metricsProtocol =
+                    ForwardingMetricsProtocol(
+                        request = metricsRequest,
+                        singleReplyMode = false,
+                        pollInterval = metricsPollInterval,
+                    )
+                val dataPointsProtocol =
+                    ForwardingDataPointsProtocol(
+                        requestedNames = requestedDataPointNames,
+                        singleReplyMode = false,
+                        pollInterval = dataPointPollInterval,
+                    )
                 val metricsCollector = metricsProtocol.messages.collectInBackground(onMessage)
-                val collector = protocol.messages.collectInBackground(onMessage)
                 val dataPointCollector = dataPointsProtocol.messages.collectInBackground(onMessage)
+                val traceObjectsProtocol =
+                    if (enableTraceObjects) {
+                        ForwardingTraceObjectsProtocol(
+                            requestBlocking = requestBlocking,
+                            requestCount = requestCount,
+                            singleReplyMode = false,
+                        )
+                    } else {
+                        null
+                    }
+                val traceObjectCollector = traceObjectsProtocol?.messages?.collectInBackground(onMessage)
                 try {
                     mux.execute(ForwardingHandshakeProtocol(networkMagic))
-                    mux.execute(metricsProtocol, protocol, dataPointsProtocol)
+                    val protocols = buildList {
+                        add(metricsProtocol)
+                        traceObjectsProtocol?.let(::add)
+                        add(dataPointsProtocol)
+                    }
+                    mux.execute(*protocols.toTypedArray())
                 } finally {
                     metricsCollector.cancelAndJoin()
-                    collector.cancelAndJoin()
+                    traceObjectCollector?.cancelAndJoin()
                     dataPointCollector.cancelAndJoin()
                     activeMux.compareAndSet(mux, null)
                 }
@@ -87,6 +121,8 @@ class SocketTraceForwardConnectionRunner(
 
     companion object {
         internal const val DEFAULT_REQUEST_COUNT = 25
+        internal val DEFAULT_METRICS_POLL_INTERVAL: Duration = 5.seconds
+        internal val DEFAULT_DATA_POINTS_POLL_INTERVAL: Duration = 5.seconds
     }
 }
 

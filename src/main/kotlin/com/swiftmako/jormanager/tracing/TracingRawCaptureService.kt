@@ -48,6 +48,7 @@ data class TracingRawDataPointSnapshot(
 @Component
 class TracingRawCaptureService(
     private val tracingBlockMessageSink: TracingBlockMessageSink,
+    private val tracingRuntimeProfiler: TracingRuntimeProfiler,
 ) : TraceForwardMessageSink {
     private val log = KotlinLogging.logger("TracingRawCaptureService")
     private val latestMetricSnapshots = ConcurrentHashMap<Long, TracingRawMetricSnapshot>()
@@ -61,6 +62,11 @@ class TracingRawCaptureService(
         val capturedAt = Instant.now()
         when (message) {
             is TraceForwardMessage.MetricsReply -> {
+                tracingRuntimeProfiler.recordMetricReply(
+                    nodeId = nodeId,
+                    metricCount = message.metrics.size,
+                    rawBytes = message.rawJson.toByteArray().size,
+                )
                 if (isTracingDebugEnabled()) {
                     log.info {
                         "Tracing debug: metric snapshot node=$nodeId keys=${message.metrics.keys.sorted().joinToString()}"
@@ -82,6 +88,12 @@ class TracingRawCaptureService(
                         capturedAt = capturedAt,
                         dataPoints = message.dataPoints,
                     )
+                tracingRuntimeProfiler.recordDataPointReply(
+                    nodeId = nodeId,
+                    dataPointCount = snapshot.dataPointNames().size,
+                    nonEmptyCount = snapshot.nonEmptyDataPointNames().size,
+                    valueBytes = snapshot.approximatePayloadBytes(),
+                )
                 dataPointSnapshotBuffer.compute(nodeId) { _, existing -> ((existing ?: emptyList()) + snapshot).takeLast(MAX_DATA_POINT_SNAPSHOTS_PER_NODE) }
                 if (isTracingDebugEnabled()) {
                     log.info {
@@ -97,6 +109,11 @@ class TracingRawCaptureService(
                         capturedAt = capturedAt,
                         traceObjects = message.traceObjects,
                     )
+                tracingRuntimeProfiler.recordTraceObjectBatch(
+                    nodeId = nodeId,
+                    batchCount = message.traceObjects.size(),
+                    approxBytes = batch.approximatePayloadBytes(),
+                )
                 traceObjectBatchBuffer.compute(nodeId) { _, existing -> ((existing ?: emptyList()) + batch).takeLast(MAX_TRACE_BATCHES_PER_NODE) }
                 if (isTracingDebugEnabled()) {
                     log.info {
@@ -152,6 +169,7 @@ class TracingRawCaptureService(
         latestMetricSnapshots.remove(nodeId)
         dataPointSnapshotBuffer.remove(nodeId)
         traceObjectBatchBuffer.remove(nodeId)
+        tracingRuntimeProfiler.clearNode(nodeId)
     }
 
     internal fun recordMetricSnapshotForTest(
@@ -177,7 +195,7 @@ class TracingRawCaptureService(
 
     companion object {
         private const val MAX_DATA_POINT_SNAPSHOTS_PER_NODE = 32
-        private const val MAX_TRACE_BATCHES_PER_NODE = 32
+        private const val MAX_TRACE_BATCHES_PER_NODE = 4
     }
 }
 
@@ -201,3 +219,24 @@ internal fun TracingRawDataPointSnapshot.nonEmptyDataPointNames(): List<String> 
             }
         }
     }
+
+internal fun TracingRawDataPointSnapshot.approximatePayloadBytes(): Int {
+    var total = 0
+    for (index in 0 until dataPoints.size()) {
+        val pair = dataPoints.elementAt(index) as? CborArray ?: continue
+        val maybeValue = pair.elementAt(1) as? CborArray ?: continue
+        for (valueIndex in 0 until maybeValue.size()) {
+            val value = maybeValue.elementAt(valueIndex)
+            total += value.toString().toByteArray().size
+        }
+    }
+    return total
+}
+
+internal fun TracingRawTraceObjectBatch.approximatePayloadBytes(): Int {
+    var total = 0
+    for (index in 0 until traceObjects.size()) {
+        total += traceObjects.elementAt(index).toString().toByteArray().size
+    }
+    return total
+}
