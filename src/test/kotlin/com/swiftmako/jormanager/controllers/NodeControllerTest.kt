@@ -466,7 +466,8 @@ class NodeControllerTest {
                 .get("")
                 .get("backends")
                 .map { it.asText() }
-        ).containsExactly("Stdout MachineFormat", "PrometheusSimple suffix 0.0.0.0 12900")
+        ).containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
+            .inOrder()
         assertThat(
             root
                 .get("TraceOptions")
@@ -481,7 +482,11 @@ class NodeControllerTest {
                 .get("severity")
                 .asText()
         ).isEqualTo("Silence")
-        assertThat(root.get("TraceOptionForwarder")).isNull()
+        val forwarder = root.get("TraceOptionForwarder")
+        assertThat(forwarder).isNotNull()
+        assertThat(forwarder.get("connQueueSize").asInt()).isEqualTo(64)
+        assertThat(forwarder.get("disconnQueueSize").asInt()).isEqualTo(128)
+        assertThat(forwarder.get("maxReconnectDelay").asInt()).isEqualTo(30)
         assertThat(root.fieldNames().asSequence().toList())
             .containsAtLeast(
                 "ConwayGenesisFile",
@@ -496,6 +501,7 @@ class NodeControllerTest {
                 "TurnOnLogging",
                 "TurnOnLogMetrics",
                 "minSeverity",
+                "TraceOptionForwarder",
             )
         assertThat(root.get("TraceBlockFetchDecisions")).isNull()
         assertThat(root.get("defaultBackends")).isNull()

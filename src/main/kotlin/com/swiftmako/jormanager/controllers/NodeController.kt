@@ -3457,7 +3457,7 @@ class NodeController
 
             val backends = objectMapper.createArrayNode().apply {
                 add(STDOUT_MACHINE_FORMAT_BACKEND)
-                if (nodeType == NODE_TYPE_CORE) {
+                if (nodeType in setOf(NODE_TYPE_CORE, NODE_TYPE_RELAY)) {
                     add(FORWARDER_BACKEND)
                 }
                 add("PrometheusSimple suffix $prometheusListen $promPort")
@@ -3484,7 +3484,7 @@ class NodeController
             root.put("TurnOnLogMetrics", true)
             root.put("minSeverity", MIN_TRACE_SEVERITY)
 
-            if (nodeType == NODE_TYPE_CORE) {
+            if (nodeType in setOf(NODE_TYPE_CORE, NODE_TYPE_RELAY)) {
                 val forwarderOptions = objectMapper.createObjectNode().apply {
                     put("connQueueSize", TRACE_FORWARDER_CONN_QUEUE_SIZE)
                     put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
