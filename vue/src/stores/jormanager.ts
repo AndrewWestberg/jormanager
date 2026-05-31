@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import SockJS from 'sockjs-client'
 import Stomp, { type Client as StompClient, type Message } from 'webstomp-client'
 import { orderBy, unionWith, findIndex, sortBy, find, filter, map, uniqBy } from 'lodash-es'
+import { generateUUID } from '@/utils/filters'
 import JSONBIG from 'json-bigint'
 import type {
   Host,
@@ -770,8 +771,8 @@ export const useJorManagerStore = defineStore('jormanager', {
     },
 
     invalidateSendAdaFees() {
-      this.requestFeesUUID = crypto.randomUUID()
-      this.responseFeesUUID = crypto.randomUUID()
+      this.requestFeesUUID = generateUUID()
+      this.responseFeesUUID = generateUUID()
     },
 
     submitTransaction(formSendAda: unknown) {
