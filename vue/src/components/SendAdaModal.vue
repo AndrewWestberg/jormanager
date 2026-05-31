@@ -265,7 +265,7 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
-import { lovelaceToAda } from '@/utils/filters'
+import { lovelaceToAda, generateUUID } from '@/utils/filters'
 
 interface ToAccount {
   currency: string
@@ -741,7 +741,7 @@ function prepareCalculateSendAdaFees() {
     txOut: uniqueToAccounts + returnChangeTxOut,
     isClaim: formSendAda.value.isClaim,
     metadata: formSendAda.value.metadata,
-    uuid: crypto.randomUUID()
+    uuid: generateUUID()
   }
   
   validateForm()
