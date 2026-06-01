@@ -46,9 +46,29 @@ export function startCase(value: string): string {
  * Generate a UUID, with fallback for non-HTTPS contexts where crypto.randomUUID is unavailable
  */
 export function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
+  // Prefer crypto.randomUUID() in secure contexts (HTTPS/localhost)
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+  } catch {
+    // Falls through to crypto.getRandomValues() below
   }
+  // Fallback: use crypto.getRandomValues() for RFC4122 v4 UUID (works in HTTP contexts)
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(16)
+      crypto.getRandomValues(bytes)
+      bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+      bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant bits
+      return [...bytes].map((b, i) =>
+        [4, 6, 8, 10].includes(i) ? '-' + b.toString(16).padStart(2, '0') : b.toString(16).padStart(2, '0')
+      ).join('')
+    }
+  } catch {
+    // Falls through to Math.random() below
+  }
+  // Last resort: Math.random() (lower entropy, but always available)
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
