@@ -248,7 +248,6 @@ class ChainSyncProtocol(
 
             else -> throw IllegalStateException("We should not call receiveData() when we're not in a $state state!")
         }
-        Unit
     }
 
     private fun initBlockReceiveHandler() {

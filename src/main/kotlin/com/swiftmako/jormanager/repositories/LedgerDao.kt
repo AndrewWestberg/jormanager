@@ -541,7 +541,6 @@ class LedgerDao
                                             if (index % 10 == 0 || index == lastIndex) {
                                                 log.info("Re-Submit txid to mempool exists already: $transactionId, $index/$lastIndex")
                                             }
-                                            Unit
                                         }
                                     }
                                 }
