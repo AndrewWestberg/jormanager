@@ -78,18 +78,18 @@
 
 *A checklist of conditions that must be met for the solution to be considered complete and successful.*
 
--   [ ] The voting modal allows selecting multiple pools or DRep IDs for a single action.
--   [ ] Required deposit amounts (e.g., 500 ADA for DRep) are visible during registration.
--   [ ] Users can choose which wallet pays the registration deposit.
--   [ ] The chain scanner uses Koios to fetch data and does not utilize Blockfrost.
--   [ ] Expired governance actions automatically move from the active dashboard to the "History" tab.
--   [ ] Every governance action in the UI includes a working link to its corresponding page on `adastat.net`.
--   [ ] Users can successfully initiate a "Change Vote" workflow for active proposals they have already voted on.
--   [ ] Decrypted cold keys are wiped from memory immediately after transaction signing.
--   [ ] Metadata errors are displayed gracefully alongside the adastat.net fallback link.
+-   [x] The voting modal allows selecting multiple pools or DRep IDs for a single action.
+-   [x] Required deposit amounts (e.g., 500 ADA for DRep) are visible during registration.
+-   [x] Users can choose which wallet pays the registration deposit.
+-   [x] The chain scanner uses Koios to fetch data and does not utilize Blockfrost.
+-   [x] Expired governance actions automatically move from the active dashboard to the "History" tab.
+-   [x] Every governance action in the UI includes a working link to its corresponding page on `adastat.net`.
+-   [x] Users can successfully initiate a "Change Vote" workflow for active proposals they have already voted on.
+-   [x] Decrypted cold keys are wiped from memory immediately after transaction signing.
+-   [x] Metadata errors are displayed gracefully alongside the adastat.net fallback link.
 ---
 
-**Status:** 📝 Draft
+**Status:** ✅ Completed
 **Date:** 2026-06-26
 **Author:** AI Agent
 
