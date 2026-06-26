@@ -4,8 +4,11 @@ import org.springframework.stereotype.Service
 
 @Service
 class TransactionService {
-
-    fun signAndSubmitGovernanceTransaction(actionId: String, vote: String, key: ByteArray) {
+    fun signAndSubmitGovernanceTransaction(
+        actionId: String,
+        vote: String,
+        key: ByteArray
+    ) {
         try {
             // Integrate encrypted cold-key pattern for transaction building
             // Sign and submit flow

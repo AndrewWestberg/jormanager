@@ -33,7 +33,7 @@ const registrationType = ref('DRep Registration')
 const sourceWalletId = ref<number | null>(null)
 
 const walletOptions = computed(() => {
-  return store.wallets.map(w => ({ value: w.id, text: w.name }))
+  return store.walletItems.map((w: any) => ({ value: w.id, text: w.name }))
 })
 
 function submitRegistration() {

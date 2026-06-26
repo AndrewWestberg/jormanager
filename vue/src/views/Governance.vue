@@ -48,7 +48,7 @@ const actions = ref([
 const activeActions = computed(() => actions.value.filter(a => a.status === 'Active'))
 const historyActions = computed(() => actions.value.filter(a => a.status !== 'Active'))
 
-function openVoteModal(action: any) {
+function openVoteModal(_action: any) {
   showVoteModal.value = true
 }
 </script>
