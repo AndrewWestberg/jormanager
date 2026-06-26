@@ -7,6 +7,7 @@ import org.springframework.web.client.RestTemplate
 class MetadataResolutionService {
     private val restTemplate = RestTemplate()
 
+    @Suppress("UNCHECKED_CAST")
     fun resolveMetadata(url: String): Map<String, Any>? =
         try {
             val response = restTemplate.getForObject(url, Map::class.java) as Map<String, Any>?

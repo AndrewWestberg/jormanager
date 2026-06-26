@@ -8,6 +8,7 @@ class KoiosService {
     private val restTemplate = RestTemplate()
     private val baseUrl = "https://api.koios.rest/api/v1"
 
+    @Suppress("UNCHECKED_CAST")
     fun getGovernanceActions(): List<Map<String, Any>> {
         val url = "$baseUrl/proposal_list"
         return try {
