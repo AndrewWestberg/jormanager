@@ -1,0 +1,163 @@
+{
+  "metadata": {
+    "title": "Advanced Governance Suite Tasks",
+    "created": "2026-06-26",
+    "updated": "2026-06-26",
+    "version": "1.0.0",
+    "totalTasks": 11,
+    "prdReference": ".agent/plans/advanced-governance-suite/advanced-governance-suite-prd.md",
+    "description": "Consolidate all node management and governance tasks into a single interface to reduce operational errors and eliminate CLI dependency."
+  },
+  "phases": [
+    {
+      "id": "phase-0",
+      "name": "Foundation & Koios Integration",
+      "description": "Establish Koios API integration and data models for governance actions.",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-001",
+          "title": "Implement Koios API client",
+          "description": "Create backend service to fetch governance actions via Koios API.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 3.0,
+          "dependencies": [],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/KoiosService.kt"
+        },
+        {
+          "id": "task-002",
+          "title": "Database schema for governance",
+          "description": "Create Liquibase migrations and JPA entities for storing and caching governance actions and voting history.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 2.0,
+          "dependencies": [],
+          "targetPath": "src/main/resources/db/changelog/"
+        }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "name": "Chain Scanner & Metadata",
+      "description": "Implement scanning logic and metadata resolution.",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-100",
+          "title": "Chain Scanner Implementation",
+          "description": "Implement background job to identify new on-chain governance actions and map to SPO/DRep roles.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 4.0,
+          "dependencies": ["task-001", "task-002"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/GovernanceScannerService.kt"
+        },
+        {
+          "id": "task-101",
+          "title": "Metadata Resolution",
+          "description": "Lookup and resolve JSON-LD metadata, with error handling and sanitization.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 3.0,
+          "dependencies": ["task-100"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/MetadataResolutionService.kt"
+        },
+        {
+          "id": "task-102",
+          "title": "Adastat.net Fallback Linking",
+          "description": "Ensure every governance action provides a persistent link to adastat.net.",
+          "status": "pending",
+          "priority": "low",
+          "estimatedHours": 1.0,
+          "dependencies": ["task-101"],
+          "targetPath": "vue/src/components/GovernanceActionItem.vue"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Voting & Security",
+      "description": "Multi-identity voting, cold key signing, and vote lifecycle.",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-200",
+          "title": "Multi-Identity Voting Modal",
+          "description": "Update UI to support selecting multiple pools/DReps for batched voting.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 4.0,
+          "dependencies": ["task-100"],
+          "targetPath": "vue/src/components/GovernanceVoteModal.vue"
+        },
+        {
+          "id": "task-201",
+          "title": "Secure Signing & Transactions",
+          "description": "Integrate encrypted cold-key pattern for transaction building and sign/submit flow, ensuring keys are wiped from memory.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 5.0,
+          "dependencies": ["task-200"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/TransactionService.kt"
+        },
+        {
+          "id": "task-202",
+          "title": "Change Vote Workflow",
+          "description": "Allow users to initiate a change vote workflow for active proposals.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 2.0,
+          "dependencies": ["task-201"],
+          "targetPath": "vue/src/components/GovernanceVoteModal.vue"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Certificates & Dashboard UI",
+      "description": "Registration workflows, UI integration, and history features.",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-300",
+          "title": "DRep/SPO Registration Certificates",
+          "description": "Guided workflows for DRep/SPO registration, update, retirement with deposit source wallet selection.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 4.0,
+          "dependencies": ["task-201"],
+          "targetPath": "vue/src/components/GovernanceRegistration.vue"
+        },
+        {
+          "id": "task-301",
+          "title": "Governance Dashboard",
+          "description": "Create the main governance UI with active actions, real-time states, and history tab.",
+          "status": "pending",
+          "priority": "high",
+          "estimatedHours": 4.0,
+          "dependencies": ["task-100", "task-300"],
+          "targetPath": "vue/src/views/Governance.vue"
+        },
+        {
+          "id": "task-302",
+          "title": "History & Expiration Logic",
+          "description": "Automatically move expired actions to History tab and mark them as Completed after voting.",
+          "status": "pending",
+          "priority": "medium",
+          "estimatedHours": 2.0,
+          "dependencies": ["task-301"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/GovernanceScannerService.kt"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalPhases": 4,
+    "totalTasks": 11,
+    "estimatedTotalHours": 34.0,
+    "criticalPath": ["task-001", "task-100", "task-200", "task-201", "task-301"],
+    "riskAreas": ["Koios API rate limits", "Memory wiping of decrypted cold keys", "Multi-identity batched transaction size limits"],
+    "testingNotes": "Unit tests for metadata resolution and transaction building. E2E tests for the voting flow."
+  }
+}
