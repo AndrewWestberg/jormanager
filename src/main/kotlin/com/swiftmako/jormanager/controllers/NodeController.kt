@@ -1661,6 +1661,11 @@ constructor(
             val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Invalid node id: ${request.id}")
             val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host not found!")
             val hostConnection = HostConnection(host, node)
+            try {
+                hostConnection.bashCommand("echo 'SSH connectivity verified'", 5L)
+            } catch (e: Exception) {
+                throw IOException("Pre-flight check failed: Remote host is unreachable.", e)
+            }
             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
             try {
                 val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
