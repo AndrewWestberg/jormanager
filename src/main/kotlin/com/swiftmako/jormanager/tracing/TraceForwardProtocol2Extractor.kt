@@ -30,9 +30,24 @@ class TraceForwardProtocol2Extractor {
         }
 
     private fun mergeNodeStates(traceObjectsJson: Iterable<String>): ForwardedNodeState? {
-        val decodedStates = traceObjectsJson.mapNotNull(::decodeNodeState)
+        val parsedTraceObjects = traceObjectsJson.mapNotNull(::parseTraceObject)
+        val decodedStates = parsedTraceObjects.mapNotNull { it.toNodeState() }
         val mergedState = decodedStates.fold(null as ForwardedNodeState?) { acc, next -> acc?.merge(next) ?: next }
-        return mergedState
+        val inferredPeers =
+            parsedTraceObjects
+                .mapNotNull { it.peerConnectionId }
+                .distinct()
+                .size
+                .takeIf { it > 0 }
+        val hasExplicitPeerCounters =
+            parsedTraceObjects.any {
+                it.namespace == CONNECTION_COUNTERS_NAMESPACE && it.kind == CONNECTION_COUNTERS_KIND
+            }
+        return when {
+            mergedState == null && inferredPeers != null -> ForwardedNodeState(peers = inferredPeers)
+            mergedState != null && inferredPeers != null && !hasExplicitPeerCounters -> mergedState.copy(peers = inferredPeers)
+            else -> mergedState
+        }
     }
 
     private fun CborObject.toTraceObjectJsonOrNull(): String? =
@@ -63,6 +78,7 @@ class TraceForwardProtocol2Extractor {
                 var addedToChainBlockHeight: Long? = null
                 var outboundPeers: Int? = null
                 var inboundPeers: Int? = null
+                var peerConnectionId: String? = null
 
                 while (parser.nextToken() != JsonToken.END_OBJECT) {
                     val fieldName = parser.currentName() ?: continue
@@ -117,6 +133,21 @@ class TraceForwardProtocol2Extractor {
                                         }
                                     }
 
+                                    PEER_FIELD -> {
+                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                            parser.skipChildren()
+                                            continue
+                                        }
+                                        while (parser.nextToken() != JsonToken.END_OBJECT) {
+                                            val peerFieldName = parser.currentName() ?: continue
+                                            parser.nextToken()
+                                            when (peerFieldName) {
+                                                CONNECTION_ID_FIELD -> peerConnectionId = parser.valueAsString?.takeIf(String::isNotBlank)
+                                                else -> parser.skipChildren()
+                                            }
+                                        }
+                                    }
+
                                     else -> parser.skipChildren()
                                 }
                             }
@@ -138,6 +169,7 @@ class TraceForwardProtocol2Extractor {
                     addedToChainBlockHeight = addedToChainBlockHeight,
                     outboundPeers = outboundPeers,
                     inboundPeers = inboundPeers,
+                    peerConnectionId = peerConnectionId,
                 )
             }
         }.getOrNull()
@@ -155,6 +187,8 @@ class TraceForwardProtocol2Extractor {
                     peers = outboundPeers,
                     incomingPeers = inboundPeers,
                 )
+
+            peerConnectionId != null -> ForwardedNodeState(peers = 1)
 
             else -> null
         }
@@ -192,6 +226,7 @@ class TraceForwardProtocol2Extractor {
         val addedToChainBlockHeight: Long?,
         val outboundPeers: Int?,
         val inboundPeers: Int?,
+        val peerConnectionId: String?,
     )
 
     private data class DecodedBlockEvent(
@@ -215,6 +250,8 @@ class TraceForwardProtocol2Extractor {
         const val STATE_FIELD = "state"
         const val OUTBOUND_FIELD = "outbound"
         const val INBOUND_FIELD = "inbound"
+        const val PEER_FIELD = "peer"
+        const val CONNECTION_ID_FIELD = "connectionId"
         const val MACHINE_JSON_INDEX = 2
         val ADOPTED_BLOCK_NAMESPACES =
             setOf(
