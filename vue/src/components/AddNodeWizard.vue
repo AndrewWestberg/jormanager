@@ -7,7 +7,7 @@
       color="#28a745"
       title=""
       subtitle=""
-      finish-button-text="Create Node"
+      finish-button-text="Confirm"
       back-button-text="Back"
       next-button-text="Next"
       @on-complete="onComplete"
@@ -615,12 +615,75 @@
         </BFormGroup>
       </TabContent>
       
-      <!-- Step 6: Confirmation (All node types) -->
+      <!-- Step 6: Review & Confirmation (All node types) -->
       <TabContent 
-        title="Confirmation" 
+        title="Review & Confirm" 
         icon="fas fa-check-circle"
       >
-        <h4>Confirmation</h4>
+        <h4>Review & Confirm</h4>
+        
+        <div class="mb-4">
+          <h5>Node Basics</h5>
+          <table class="table table-dark table-sm">
+            <tbody>
+              <tr>
+                <th style="width: 30%">Name (TICKER)</th>
+                <td>{{ formNode.name }}</td>
+              </tr>
+              <tr>
+                <th>Type</th>
+                <td><span class="text-capitalize">{{ formNode.type }}</span></td>
+              </tr>
+              <tr v-if="formNode.listen">
+                <th>Listen Address</th>
+                <td>{{ formNode.listen }}</td>
+              </tr>
+              <tr v-if="formNode.port">
+                <th>Port</th>
+                <td>{{ formNode.port }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="formNode.type !== 'relay'" class="mb-4">
+          <h5>Pool Configuration</h5>
+          <table class="table table-dark table-sm">
+            <tbody>
+              <tr>
+                <th style="width: 30%">Pledge</th>
+                <td>{{ formNode.poolPledge }}</td>
+              </tr>
+              <tr>
+                <th>Fixed Cost</th>
+                <td>{{ formNode.poolCost }}</td>
+              </tr>
+              <tr>
+                <th>Margin</th>
+                <td>{{ (formNode.poolMargin * 100).toFixed(2) }}%</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h5>Relays</h5>
+          <table class="table table-dark table-sm" v-if="formNode.relays.length > 0">
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>Port</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(relay, idx) in formNode.relays" :key="idx">
+                <td>{{ relay.addr }}</td>
+                <td>{{ relay.port }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else>No relays configured.</p>
+        </div>
+
+        <h5>SUDO Authentication</h5>
         <p>
           Creating a node requires <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
           Leave empty if your host does not require a sudo password.
