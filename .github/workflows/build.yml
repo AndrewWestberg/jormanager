@@ -25,4 +25,5 @@ jobs:
       - name: Build with Gradle
         run: |
           chmod +x gradlew
-          ./gradlew ktlintFormat bootJar
+          ./gradlew ktlintFormat
+          ./gradlew bootJar
