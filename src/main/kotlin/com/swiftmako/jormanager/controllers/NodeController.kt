@@ -943,6 +943,9 @@ constructor(
                                     }
                                 }
                                 append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
+                                if (era.equals("conway", ignoreCase = true)) {
+                                    append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
+                                }
                                 append("$magicString ")
                                 append("--out-file /tmp/core.pool.cert")
                             }
@@ -1505,6 +1508,9 @@ constructor(
                                             }
                                         }
                                         append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
+                                        if (era.equals("conway", ignoreCase = true)) {
+                                            append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
+                                        }
                                         append("$magicString ")
                                         append("--out-file /tmp/core.pool.cert")
                                     }
@@ -2367,6 +2373,9 @@ constructor(
                                 }
                             }
                             append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
+                            if (era.equals("conway", ignoreCase = true)) {
+                                append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
+                            }
                             append("$magicString ")
                             append("--out-file /tmp/core.pool.cert")
                         }
@@ -2723,6 +2732,9 @@ constructor(
                                 }
                             }
                             append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
+                            if (era.equals("conway", ignoreCase = true)) {
+                                append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
+                            }
                             append("$magicString ")
                             append("--out-file /tmp/core.pool.cert")
                         }
