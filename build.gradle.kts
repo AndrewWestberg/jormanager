@@ -65,7 +65,7 @@ dependencies {
     implementation("io.ktor:ktor-network:${Versions.KTOR}")
 
     implementation("org.springframework.security:spring-security-core:${Versions.SPRING_SECURITY}")
-    implementation("org.bouncycastle:bcprov-jdk15on:${Versions.BOUNCY_CASTLE}")
+    implementation("org.bouncycastle:bcprov-jdk18on:${Versions.BOUNCY_CASTLE}")
 
     implementation("org.liquibase:liquibase-core:${Versions.LIQUIBASE}")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
