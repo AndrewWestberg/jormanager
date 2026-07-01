@@ -165,63 +165,87 @@
     <!-- Edit Pool Config Modal -->
     <BModal
       v-model="showPoolConfigModal"
-      title="Edit Pool Config"
+      :title="poolConfigStep === 1 ? 'Edit Pool Config' : 'Review Pool Config'"
       size="xl"
       :no-close-on-backdrop="true"
       @ok.prevent="handleSavePoolConfig"
+      :ok-title="poolConfigStep === 1 ? 'Review' : 'Confirm'"
+      :cancel-title="poolConfigStep === 1 ? 'Cancel' : 'Back'"
+      @cancel.prevent="handleCancelPoolConfig"
     >
-      <h5>Account Config</h5>
-      <BFormGroup label="Fees Account" label-cols-md="2">
-        <BFormSelect
-          v-model="editPoolConfigForm.registrationFeesAccount"
-          :options="feeAccountOptions"
-          :state="editPoolConfigForm.registrationFeesAccount != null"
-        >
-          <template #first>
-            <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-          </template>
-        </BFormSelect>
-      </BFormGroup>
-      <BFormGroup label="Owner (Pledge) Account" label-cols-md="2">
-        <BFormSelect
-          v-model="editPoolConfigForm.ownerStakingAccount"
-          :options="stakingAccountOptions"
-          :state="editPoolConfigForm.ownerStakingAccount != null"
-        >
-          <template #first>
-            <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-          </template>
-        </BFormSelect>
-      </BFormGroup>
-      <BFormGroup label="Rewards Account" label-cols-md="2">
-        <BFormSelect
-          v-model="editPoolConfigForm.rewardsStakingAccount"
-          :options="rewardsAccountOptions"
-          :state="editPoolConfigForm.rewardsStakingAccount != null"
-        >
-          <template #first>
-            <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-          </template>
-        </BFormSelect>
-      </BFormGroup>
-      
-      <h5 class="mt-4">Pledge & Fees</h5>
-      <BFormGroup label="Pledge" label-cols-md="2">
-        <BFormInput v-model="editPoolConfigForm.poolPledge" placeholder="e.g. 250000" />
-      </BFormGroup>
-      <BFormGroup label="Cost" label-cols-md="2">
-        <BFormInput v-model="editPoolConfigForm.poolCost" placeholder="e.g. 340" />
-      </BFormGroup>
-      <BFormGroup label="Margin" label-cols-md="2">
-        <BFormInput
-          v-model="editPoolConfigForm.poolMargin"
-          type="number"
-          min="0.00"
-          max="1.00"
-          step="0.001"
-        />
-        <p class="text-center">{{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%</p>
-      </BFormGroup>
+      <div v-if="poolConfigStep === 1">
+        <h5>Account Config</h5>
+        <BFormGroup label="Fees Account" label-cols-md="2">
+          <BFormSelect
+            v-model="editPoolConfigForm.registrationFeesAccount"
+            :options="feeAccountOptions"
+            :state="editPoolConfigForm.registrationFeesAccount != null"
+          >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        <BFormGroup label="Owner (Pledge) Account" label-cols-md="2">
+          <BFormSelect
+            v-model="editPoolConfigForm.ownerStakingAccount"
+            :options="stakingAccountOptions"
+            :state="editPoolConfigForm.ownerStakingAccount != null"
+          >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        <BFormGroup label="Rewards Account" label-cols-md="2">
+          <BFormSelect
+            v-model="editPoolConfigForm.rewardsStakingAccount"
+            :options="rewardsAccountOptions"
+            :state="editPoolConfigForm.rewardsStakingAccount != null"
+          >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+        </BFormGroup>
+        
+        <h5 class="mt-4">Pledge & Fees</h5>
+        <BFormGroup label="Pledge" label-cols-md="2">
+          <BFormInput v-model="editPoolConfigForm.poolPledge" placeholder="e.g. 250000" />
+        </BFormGroup>
+        <BFormGroup label="Cost" label-cols-md="2">
+          <BFormInput v-model="editPoolConfigForm.poolCost" placeholder="e.g. 340" />
+        </BFormGroup>
+        <BFormGroup label="Margin" label-cols-md="2">
+          <BFormInput
+            v-model="editPoolConfigForm.poolMargin"
+            type="number"
+            min="0.00"
+            max="1.00"
+            step="0.001"
+          />
+          <p class="text-center">{{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%</p>
+        </BFormGroup>
+      </div>
+      <div v-else>
+        <h5>Please Review Your Changes</h5>
+        <table class="table table-dark table-sm">
+          <tbody>
+            <tr>
+              <th style="width: 30%">Pledge</th>
+              <td>{{ editPoolConfigForm.poolPledge }}</td>
+            </tr>
+            <tr>
+              <th>Fixed Cost</th>
+              <td>{{ editPoolConfigForm.poolCost }}</td>
+            </tr>
+            <tr>
+              <th>Margin</th>
+              <td>{{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </BModal>
     
     <!-- Edit Metadata Modal -->
@@ -258,28 +282,51 @@
     <!-- Edit Relays Modal -->
     <BModal
       v-model="showRelaysModal"
-      title="Edit Relays"
+      :title="relaysStep === 1 ? 'Edit Relays' : 'Review Relays'"
       size="lg"
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveRelays"
+      :ok-title="relaysStep === 1 ? 'Review' : 'Confirm'"
+      :cancel-title="relaysStep === 1 ? 'Cancel' : 'Back'"
+      @cancel.prevent="handleCancelRelays"
     >
-      <div v-for="(relay, index) in editRelaysForm.relays" :key="index" class="mb-3">
-        <BCard class="bg-dark">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h5>Relay {{ index + 1 }}</h5>
-            <BButton variant="outline-danger" size="sm" @click="editRelaysForm.relays.splice(index, 1)">✕</BButton>
-          </div>
-          <BFormGroup label="Address" label-cols-md="2">
-            <BFormInput v-model="relay.addr" placeholder="e.g. relay1.mypool.com" />
-          </BFormGroup>
-          <BFormGroup label="Port" label-cols-md="2">
-            <BFormInput v-model="relay.port" type="number" placeholder="e.g. 3001" />
-          </BFormGroup>
-        </BCard>
+      <div v-if="relaysStep === 1">
+        <div v-for="(relay, index) in editRelaysForm.relays" :key="index" class="mb-3">
+          <BCard class="bg-dark">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5>Relay {{ index + 1 }}</h5>
+              <BButton variant="outline-danger" size="sm" @click="editRelaysForm.relays.splice(index, 1)">✕</BButton>
+            </div>
+            <BFormGroup label="Address" label-cols-md="2">
+              <BFormInput v-model="relay.addr" placeholder="e.g. relay1.mypool.com" />
+            </BFormGroup>
+            <BFormGroup label="Port" label-cols-md="2">
+              <BFormInput v-model="relay.port" type="number" placeholder="e.g. 3001" />
+            </BFormGroup>
+          </BCard>
+        </div>
+        <BButton variant="primary" @click="editRelaysForm.relays.push({ addr: '', port: 3001 })">
+          + Add Relay
+        </BButton>
       </div>
-      <BButton variant="primary" @click="editRelaysForm.relays.push({ addr: '', port: 3001 })">
-        + Add Relay
-      </BButton>
+      <div v-else>
+        <h5>Please Review Your Relays</h5>
+        <table class="table table-dark table-sm" v-if="editRelaysForm.relays.length > 0">
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Port</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(relay, idx) in editRelaysForm.relays" :key="idx">
+              <td>{{ relay.addr }}</td>
+              <td>{{ relay.port }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else>No relays configured.</p>
+      </div>
     </BModal>
     
     <!-- Retire Pool Modal -->
@@ -368,6 +415,9 @@ const showMetadataModal = ref(false)
 const showRelaysModal = ref(false)
 const showRetireModal = ref(false)
 const showGovernanceVoteModal = ref(false)
+
+const poolConfigStep = ref(1)
+const relaysStep = ref(1)
 
 // Form data
 const editColorForm = ref({ nodeId: 0, color: '#000000' })
@@ -461,11 +511,25 @@ function openPoolConfigModal(nodeId: number) {
       poolMargin: (node as any).poolMargin || 0.03
     }
   }
+  poolConfigStep.value = 1
   showPoolConfigModal.value = true
 }
 
 function handleSavePoolConfig() {
-  emitter.emit('show-spending-password-modal', { action: 'update-pool-config', data: editPoolConfigForm.value })
+  if (poolConfigStep.value === 1) {
+    poolConfigStep.value = 2
+  } else {
+    emitter.emit('show-spending-password-modal', { action: 'update-pool-config', data: editPoolConfigForm.value })
+  }
+}
+
+function handleCancelPoolConfig() {
+  if (poolConfigStep.value === 2) {
+    poolConfigStep.value = 1
+  } else {
+    showPoolConfigModal.value = false
+    poolConfigStep.value = 1
+  }
 }
 
 function openMetadataModal(nodeId: number) {
@@ -493,11 +557,25 @@ function openRelaysModal(nodeId: number) {
     nodeId,
     relays: (node as any)?.relays?.map((r: any) => ({ addr: r.addr, port: r.port })) || []
   }
+  relaysStep.value = 1
   showRelaysModal.value = true
 }
 
 function handleSaveRelays() {
-  emitter.emit('show-spending-password-modal', { action: 'update-relays', data: editRelaysForm.value })
+  if (relaysStep.value === 1) {
+    relaysStep.value = 2
+  } else {
+    emitter.emit('show-spending-password-modal', { action: 'update-relays', data: editRelaysForm.value })
+  }
+}
+
+function handleCancelRelays() {
+  if (relaysStep.value === 2) {
+    relaysStep.value = 1
+  } else {
+    showRelaysModal.value = false
+    relaysStep.value = 1
+  }
 }
 
 function openRetireModal(nodeId: number) {
