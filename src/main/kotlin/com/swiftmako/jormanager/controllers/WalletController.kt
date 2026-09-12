@@ -417,18 +417,27 @@ class WalletController
                     throw IOException("/tmp/dummy.metadata-${genesis.networkMagic}.json does not exist!")
                 }
 
+                val referenceScriptSize =
+                    walletUtils.queryReferenceScriptSize(
+                        defaultHost,
+                        defaultHostConnection,
+                        magicString,
+                        socketPath,
+                        era,
+                        utxosToSpend,
+                    )
                 val fee =
                     if (request.isClaim) {
                         // Witness count: 1 for payment key + 1 for each staking key
                         val witnessCount = 1 + fromWalletEntries.size
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     } else {
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count 1 --byron-witness-count 0 --output-text"
+                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/dummy-${genesis.networkMagic}.txbody --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count 1 --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     }
                 val lovelace = fee.split(" ")[0].toBigInteger()
@@ -743,10 +752,19 @@ class WalletController
                                 defaultHostConnection.command(transaction.toString())
 
                                 log.debug { "depositAndFees: $depositAndFees" }
+                                val referenceScriptSize =
+                                    walletUtils.queryReferenceScriptSize(
+                                        defaultHost,
+                                        defaultHostConnection,
+                                        magicString,
+                                        socketPath,
+                                        era,
+                                        utxos,
+                                    )
                                 val feesString =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                            "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                                         ).trim()
                                 log.debug { "feesString: $feesString" }
                                 val fees = feesString.split(" ")[0].toBigInteger()
