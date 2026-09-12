@@ -971,10 +971,19 @@ class NodeController
                             defaultHostConnection.command(transaction.toString())
 
                             log.debug("depositAndFees: $depositAndFees")
+                            val referenceScriptSize =
+                                walletUtils.queryReferenceScriptSize(
+                                    defaultHost,
+                                    defaultHostConnection,
+                                    magicString,
+                                    socketPath,
+                                    era,
+                                    utxos,
+                                )
                             val feesString =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                        "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                                     ).trim()
                             val fees = feesString.split(" ")[0].toBigInteger()
                             log.debug("fees: $fees")
@@ -1532,10 +1541,19 @@ class NodeController
                                     defaultHostConnection.command(transaction.toString())
 
                                     log.debug("depositAndFees: $depositAndFees")
+                                    val referenceScriptSize =
+                                        walletUtils.queryReferenceScriptSize(
+                                            defaultHost,
+                                            defaultHostConnection,
+                                            magicString,
+                                            socketPath,
+                                            era,
+                                            utxos,
+                                        )
                                     val feesString =
                                         defaultHostConnection
                                             .command(
-                                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                                             ).trim()
                                     val fees = feesString.split(" ")[0].toBigInteger()
                                     log.debug("fees: $fees")
@@ -2389,10 +2407,19 @@ class NodeController
                         defaultHostConnection.command(transaction.toString())
 
                         log.debug("depositAndFees: $depositAndFees")
+                        val referenceScriptSize =
+                            walletUtils.queryReferenceScriptSize(
+                                defaultHost,
+                                defaultHostConnection,
+                                magicString,
+                                socketPath,
+                                era,
+                                utxos,
+                            )
                         val feesString =
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                                 ).trim()
                         val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
@@ -2748,10 +2775,19 @@ class NodeController
                         defaultHostConnection.command(transaction.toString())
 
                         log.debug("depositAndFees: $depositAndFees")
+                        val referenceScriptSize =
+                            walletUtils.queryReferenceScriptSize(
+                                defaultHost,
+                                defaultHostConnection,
+                                magicString,
+                                socketPath,
+                                era,
+                                utxos,
+                            )
                         val feesString =
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                                 ).trim()
                         val fees = feesString.split(" ")[0].toBigInteger()
                         log.debug("fees: $fees")
@@ -2943,10 +2979,19 @@ class NodeController
                     defaultHostConnection.command(transaction.toString())
 
                     log.debug("depositAndFees: $depositAndFees")
+                    val referenceScriptSize =
+                        walletUtils.queryReferenceScriptSize(
+                            defaultHost,
+                            defaultHostConnection,
+                            magicString,
+                            socketPath,
+                            "conway",
+                            utxos,
+                        )
                     val feesString =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
@@ -3914,10 +3959,19 @@ class NodeController
                     defaultHostConnection.command(transaction.toString())
 
                     // Calculate fees
+                    val referenceScriptSize =
+                        walletUtils.queryReferenceScriptSize(
+                            defaultHost,
+                            defaultHostConnection,
+                            magicString,
+                            socketPath,
+                            "conway",
+                            utxos,
+                        )
                     val feesString =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --output-text"
+                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("Calculated fees: $fees")
