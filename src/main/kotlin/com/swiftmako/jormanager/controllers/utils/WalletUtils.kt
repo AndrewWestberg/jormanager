@@ -23,7 +23,10 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import java.io.IOException
 import java.math.BigInteger
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
@@ -33,7 +36,10 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
-import org.springframework.security.crypto.encrypt.Encryptors
+import org.springframework.security.crypto.codec.Hex
+import org.springframework.security.crypto.codec.Utf8
+import org.springframework.security.crypto.encrypt.AesGcmBytesEncryptor
+import org.springframework.security.crypto.encrypt.TextEncryptor
 import org.springframework.stereotype.Component
 
 @Component
@@ -190,6 +196,32 @@ class WalletUtils
                 emptyList()
             }
 
+        fun queryReferenceScriptSize(
+            host: Host,
+            hostConnection: HostConnection,
+            magicString: String,
+            socketPath: String,
+            era: String,
+            utxos: Collection<Utxo>,
+        ): Long {
+            if (utxos.isEmpty()) {
+                return 0L
+            }
+
+            val inputs = utxos.joinToString(" ") { "--tx-in ${it.hash}#${it.ix}" }
+            val output =
+                hostConnection
+                    .command(
+                        "${host.cardanoCliPath} $era query ref-script-size $inputs $magicString $socketPath --output-text"
+                    ).trim()
+            return REFERENCE_SCRIPT_SIZE_REGEX
+                .matchEntire(output)
+                ?.groupValues
+                ?.get(1)
+                ?.toLongOrNull()
+                ?: throw IOException("Unable to determine reference script size: $output")
+        }
+
         fun upgradeShelleyRegcertToConway(
             regCertFile: File,
             protocolParameters: ProtocolParameters
@@ -232,7 +264,7 @@ class WalletUtils
             spendingPassword: String
         ): String =
             if (skey.content.isHex) {
-                decryptSKeyContent(skey.content, spendingPassword)
+                decryptSKeyContent(skey, spendingPassword)
             } else {
                 val cipherText = encryptSKeyContent(skey.content, spendingPassword)
                 fileRepository.save(skey.copy(content = cipherText))
@@ -246,17 +278,20 @@ class WalletUtils
             spendingPassword: String
         ): String? =
             try {
-                val textEncryptor = Encryptors.delux(spendingPassword, S)
-                textEncryptor.decrypt(ciphertext)
+                currentTextEncryptor(spendingPassword).decrypt(ciphertext)
             } catch (e: Exception) {
-                null
+                try {
+                    legacyCompatibleTextEncryptor(spendingPassword).decrypt(ciphertext)
+                } catch (e: Exception) {
+                    null
+                }
             }
 
         fun encryptSKeyContentForRepair(
             cleartext: String,
             spendingPassword: String
         ): String {
-            val textEncryptor = Encryptors.delux(spendingPassword, S)
+            val textEncryptor = currentTextEncryptor(spendingPassword)
             return textEncryptor.encrypt(cleartext)
         }
 
@@ -267,24 +302,49 @@ class WalletUtils
             if (!isValidSpendingPassword(spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
-            val textEncryptor = Encryptors.delux(spendingPassword, S)
+            val textEncryptor = currentTextEncryptor(spendingPassword)
             return textEncryptor.encrypt(cleartext)
         }
 
         private fun decryptSKeyContent(
-            ciphertext: String,
+            skey: File,
             spendingPassword: String
         ): String {
             if (!isValidSpendingPassword(spendingPassword)) {
                 throw IllegalArgumentException("Invalid spending password!")
             }
-            val textEncryptor = Encryptors.delux(spendingPassword, S)
-            return textEncryptor.decrypt(ciphertext)
+
+            val textEncryptor = currentTextEncryptor(spendingPassword)
+            return try {
+                textEncryptor.decrypt(skey.content)
+            } catch (e: Exception) {
+                val cleartext = legacyCompatibleTextEncryptor(spendingPassword).decrypt(skey.content)
+                fileRepository.save(skey.copy(content = textEncryptor.encrypt(cleartext)))
+                cleartext
+            }
         }
+
+        private fun currentTextEncryptor(password: String): TextEncryptor =
+            textEncryptor(AesGcmBytesEncryptor.withPassword(password, S).build())
+
+        private fun legacyCompatibleTextEncryptor(password: String): TextEncryptor {
+            // Matches Encryptors.delux so existing keys can be decrypted and re-encrypted.
+            val keySpec = PBEKeySpec(password.toCharArray(), Hex.decode(S), 1024, 256)
+            val secretKey = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(keySpec)
+            return textEncryptor(AesGcmBytesEncryptor.withSecretKey(secretKey).build())
+        }
+
+        private fun textEncryptor(encryptor: AesGcmBytesEncryptor): TextEncryptor =
+            object : TextEncryptor {
+                override fun encrypt(text: String): String = String(Hex.encode(encryptor.encrypt(Utf8.encode(text))))
+
+                override fun decrypt(encryptedText: String): String = Utf8.decode(encryptor.decrypt(Hex.decode(encryptedText)))
+            }
 
         companion object {
             const val S = "4b38652a506b513742655764375270794e3273473961596266670a"
             private val HEX_REGEX = Regex("^[0-9a-fA-F]+$")
+            private val REFERENCE_SCRIPT_SIZE_REGEX = Regex("Reference inputs scripts size is ([0-9]+) bytes\\.")
             val String.isHex: Boolean
                 get() = this.matches(HEX_REGEX)
         }
