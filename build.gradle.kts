@@ -7,7 +7,7 @@ plugins {
     java
     id("org.springframework.boot") version Versions.SPRING_BOOT
     id("io.spring.dependency-management") version Versions.SPRING_DEPENDENCY
-    id("com.github.ben-manes.versions") version Versions.VERSIONS
+    id("io.github.ben-manes.versions") version Versions.VERSIONS
     id("com.google.devtools.ksp") version Versions.KSP
     id("org.jlleitschuh.gradle.ktlint") version Versions.KTLINT_PLUGIN
     kotlin("jvm") version Versions.KOTLIN
@@ -16,7 +16,7 @@ plugins {
 }
 
 group = "com.swiftmako"
-version = "11.1.2"
+version = "11.2.0"
 java.sourceCompatibility = JavaVersion.VERSION_21
 java.targetCompatibility = JavaVersion.VERSION_21
 
