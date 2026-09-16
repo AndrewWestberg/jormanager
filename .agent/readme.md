@@ -58,6 +58,7 @@ This folder uses one subdirectory per plan.
 Reference index:
 - [Plans index](./plans/readme.md)
 - [Governance Voting](./plans/governance-voting/governance-voting-prd.md)
+- [Advanced Governance Suite](./plans/advanced-governance-suite/advanced-governance-suite-prd.md)
 
 ---
 

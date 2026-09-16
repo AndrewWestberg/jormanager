@@ -47,6 +47,12 @@
       dark
       responsive
     >
+      <template #head(selected)>
+        <BFormCheckbox v-model="selectAllNodes" />
+      </template>
+      <template #cell(selected)="{ item }">
+        <BFormCheckbox v-model="selectedNodes[(item as any).id]" />
+      </template>
       <template #cell(name)="{ item }">
         <font-awesome-icon
           :style="{ color: (item as any).color }"
@@ -93,6 +99,7 @@ import {
   BFormSelectOption,
   BFormInvalidFeedback,
   BFormText,
+  BFormCheckbox,
   BTable,
   BButton
 } from 'bootstrap-vue-next'
@@ -120,6 +127,7 @@ const emitter = useEventBus()
 // Form state
 const govActionId = ref('')
 const nodeVotes = ref<Record<number, 'YES' | 'NO' | 'ABSTAIN'>>({})
+const selectedNodes = ref<Record<number, boolean>>({})
 const feesAccountId = ref<number | null>(null)
 
 // Vote options
@@ -131,6 +139,7 @@ const voteOptions = [
 
 // Table fields
 const nodeFields = [
+  { key: 'selected', label: '', thClass: 'text-center', tdClass: 'text-center' },
   { key: 'name', label: 'Node', sortable: true },
   { key: 'poolId', label: 'Pool ID' },
   { key: 'vote', label: 'Vote', thClass: 'text-center', tdClass: 'text-center' }
@@ -171,9 +180,21 @@ const govActionIdState = computed(() => {
   return isValidGovActionId.value
 })
 
-// Check if all nodes have votes
+// Select all logic
+const selectAllNodes = computed({
+  get: () => coreNodes.value.length > 0 && coreNodes.value.every((node) => selectedNodes.value[node.id!]),
+  set: (value) => {
+    coreNodes.value.forEach((node) => {
+      selectedNodes.value[node.id!] = value
+    })
+  }
+})
+
+// Check if all selected nodes have votes
 const allNodesHaveVotes = computed(() => {
-  return coreNodes.value.every((node) => nodeVotes.value[node.id!] !== undefined)
+  const selected = coreNodes.value.filter((node) => selectedNodes.value[node.id!])
+  if (selected.length === 0) return false
+  return selected.every((node) => nodeVotes.value[node.id!] !== undefined)
 })
 
 // Form validation
@@ -193,6 +214,9 @@ function initializeDefaultVotes() {
     if (nodeVotes.value[node.id!] === undefined) {
       nodeVotes.value[node.id!] = 'ABSTAIN'
     }
+    if (selectedNodes.value[node.id!] === undefined) {
+      selectedNodes.value[node.id!] = false
+    }
   })
 }
 
@@ -200,6 +224,7 @@ function initializeDefaultVotes() {
 function resetForm() {
   govActionId.value = ''
   nodeVotes.value = {}
+  selectedNodes.value = {}
   feesAccountId.value = null
   initializeDefaultVotes()
 }
@@ -213,10 +238,12 @@ function handleCancel() {
 function handleSubmitVote() {
   if (!isFormValid.value) return
 
-  const votes: NodeVote[] = Object.entries(nodeVotes.value).map(([nodeId, vote]) => ({
-    nodeId: parseInt(nodeId, 10),
-    vote
-  }))
+  const votes: NodeVote[] = Object.entries(nodeVotes.value)
+    .filter(([nodeId, _]) => selectedNodes.value[parseInt(nodeId, 10)])
+    .map(([nodeId, vote]) => ({
+      nodeId: parseInt(nodeId, 10),
+      vote
+    }))
 
   emitter.emit('show-spending-password-modal', {
     action: 'governance-vote',
