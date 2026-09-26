@@ -10,7 +10,8 @@ data class GovernanceVoteRequest(
     val govActionId: String,
     val votes: List<NodeVoteSelection>,
     val feesAccountId: Long,
-    val spendingPassword: String
+    val spendingPassword: String,
+    val rationale: String? = null
 ) {
     override fun toString(): String = "GovernanceVoteRequest(govActionId=$govActionId, votes=$votes, feesAccountId=$feesAccountId, spendingPassword='********')"
 }

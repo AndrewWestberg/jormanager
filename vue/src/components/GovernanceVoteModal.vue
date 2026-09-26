@@ -33,6 +33,14 @@
       </BFormText>
     </BFormGroup>
 
+    <BFormGroup label="Rationale (optional)" label-for="governance-vote-rationale" label-cols-md="4">
+      <BFormTextarea id="governance-vote-rationale" v-model="rationale" />
+      <BFormText class="text-muted">
+        Published publicly and attached to every pool vote below, even if their choices differ.
+        Publication may remain if the transaction fails.
+      </BFormText>
+    </BFormGroup>
+
     <hr />
 
     <h6>Vote Selection</h6>
@@ -89,6 +97,7 @@ import {
   BModal,
   BFormGroup,
   BFormInput,
+  BFormTextarea,
   BFormSelect,
   BFormSelectOption,
   BFormInvalidFeedback,
@@ -119,6 +128,7 @@ const emitter = useEventBus()
 
 // Form state
 const govActionId = ref('')
+const rationale = ref('')
 const nodeVotes = ref<Record<number, 'YES' | 'NO' | 'ABSTAIN'>>({})
 const feesAccountId = ref<number | null>(null)
 
@@ -199,6 +209,7 @@ function initializeDefaultVotes() {
 // Reset form
 function resetForm() {
   govActionId.value = ''
+  rationale.value = ''
   nodeVotes.value = {}
   feesAccountId.value = null
   initializeDefaultVotes()
@@ -223,7 +234,8 @@ function handleSubmitVote() {
     data: {
       govActionId: govActionId.value.trim(),
       votes,
-      feesAccountId: feesAccountId.value
+      feesAccountId: feesAccountId.value,
+      ...(rationale.value.trim() ? { rationale: rationale.value } : {})
     }
   })
 }

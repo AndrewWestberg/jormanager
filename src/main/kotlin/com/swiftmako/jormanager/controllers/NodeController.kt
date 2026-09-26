@@ -13,6 +13,7 @@ import com.swiftmako.jormanager.entities.Relay
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.ktx.hexToByteArray
+import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.CreateNodeRequest
 import com.swiftmako.jormanager.model.EditPoolConfigRequest
@@ -49,6 +50,7 @@ import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.CardanoUtils
 import com.swiftmako.jormanager.utils.TransactionCache
+import com.swiftmako.jormanager.utils.Blake2b
 import java.io.File
 import java.io.IOException
 import java.math.BigInteger
@@ -110,6 +112,15 @@ class NodeController
                 enable(SerializationFeature.INDENT_OUTPUT)
             }
         }
+        private val rationaleHttpClient by lazy {
+            okHttpClient
+                .newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
+        }
+        private val rationaleUrlPattern =
+            Regex("""https://cardanostakehouse\.com/(?:[A-Za-z0-9._~/-]|%[0-9A-Fa-f]{2})+""")
 
         @MessageMapping("/nodes")
         @SendTo("/topic/messages")
@@ -3204,6 +3215,81 @@ class NodeController
                 throw IOException("Could not upload json file!")
             }
 
+        internal fun uploadGovernanceRationale(rationale: String?): Pair<String, String>? {
+            if (rationale.isNullOrBlank()) {
+                return null
+            }
+
+            val context =
+                objectMapper.createObjectNode().apply {
+                    put(
+                        "hashAlgorithm",
+                        "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#hashAlgorithm",
+                    )
+                    set<ObjectNode>(
+                        "authors",
+                        objectMapper.createObjectNode().apply {
+                            put("@id", "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#authors")
+                            put("@container", "@set")
+                        },
+                    )
+                    set<ObjectNode>(
+                        "body",
+                        objectMapper.createObjectNode().apply {
+                            put("@id", "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#body")
+                            set<ObjectNode>(
+                                "@context",
+                                objectMapper.createObjectNode().apply {
+                                    put(
+                                        "comment",
+                                        "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#comment",
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+            val document =
+                objectMapper.createObjectNode().apply {
+                    set<ObjectNode>("@context", context)
+                    put("hashAlgorithm", "blake2b-256")
+                    putArray("authors")
+                    set<ObjectNode>(
+                        "body",
+                        objectMapper.createObjectNode().apply {
+                            put("comment", rationale)
+                        },
+                    )
+                }
+            val json = objectMapper.writeValueAsString(document) + "\n"
+            val expectedBytes = json.toByteArray(Charsets.UTF_8)
+            val url = uploadMetadata(json)
+
+            if (url.toByteArray(Charsets.UTF_8).size > 128 || !rationaleUrlPattern.matches(url)) {
+                throw IOException("Invalid rationale anchor URL returned by metadata storage!")
+            }
+
+            val request =
+                Request
+                    .Builder()
+                    .url(url)
+                    .cacheControl(CacheControl.FORCE_NETWORK)
+                    .build()
+            val actualBytes =
+                rationaleHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("Could not retrieve uploaded rationale!")
+                    }
+                    val body = response.body
+                    body.byteStream().use { it.readNBytes(expectedBytes.size + 1) }
+                }
+            if (!actualBytes.contentEquals(expectedBytes)) {
+                throw IOException("Uploaded rationale does not match the submitted document!")
+            }
+
+            return url to Blake2b.hash256(expectedBytes).toHexString()
+        }
+
         private fun createManualStartupScripts(
             request: CreateNodeRequest,
             startupNodeType: String,
@@ -3807,6 +3893,9 @@ class NodeController
                 if (!request.govActionId.startsWith("gov_action1")) {
                     throw IllegalArgumentException("Invalid governance action ID format. Must be bech32 format starting with 'gov_action1'")
                 }
+                val govActionBytes = Bech32.decode(request.govActionId).bytes
+                val govActionIndex = (govActionBytes.last().toInt() and 0xFF).toString()
+                val govActionTxId = govActionBytes.sliceArray(0 until govActionBytes.size - 1).toHexString()
 
                 val defaultNode = nodeRepository.findDefault() ?: throw IOException("Default node not found!")
                 val defaultHost =
@@ -3866,6 +3955,7 @@ class NodeController
                     }
                     val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                     log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
+                    val rationaleAnchor = uploadGovernanceRationale(request.rationale)
 
                     witnessCount++ // fee payer is a witness
                     defaultHostConnection.commandWriteFile(
@@ -3924,24 +4014,15 @@ class NodeController
                             else -> throw IOException("Invalid vote choice: ${nodeVote.vote}")
                         }
 
-                        // Generate the vote file using bech32 governance action ID
-                        val decodedGovAction = Bech32.decode(request.govActionId)
-                        val govActionBytes = decodedGovAction.bytes
-
-                        // The final byte is the index
-                        val indexByte = govActionBytes.last()
-                        val govActionIndex = (indexByte.toInt() and 0xFF).toString()
-
-                        // The entire beginning is the transaction id bytes
-                        val govActionTxIdBytes = govActionBytes.sliceArray(0 until govActionBytes.size - 1)
-                        val govActionTxId = govActionTxIdBytes.joinToString("") { "%02x".format(it) }
-
                         val voteCreateCommand = StringBuilder()
                         voteCreateCommand.append("${defaultHost.cardanoCliPath} conway governance vote create ")
                         voteCreateCommand.append("$voteFlag ")
                         voteCreateCommand.append("--governance-action-tx-id $govActionTxId ")
                         voteCreateCommand.append("--governance-action-index $govActionIndex ")
                         voteCreateCommand.append("--cold-verification-key-file $vkeyPath ")
+                        rationaleAnchor?.let { (url, hash) ->
+                            voteCreateCommand.append("--anchor-url '$url' --anchor-data-hash $hash ")
+                        }
                         voteCreateCommand.append("--out-file $votePath")
 
                         log.debug("Creating vote file for node ${node.name}: $voteCreateCommand")
