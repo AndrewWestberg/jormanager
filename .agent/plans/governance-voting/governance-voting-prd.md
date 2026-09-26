@@ -41,7 +41,7 @@ This feature enables stake pool operators to vote on Cardano governance actions 
 | Component | Purpose |
 |-----------|---------|
 | `Nodes.vue` | Add the `Vote` button and modal visibility |
-| `GovernanceVoteModal.vue` | Capture action ID, votes, and fee source |
+| `GovernanceVoteModal.vue` | Capture action ID, optional shared rationale, votes, and fee source |
 | `jormanager.ts` store | Add `submitGovernanceVote` action and message handler |
 
 ### Backend Components
@@ -54,13 +54,14 @@ This feature enables stake pool operators to vote on Cardano governance actions 
 ### Transaction Flow
 
 ```
-1. User enters gov_action1... ID
+1. User enters a `gov_action1...` ID and an optional shared rationale
 2. User selects Yes, No, or Abstain for each core node
-3. Frontend sends GovernanceVoteRequest via WebSocket
-4. Backend generates vote file for each node using cardano-cli
-5. Backend builds one transaction with all --vote-file params
-6. Backend signs with all cold keys plus the payment key
-7. Backend submits the transaction and returns the TxID
+3. Frontend sends `GovernanceVoteRequest` via WebSocket after password confirmation
+4. For a nonblank rationale, the backend publishes one CIP-100 JSON document and verifies the hosted bytes
+5. Backend generates one vote file per node, reusing the verified anchor for every vote
+6. Backend builds one transaction with all `--vote-file` params
+7. Backend signs with all cold keys plus the payment key
+8. Backend submits the transaction and returns the TxID
 ```
 
 ### Cardano CLI Commands Used
@@ -72,6 +73,7 @@ cardano-cli conway governance vote create \
   --governance-action-tx-id ${txId} \
   --governance-action-index ${idx} \
   --cold-verification-key-file /tmp/node.vkey \
+  [--anchor-url ${url} --anchor-data-hash ${blake2b256}] \
   --out-file /tmp/node.vote
 ```
 
@@ -126,8 +128,8 @@ cardano-cli conway transaction build-raw \
     { "nodeId": 3, "vote": "ABSTAIN" }
   ],
   "feesAccountId": 5,
-  "spendingPassword": "********"
-}
+  "spendingPassword": "********",
+  "rationale": "Optional shared public rationale"
 ```
 
 **Success Response:**
@@ -154,6 +156,9 @@ cardano-cli conway transaction build-raw \
 - Default vote selection is `Abstain`.
 - Only bech32 format `gov_action1...` is supported for governance action IDs.
 - Cold signing keys are accessed using the spending password already managed by JorManager.
+- A nonblank rationale is public, is shared by all pool votes in the transaction, and may remain hosted if transaction submission fails.
+- Blank or omitted rationale values create unanchored votes and perform no upload.
+- Rationale publication fails closed if the returned URL is unsafe/overlong or the retrieved bytes differ from the uploaded document.
 
 ---
 

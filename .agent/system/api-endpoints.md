@@ -73,17 +73,17 @@ Restart a node via SSH.
 ### POST `/api/nodes/{id}/rotate-kes`
 Rotate KES keys for a node.
 
-### POST `/api/nodes/governancevote`
-Submit a governance vote for core nodes.
+### STOMP `/jormanager/governancevote`
+Submit one transaction containing votes from core nodes. `rationale` is optional; a nonblank value is published as one CIP-100 document and attached to every vote.
 
-**Request Body:**
+**Message payload:**
 ```json
 {
   "govActionId": "gov_action1...",
   "votes": [{"nodeId": 1, "vote": "YES"}],
   "feesAccountId": 123,
-  "spendingPassword": "***"
-}
+  "spendingPassword": "***",
+  "rationale": "Optional shared public rationale"
 ```
 
 ### GET `/api/nodes/{id}/status`
