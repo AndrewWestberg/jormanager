@@ -2,6 +2,7 @@ package com.swiftmako.jormanager.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import java.math.BigDecimal
 import java.math.BigInteger
 
 @JsonClass(generateAdapter = true)
@@ -17,7 +18,7 @@ data class ProtocolParameters(
     @param:Json(name = "utxoCostPerByte")
     val utxoCostPerByte: Long? = null,
     @param:Json(name = "decentralization")
-    val decentralisationParam: Double?,
+    val decentralisationParam: BigDecimal?,
     @param:Json(name = "maxTxSize")
     val maxTxSize: Long,
     @param:Json(name = "minPoolCost")

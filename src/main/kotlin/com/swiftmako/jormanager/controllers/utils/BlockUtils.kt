@@ -1,14 +1,13 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.muquit.libsodiumjna.SodiumLibrary
-import com.swiftmako.jormanager.ktx.hexToByteArray
-import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.MsgRollForwardAdapter.LEADER_VRF_HEADER
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.Blake2b
+import com.swiftmako.jormanager.utils.CardanoLeaderElection
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.slf4j.Logger
@@ -26,8 +25,6 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.experimental.xor
 import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.ln
 
 @Component
 @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
@@ -135,7 +132,7 @@ class BlockUtils
             currentSlot: Long,
             d: BigDecimal
         ): Boolean {
-            if (d.toDouble() == 0.0) {
+            if (d.signum() == 0) {
                 return false
             }
             val diffSlot = abs(currentSlot - firstSlotOfEpoch)
@@ -147,74 +144,28 @@ class BlockUtils
                     .setScale(0, RoundingMode.CEILING)
         }
 
-        /**
-         * Determine if our pool is a slot leader for this given slot
-         * @param slot The slot to check
-         * @param f The activeSlotsCoeff value from protocol params
-         * @param sigma The controlled stake proportion for the pool
-         * @param eta0 The epoch nonce value
-         * @param poolVrfSkey The vrf signing key for the pool
-         */
+        /** TPraos uses the unmodified 64-byte VRF output. */
         fun isSlotLeaderTPraos(
             slot: Long,
-            f: Double,
-            sigma: BigDecimal,
+            threshold: CardanoLeaderElection.LeaderThreshold,
             eta0: ByteArray,
             poolVrfSkey: ByteArray
         ): Boolean {
-            // alonzo and earlier
+            require(threshold.vrfSizeBytes == 64) { "TPraos requires a 64-byte threshold" }
             val seed = mkSeed(slot, eta0)
-            // add 00 to make sure we don't get a negative number by accident
-            val certVrfHex = "00${vrfEvalCertified(seed, poolVrfSkey).toHexString()}"
-            return isLeaderVrfAllowedToLead(slot, certVrfHex, 64, f, sigma)
+            return threshold.isLeader(BigInteger(1, vrfEvalCertified(seed, poolVrfSkey)))
         }
 
-        /**
-         * Determine if our pool is a slot leader for this given slot
-         * @param slot The slot to check
-         * @param f The activeSlotsCoeff value from protocol params
-         * @param sigma The controlled stake proportion for the pool
-         * @param eta0 The epoch nonce value
-         * @param poolVrfSkey The vrf signing key for the pool
-         */
+        /** Praos range-extends the VRF output with Blake2b-256("L" <> rawVRF). */
         fun isSlotLeaderPraos(
             slot: Long,
-            f: Double,
-            sigma: BigDecimal,
+            threshold: CardanoLeaderElection.LeaderThreshold,
             eta0: ByteArray,
             poolVrfSkey: ByteArray
         ): Boolean {
-            // babbage and later
+            require(threshold.vrfSizeBytes == 32) { "Praos requires a 32-byte threshold" }
             val seed = mkInputVRF(slot, eta0)
-            val certVrf = vrfEvalCertified(seed, poolVrfSkey)
-            // add 00 to make sure we don't get a negative number by accident
-            val certLeaderVrf = "00${vrfLeaderValue(certVrf).toHexString()}"
-            return isLeaderVrfAllowedToLead(slot, certLeaderVrf, 32, f, sigma)
-        }
-
-        fun isLeaderVrfAllowedToLead(
-            slot: Long,
-            certVrfHex: String,
-            vrfSizeBytes: Int,
-            f: Double,
-            sigma: BigDecimal
-        ): Boolean {
-            val certNat = BigInteger(certVrfHex.hexToByteArray())
-
-            val certNatMax = BigInteger("2").pow(8 * vrfSizeBytes) // 8 * vrfoutput bytes
-            val denominator = certNatMax.minus(certNat)
-
-            val q = certNatMax.toBigDecimal().divide(denominator.toBigDecimal(), 34, RoundingMode.CEILING)
-
-            val c = ln(1.0 - f)
-            val sigmaOfF = exp(-sigma.toDouble() * c)
-
-            // return true if q <= sigmaOfF
-            return (q.compareTo(sigmaOfF.toBigDecimal()) != 1).also { isLeader ->
-                if (isLeader) {
-                    log.warn("isLeader($slot): $q <= $sigmaOfF Difference Of: ${sigmaOfF.toBigDecimal() - q}")
-                }
-            }
+            return threshold.isLeader(BigInteger(1, vrfLeaderValue(vrfEvalCertified(seed, poolVrfSkey))))
         }
 
         /**

@@ -5,10 +5,13 @@ import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
+import com.swiftmako.jormanager.model.StakeFraction
+import com.swiftmako.jormanager.utils.CardanoLeaderElection
 import io.mockk.mockk
 import org.bouncycastle.crypto.digests.Blake2bDigest
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
+import java.math.BigInteger
 
 class PoolIdTest {
     @Test
@@ -88,10 +91,11 @@ class PoolIdTest {
         // Values calculated or pre-existing on the pooltool side
         // epoch nonce
         val eta0 = "9a3238d1ab981cfd6958f43de0b4df1220328e2bccd982d88ec169fe31832a7e".hexToByteArray()
-        // sigma value for the pool_id who created this block
-        val sigma = BigDecimal(0.0083826308985987)
-        // The active slots coefficient (f)
-        val f = 0.05
+        val threshold = CardanoLeaderElection.prepare(
+            CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal("0.05")),
+            StakeFraction(BigInteger("83826308985987"), BigInteger("10000000000000000")),
+            64,
+        )
 
         // Quick verification that the block's leaderVrf is not malformed so we can fail-fast for people trying to
         // game the system.
@@ -107,7 +111,7 @@ class PoolIdTest {
         assertThat(leaderVrfVerify).isEqualTo(leaderVrf)
 
         // This PROVES that the block won the lottery and is allowed to mint in this slot
-        val isLeader = blockUtils.isLeaderVrfAllowedToLead(slot, leaderVrf, 32, f, sigma)
+        val isLeader = threshold.isLeader(BigInteger(1, leaderVrf.hexToByteArray()))
         assertThat(isLeader).isTrue()
     }
 }

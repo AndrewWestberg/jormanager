@@ -3,20 +3,15 @@ package com.swiftmako.jormanager.moshi.adapters
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.internal.Util
 import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.LeaderLogLedger
+import com.swiftmako.jormanager.model.StakeFraction
 import java.math.BigDecimal
 import java.math.BigInteger
-import java.math.RoundingMode
 
 class LeaderLogLedgerJsonAdapter(
-    moshi: Moshi,
     private val poolIds: Set<String>
 ) : JsonAdapter<LeaderLogLedger>() {
-    private val doubleAdapter: JsonAdapter<Double> = moshi.adapter(Double::class.java, emptySet(), "decentralisationParam")
-
     private val options: List<JsonReader.Options> =
         listOf(
             JsonReader.Options.of("stateBefore", "nesEs", "esPp", "esSnapshots", "esLState"),
@@ -31,13 +26,13 @@ class LeaderLogLedgerJsonAdapter(
         )
 
     override fun fromJson(reader: JsonReader): LeaderLogLedger? {
-        var decentralizationParameter = -1.0
-        var futureDecentralizationParameter = -1.0
+        var decentralizationParameter = BigDecimal("-1")
+        var futureDecentralizationParameter = BigDecimal("-1")
         var isFutureEntropySet = false
         var extraPraosEntropy: String? = null
         var futureExtraPraosEntropy: String? = null
-        val poolIdToSigma = mutableMapOf<String, BigDecimal>()
-        val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
+        val poolIdToSigma = mutableMapOf<String, StakeFraction>()
+        val futurePoolIdToSigma = mutableMapOf<String, StakeFraction>()
         var dProposalVotes = 0
         var isLedgerV2 = false
         var isLedgerV3 = false
@@ -64,8 +59,7 @@ class LeaderLogLedgerJsonAdapter(
                         when (reader.selectName(options[1])) {
                             0 -> {
                                 // decentralisationParam
-                                decentralizationParameter = doubleAdapter.fromJson(reader)
-                                    ?: throw Util.unexpectedNull("decentralisationParam", "decentralisationParam", reader)
+                                decentralizationParameter = BigDecimal(reader.nextString())
                             }
                             1 -> {
                                 // extraEntropy
@@ -151,7 +145,7 @@ class LeaderLogLedgerJsonAdapter(
                                                                                 } else {
                                                                                     dProposalVotes++
                                                                                     if (dProposalVotes == 1) { // changed from 5 -> 1 because only 1 for guild network
-                                                                                        futureDecentralizationParameter = reader.nextDouble()
+                                                                                        futureDecentralizationParameter = BigDecimal(reader.nextString())
                                                                                     } else {
                                                                                         reader.skipValue()
                                                                                     }
@@ -207,7 +201,7 @@ class LeaderLogLedgerJsonAdapter(
                                                                             } else {
                                                                                 dProposalVotes++
                                                                                 if (dProposalVotes == 5) {
-                                                                                    futureDecentralizationParameter = reader.nextDouble()
+                                                                                    futureDecentralizationParameter = BigDecimal(reader.nextString())
                                                                                 } else {
                                                                                     reader.skipValue()
                                                                                 }
@@ -287,7 +281,7 @@ class LeaderLogLedgerJsonAdapter(
         }
 
         // There is no proposal to update d that we found.
-        if (futureDecentralizationParameter < 0.0) {
+        if (futureDecentralizationParameter < BigDecimal.ZERO) {
             futureDecentralizationParameter = decentralizationParameter
         }
 
@@ -307,7 +301,7 @@ class LeaderLogLedgerJsonAdapter(
 
     private fun calculateSigmaValues(
         reader: JsonReader,
-        poolIdToSigma: MutableMap<String, BigDecimal>
+        poolIdToSigma: MutableMap<String, StakeFraction>
     ) {
         val stakeKeyToValue = mutableMapOf<String, BigInteger>()
         val stakeKeyToPoolId = mutableMapOf<String, String>()
@@ -364,7 +358,7 @@ class LeaderLogLedgerJsonAdapter(
                     .sumByBigInteger { stakeKey ->
                         stakeKeyToValue[stakeKey] ?: BigInteger.ZERO
                     }
-            poolIdToSigma[poolId] = BigDecimal(delegatedStake).divide(BigDecimal(totalDelegatedStake), 34, RoundingMode.HALF_UP)
+            poolIdToSigma[poolId] = StakeFraction(delegatedStake, totalDelegatedStake)
         }
     }
 

@@ -52,29 +52,7 @@
       "variant": "medium"
     }
   },
-  "mcp": {
-    "code-index": {
-      "type": "local",
-      "enabled": true,
-      "command": [
-        "uvx",
-        "code-index-mcp",
-        "--project-path",
-        "/home/westbam/Development/jormanager",
-        "--indexer-path",
-        "/home/westbam/.cache/code-index-mcp/jormanager"
-      ]
-    },
-    "pencil": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@open-pencil/mcp"
-      ],
-      "enabled": false
-    }
-  },
+  "mcp": {},
   "permission": {
     "external_directory": {
       "/home/westbam/bcsh/jormanager/**": "allow"
