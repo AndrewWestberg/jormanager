@@ -13,13 +13,10 @@ import okio.source
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.math.BigDecimal
-import java.math.BigInteger
 import java.math.RoundingMode
 import java.nio.ByteBuffer
 import kotlin.experimental.xor
 import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.ln
 import kotlin.system.measureTimeMillis
 import org.junit.jupiter.api.Disabled
 
@@ -91,9 +88,8 @@ class NodeConnectTest {
     fun testNewLedgerState() {
         val duration =
             measureTimeMillis {
-                val moshi = Moshi.Builder().build()
                 val leaderLogLedgerAdapter =
-                    LeaderLogLedgerJsonAdapter(moshi, setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
+                    LeaderLogLedgerJsonAdapter(setOf("3299895e62b13de5a5a52f4bb5726db5fb38928c8d2c21ff8d78517d"))
                 File("/tmp/ledger-state-89-testnet.json").source().buffer().use { source ->
                     val leaderLogLedger = leaderLogLedgerAdapter.fromJson(source)
                     println(leaderLogLedger)
@@ -204,37 +200,6 @@ class NodeConnectTest {
         println("certVRF ${certVRF.size} bytes")
         println(certVRF.toHexString())
         assertThat(certVRF.toHexString()).isEqualTo("ba4d3bd56de3a92a0c8d14189b54267c1c935a7103057c9e50de6ba0276199d2910186635730ac5a6ebbd750d45a389357431a8e611c0ad6bd9357d607eaa609")
-    }
-
-    @Test
-    fun testCheckLeaderValue() {
-        val libraryPath = "/usr/local/lib/libsodium.so"
-        println("Library path: $libraryPath")
-        println("loading libsodium...")
-        SodiumLibrary.setLibraryPath(libraryPath)
-
-        val certNatByteArray =
-            ("00" + "ba4d3bd56de3a92a0c8d14189b54267c1c935a7103057c9e50de6ba0276199d2910186635730ac5a6ebbd750d45a389357431a8e611c0ad6bd9357d607eaa609").hexToByteArray()
-
-        val certNat = BigInteger(certNatByteArray)
-        println("certNat = $certNat")
-        assertThat(certNat.toString()).isEqualTo("9757411458561989995712603894203605624393955171919373107709061692269876269697540286127341295721533061569164287549389169055757422105258041789720804142523913")
-
-        val certNatMax = BigInteger("2").pow(8 * 64) // 8 * vrfoutput bytes
-        println("certNatMax = $certNatMax")
-        assertThat(certNatMax.toString()).isEqualTo("13407807929942597099574024998205846127479365820592393377723561443721764030073546976801874298166903427690031858186486050853753882811946569946433649006084096")
-
-        val denominator = certNatMax.minus(certNat)
-        println("denominator = $denominator")
-
-        val q = certNatMax.toBigDecimal().divide(denominator.toBigDecimal(), 34, RoundingMode.CEILING)
-        println("q = ${q.toPlainString()}")
-
-        val f = 0.05 // active slot coefficient
-        val c = ln(1.0 - f)
-        val sigma = 0.0240358801098558038935507965109825
-        val sigmaOfF = exp(-sigma * c)
-        println("sigmaOfF = $sigmaOfF")
     }
 
     @Test

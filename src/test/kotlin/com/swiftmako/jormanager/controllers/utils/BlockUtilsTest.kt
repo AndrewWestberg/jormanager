@@ -4,6 +4,8 @@ import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.utils.CardanoLeaderElection
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 import java.util.concurrent.atomic.AtomicReference
@@ -24,7 +26,7 @@ class BlockUtilsTest {
 
     private val shelley =
         GenesisShelley(
-            activeSlotsCoeff = 0.05,
+            activeSlotsCoeff = BigDecimal("0.05"),
             networkId = "Mainnet",
             networkMagic = 764824073L,
             slotLength = 1L,
@@ -68,7 +70,7 @@ class BlockUtilsTest {
 
     private val shelleyTest =
         GenesisShelley(
-            activeSlotsCoeff = 0.05,
+            activeSlotsCoeff = BigDecimal("0.05"),
             networkId = "Testnet",
             networkMagic = 1097911063L,
             slotLength = 1L,
@@ -131,7 +133,7 @@ class BlockUtilsTest {
 
     private val shelleyGuild =
         GenesisShelley(
-            activeSlotsCoeff = 0.05,
+            activeSlotsCoeff = BigDecimal("0.05"),
             networkId = "Testnet",
             networkMagic = 141L,
             slotLength = 1L,
@@ -190,6 +192,31 @@ class BlockUtilsTest {
         val testSlot2 = 17043333L
         val result2 = target.isOverlaySlot(firstSlotOfEpoch2, testSlot2, BigDecimal("0.32"))
         assertThat(result2).isFalse()
+    }
+
+    @Test
+    fun `overlay retains small exact decimals at rational ceiling boundaries`() {
+        val first = 10_000_000L
+        val d = BigDecimal("0.0004")
+        assertThat(target.isOverlaySlot(first, first, d)).isTrue()
+        assertThat(target.isOverlaySlot(first, first + 2499, d)).isFalse()
+        assertThat(target.isOverlaySlot(first, first + 2500, d)).isTrue()
+        assertThat(target.isOverlaySlot(first, first, BigDecimal.ZERO)).isFalse()
+        assertThat(target.isOverlaySlot(first, first, BigDecimal("1e-400"))).isTrue()
+    }
+
+    @Test
+    fun `VRF wrappers reject the other era threshold width`() {
+        val activeSlots = CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal("0.05"))
+        val stake = StakeFraction(1.toBigInteger(), 3.toBigInteger())
+        val praos = CardanoLeaderElection.prepare(activeSlots, stake, 32)
+        val tpraos = CardanoLeaderElection.prepare(activeSlots, stake, 64)
+        assertThrows<IllegalArgumentException> {
+            target.isSlotLeaderTPraos(0, praos, ByteArray(32), byteArrayOf())
+        }
+        assertThrows<IllegalArgumentException> {
+            target.isSlotLeaderPraos(0, tpraos, ByteArray(32), byteArrayOf())
+        }
     }
 
     @Test

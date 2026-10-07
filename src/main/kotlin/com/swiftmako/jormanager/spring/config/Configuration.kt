@@ -20,12 +20,14 @@ import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.ledger.Ledger
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
 import com.swiftmako.jormanager.model.tx.TxSigned
+import com.swiftmako.jormanager.moshi.adapters.BigDecimalAdapter
 import com.swiftmako.jormanager.moshi.adapters.BigIntegerAdapter
 import com.swiftmako.jormanager.moshi.adapters.JodaDateTimeAdapter
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.services.PooltoolService
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import java.math.BigDecimal
 import java.util.concurrent.atomic.AtomicReference
 import javax.sql.DataSource
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -89,12 +91,17 @@ class Configuration {
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
-    fun getMoshi(): Moshi =
-        Moshi
+    fun getMoshi(): Moshi {
+        // Reader-based annotated adapters handle null themselves unless explicitly wrapped.
+        val decimalAdapter = Moshi.Builder().add(BigDecimalAdapter).build()
+            .adapter(BigDecimal::class.java).nullSafe()
+        return Moshi
             .Builder()
             .add(BigIntegerAdapter)
+            .add(BigDecimal::class.java, decimalAdapter)
             .add(JodaDateTimeAdapter())
             .build()
+    }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)

@@ -21,6 +21,8 @@ import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.QueryTip.Companion.ERA_BABBAGE
 import com.swiftmako.jormanager.model.QueryTip.Companion.ERA_CONWAY
 import com.swiftmako.jormanager.model.StakeSnapshot
+import com.swiftmako.jormanager.model.StakeFraction
+import com.swiftmako.jormanager.utils.CardanoLeaderElection
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.repositories.BlockRepository
 import com.swiftmako.jormanager.repositories.CardanoRepository
@@ -32,7 +34,6 @@ import java.io.IOException
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.coroutines.CoroutineContext
-import kotlin.math.ceil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -257,11 +258,11 @@ class BlockController
                                         tip?.slot
                                             ?: throw IOException("Unable to query tip!")
 
-                                    val poolIdToSigma = mutableMapOf<String, BigDecimal>()
-                                    val futurePoolIdToSigma = mutableMapOf<String, BigDecimal>()
+                                    val poolIdToSigma = mutableMapOf<String, StakeFraction>()
+                                    val futurePoolIdToSigma = mutableMapOf<String, StakeFraction>()
 
                                     // build a command to query stake-snapshot for all pools at once
-                                    val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                                    val poolIds = coreNodes.map { requireNotNull(it.poolId) }.toSet()
                                     val poolIdsString = poolIds.joinToString(" ") { "--stake-pool-id $it" }
 
                                     val stakeSnapshotJson =
@@ -273,18 +274,10 @@ class BlockController
                                         stakeSnapshotAdapter.fromJson(stakeSnapshotJson)
                                             ?: throw IOException("Unable to parse stakeSnapshot json!")
                                     poolIds.forEach { poolId ->
-                                        poolIdToSigma[poolId] =
-                                            BigDecimal(stakeSnapshot.pools[poolId]!!.stakeSet).divide(
-                                                BigDecimal(stakeSnapshot.total.stakeSet),
-                                                34,
-                                                RoundingMode.HALF_UP
-                                            )
-                                        futurePoolIdToSigma[poolId] =
-                                            BigDecimal(stakeSnapshot.pools[poolId]!!.stakeMark).divide(
-                                                BigDecimal(stakeSnapshot.total.stakeMark),
-                                                34,
-                                                RoundingMode.HALF_UP
-                                            )
+                                        val snapshot = stakeSnapshot.pools[poolId]
+                                            ?: throw IOException("No stake snapshot found for poolId $poolId")
+                                        poolIdToSigma[poolId] = StakeFraction(snapshot.stakeSet, stakeSnapshot.total.stakeSet)
+                                        futurePoolIdToSigma[poolId] = StakeFraction(snapshot.stakeMark, stakeSnapshot.total.stakeMark)
                                     }
 
                                     // if we're doing the stake-snapshot command, assume future d stays the same and no entropy
@@ -299,8 +292,8 @@ class BlockController
 
                                     val ledger =
                                         LeaderLogLedger(
-                                            decentralizationParameter = protocolParameters.decentralisationParam ?: 0.0,
-                                            futureDecentralizationParameter = protocolParameters.decentralisationParam ?: 0.0,
+                                            decentralizationParameter = protocolParameters.decentralisationParam ?: BigDecimal.ZERO,
+                                            futureDecentralizationParameter = protocolParameters.decentralisationParam ?: BigDecimal.ZERO,
                                             poolIdToSigma = poolIdToSigma,
                                             futurePoolIdToSigma = futurePoolIdToSigma,
                                             extraPraosEntropy = null,
@@ -326,16 +319,17 @@ class BlockController
                                     // in Conway, we switch to 4k/f instead of 3k/f
                                     val stabilityWindowMultiplier = if (tip.eraNumber < ERA_CONWAY) 3 else 4
                                     val stabilityWindow =
-                                        ceil(
-                                            stabilityWindowMultiplier * genesisByron.protocolConsts.k / genesisShelley.activeSlotsCoeff
-                                        ).toLong()
+                                        genesisByron.protocolConsts.k.toBigDecimal()
+                                            .multiply(stabilityWindowMultiplier.toBigDecimal())
+                                            .divide(genesisShelley.activeSlotsCoeff, 0, RoundingMode.CEILING)
+                                            .longValueExact()
                                     val decentralizationParam =
                                         if (request.requestType ==
                                             "futureEpoch"
                                         ) {
-                                            ledger.futureDecentralizationParameter.toBigDecimal()
+                                            ledger.futureDecentralizationParameter
                                         } else {
-                                            ledger.decentralizationParameter.toBigDecimal()
+                                            ledger.decentralizationParameter
                                         }
 
                                     val stabilityWindowStart = firstSlotOfEpoch - stabilityWindow
@@ -377,6 +371,14 @@ class BlockController
                                     log.info("Leader Logs Epoch Nonce: ${epochNonce.toHexString()}")
                                     log.info("Ledger State: $ledger")
 
+                                    val activeSlots = CardanoLeaderElection.prepareActiveSlotCoefficient(genesisShelley.activeSlotsCoeff)
+                                    val stakes = if (request.requestType == "futureEpoch") ledger.futurePoolIdToSigma else ledger.poolIdToSigma
+                                    val vrfSizeBytes = if (tip.eraNumber >= ERA_BABBAGE) 32 else 64
+                                    val poolThresholds = poolIds.associateWith { poolId ->
+                                        val stake = stakes[poolId] ?: throw IOException("No stake fraction found for poolId $poolId")
+                                        CardanoLeaderElection.prepare(activeSlots, stake, vrfSizeBytes)
+                                    }
+
                                     val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
                                     val poolIdToHostname = mutableMapOf<String, String>()
                                     val leadershipCount = mutableMapOf<String, Int>()
@@ -404,14 +406,7 @@ class BlockController
                                             val d =
                                                 async {
                                                     val poolId = requireNotNull(coreNode.poolId)
-                                                    val sigma =
-                                                        if (request.requestType == "futureEpoch") {
-                                                            ledger.futurePoolIdToSigma[poolId]
-                                                                ?: throw IOException("No sigma found for poolId $poolId")
-                                                        } else {
-                                                            ledger.poolIdToSigma[poolId]
-                                                                ?: throw IOException("No sigma found for poolId $poolId")
-                                                        }
+                                                    val threshold = poolThresholds.getValue(poolId)
 
                                                     val poolVrfSkey =
                                                         mutex.withLock {
@@ -436,16 +431,14 @@ class BlockController
                                                         if (tip.eraNumber >= ERA_BABBAGE) {
                                                             blockUtils.isSlotLeaderPraos(
                                                                 slot = slot,
-                                                                f = genesisShelley.activeSlotsCoeff,
-                                                                sigma = sigma,
+                                                                threshold = threshold,
                                                                 eta0 = epochNonce,
                                                                 poolVrfSkey = poolVrfSkey
                                                             )
                                                         } else {
                                                             blockUtils.isSlotLeaderTPraos(
                                                                 slot = slot,
-                                                                f = genesisShelley.activeSlotsCoeff,
-                                                                sigma = sigma,
+                                                                threshold = threshold,
                                                                 eta0 = epochNonce,
                                                                 poolVrfSkey = poolVrfSkey
                                                             )
