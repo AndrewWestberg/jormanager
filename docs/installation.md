@@ -93,6 +93,91 @@ Libraries have been installed in:
 
 ```
 
+### secp256k1
+
+From your source directory (outside the libsodium checkout), build and install secp256k1:
+
+```bash
+git clone https://github.com/bitcoin-core/secp256k1.git
+cd secp256k1/
+git reset --hard ac83be33d0956faf6b7f61a60ab524ef7d6a473a
+./autogen.sh
+./configure --prefix=/usr --enable-module-schnorrsig --enable-experimental --enable-dev-mode
+make
+make check
+sudo make install
+```
+
+### blst
+
+Return to your source directory (outside the secp256k1 checkout), then build and install blst:
+
+```bash
+git clone https://github.com/supranational/blst
+cd blst
+git checkout v0.3.14
+./build.sh
+cat > libblst.pc << EOF
+prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libblst
+Description: Multilingual BLS12-381 signature library
+URL: https://github.com/supranational/blst
+Version: 0.3.14
+Cflags: -I\${includedir}
+Libs: -L\${libdir} -lblst
+EOF
+sudo cp libblst.pc /usr/local/lib/pkgconfig/
+sudo cp bindings/blst_aux.h bindings/blst.h bindings/blst.hpp /usr/local/include/
+sudo cp libblst.a /usr/local/lib
+sudo chmod u=rw,go=r /usr/local/{lib/{libblst.a,pkgconfig/libblst.pc},include/{blst.{h,hpp},blst_aux.h}}
+```
+
+### blockio-uring
+
+Install liburing development headers for blockio-uring:
+
+```bash
+sudo apt update
+sudo apt install -y liburing-dev
+```
+
+### libsystemd
+
+Install libsystemd development headers:
+
+```bash
+sudo apt update
+sudo apt install -y libsystemd-dev
+```
+
+### zlib
+
+Install zlib development headers:
+
+```bash
+sudo apt update && sudo apt install -y zlib1g-dev
+```
+
+### Snappy
+
+Install Snappy development headers:
+
+```bash
+sudo apt install -y libsnappy-dev
+```
+
+### Protocol Buffers
+
+Install the Protocol Buffers compiler and development headers:
+
+```bash
+sudo apt install -y protobuf-compiler libprotobuf-dev
+```
+
 ## Install cardano-node and cardano-cli locally
 
 In a normal JorManager setup, it's a good practice to have a local passive node on the same machine as JorManager. This node will be used for submitting transactions during the stakepool setup and keeping JorManager in sync with the blockchain. You can choose to have the default node be remote too, but local is the recommended setup for the default node.
