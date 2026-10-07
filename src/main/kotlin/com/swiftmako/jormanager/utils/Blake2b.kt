@@ -28,4 +28,14 @@ object Blake2b {
         blake2b256.doFinal(hash, 0)
         return hash
     }
+
+    /** Blake2b256 over two ordered segments without concatenating them. */
+    fun hash256(prefix: ByteArray, input: ByteArray): ByteArray {
+        val blake2b256 = blake2b256Container.getOrSet { Blake2bDigest(256) }
+        blake2b256.update(prefix, 0, prefix.size)
+        blake2b256.update(input, 0, input.size)
+        val hash = ByteArray(32)
+        blake2b256.doFinal(hash, 0)
+        return hash
+    }
 }

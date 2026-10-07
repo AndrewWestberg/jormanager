@@ -164,6 +164,15 @@ import { BTable, BModal, BButton } from 'bootstrap-vue-next'
 - Queries tip, calculates leader logs
 - Submits transactions
 
+### Leader-log computation
+- `BlockController.calculateLeaderLogs` coordinates snapshot/nonce selection, unique-pool key preloading, and repository/websocket IO on `Dispatchers.IO`.
+- Singleton `LeaderLogCalculator` shares one CPU dispatcher across requests, capped at `maxOf(1, availableProcessors() / 2)` workers. This is a concurrency budget, not a guaranteed 50% whole-process CPU limit; one visible processor still receives one worker.
+- Contiguous 1024-slot chunks share seed hashing across pools. At most the worker budget of chunks is submitted; ordered draining retains that window plus the current sink result, without per-slot coroutines or epoch-wide result buffering.
+- Chunk persistence is serialized across requests by a controller-instance mutex. Slot/core-node order and the existing same-pool lookup followed by any-pool occupied-slot fallback are preserved.
+- Progress counts completed chunks, including overlays; final blocks precede completion only after persistence drains. Worker/sink failure cancels pending computation; already persisted rows remain valid and an entered synchronous IO call may finish.
+- Election math, exact decimal overlays, TPraos/Praos widths, and native VRF APIs remain unchanged. Native node-schedule gates cover one/two-worker results; deterministic concurrency gates cover the shared cap, backpressure, ordering, failure, and cancellation.
+
+
 ### PostgreSQL (Liquibase)
 - Persistent storage for hosts, nodes, blocks
 - Migrations managed via Liquibase XML changelogs
