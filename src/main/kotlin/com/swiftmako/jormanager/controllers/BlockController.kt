@@ -30,6 +30,7 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.services.LeaderLogCalculator
 import java.io.IOException
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -37,18 +38,9 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.channels.Channel.Factory.UNLIMITED
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.filterNot
-import kotlinx.coroutines.flow.flattenMerge
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -67,7 +59,6 @@ import org.springframework.transaction.annotation.Transactional
 
 @Controller
 @Scope(SCOPE_SINGLETON)
-@OptIn(ExperimentalCoroutinesApi::class)
 class BlockController
     @Autowired
     constructor(
@@ -77,6 +68,7 @@ class BlockController
         private val hostRepository: HostRepository,
         private val fileRepository: FileRepository,
         private val blockUtils: BlockUtils,
+        private val leaderLogCalculator: LeaderLogCalculator,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
@@ -92,6 +84,7 @@ class BlockController
         private val cardanoRepository: CardanoRepository,
     ) : CoroutineScope {
         private val log by lazy { LoggerFactory.getLogger("BlockController") }
+        private val leaderLogPersistenceMutex = Mutex()
 
         override val coroutineContext: CoroutineContext =
             Dispatchers.Default +
@@ -219,7 +212,7 @@ class BlockController
         @MessageMapping("/leaderlogs")
         @Transactional
         fun calculateLeaderLogs(request: LeaderLogsRequest) {
-            launch {
+            launch(Dispatchers.IO) {
                 try {
                     if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                         throw IllegalArgumentException("Invalid spending password!")
@@ -380,147 +373,114 @@ class BlockController
                                     }
 
                                     val poolIdToVrfSkey = mutableMapOf<String, ByteArray>()
+                                    val pools = coreNodes.map { coreNode ->
+                                        val poolId = requireNotNull(coreNode.poolId)
+                                        val poolVrfSkey = poolIdToVrfSkey.getOrPut(poolId) {
+                                            val vrfSkeyFile =
+                                                fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
+                                                    ?: throw IOException("No VRF Skey for ${coreNode.name}")
+                                            val vrfJsonString =
+                                                walletUtils.getSKeyContent(vrfSkeyFile, request.spendingPassword)
+                                            val vrfSkey =
+                                                keyAdapter.fromJson(vrfJsonString)
+                                                    ?: throw IOException("Unable to parse VRF Skey!")
+                                            val reader =
+                                                CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
+                                            (reader.readDataItem() as CborByteString).byteArrayValue()[0]
+                                        }
+                                        LeaderLogCalculator.PoolInput(poolThresholds.getValue(poolId), poolVrfSkey)
+                                    }
                                     val poolIdToHostname = mutableMapOf<String, String>()
                                     val leadershipCount = mutableMapOf<String, Int>()
-                                    var lastLoggedTime = System.currentTimeMillis()
+                                    var lastLoggedTime = System.nanoTime()
+                                    val coordinatorContext = currentCoroutineContext()
 
-                                    val mutex = Mutex()
-                                    val logMutex = Mutex()
-                                    val deferreds = mutableListOf<Deferred<Unit>>()
-                                    flow {
-                                        repeat(slotsPerEpoch) { index ->
-                                            emit(firstSlotOfEpoch + index)
-                                        }
-                                    }.flowOn(Dispatchers.IO)
-                                        .filterNot { slot ->
-                                            blockUtils.isOverlaySlot(firstSlotOfEpoch, slot, decentralizationParam)
-                                        }.buffer(capacity = UNLIMITED)
-                                        .map { slot ->
-                                            flow {
-                                                coreNodes.forEach { coreNode ->
-                                                    emit(Pair(slot, coreNode))
-                                                }
-                                            }.flowOn(Dispatchers.IO)
-                                        }.flattenMerge()
-                                        .collect { (slot, coreNode) ->
-                                            val d =
-                                                async {
-                                                    val poolId = requireNotNull(coreNode.poolId)
-                                                    val threshold = poolThresholds.getValue(poolId)
+                                    leaderLogCalculator.calculate(
+                                        firstSlot = firstSlotOfEpoch,
+                                        slotCount = slotsPerEpoch,
+                                        mode =
+                                            if (tip.eraNumber >= ERA_BABBAGE) {
+                                                LeaderLogCalculator.Mode.PRAOS
+                                            } else {
+                                                LeaderLogCalculator.Mode.TPRAOS
+                                            },
+                                        decentralization = decentralizationParam,
+                                        epochNonce = epochNonce,
+                                        pools = pools,
+                                    ) { chunk ->
+                                        leaderLogPersistenceMutex.withLock {
+                                            repeat(chunk.slotCount) { offset ->
+                                                val slot = chunk.firstSlot + offset
+                                                coreNodes.forEachIndexed { poolIndex, coreNode ->
+                                                    if (chunk.electedBySlotAndPool[offset * coreNodes.size + poolIndex]) {
+                                                        coordinatorContext.ensureActive()
+                                                        val poolId = requireNotNull(coreNode.poolId)
+                                                        log.info("${coreNode.name}: Selected for slot $slot")
+                                                        val key = "${coreNode.name}|$poolId"
+                                                        val count = leadershipCount[key] ?: 0
+                                                        leadershipCount[key] = count + 1
 
-                                                    val poolVrfSkey =
-                                                        mutex.withLock {
-                                                            poolIdToVrfSkey[poolId] ?: run {
-                                                                val vrfSkeyFile =
-                                                                    fileRepository.findByIdOrNull(coreNode.vrfSKeyId)
-                                                                        ?: throw IOException("No VRF Skey for ${coreNode.name}")
-                                                                val vrfJsonString =
-                                                                    walletUtils.getSKeyContent(vrfSkeyFile, request.spendingPassword)
-                                                                val vrfSkey =
-                                                                    keyAdapter.fromJson(vrfJsonString)
-                                                                        ?: throw IOException("Unable to parse VRF Skey!")
-                                                                val reader =
-                                                                    CborReader.createFromByteArray(vrfSkey.cborHex.hexToByteArray())
-                                                                (reader.readDataItem() as CborByteString).byteArrayValue()[0].also {
-                                                                    poolIdToVrfSkey[poolId] = it
-                                                                }
-                                                            }
-                                                        }
-
-                                                    val isSlotLeader =
-                                                        if (tip.eraNumber >= ERA_BABBAGE) {
-                                                            blockUtils.isSlotLeaderPraos(
-                                                                slot = slot,
-                                                                threshold = threshold,
-                                                                eta0 = epochNonce,
-                                                                poolVrfSkey = poolVrfSkey
-                                                            )
-                                                        } else {
-                                                            blockUtils.isSlotLeaderTPraos(
-                                                                slot = slot,
-                                                                threshold = threshold,
-                                                                eta0 = epochNonce,
-                                                                poolVrfSkey = poolVrfSkey
-                                                            )
-                                                        }
-
-                                                    if (isSlotLeader) {
-                                                        mutex.withLock {
-                                                            log.info("${coreNode.name}: Selected for slot $slot")
-                                                            val key = "${coreNode.name}|$poolId"
-                                                            val count = leadershipCount[key] ?: 0
-                                                            leadershipCount[key] = count + 1
-
-                                                            val existingBlock =
-                                                                blockRepository.findByPoolAndSlot(coreNode.name, slot)
-                                                                    ?: blockRepository.findBySlot(slot).firstOrNull()
-                                                            if (existingBlock == null) {
-                                                                val (epoch, slotInEpoch) =
-                                                                    blockUtils.getEpochAndSlot(
-                                                                        genesisByron,
-                                                                        genesisShelley,
-                                                                        slot
-                                                                    )
-
-                                                                blockRepository.save(
-                                                                    Block(
-                                                                        at =
-                                                                            blockUtils.slotToTimestamp(
-                                                                                genesisByron,
-                                                                                genesisShelley,
-                                                                                slot
-                                                                            ),
-                                                                        pool = coreNode.name,
-                                                                        host =
-                                                                            poolIdToHostname[poolId]
-                                                                                ?: hostRepository
-                                                                                    .findByIdOrNull(
-                                                                                        coreNode.hostId
-                                                                                    )!!
-                                                                                    .hostname
-                                                                                    .also {
-                                                                                        poolIdToHostname[poolId] = it
-                                                                                    },
-                                                                        slot = slot,
-                                                                        epoch = epoch,
-                                                                        slotInEpoch = slotInEpoch,
-                                                                        hash = "",
-                                                                        status = "pending"
-                                                                    )
+                                                        val existingBlock =
+                                                            blockRepository.findByPoolAndSlot(coreNode.name, slot)
+                                                                ?: blockRepository.findBySlot(slot).firstOrNull()
+                                                        if (existingBlock == null) {
+                                                            val (epoch, slotInEpoch) =
+                                                                blockUtils.getEpochAndSlot(
+                                                                    genesisByron,
+                                                                    genesisShelley,
+                                                                    slot
                                                                 )
-                                                                log.debug("Saved elected block for slot $slot")
-                                                            }
-                                                        }
-                                                    }
 
-                                                    if (logMutex.tryLock()) {
-                                                        try {
-                                                            val now = System.currentTimeMillis()
-                                                            if (now - lastLoggedTime > 10_000) {
-                                                                // notify GUI every 10 seconds of progress
-                                                                webSocketTemplate.convertAndSend(
-                                                                    "/topic/messages",
-                                                                    SocketResponse.Success(
-                                                                        "leaderlogs",
-                                                                        "Leader Logs ${
-                                                                            String.format(
-                                                                                "%1.2f",
-                                                                                ((slot - firstSlotOfEpoch).toFloat() / slotsPerEpoch.toFloat()) * 100
-                                                                            )
-                                                                        }%"
-                                                                    )
+                                                            blockRepository.save(
+                                                                Block(
+                                                                    at =
+                                                                        blockUtils.slotToTimestamp(
+                                                                            genesisByron,
+                                                                            genesisShelley,
+                                                                            slot
+                                                                        ),
+                                                                    pool = coreNode.name,
+                                                                    host =
+                                                                        poolIdToHostname[poolId]
+                                                                            ?: hostRepository
+                                                                                .findByIdOrNull(coreNode.hostId)!!
+                                                                                .hostname
+                                                                                .also {
+                                                                                    poolIdToHostname[poolId] = it
+                                                                                },
+                                                                    slot = slot,
+                                                                    epoch = epoch,
+                                                                    slotInEpoch = slotInEpoch,
+                                                                    hash = "",
+                                                                    status = "pending"
                                                                 )
-                                                                lastLoggedTime = now
-                                                            }
-                                                        } finally {
-                                                            logMutex.unlock()
+                                                            )
+                                                            log.debug("Saved elected block for slot $slot")
                                                         }
                                                     }
                                                 }
-                                            deferreds.add(d)
+                                            }
                                         }
 
-                                    deferreds.awaitAll()
+                                        val now = System.nanoTime()
+                                        if (now - lastLoggedTime > 10_000_000_000L) {
+                                            // notify GUI every 10 seconds of completed progress
+                                            val completedSlots = chunk.firstSlot - firstSlotOfEpoch + chunk.slotCount
+                                            webSocketTemplate.convertAndSend(
+                                                "/topic/messages",
+                                                SocketResponse.Success(
+                                                    "leaderlogs",
+                                                    "Leader Logs ${
+                                                        String.format(
+                                                            "%1.2f",
+                                                            (completedSlots.toFloat() / slotsPerEpoch.toFloat()) * 100
+                                                        )
+                                                    }%"
+                                                )
+                                            )
+                                            lastLoggedTime = now
+                                        }
+                                    }
 
                                     log.info("Total Slots this epoch: $leadershipCount")
                                     val blocks = blockRepository.findLatestBlocks(pastEpochsToShow)

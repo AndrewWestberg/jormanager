@@ -184,8 +184,11 @@ class BlockUtils
 
             val slotToSeedByteArray = SodiumLibrary.cryptoBlake2bHash(concatByteArray, null)
 
-            // return the computed seed value
-            return ucNonce.mapIndexed { index, byte -> byte xor slotToSeedByteArray[index] }.toByteArray()
+            val constant = ucNonce
+            for (index in slotToSeedByteArray.indices) {
+                slotToSeedByteArray[index] = slotToSeedByteArray[index] xor constant[index]
+            }
+            return slotToSeedByteArray
         }
 
         /**
@@ -205,7 +208,7 @@ class BlockUtils
             return SodiumLibrary.cryptoBlake2bHash(concatByteArray, null)
         }
 
-        fun vrfLeaderValue(rawVrf: ByteArray): ByteArray = Blake2b.hash256(LEADER_VRF_HEADER + rawVrf)
+        fun vrfLeaderValue(rawVrf: ByteArray): ByteArray = Blake2b.hash256(LEADER_VRF_HEADER, rawVrf)
 
         /**
          * Sign and hash the slot seed value with our node vrf signing key. The output is the certified natural (certNat)
