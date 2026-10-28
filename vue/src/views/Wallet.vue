@@ -26,6 +26,11 @@
         </BButton>
       </div>
       <hr />
+      <div class="alert alert-warning" role="status">
+        Wallet completeness and current-era evidence are not available in this view. Balances
+        may be stale; do not treat them as available-to-spend until the target network's complete
+        index and reviewed transaction are confirmed.
+      </div>
       <BContainer fluid>
         <BRow>
           <BCol lg="6" class="my-1">
@@ -82,9 +87,9 @@
               >
                 {{ (item as any).paymentAddrUtxoCount }} UTxO{{ Number((item as any).paymentAddrUtxoCount) === 1 ? '' : 's' }}
               </span>
-              {{ lovelaceToAda(Number(value)) }}
+              {{ formatAda(value) }}
               <span
-                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && Number(value) > 0"
+                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && positive(value)"
                 class="clickable text-success d-inline-block ms-1"
                 v-b-tooltip.hover.bottom="{ title: 'Send', variant: 'success' }"
                 @click="sendAdaClick((item as any).name)"
@@ -92,7 +97,7 @@
                 <font-awesome-icon :icon="['fas', 'hand-holding-usd']" />
               </span>
               <span
-                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && (item as any).hasPaymentKeys !== false && Number(value) > 0 && Number((item as any).paymentAddrUtxoCount) > 1"
+                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && (item as any).hasPaymentKeys !== false && positive(value) && Number((item as any).paymentAddrUtxoCount) > 1"
                 class="clickable text-info d-inline-block ms-2"
                 data-testid="defragment-utxos-btn"
                 v-b-tooltip.hover.bottom="{ title: 'Defragment UTxOs', variant: 'info' }"
@@ -140,9 +145,9 @@
           </template>
           <template #cell(stakingAddrLovelace)="{ item, value }">
             <div class="text-right d-flex align-items-center justify-content-end gap-2" v-if="(item as any).type === 'stake'">
-              <span>{{ lovelaceToAda(Number(value)) }}</span>
+              <span>{{ formatAda(value) }}</span>
               <span
-                v-if="Number(value) > 0"
+                v-if="positive(value)"
                 class="clickable text-success flex-shrink-0"
                 v-b-tooltip.hover.bottom="{ title: 'Claim Rewards', variant: 'success' }"
                 @click="claimAdaClick((item as any).name)"
@@ -150,7 +155,7 @@
                 <font-awesome-icon :icon="['fas', 'cash-register']" />
               </span>
               <BFormCheckbox
-                v-if="Number(value) > 0"
+                v-if="positive(value)"
                 :model-value="selectedClaimIds.has((item as any).id)"
                 @update:model-value="toggleClaimSelection((item as any).id)"
                 class="rewards-checkbox"
@@ -182,8 +187,12 @@
       :title="stakingAddressModalTitle"
       :no-close-on-backdrop="true"
       size="lg"
-      @ok.prevent="handleStakingAddress"
+      :ok-disabled="true"
     >
+      <div class="alert alert-warning" role="alert">
+        Registration changes require current target-network era and capability evidence and a
+        durable preview of the fee, deposit or refund before authorization. Preview unavailable.
+      </div>
       <BFormGroup
         label="Fees Account"
         label-for="staking-fees-account-select"
@@ -229,7 +238,7 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
-import { lovelaceToAda, hex2ascii } from '@/utils/filters'
+import { hex2ascii } from '@/utils/filters'
 import AddWalletEntryWizard from '@/components/AddWalletEntryWizard.vue'
 import SendAdaModal from '@/components/SendAdaModal.vue'
 import type { WalletItem } from '@/types'
@@ -263,11 +272,31 @@ const fields = [
   { key: 'edit', label: '' }
 ]
 
+function exactInteger(value: unknown): bigint | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? BigInt(value) : null
+  if (typeof value !== 'string' && typeof value !== 'bigint') return null
+  const text = String(value)
+  return /^-?\d+$/.test(text) ? BigInt(text) : null
+}
+
+function positive(value: unknown): boolean {
+  const amount = exactInteger(value)
+  return amount !== null && amount > 0n
+}
+
+function formatAda(value: unknown): string {
+  const amount = exactInteger(value)
+  if (amount === null) return 'Unavailable'
+  const sign = amount < 0n ? '-' : ''
+  const absolute = amount < 0n ? -amount : amount
+  return `${sign}₳${absolute / 1000000n}.${(absolute % 1000000n).toString().padStart(6, '0')}`
+}
+
 const stakingFeesAccountState = computed(() => stakingAddressForm.value.stakingFeesAccount != null)
-const stakingFeesOptions = computed(() => {
-  const formatter = (val: number, _sym: string, dec: number) => lovelaceToAda(val * 1000000, dec)
-  return store.stakingFeesSelectOptions(formatter)
-})
+const stakingFeesOptions = computed(() => walletItems.value
+  .filter(item => item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
+  .map(item => ({ value: item.id, text: `${item.name} - ${formatAda(item.paymentAddrLovelace)}` }))
+  .sort((a, b) => a.text.localeCompare(b.text)))
 
 // Compute filtered wallet items based on current filter
 const filteredWalletItems = computed(() => {
@@ -287,7 +316,7 @@ const visibleSelectedCount = computed(() => {
   return filteredWalletItems.value.filter(item =>
     selectedClaimIds.value.has(item.id) &&
     (item as any).type === 'stake' &&
-    item.stakingAddrLovelace > 0
+    positive(item.stakingAddrLovelace)
   ).length
 })
 
@@ -296,6 +325,10 @@ const hasSelectedClaims = computed(() => visibleSelectedCount.value > 0)
 // Clear selections when filter changes
 watch(filter, () => {
   selectedClaimIds.value = new Set()
+})
+
+watch(() => store.connected, connected => {
+  if (connected) store.fetchWalletItems()
 })
 
 function findWalletItemByName(name: string): WalletItem | undefined {
@@ -312,9 +345,9 @@ function getNativeAssetKeys(name: string): string[] {
   return item ? Object.keys(item.nativeAssetMap || {}).sort() : []
 }
 
-function getNativeAssetAmount(name: string, assetName: string): number {
+function getNativeAssetAmount(name: string, assetName: string): string {
   const item = findWalletItemByName(name)
-  return item?.nativeAssetMap?.[assetName] || 0
+  return String(item?.nativeAssetMap?.[assetName] ?? 'Unavailable')
 }
 
 function copyToClipboard(value: string) {
@@ -363,7 +396,7 @@ function claimMultipleClick() {
   const items = filteredWalletItems.value.filter(item =>
     selectedClaimIds.value.has(item.id) &&
     (item as any).type === 'stake' &&
-    item.stakingAddrLovelace > 0
+    positive(item.stakingAddrLovelace)
   )
   if (items.length > 0) {
     emitter.emit('show-send-ada-modal', { walletItems: items, isClaim: true, isMultiClaim: true })
@@ -400,13 +433,6 @@ function deregisterStakingAddress(name: string) {
   showStakingModal.value = true
 }
 
-function handleStakingAddress() {
-  if (!stakingFeesAccountState.value) {
-    store.toastError = { title: 'Error', message: 'You must fill out all fields.' }
-    return
-  }
-  emitter.emit('show-spending-password-modal', { action: 'staking-address' })
-}
 
 function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   if (data.action === 'backup') {
@@ -416,11 +442,6 @@ function onSpendingPasswordConfirmed(data: { action: string; password: string; o
       id: data.originalData as number,
       spendingPassword: data.password
     })
-  } else if (data.action === 'staking-address') {
-    stakingAddressForm.value.spendingPassword = data.password
-    store.updateStakingAddress(stakingAddressForm.value)
-    stakingAddressForm.value.spendingPassword = null
-    showStakingModal.value = false
   }
 }
 

@@ -2,7 +2,9 @@
 
 **Status:** validation plan, not a report that Musashi or Dijkstra works. New feature messages and scenarios become runnable after implementation and qualification. Current repository build/start commands below are real entry points; there is no checked-in Dijkstra replay harness or independent corpus yet. Do not substitute a CLI era label, mock node or local round trips for qualified deployed-bundle and independent-reference evidence.
 
-## Prerequisites and safety
+**Scheduling:** This is a guide for later user-coordinated manual integration qualification, not a prerequisite to start implementation. Do not provision these environments or author/run the feature tests in the current code pass. The parent may run local compiler/smoke checks after integration, but those do not satisfy Q0–Q8 or G1–G6. The user coordinates later owners, reviewers, test execution and qualification; all evidence tasks remain pending, with no waiver of release/runtime requirements.
+
+## Later qualification prerequisites and safety
 
 Musashi-specific prerequisites below apply to Dijkstra scenarios, not to existing Conway operation. For Q8, also prepare a supported standalone Conway node/CLI/network profile with independently recorded identity and current-era evidence, disposable hosts/funds/keys and sanitized existing-installation data. It must provision and operate without Musashi assets, Dijkstra genesis or Leios credentials. Run the Conway and Dijkstra targets independently and concurrently; do not orchestrate a hard fork or cross-era rollback.
 
@@ -30,7 +32,7 @@ npm --prefix vue run test
 npm --prefix vue run build
 ```
 
-`processResources` already depends on the project's frontend test/build tasks. Record real outcomes, including environment failures; do not retry or weaken checks to claim a pass. Add focused consumer-visible codec, ingestion/recovery, key lifecycle and exact-value regressions during implementation, following existing JUnit/Vitest conventions. The full commands above must include those tests once added; no invented test-class selector is claimed to exist here.
+`processResources` already depends on the project's frontend test/build tasks. In the later qualification run, record real outcomes, including environment failures; do not retry or weaken checks to claim a pass. Add the listed focused consumer-visible codec, ingestion/recovery, key lifecycle and exact-value regressions during later verification, following existing JUnit/Vitest conventions. The full commands above must include those tests once added; no invented test-class selector is claimed to exist here.
 
 Provision an empty disposable database using normal PostgreSQL administration. Set the following variables to that database only; the shell checks prevent falling back to repository defaults:
 
@@ -52,7 +54,7 @@ After implementation, inspect STOMP traffic through browser developer tools: end
 
 ## Validation scenarios
 
-Each run records runtime/fixture manifest IDs, actual steps/commands, expected and observed point/IDs/values, sanitized UI evidence and pass/fail findings. Reference expectations must exist before JorManager is run. For storage assertions and transitions use [data-model.md](data-model.md); for delivery semantics use [chain-delivery.md](contracts/chain-delivery.md). The fixture provider must supply reproducible reference replay/epoch/rollback commands in its manifest; this guide does not fabricate a node-control CLI.
+Each later run records runtime/fixture manifest IDs, actual steps/commands, expected and observed point/IDs/values, sanitized UI evidence and pass/fail findings. Reference expectations must exist before JorManager is run for qualification; obtaining them is not a prerequisite to writing code. For storage assertions and transitions use [data-model.md](data-model.md); for delivery semantics use [chain-delivery.md](contracts/chain-delivery.md). The fixture provider must supply reproducible reference replay/epoch/rollback commands in its manifest; this guide does not fabricate a node-control CLI.
 
 ### Q0 — New Musashi relay and pool through JorManager
 

@@ -18,17 +18,17 @@ data class ProtocolParameters(
     @param:Json(name = "utxoCostPerByte")
     val utxoCostPerByte: Long? = null,
     @param:Json(name = "decentralization")
-    val decentralisationParam: BigDecimal?,
+    val decentralisationParam: BigDecimal? = null,
     @param:Json(name = "maxTxSize")
     val maxTxSize: Long,
     @param:Json(name = "minPoolCost")
-    val minPoolCost: Long,
+    val minPoolCost: BigInteger,
     @param:Json(name = "txFeePerByte")
-    val txFeePerByte: Long,
+    val txFeePerByte: BigInteger,
     @param:Json(name = "maxBlockBodySize")
     val maxBlockBodySize: Long,
     @param:Json(name = "txFeeFixed")
-    val txFeeFixed: Long,
+    val txFeeFixed: BigInteger,
     @param:Json(name = "poolRetireMaxEpoch")
     val poolRetireMaxEpoch: Long,
     @param:Json(name = "maxBlockHeaderSize")
@@ -38,11 +38,11 @@ data class ProtocolParameters(
     @param:Json(name = "stakePoolTargetNum")
     val stakePoolTargetNum: Long,
     @param:Json(name = "monetaryExpansion")
-    val monetaryExpansion: Double,
+    val monetaryExpansion: BigDecimal,
     @param:Json(name = "treasuryCut")
-    val treasuryCut: Double,
+    val treasuryCut: BigDecimal,
     @param:Json(name = "poolPledgeInfluence")
-    val poolPledgeInfluence: Double,
+    val poolPledgeInfluence: BigDecimal,
     @param:Json(name = "minFeeRefScriptCostPerByte")
     val minFeeRefScriptCostPerByte: BigDecimal? = null,
 ) {
@@ -56,17 +56,17 @@ data class ProtocolParameters(
                 utxoCostPerByte = 4310L,
                 decentralisationParam = null,
                 maxTxSize = 16384L,
-                minPoolCost = 170_000_000L,
-                txFeePerByte = 44L,
+                minPoolCost = BigInteger.valueOf(170_000_000L),
+                txFeePerByte = BigInteger.valueOf(44L),
                 maxBlockBodySize = 90112L,
-                txFeeFixed = 155381L,
+                txFeeFixed = BigInteger.valueOf(155_381L),
                 poolRetireMaxEpoch = 18L,
                 maxBlockHeaderSize = 1100L,
                 stakeAddressDeposit = BigInteger.valueOf(2_000_000L),
                 stakePoolTargetNum = 500L,
-                monetaryExpansion = 0.003,
-                treasuryCut = 0.2,
-                poolPledgeInfluence = 0.3,
+                monetaryExpansion = BigDecimal("0.003"),
+                treasuryCut = BigDecimal("0.2"),
+                poolPledgeInfluence = BigDecimal("0.3"),
                 minFeeRefScriptCostPerByte = BigDecimal.valueOf(15L),
             )
     }
