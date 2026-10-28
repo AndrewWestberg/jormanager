@@ -1,359 +1,162 @@
 package com.swiftmako.jormanager.repositories
 
-import com.github.benmanes.caffeine.cache.Caffeine
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.model.DecodedOutput
+import com.swiftmako.jormanager.model.NativeAsset
+import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.tables.*
-import java.math.BigInteger
-import java.time.Duration
-import org.jetbrains.exposed.v1.core.JoinType
-import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.count
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greaterEq
-import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.plus
-import org.jetbrains.exposed.v1.jdbc.batchInsert
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
-import org.jetbrains.exposed.v1.jdbc.insert
-import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.selectAll
+import com.swiftmako.jormanager.utils.Bech32
+import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.jdbc.*
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
-import org.jetbrains.exposed.v1.jdbc.update
-import org.slf4j.LoggerFactory
+import java.math.BigInteger
 
+/** Maintained projections only. The coordinator owns every adoption/rollback transaction. */
 object LedgerRepository {
-    private val log by lazy { LoggerFactory.getLogger("LedgerRepository") }
-
-    fun queryUtxos(address: String): List<Utxo> =
-        transaction {
-            LedgerUtxosTable
-                .join(
-                    LedgerTable,
-                    JoinType.INNER,
-                    LedgerUtxosTable.ledgerId,
-                    LedgerTable.id,
-                    additionalConstraint = { LedgerTable.address eq address },
-                ).selectAll()
-                .where {
-                    LedgerUtxosTable.blockSpent.isNull() and
-                        LedgerUtxosTable.slotSpent.isNull()
-                }.map { row ->
-                    val ledgerUtxoId = row[LedgerUtxosTable.id].value
-                    val nativeAssets =
-                        LedgerUtxoAssetsTable
-                            .join(
-                                LedgerAssetsTable,
-                                JoinType.INNER,
-                                LedgerUtxoAssetsTable.ledgerAssetId,
-                                LedgerAssetsTable.id,
-                                additionalConstraint = { LedgerUtxoAssetsTable.ledgerUtxoId eq ledgerUtxoId },
-                            ).selectAll()
-                            .map { naRow ->
-                                NativeAsset(
-                                    name = naRow[LedgerAssetsTable.name],
-                                    policy = naRow[LedgerAssetsTable.policy],
-                                    amount = BigInteger(naRow[LedgerUtxoAssetsTable.amount]),
-                                )
-                            }
-
-                    Utxo(
-                        hash = row[LedgerUtxosTable.txId],
-                        ix = row[LedgerUtxosTable.txIx].toLong(),
-                        lovelace = BigInteger(row[LedgerUtxosTable.lovelace]),
-                        nativeAssets = nativeAssets,
-                    )
-                }
-        }
-
-    fun doRollback(blockNumber: Long) {
-        BlockFetchTable.deleteWhere { BlockFetchTable.blockNumber greaterEq blockNumber }
-        LedgerUtxosTable.deleteWhere { LedgerUtxosTable.blockCreated greaterEq blockNumber }
-        LedgerUtxosTable.update({ LedgerUtxosTable.blockSpent greaterEq blockNumber }) {
-            it[blockSpent] = null
-            it[slotSpent] = null
+    fun queryUtxos(network: String, address: String): List<Utxo> = transaction {
+        (LedgerUtxosTable innerJoin LedgerTable).selectAll().where {
+            (LedgerUtxosTable.networkKey eq network) and (LedgerTable.address eq address) and
+                LedgerUtxosTable.spendingInclusionId.isNull()
+        }.map { row ->
+            val assets = (LedgerUtxoAssetsTable innerJoin LedgerAssetsTable).selectAll().where {
+                LedgerUtxoAssetsTable.ledgerUtxoId eq row[LedgerUtxosTable.id].value
+            }.map { asset -> NativeAsset(asset[LedgerAssetsTable.name], asset[LedgerAssetsTable.policy], BigInteger(asset[LedgerUtxoAssetsTable.amount])) }
+            Utxo(row[LedgerUtxosTable.txId], row[LedgerUtxosTable.txIx].toLong(), BigInteger(row[LedgerUtxosTable.lovelace]), assets)
         }
     }
 
-    fun upcertNativeAssets(nativeAssetsMetadata: Set<NativeAssetMetadata>) {
-        nativeAssetsMetadata.forEach { nativeAssetMetadata ->
-            LedgerAssetsTable
-                .selectAll()
-                .where {
-                    (LedgerAssetsTable.policy eq nativeAssetMetadata.assetPolicy) and
-                        (LedgerAssetsTable.name eq nativeAssetMetadata.assetName)
-                }.firstOrNull()
-                ?.let { existingRow ->
-                    // Do update
-                    LedgerAssetsTable.update({ LedgerAssetsTable.id eq existingRow[LedgerAssetsTable.id] }) { row ->
-                        row[policy] = nativeAssetMetadata.assetPolicy
-                        row[name] = nativeAssetMetadata.assetName
-                        row[image] = nativeAssetMetadata.metadataImage
-                        row[description] = nativeAssetMetadata.metadataDescription
-                    }
-                } ?: run {
-                // Do insert
-                LedgerAssetsTable.insert { row ->
-                    row[policy] = nativeAssetMetadata.assetPolicy
-                    row[name] = nativeAssetMetadata.assetName
-                    row[image] = nativeAssetMetadata.metadataImage
-                    row[description] = nativeAssetMetadata.metadataDescription
-                }
+    fun seedGenesis(network: String, outputs: List<com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DecodedGenesisOutput>) {
+        outputs.forEach { output ->
+            val ledgerId = addressId(output.address)
+            LedgerUtxosTable.insert {
+                it[LedgerUtxosTable.ledgerId] = ledgerId; it[networkKey] = network
+                it[txId] = output.txId.toHexString(); it[txIx] = 0; it[lovelace] = output.coin.toString()
+                it[blockCreated] = java.math.BigDecimal.ZERO; it[slotCreated] = java.math.BigDecimal.ZERO
+                it[blockSpent] = null; it[slotSpent] = null; it[spendingInclusionId] = null; it[outputOccurrenceId] = null
             }
         }
     }
 
-    fun pruneSpent(beforeSlot: Long) {
-        LedgerUtxosTable.deleteWhere { LedgerUtxosTable.slotSpent less beforeSlot }
+    fun currentOutput(network: String, txId: ByteArray, index: Int): ResultRow? =
+        LedgerUtxosTable.selectAll().where {
+            (LedgerUtxosTable.networkKey eq network) and (LedgerUtxosTable.txId eq txId.toHexString()) and
+                (LedgerUtxosTable.txIx eq index) and LedgerUtxosTable.spendingInclusionId.isNull()
+        }.singleOrNull()
 
-        // TODO: this takes forever to complete
-        // LedgerTable.deleteWhere { notExists(LedgerUtxosTable.slice(LedgerUtxosTable.id).select { LedgerUtxosTable.ledgerId eq LedgerTable.id })  }
-    }
-
-    fun spendUtxos(
-        slotNumber: Long,
-        blockNumber: Long,
-        spentUtxos: Set<SpentUtxo>,
-    ) {
-        var count = 0
-        spentUtxos.forEach { spentUtxo ->
-            count +=
-                LedgerUtxosTable.update({
-                    (LedgerUtxosTable.txId eq spentUtxo.hash) and
-                        (LedgerUtxosTable.txIx eq spentUtxo.ix.toInt())
-                }) { row ->
-                    row[blockSpent] = blockNumber
-                    row[slotSpent] = slotNumber
+    fun createOutput(network: String, inclusion: Long, member: Long, txId: ByteArray, index: Int, output: DecodedOutput, collateral: Boolean, effective: Boolean): Long {
+        val existing = OutputOccurrencesTable.selectAll().where {
+            (OutputOccurrencesTable.member eq member) and (OutputOccurrencesTable.index eq index)
+        }.singleOrNull()
+        val outputId = existing?.get(OutputOccurrencesTable.id)?.value ?: OutputOccurrencesTable.insert {
+            it[OutputOccurrencesTable.member] = member
+            it[OutputOccurrencesTable.index] = index
+            it[raw] = output.raw.bytes()
+            it[address] = output.address
+            it[coin] = output.coin.toBigDecimal()
+            it[datum] = output.datum?.bytes()
+            it[referenceScript] = output.referenceScript?.bytes()
+            it[collateralReturn] = collateral
+            it[OutputOccurrencesTable.effective] = effective
+        }[OutputOccurrencesTable.id].value
+        if (existing == null) OutputAssetsTable.batchInsert(output.assets) { asset ->
+            this[OutputAssetsTable.output] = outputId
+            this[OutputAssetsTable.policy] = asset.policy
+            this[OutputAssetsTable.name] = asset.name
+            this[OutputAssetsTable.quantity] = asset.quantity.toBigDecimal()
+        }
+        if (!effective) return outputId
+        check(currentOutput(network, txId, index) == null) { "Duplicate adopted output reference" }
+        val ledgerId = addressId(output.address)
+        val point = ChainInclusionsTable.selectAll().where { ChainInclusionsTable.id eq inclusion }.single()
+        val projectionId = LedgerUtxosTable.insert {
+            it[LedgerUtxosTable.ledgerId] = ledgerId
+            it[networkKey] = network
+            it[outputOccurrenceId] = outputId
+            it[LedgerUtxosTable.txId] = txId.toHexString()
+            it[txIx] = index
+            it[lovelace] = output.coin.toString()
+            it[blockCreated] = point[ChainInclusionsTable.height]
+            it[slotCreated] = point[ChainInclusionsTable.slot]
+            it[blockSpent] = null; it[slotSpent] = null; it[spendingInclusionId] = null
+        }[LedgerUtxosTable.id].value
+        output.assets.forEach { asset ->
+            val policy = asset.policy.toHexString(); val name = asset.name.toHexString()
+            val assetId = LedgerAssetsTable.selectAll().where { (LedgerAssetsTable.policy eq policy) and (LedgerAssetsTable.name eq name) }
+                .firstOrNull()?.get(LedgerAssetsTable.id)?.value ?: run {
+                LedgerAssetsTable.insertIgnore {
+                    it[LedgerAssetsTable.policy] = policy; it[LedgerAssetsTable.name] = name; it[image] = ""; it[description] = null
                 }
-        }
-//        if (count > 0 && count == spentUtxos.size) {
-//            log.warn("spentUtxo update match: $count")
-//        }
-//        if (count != spentUtxos.size) {
-//            log.warn("spentUtxo update mismatch: spentUtxos.size=${spentUtxos.size}, count=${count}")
-//            log.warn(spentUtxos.toString())
-//        }
-    }
-
-    private val ledgerTableIdCache =
-        Caffeine
-            .newBuilder()
-            .expireAfterWrite(Duration.ofMinutes(5))
-            .maximumSize(30_000L)
-            .build<String, Long?> { address ->
-                LedgerTable
-                    .select(LedgerTable.id)
-                    .where {
-                        LedgerTable.address eq address
-                    }.limit(1)
-                    .firstOrNull()
-                    ?.let { row ->
-                        row[LedgerTable.id].value
-                    }
+                LedgerAssetsTable.selectAll().where { (LedgerAssetsTable.policy eq policy) and (LedgerAssetsTable.name eq name) }.single()[LedgerAssetsTable.id].value
             }
-    private val ledgerAssetsTableIdCache =
-        Caffeine
-            .newBuilder()
-            .expireAfterWrite(Duration.ofMinutes(5))
-            .maximumSize(30_000L)
-            .build<Pair<String, String>, Long?> { (policy, name) ->
-                LedgerAssetsTable
-                    .selectAll()
-                    .where { (LedgerAssetsTable.policy eq policy) and (LedgerAssetsTable.name eq name) }
-                    .limit(1)
-                    .firstOrNull()
-                    ?.let { row ->
-                        row[LedgerAssetsTable.id].value
-                    }
-            }
-
-    private val ledgerAddressesToInsert = ArrayList<CreatedUtxo>(400)
-    private val addressToLedgerIdMap = LinkedHashMap<String, Long>(400)
-    private val nativeAssetsToInsert = LinkedHashSet<NativeAsset>(400)
-    private val nativeAssetToLedgerAssetIdMap = LinkedHashMap<NativeAsset, Long>(400)
-
-    fun createUtxos(
-        slotNumber: Long,
-        blockNumber: Long,
-        createdUtxos: Set<CreatedUtxo>,
-    ) {
-        // information to temporarily cache
-        ledgerAddressesToInsert.clear()
-        addressToLedgerIdMap.clear()
-        nativeAssetsToInsert.clear()
-        nativeAssetToLedgerAssetIdMap.clear()
-
-        // figure out which LedgerAddresses already exist and store their id values
-//        val queryAddressTime = measureTimeMillis {
-        createdUtxos.forEach { createdUtxo ->
-            val ledgerTableId = ledgerTableIdCache[createdUtxo.address]
-            ledgerTableId?.let {
-                addressToLedgerIdMap[createdUtxo.address] = it
-            } ?: ledgerAddressesToInsert.add(createdUtxo)
-        }
-//        }
-
-        // batch insert into ledger table those that don't already exist
-//        val insertAddressTime = measureTimeMillis {
-        val distinctLedgerAddressesToInsert =
-            ledgerAddressesToInsert.distinctBy { createdUtxo -> createdUtxo.address }
-        val ledgerTableInsertedIds =
-            LedgerTable
-                .batchInsert(distinctLedgerAddressesToInsert) { utxo ->
-                    this[LedgerTable.address] = utxo.address
-                    this[LedgerTable.stakeAddress] = utxo.stakeAddress
-                }.map { row -> row[LedgerTable.id].value }
-        distinctLedgerAddressesToInsert
-            .zip(ledgerTableInsertedIds)
-            .forEach { (utxo, ledgerTableId) -> addressToLedgerIdMap[utxo.address] = ledgerTableId }
-        ledgerTableIdCache.invalidateAll(distinctLedgerAddressesToInsert.map { it.address })
-//        }
-
-        // batch insert new utxos
-//        val insertUtxoTime = measureTimeMillis {
-        val ledgerUtxoTableInsertedIds =
-            LedgerUtxosTable
-                .batchInsert(createdUtxos) { createdUtxo ->
-                    this[LedgerUtxosTable.ledgerId] = addressToLedgerIdMap[createdUtxo.address]!!
-                    this[LedgerUtxosTable.txId] = createdUtxo.hash
-                    this[LedgerUtxosTable.txIx] = createdUtxo.ix.toInt()
-                    this[LedgerUtxosTable.lovelace] = createdUtxo.lovelace.toString()
-                    this[LedgerUtxosTable.blockCreated] = blockNumber
-                    this[LedgerUtxosTable.slotCreated] = slotNumber
-                    this[LedgerUtxosTable.blockSpent] = null
-                    this[LedgerUtxosTable.slotSpent] = null
-                }.map { row -> row[LedgerUtxosTable.id].value }
-        val createdUtxoToLedgerUtxoIdMap = createdUtxos.zip(ledgerUtxoTableInsertedIds).toMap()
-//        }
-
-        // figure out which LedgerAssets already exist
-//        val queryLedgerAssetTime = measureTimeMillis {
-        createdUtxos.forEach { createdUtxo ->
-            createdUtxo.nativeAssets.forEach { nativeAsset ->
-                val ledgerAssetTableId = ledgerAssetsTableIdCache[Pair(nativeAsset.policy, nativeAsset.name)]
-                ledgerAssetTableId?.let { nativeAssetToLedgerAssetIdMap[nativeAsset] = it }
-                    ?: nativeAssetsToInsert.add(
-                        nativeAsset,
-                    )
+            LedgerUtxoAssetsTable.insert {
+                it[ledgerUtxoId] = projectionId; it[ledgerAssetId] = assetId; it[amount] = asset.quantity.toString()
             }
         }
-//        }
-
-        // batch insert into ledger_assets table those that don't already exist
-//        val insertLedgerAssetTime = measureTimeMillis {
-        val ledgerAssetInsertedIds =
-            LedgerAssetsTable
-                .batchInsert(nativeAssetsToInsert) { nativeAsset ->
-                    this[LedgerAssetsTable.policy] = nativeAsset.policy
-                    this[LedgerAssetsTable.name] = nativeAsset.name
-                    this[LedgerAssetsTable.image] = ""
-                    this[LedgerAssetsTable.description] = null
-                }.map { row -> row[LedgerAssetsTable.id].value }
-        nativeAssetsToInsert
-            .zip(ledgerAssetInsertedIds)
-            .forEach { (nativeAsset, ledgerAssetId) -> nativeAssetToLedgerAssetIdMap[nativeAsset] = ledgerAssetId }
-        ledgerAssetsTableIdCache.invalidateAll(nativeAssetsToInsert.map { Pair(it.policy, it.name) })
-//        }
-
-        // batch insert into ledger_utxo_assets table
-//        val insertLedgerUtxoAssetTime = measureTimeMillis {
-        LedgerUtxoAssetsTable.batchInsert(
-            createdUtxos.flatMap { createdUtxo ->
-                createdUtxo.nativeAssets.map { nativeAsset ->
-                    Triple(
-                        createdUtxoToLedgerUtxoIdMap[createdUtxo]!!,
-                        nativeAssetToLedgerAssetIdMap[nativeAsset]!!,
-                        nativeAsset.amount.toString(),
-                    )
-                }
-            },
-        ) { triple ->
-            this[LedgerUtxoAssetsTable.ledgerUtxoId] = triple.first
-            this[LedgerUtxoAssetsTable.ledgerAssetId] = triple.second
-            this[LedgerUtxoAssetsTable.amount] = triple.third
-        }
-//        }
-//        val totalTime =
-//            queryAddressTime + insertAddressTime + insertUtxoTime + queryLedgerAssetTime + insertLedgerAssetTime + insertLedgerUtxoAssetTime
-//        log.warn("createUtxos(blockNumber=$blockNumber,...): total: ${totalTime}ms, queryAddressTime: ${queryAddressTime}ms, insertAddressTime: ${insertAddressTime}ms, insertUtxoTime: ${insertUtxoTime}ms, queryLedgerAssetTime: ${queryLedgerAssetTime}ms, insertLedgerAssetTime: ${insertLedgerAssetTime}ms, insertLedgerUtxoAssetTime: ${insertLedgerUtxoAssetTime}ms")
+        return outputId
     }
 
-    private const val ADA_HANDLES_POLICY = "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a"
-    // private const val ADA_HANDLES_POLICY = "c071f4c41ed451ab55da30e570edb868a1219fb7fe0087b3b8f19f0b"
-
-    // test - AwesomePoolToken6
-    fun queryAdaHandle(adaHandleName: String): String? =
-        transaction {
-            LedgerTable
-                .join(
-                    LedgerUtxosTable,
-                    JoinType.INNER,
-                    LedgerTable.id,
-                    LedgerUtxosTable.ledgerId,
-                    additionalConstraint = { LedgerUtxosTable.blockSpent.isNull() },
-                ).join(
-                    LedgerUtxoAssetsTable,
-                    JoinType.INNER,
-                    LedgerUtxosTable.id,
-                    LedgerUtxoAssetsTable.ledgerUtxoId,
-                ).join(
-                    LedgerAssetsTable,
-                    JoinType.INNER,
-                    LedgerUtxoAssetsTable.ledgerAssetId,
-                    LedgerAssetsTable.id,
-                    additionalConstraint = {
-                        (LedgerAssetsTable.policy eq ADA_HANDLES_POLICY) and
-                            (LedgerAssetsTable.name eq adaHandleName.toByteArray().toHexString())
-                    },
-                ).select(LedgerTable.address)
-                .firstOrNull()
-                ?.let { row -> row[LedgerTable.address] }
+    private fun addressId(bytes: ByteArray): Long {
+        val address = addressText(bytes)
+        LedgerTable.selectAll().where { LedgerTable.address eq address }.singleOrNull()?.let { return it[LedgerTable.id].value }
+        LedgerTable.insertIgnore {
+            it[LedgerTable.address] = address
+            it[stakeAddress] = if (bytes.size == 57 && (bytes[0].toInt() and 0xf0) < 0x40) {
+                val stake = byteArrayOf(((bytes[0].toInt() and 15) or if ((bytes[0].toInt() and 0x20) == 0) 0xe0 else 0xf0).toByte()) + bytes.copyOfRange(29, 57)
+                Bech32.encode(if ((stake[0].toInt() and 15) == 1) "stake" else "stake_test", stake)
+            } else null
         }
+        return LedgerTable.selectAll().where { LedgerTable.address eq address }.single()[LedgerTable.id].value
+    }
 
-    private val idCount = LedgerUtxosTable.id.count()
-    private val siblingHashCountCache =
-        Caffeine
-            .newBuilder()
-            .expireAfterWrite(Duration.ofMinutes(1))
-            .build<String, Long> { hash ->
-                transaction {
-                    LedgerUtxosTable.select(idCount).where { LedgerUtxosTable.txId eq hash }.first()[idCount]
-                }
+    fun spend(network: String, inclusion: Long, txId: ByteArray, index: Int): Long? {
+        val current = currentOutput(network, txId, index)
+            ?: throw IllegalStateException("Referenced input is outside complete indexed coverage")
+        val point = ChainInclusionsTable.selectAll().where { ChainInclusionsTable.id eq inclusion }.single()
+        check(LedgerUtxosTable.update({ LedgerUtxosTable.id eq current[LedgerUtxosTable.id] }) {
+            it[spendingInclusionId] = inclusion
+            it[blockSpent] = point[ChainInclusionsTable.height]
+            it[slotSpent] = point[ChainInclusionsTable.slot]
+        } == 1)
+        return current[LedgerUtxosTable.outputOccurrenceId]
+    }
+
+    fun rollbackProjection(network: String, inclusion: Long) {
+        LedgerUtxosTable.update({ (LedgerUtxosTable.networkKey eq network) and (LedgerUtxosTable.spendingInclusionId eq inclusion) }) {
+            it[spendingInclusionId] = null; it[blockSpent] = null; it[slotSpent] = null
+        }
+        val outputs = (OutputOccurrencesTable innerJoin TransactionMembersTable innerJoin TransactionBatchesTable)
+            .select(OutputOccurrencesTable.id).where { TransactionBatchesTable.inclusion eq inclusion }
+            .map { it[OutputOccurrencesTable.id].value }
+        if (outputs.isNotEmpty()) LedgerUtxosTable.deleteWhere { (networkKey eq network) and (outputOccurrenceId inList outputs) }
+    }
+
+    private fun addressText(address: ByteArray): String {
+        require(address.isNotEmpty()) { "Empty output address" }
+        return if ((address[0].toInt() and 0xf0) == 0x80) {
+            // Byron base58 is presentation only; binary identity remains in the occurrence.
+            base58(address)
+        } else Bech32.encode(if ((address[0].toInt() and 15) == 1) "addr" else "addr_test", address)
+    }
+
+    private fun base58(bytes: ByteArray): String {
+        val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        val scratch = bytes.copyOf()
+        val encoded = CharArray(bytes.size * 2)
+        var position = encoded.size
+        var zeros = 0
+        while (zeros < bytes.size && bytes[zeros] == 0.toByte()) zeros++
+        var start = zeros
+        while (start < scratch.size) {
+            var remainder = 0
+            for (i in start until scratch.size) {
+                val value = remainder * 256 + (scratch[i].toInt() and 255)
+                scratch[i] = (value / 58).toByte()
+                remainder = value % 58
             }
-
-    fun siblingHashCount(hash: String): Long = siblingHashCountCache.get(hash)
-
-    fun insertBlockFetch(
-        blockNumber: Long,
-        slotNumber: Long,
-        hash: String,
-        prevHash: String,
-    ) {
-        BlockFetchTable.insert { row ->
-            row[BlockFetchTable.blockNumber] = blockNumber
-            row[BlockFetchTable.slotNumber] = slotNumber
-            row[BlockFetchTable.hash] = hash
-            row[BlockFetchTable.prevHash] = prevHash
+            encoded[--position] = alphabet[remainder]
+            while (start < scratch.size && scratch[start] == 0.toByte()) start++
         }
+        repeat(zeros) { encoded[--position] = '1' }
+        return String(encoded, position, encoded.size - position)
     }
-
-    fun findTipBlock(): BlockFetch? =
-        transaction {
-            BlockFetchTable
-                .selectAll()
-                .orderBy(BlockFetchTable.blockNumber, SortOrder.DESC)
-                .limit(1)
-                .firstOrNull()
-                ?.let { row ->
-                    BlockFetch(
-                        id = row[BlockFetchTable.id].value,
-                        blockNumber = row[BlockFetchTable.blockNumber],
-                        slotNumber = row[BlockFetchTable.slotNumber],
-                        hash = row[BlockFetchTable.hash],
-                        prevHash = row[BlockFetchTable.prevHash],
-                    )
-                }
-        }
 }

@@ -2,6 +2,10 @@
 
 JorManager is designed to be installed on Linux systems. Most of the commands in this guide will be designed for the Ubuntu distribution, but it should be able to run on others with slight modifications.
 
+For the Dijkstra-aware build, read the [upgrade and operator workflow](dijkstra-upgrade-guide.md) before enabling transactions or provisioning. Musashi Dōjō is the Dijkstra integration baseline; supported Conway installations retain their existing network configuration. The node's observed current era—not an installed version label—selects era-dependent behavior.
+
+For Musashi node/CLI builds, follow the selected [upstream Musashi deployment guidance](https://leios.cardano-scaling.org/docs/testnet/getting-started/) and its dependency requirements. The historical native-library examples below are not a separately qualified Musashi build recipe. Keep exact executable/dependency hashes as qualification evidence rather than imposing independent local Cardano version pins.
+
 ## Prepare environment
 
 Update any packages on your system and configure some build environment tools.
@@ -185,6 +189,8 @@ In a normal JorManager setup, it's a good practice to have a local passive node 
 You can follow any guide for installing these. I'm linking the one from IOG for reference.
 
 [cardano-node installation](https://docs.cardano.org/getting-started/installing-the-cardano-node)
+
+For Musashi, use the upstream guide linked above and the complete immutable bundle from the [JorManager catalog](https://bluecheesestakehouse.com/jormanager/index.html). The published stable aliases do not by themselves satisfy the manifest/versioned-publication contract. Selectable bundles, pre-creation observer evidence, host qualification and the separate draft/register/deploy pool flow are described in the [operator guide](dijkstra-upgrade-guide.md). Dijkstra-capable tools connected to a Conway network must continue using Conway operations.
 
 
 ## Install cardano-node and cardano-cli on remotes

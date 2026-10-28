@@ -195,7 +195,6 @@ class NodeControllerTest {
         nodeRepository: NodeRepository = mockk(relaxed = true),
         hostRepository: HostRepository = mockk(relaxed = true),
         fileRepository: FileRepository = mockk(relaxed = true),
-        walletRepository: WalletRepository = mockk(relaxed = true),
         walletUtils: WalletUtils =
             mockk(relaxed = true) {
                 every { isValidSpendingPassword(any()) } returns true
@@ -206,26 +205,21 @@ class NodeControllerTest {
         nodeRepository = nodeRepository,
         hostRepository = hostRepository,
         fileRepository = fileRepository,
-        walletRepository = walletRepository,
         walletUtils = walletUtils,
-        transactionRepository = mockk(relaxed = true),
         webSocketTemplate = webSocketTemplate,
         nodesChannel = mockk(relaxed = true),
         retrofit = config.getRetrofit(httpClient, moshi),
         okHttpClient = httpClient,
-        relayRepository = mockk(relaxed = true),
         extendedMetadataAdapter = config.getExtendedMetadataAdapter(moshi),
         shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
         byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
         metadataAdapter = config.getMetadataAdapter(moshi),
-        protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
-        queryTipAdapter = config.getQueryTipAdapter(moshi),
         keyFileJsonAdapter = mockk(relaxed = true),
-        bulkCredentialsJsonAdapter = mockk(relaxed = true),
-        txSignedAdapter = mockk(relaxed = true),
-        ledgerDao = mockk(relaxed = true),
-        cardanoUtils = mockk(relaxed = true),
         cardanoRepository = cardanoRepository,
+        cardanoCapabilities = mockk(relaxed = true),
+        networkBundleValidator = mockk(relaxed = true),
+        nodeConfigurationSnapshotRepository = mockk(relaxed = true),
+        reviewedNetworkReconfiguration = mockk(relaxed = true),
     )
 
     private class RationaleHttpFixture(
@@ -373,154 +367,6 @@ class NodeControllerTest {
         }
     }
 
-    @Test
-    fun submitGovernanceVoteSharesOneAnchorAcrossMixedPoolVotes() {
-        val fixture = RationaleHttpFixture()
-
-        val commands = submitGovernanceVoteUntilBuild("Shared rationale", fixture)
-
-        val votes = commands.filter { "governance vote create" in it }
-        assertThat(votes).hasSize(2)
-        assertThat(votes[0]).contains("--yes")
-        assertThat(votes[1]).contains("--no")
-        val anchors =
-            votes.map {
-                Regex("""--anchor-url '([^']+)' --anchor-data-hash ([0-9a-f]{64})""").find(it)?.value
-            }
-        val distinctAnchors = anchors.distinct()
-        assertThat(distinctAnchors).hasSize(1)
-        assertThat(distinctAnchors.single()).isNotNull()
-        assertThat(fixture.uploadCount).isEqualTo(1)
-    }
-
-    @Test
-    fun submitGovernanceVoteLeavesBlankRationaleUnanchored() {
-        val fixture = RationaleHttpFixture()
-
-        val commands = submitGovernanceVoteUntilBuild(" \n", fixture)
-
-        val votes = commands.filter { "governance vote create" in it }
-        assertThat(votes).hasSize(2)
-        assertThat(votes.all { "--anchor-" !in it }).isTrue()
-        assertThat(fixture.requestCount).isEqualTo(0)
-    }
-
-    @Test
-    fun submitGovernanceVoteStopsBeforeSigningWhenRationaleIntegrityFails() {
-        val fixture = RationaleHttpFixture(getBytes = { bytes -> bytes + 0 })
-
-        val commands = submitGovernanceVoteUntilBuild("Must not downgrade", fixture)
-
-        assertThat(commands.none { "governance vote create" in it }).isTrue()
-        assertThat(commands.none { "transaction sign" in it || "transaction submit" in it }).isTrue()
-    }
-
-    private fun submitGovernanceVoteUntilBuild(
-        rationale: String?,
-        fixture: RationaleHttpFixture,
-    ): List<String> {
-        val nodeRepository = mockk<NodeRepository>()
-        val hostRepository = mockk<HostRepository>()
-        val fileRepository = mockk<FileRepository>()
-        val walletRepository = mockk<WalletRepository>()
-        val walletUtils =
-            mockk<WalletUtils> {
-                every { isValidSpendingPassword(any()) } returns true
-            }
-        val cardanoRepository = mockk<CardanoRepository>()
-        val node1 = governanceNode(1, 11, 12, true)
-        val node2 = governanceNode(2, 21, 22, false)
-        val files =
-            mapOf(
-                10L to
-                    File(
-                        id = 10,
-                        name = "shelley.json",
-                        content = """{"activeSlotsCoeff":0.05,"networkId":"mainnet","slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}""",
-                    ),
-                11L to File(11, "node1.vkey", "vkey-1"),
-                12L to File(12, "node1.skey", "encrypted-skey-1"),
-                21L to File(21, "node2.vkey", "vkey-2"),
-                22L to File(22, "node2.skey", "encrypted-skey-2"),
-            )
-        val feeKey = File(30, "payment.skey", "encrypted-payment-skey")
-        val feeWallet = WalletEntry(id = 5, name = "fees", type = "payment", paymentAddr = "addr_test1fees", paymentSkey = feeKey)
-        every { nodeRepository.findDefault() } returns node1
-        every { nodeRepository.findById(any()) } answers {
-            Optional.ofNullable(mapOf(1L to node1, 2L to node2)[firstArg()])
-        }
-        every { hostRepository.findById(any()) } returns Optional.of(testHost)
-        every { fileRepository.findById(any()) } answers { Optional.ofNullable(files[firstArg()]) }
-        every { walletRepository.findById(any()) } returns Optional.of(feeWallet)
-        every { cardanoRepository.getEra(any(), any(), any(), any()) } returns "conway"
-        every { walletUtils.getUtxos(any(), any(), any(), any(), any(), any()) } returns
-            listOf(Utxo("tx", 0, 10_000_000.toBigInteger(), emptyList()))
-        every { walletUtils.getSKeyContent(any(), any()) } returns "decrypted-skey"
-
-        val commands = mutableListOf<String>()
-        mockkConstructor(HostConnection::class)
-        try {
-            every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } returns ""
-            every { anyConstructed<HostConnection>().command(any<String>()) } answers {
-                firstArg<String>().also(commands::add).let { command ->
-                    when {
-                        "query protocol-parameters" in command -> "{}"
-                        "query tip" in command -> """{"era":"Conway","slot":100}"""
-                        "transaction build-raw" in command -> throw IOException("Stop after generated vote files")
-                        else -> ""
-                    }
-                }
-            }
-            val target =
-                createTarget(
-                    httpClient = fixture.client(),
-                    nodeRepository = nodeRepository,
-                    hostRepository = hostRepository,
-                    fileRepository = fileRepository,
-                    walletRepository = walletRepository,
-                    walletUtils = walletUtils,
-                    cardanoRepository = cardanoRepository,
-                )
-            val request =
-                GovernanceVoteRequest(
-                    govActionId = Bech32.encode("gov_action", ByteArray(33)),
-                    votes = listOf(NodeVoteSelection(1, "YES"), NodeVoteSelection(2, "NO")),
-                    feesAccountId = 5,
-                    spendingPassword = "password",
-                    rationale = rationale,
-                )
-
-            assertThrows<RuntimeException> { target.submitGovernanceVote(request) }
-        } finally {
-            unmockkConstructor(HostConnection::class)
-        }
-        return commands
-    }
-
-    private fun governanceNode(
-        id: Long,
-        vkeyId: Long,
-        skeyId: Long,
-        isDefault: Boolean,
-    ) = Node(
-        id = id,
-        hostId = 1,
-        color = "#000000",
-        type = NodeController.NODE_TYPE_CORE,
-        processorThreads = 2,
-        name = "node-$id",
-        listen = "127.0.0.1",
-        port = 3000 + id.toInt(),
-        promPort = 12790 + id.toInt(),
-        genesisByronFileId = 10,
-        genesisShelleyFileId = 10,
-        genesisAlonzoFileId = 10,
-        genesisConwayFileId = 10,
-        configFileId = 10,
-        isDefault = isDefault,
-        coreVKeyId = vkeyId,
-        coreSKeyId = skeyId,
-    )
 
     @Test
     fun allocateTracingPortReturnsFirstFreePort() {
@@ -871,28 +717,23 @@ class NodeControllerTest {
                             )
                     },
                 fileRepository = mockk(relaxed = true),
-                walletRepository = mockk(relaxed = true),
                 walletUtils = mockk(relaxed = true) {
                     every { isValidSpendingPassword(any()) } returns true
                 },
-                transactionRepository = mockk(relaxed = true),
                 webSocketTemplate = mockk(relaxed = true),
                 nodesChannel = mockk(relaxed = true),
                 retrofit = Retrofit.Builder().baseUrl("http://dummy.com").build(),
                 okHttpClient = OkHttpClient.Builder().build(),
-                relayRepository = mockk(relaxed = true),
                 extendedMetadataAdapter = config.getExtendedMetadataAdapter(moshi),
                 shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
                 byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
                 metadataAdapter = config.getMetadataAdapter(moshi),
-                protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
-                queryTipAdapter = config.getQueryTipAdapter(moshi),
                 keyFileJsonAdapter = mockk(relaxed = true),
-                bulkCredentialsJsonAdapter = mockk(relaxed = true),
-                txSignedAdapter = mockk(relaxed = true),
-                ledgerDao = mockk(relaxed = true),
-                cardanoUtils = mockk(relaxed = true),
                 cardanoRepository = mockk(relaxed = true),
+                cardanoCapabilities = mockk(relaxed = true),
+                networkBundleValidator = mockk(relaxed = true),
+                nodeConfigurationSnapshotRepository = mockk(relaxed = true),
+                reviewedNetworkReconfiguration = mockk(relaxed = true),
             )
 
         val request =

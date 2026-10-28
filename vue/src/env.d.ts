@@ -42,6 +42,10 @@ declare module 'sockjs-client' {
 }
 
 declare module 'json-bigint' {
-  export function parse(text: string): unknown
-  export function stringify(value: unknown): string
+  interface JsonBig {
+    parse(text: string): unknown
+    stringify(value: unknown): string
+  }
+  const JSONBIG: JsonBig & ((options?: { storeAsString?: boolean }) => JsonBig)
+  export default JSONBIG
 }

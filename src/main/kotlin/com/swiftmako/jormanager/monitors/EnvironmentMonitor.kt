@@ -17,6 +17,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -37,7 +39,8 @@ class EnvironmentMonitor
     @Autowired
     constructor(
         private val okHttpClient: OkHttpClient,
-        private val fileRepository: FileRepository
+        private val fileRepository: FileRepository,
+        private val networkBundleValidator: com.swiftmako.jormanager.services.NetworkBundleValidator
     ) : SmartLifecycle,
         CoroutineScope {
         private val log by lazy { LoggerFactory.getLogger("EnvironmentMonitor") }
@@ -68,33 +71,39 @@ class EnvironmentMonitor
                 while (isRunning.get()) {
                     try {
                         log.info("Fetching environments...")
-                        val doc = Jsoup.connect(URL).get()
-                        val links = doc.select("a[href]")
-                        links.forEach { link ->
-                            val url = link.attr("abs:href")
-                            val remoteFileName = url.substringAfterLast('/')
-                            val request = Request.Builder().url(url).build()
-                            okHttpClient.newCall(request).execute().use { response ->
-                                response.body.string().let { remoteContent ->
-                                    fileRepository.findByName(remoteFileName)?.let { dbFile ->
-                                        if (dbFile.content != remoteContent) {
-                                            fileRepository.save(dbFile.copy(content = remoteContent))
-                                            log.info("Saved: $remoteFileName")
-                                        }
-                                    } ?: run {
-                                        fileRepository.save(
-                                            File(
-                                                name = remoteFileName,
-                                                content = remoteContent
-                                            )
-                                        )
-                                        log.info("Saved: $remoteFileName")
-                                    }
+                        val client = okHttpClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
+                        val index = client.newCall(Request.Builder().url(URL).build()).execute().use { response ->
+                            require(response.isSuccessful) { "Catalog returned HTTP ${response.code}" }
+                            response.body.string()
+                        }
+                        val links = Jsoup.parse(index, URL).select("a[href]").map { it.attr("abs:href") }
+                        networkBundleValidator.refresh(links, client, URL)
+                        links.forEach { url ->
+                            val parsed = url.toHttpUrlOrNull()
+                            val origin = URL.toHttpUrl()
+                            if (parsed == null || parsed.scheme != "https" || parsed.host != origin.host ||
+                                parsed.port != origin.port || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
+                                parsed.fragment != null
+                            ) return@forEach
+                            val remoteFileName = parsed.pathSegments.last()
+                            if (remoteFileName.startsWith("musashi-")) return@forEach
+                            val request = Request.Builder().url(parsed).build()
+                            client.newCall(request).execute().use { response ->
+                                require(response.isSuccessful) { "$remoteFileName returned HTTP ${response.code}" }
+                                val remoteContent = response.body.string()
+                                val existing = fileRepository.findByName(remoteFileName)
+                                if (existing == null) {
+                                    fileRepository.save(File(name = remoteFileName, content = remoteContent))
+                                    log.info("Saved: $remoteFileName")
+                                } else if (existing.content != remoteContent) {
+                                    log.warn("Catalog file $remoteFileName changed; retaining existing node selections")
                                 }
                             }
                         }
                         log.info("Fetching environments done.")
                     } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        networkBundleValidator.catalogFailure(e.message ?: e.javaClass.simpleName)
                         log.error("Error fetching environments!", e)
                     }
                     delay(RECONNECT_DELAY_MS)

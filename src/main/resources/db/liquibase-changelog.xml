@@ -47,5 +47,8 @@
     <include file="changelog/040-update-node-schema.xml" relativeToChangelogFile="true"/>
     <include file="changelog/041-drop-ekg-port.xml" relativeToChangelogFile="true"/>
     <include file="changelog/042-update-node-tracing-host.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/043-operational-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/044-dijkstra-ledger.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/045-dijkstra-provisioning.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

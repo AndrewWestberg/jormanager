@@ -26,11 +26,19 @@
         </BButton>
       </div>
       <hr />
-      <div class="alert alert-warning" role="status">
-        Wallet completeness and current-era evidence are not available in this view. Balances
-        may be stale; do not treat them as available-to-spend until the target network's complete
-        index and reviewed transaction are confirmed.
+      <div :class="['alert', store.chainReadState?.status === 'complete' ? 'alert-info' : 'alert-warning']" role="status">
+        <strong>Wallet index:</strong> {{ store.chainReadState?.status || 'unavailable' }}
+        <span v-if="store.chainReadState?.reason"> — {{ store.chainReadState.reason }}</span>
+        <div>Network: {{ store.walletNetworkKey || 'unavailable' }}</div>
+        <div>Observed tip: {{ pointLabel(store.chainReadState?.observedTip) }}; last complete: {{ pointLabel(store.chainReadState?.lastCompletePoint) }}</div>
+        <div v-if="store.chainReadState?.status !== 'complete'">Balances may be stale and must not be treated as available to spend.</div>
+        <BButton size="sm" variant="outline-secondary" :disabled="!store.walletNetworkKey" @click="store.walletNetworkKey && store.requestChainStatus(store.walletNetworkKey)">Refresh chain status</BButton>
       </div>
+      <BFormGroup label="Transaction ID" label-for="wallet-transaction-id" class="mb-3">
+        <BFormInput id="wallet-transaction-id" v-model="transactionId" placeholder="Transaction ID (hex)" />
+        <BButton class="mt-2" :disabled="!store.walletNetworkKey || !/^[0-9a-fA-F]{64}$/.test(transactionId)" @click="store.requestTransaction(transactionId)">Find transaction</BButton>
+        <WalletTransactionDetail v-if="store.transactionDetail" :detail="store.transactionDetail" @navigate="navigateTransaction" />
+      </BFormGroup>
       <BContainer fluid>
         <BRow>
           <BCol lg="6" class="my-1">
@@ -111,7 +119,7 @@
               v-for="(name, index) in getNativeAssetKeys((item as any).name)"
               :key="index"
             >
-              {{ hex2ascii(name.substring(name.indexOf('.') + 1)) }} -
+              {{ hex2ascii(name.substring(name.indexOf('.') + 1)) }} ({{ name }}) -
               {{ getNativeAssetAmount((item as any).name, name) }}
               <span
                 class="text-warning d-inline-block"
@@ -140,6 +148,7 @@
               >
                 <font-awesome-icon :icon="['fas', 'unlink']" />
               </span>
+              <BButton v-if="(item as any).stakingAddrRegistered && (item as any).type === 'stake'" size="sm" variant="outline-primary" class="ms-2" @click="delegateStakingAddress((item as any).name)">Delegate</BButton>
             </div>
             <div v-else class="text-center">---</div>
           </template>
@@ -187,12 +196,15 @@
       :title="stakingAddressModalTitle"
       :no-close-on-backdrop="true"
       size="lg"
-      :ok-disabled="true"
+      @hidden="resetStakingReview"
     >
-      <div class="alert alert-warning" role="alert">
-        Registration changes require current target-network era and capability evidence and a
-        durable preview of the fee, deposit or refund before authorization. Preview unavailable.
-      </div>
+      <div v-if="stakingError" class="alert alert-danger" role="alert">{{ stakingError }}</div>
+      <WalletReviewPanel v-if="stakingReview" :review="stakingReview" @close="stakingReview = null" @submitted="stakingReview = $event" />
+      <template #footer>
+        <BButton variant="secondary" @click="showStakingModal = false">Close</BButton>
+        <BButton v-if="!stakingReview" variant="primary" :disabled="stakingBusy || !stakingFeesAccountState || store.chainReadState?.status !== 'complete' || (stakingAddressForm.isDelegation && !stakingAddressForm.poolId.trim())" @click="reviewStaking">Review</BButton>
+      </template>
+      <fieldset v-if="!stakingReview" :disabled="stakingBusy">
       <BFormGroup
         label="Fees Account"
         label-for="staking-fees-account-select"
@@ -213,6 +225,10 @@
           Account must hold enough to pay fees and/or deposit.
         </BFormInvalidFeedback>
       </BFormGroup>
+      <BFormGroup v-if="stakingAddressForm.isDelegation" label="Pool ID" label-cols-md="2">
+        <BFormInput v-model="stakingAddressForm.poolId" placeholder="pool1… or pool key hash" />
+      </BFormGroup>
+      </fieldset>
     </BModal>
   </div>
 </template>
@@ -241,6 +257,9 @@ import { useEventBus } from '@/composables/useEventBus'
 import { hex2ascii } from '@/utils/filters'
 import AddWalletEntryWizard from '@/components/AddWalletEntryWizard.vue'
 import SendAdaModal from '@/components/SendAdaModal.vue'
+import WalletReviewPanel from '@/components/WalletReviewPanel.vue'
+import WalletTransactionDetail from '@/components/WalletTransactionDetail.vue'
+import type { ChainPoint, WalletReview } from '@/types'
 import type { WalletItem } from '@/types'
 
 const store = useJorManagerStore()
@@ -254,21 +273,65 @@ const filter = ref<string>('')
 const filterOn = ref<string[]>(['name', 'type', 'paymentAddr', 'stakingAddr'])
 const selectedClaimIds = ref<Set<number>>(new Set())
 const pendingAction = ref<string | null>(null)
+const transactionId = ref('')
+const stakingReview = ref<WalletReview | null>(null)
+const stakingError = ref('')
+const stakingBusy = ref(false)
+let stakingGeneration = 0
+
+function navigateTransaction(txId: string) {
+  transactionId.value = txId
+  store.requestTransaction(txId)
+}
+
+function pointLabel(point: ChainPoint | null | undefined): string {
+  return point ? `${point.slot} / ${point.hash}` : 'unavailable'
+}
+
+function resetStakingReview() {
+  stakingGeneration++
+  stakingBusy.value = false
+  stakingReview.value = null
+  stakingError.value = ''
+  stakingAddressForm.value.stakingFeesAccount = null
+}
+
+async function reviewStaking() {
+  if (stakingBusy.value || stakingAddressForm.value.stakingFeesAccount == null) return
+  const generation = ++stakingGeneration
+  stakingBusy.value = true
+  stakingError.value = ''
+  try {
+    const result = await store.reviewWallet('stake', {
+      id: stakingAddressForm.value.id,
+      stakingFeesAccount: stakingAddressForm.value.stakingFeesAccount,
+      ...(stakingAddressForm.value.isDelegation
+        ? { poolId: stakingAddressForm.value.poolId.trim() }
+        : { isRegistration: stakingAddressForm.value.isRegistration })
+    })
+    if (generation === stakingGeneration) stakingReview.value = result
+  } catch (e) {
+    if (generation === stakingGeneration) stakingError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    if (generation === stakingGeneration) stakingBusy.value = false
+  }
+}
 
 const stakingAddressForm = ref({
   id: -1,
-  spendingPassword: null as string | null,
   stakingFeesAccount: null as number | null,
-  isRegistration: false
+  isRegistration: false,
+  isDelegation: false,
+  poolId: ''
 })
 
 const fields = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'type', label: 'Item Type', sortable: true },
   { key: 'paymentAddr', label: 'Payment Address' },
-  { key: 'paymentAddrLovelace', label: 'Balance', class: 'text-right', sortable: true },
+  { key: 'paymentAddrLovelace', label: 'Balance', class: 'text-right' },
   { key: 'stakingAddr', label: 'Reward Address' },
-  { key: 'stakingAddrLovelace', label: 'Rewards', sortable: true },
+  { key: 'stakingAddrLovelace', label: 'Rewards' },
   { key: 'edit', label: '' }
 ]
 
@@ -419,6 +482,7 @@ function registerStakingAddress(name: string) {
   const item = findWalletItemByName(name)
   if (!item) return
   stakingAddressForm.value.id = item.id
+  stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = true
   stakingAddressModalTitle.value = 'Register Staking Address'
   showStakingModal.value = true
@@ -428,8 +492,19 @@ function deregisterStakingAddress(name: string) {
   const item = findWalletItemByName(name)
   if (!item) return
   stakingAddressForm.value.id = item.id
+  stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = false
   stakingAddressModalTitle.value = 'Deregister Staking Address (note: Ensure any 500 ada pool deposits have already been refunded)'
+  showStakingModal.value = true
+}
+
+function delegateStakingAddress(name: string) {
+  const item = findWalletItemByName(name)
+  if (!item) return
+  stakingAddressForm.value.id = item.id
+  stakingAddressForm.value.isDelegation = true
+  stakingAddressForm.value.poolId = ''
+  stakingAddressModalTitle.value = 'Delegate Staking Address'
   showStakingModal.value = true
 }
 
