@@ -80,29 +80,23 @@ class WalletMonitor
 
         private fun monitorWallet() {
             launch {
-                var magicString = ""
-                var era = ""
                 refreshWalletChannel.filterNotNull().buffer(capacity = CONFLATED).collect {
                     try {
-                        if (magicString.isBlank() || era.isBlank()) {
-                            nodeRepository.findDefault()?.let { defaultNode ->
-                                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                                    val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
-                                    magicString =
-                                        if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                                            "--testnet-magic ${genesis.networkMagic}"
-                                        } else {
-                                            "--mainnet"
-                                        }
-                                    val defaultHost =
-                                        hostRepository.findByIdOrNull(defaultNode.hostId)
-                                            ?: throw IOException("Host not found for default node!")
-                                    val socketPath =
-                                        "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
-                                    era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
-                                }
-                            }
+                        val defaultNode = nodeRepository.findDefault()
+                            ?: throw IOException("No default node")
+                        val genesisFile = fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                            ?: throw IOException("Genesis file not found for default node")
+                        val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)
+                            ?: throw IOException("Invalid Shelley genesis")
+                        val magicString = if (genesis.networkId.equals("testnet", ignoreCase = true)) {
+                            "--testnet-magic ${genesis.networkMagic}"
+                        } else {
+                            "--mainnet"
                         }
+                        val defaultHost = hostRepository.findByIdOrNull(defaultNode.hostId)
+                            ?: throw IOException("Host not found for default node")
+                        val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                        val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                         if (magicString.isNotBlank() && era.isNotBlank()) {
                             // A new block has arrived.
                             val walletItems = walletUtils.getWalletItems(magicString, era)
@@ -112,8 +106,13 @@ class WalletMonitor
                             )
                         }
                     } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
                         if (!isShuttingDown) {
                             log.error("Error monitoring wallet!", e)
+                            webSocketTemplate.convertAndSend(
+                                "/topic/messages",
+                                SocketResponse.Error("wallet", IOException("Wallet state is unavailable; refresh after synchronization"))
+                            )
                         }
                     }
                 }

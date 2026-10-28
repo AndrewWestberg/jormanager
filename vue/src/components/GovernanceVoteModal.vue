@@ -7,6 +7,11 @@
     :no-close-on-backdrop="true"
     @hidden="resetForm"
   >
+    <div class="alert alert-warning" role="alert">
+      Voting is unavailable until target-network era and capability evidence and a durable,
+      reviewed transaction preview are available. A rationale can be published publicly even
+      if a submission fails.
+    </div>
     <BFormGroup label="Fees Account" label-cols-md="4">
       <BFormSelect
         v-model="feesAccountId"
@@ -80,17 +85,16 @@
       <BButton variant="secondary" @click="handleCancel">Cancel</BButton>
       <BButton
         variant="success"
-        :disabled="!isFormValid"
-        @click="handleSubmitVote"
+        disabled
       >
-        🗳️ Submit Vote
+        Review and submit unavailable
       </BButton>
     </template>
   </BModal>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { filter } from 'lodash-es'
 import {
@@ -106,13 +110,6 @@ import {
   BButton
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
-import { useEventBus } from '@/composables/useEventBus'
-import { lovelaceToAda } from '@/utils/filters'
-
-interface NodeVote {
-  nodeId: number
-  vote: 'YES' | 'NO' | 'ABSTAIN'
-}
 
 const props = defineProps<{
   modelValue: boolean
@@ -124,7 +121,6 @@ const emit = defineEmits<{
 
 const store = useJorManagerStore()
 const { nodes } = storeToRefs(store)
-const emitter = useEventBus()
 
 // Form state
 const govActionId = ref('')
@@ -163,10 +159,15 @@ const coreNodesWithVotes = computed(() => {
 })
 
 // Fee account options
-const feeAccountOptions = computed(() => {
-  const formatter = (val: number) => lovelaceToAda(val * 1000000)
-  return store.registrationFeesSelectOptions(formatter)
-})
+const feeAccountOptions = computed(() => store.walletItems
+  .filter(item => item.type !== 'address' && item.hasPaymentKeys)
+  .map(item => {
+    const value = String(item.paymentAddrLovelace)
+    const amount = typeof item.paymentAddrLovelace === 'string' && /^\d+$/.test(value)
+      ? BigInt(value) : null
+    const balance = amount === null ? 'Unavailable' : `₳${amount / 1000000n}.${(amount % 1000000n).toString().padStart(6, '0')}`
+    return { value: item.id, text: `${item.name} - ${balance}` }
+  }).sort((a, b) => a.text.localeCompare(b.text)))
 
 // Validate bech32 governance action ID format
 const isValidGovActionId = computed(() => {
@@ -181,15 +182,6 @@ const govActionIdState = computed(() => {
   return isValidGovActionId.value
 })
 
-// Check if all nodes have votes
-const allNodesHaveVotes = computed(() => {
-  return coreNodes.value.every((node) => nodeVotes.value[node.id!] !== undefined)
-})
-
-// Form validation
-const isFormValid = computed(() => {
-  return isValidGovActionId.value && allNodesHaveVotes.value && feesAccountId.value !== null
-})
 
 // Truncate pool ID for display
 function truncatePoolId(poolId: string): string {
@@ -220,36 +212,6 @@ function handleCancel() {
   emit('update:modelValue', false)
 }
 
-// Handle submit - triggers spending password modal
-function handleSubmitVote() {
-  if (!isFormValid.value) return
-
-  const votes: NodeVote[] = Object.entries(nodeVotes.value).map(([nodeId, vote]) => ({
-    nodeId: parseInt(nodeId, 10),
-    vote
-  }))
-
-  emitter.emit('show-spending-password-modal', {
-    action: 'governance-vote',
-    data: {
-      govActionId: govActionId.value.trim(),
-      votes,
-      feesAccountId: feesAccountId.value,
-      ...(rationale.value.trim() ? { rationale: rationale.value } : {})
-    }
-  })
-}
-
-// Handle spending password confirmation
-function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: any }) {
-  if (data.action === 'governance-vote') {
-    store.submitGovernanceVote({
-      ...data.originalData,
-      spendingPassword: data.password
-    })
-    emit('update:modelValue', false)
-  }
-}
 
 // Watch for modal open to initialize
 watch(
@@ -263,12 +225,8 @@ watch(
 
 onMounted(() => {
   initializeDefaultVotes()
-  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
-onUnmounted(() => {
-  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
-})
 </script>
 
 <style scoped>

@@ -18,14 +18,15 @@ data class QueryTip(
 ) {
     val eraNumber: Int
         get() =
-            when (era) {
-                "Byron" -> ERA_BYRON
-                "Shelley" -> ERA_SHELLEY
-                "Allegra" -> ERA_ALLEGRA
-                "Mary" -> ERA_MARY
-                "Alonzo" -> ERA_ALONZO
-                "Babbage" -> ERA_BABBAGE
-                "Conway" -> ERA_CONWAY
+            when (era?.lowercase()) {
+                "byron" -> ERA_BYRON
+                "shelley" -> ERA_SHELLEY
+                "allegra" -> ERA_ALLEGRA
+                "mary" -> ERA_MARY
+                "alonzo" -> ERA_ALONZO
+                "babbage" -> ERA_BABBAGE
+                "conway" -> ERA_CONWAY
+                "dijkstra" -> ERA_DIJKSTRA
                 else -> -1
             }
 
@@ -37,5 +38,6 @@ data class QueryTip(
         const val ERA_ALONZO = 4
         const val ERA_BABBAGE = 5
         const val ERA_CONWAY = 6
+        const val ERA_DIJKSTRA = 7
     }
 }

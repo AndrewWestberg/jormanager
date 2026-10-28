@@ -92,4 +92,10 @@ data class Node(
     val isDeleted: Boolean = false,
     @Column(name = "tracing_port")
     val tracingPort: Int? = null,
+    @Column(name = "genesis_dijkstra_file_id")
+    val genesisDijkstraFileId: Long? = null,
+    @Column(name = "configuration_bundle_id")
+    val configurationBundleId: String? = null,
+    @Column(name = "configuration_reset_id")
+    val configurationResetId: String? = null,
 )
