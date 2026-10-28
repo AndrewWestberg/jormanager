@@ -1,0 +1,47 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="043-operational-schema" author="jormanager">
+        <sql><![CDATA[
+ALTER TABLE nodes ADD COLUMN genesis_dijkstra_file_id integer REFERENCES files(id);
+ALTER TABLE nodes ADD COLUMN configuration_bundle_id varchar(64);
+ALTER TABLE nodes ADD COLUMN configuration_reset_id varchar(64);
+CREATE TABLE era_observations (
+    network_key text PRIMARY KEY, era text NOT NULL, generation bigint NOT NULL CHECK (generation >= 0),
+    source text NOT NULL, observed_slot text, observed_hash text, observed_at text NOT NULL
+);
+CREATE TABLE qualified_operations (
+    network_key text NOT NULL, era text NOT NULL, host_id bigint NOT NULL REFERENCES hosts(id),
+    node_id bigint NOT NULL REFERENCES nodes(id), operation text NOT NULL,
+    status text NOT NULL CHECK (status IN ('verified', 'unsupported', 'unverified', 'unavailable')),
+    cli_sha256 varchar(64) NOT NULL, node_sha256 varchar(64) NOT NULL, config_sha256 varchar(64) NOT NULL,
+    evidence_id text NOT NULL, evidence_sha256 varchar(64) NOT NULL, era_generation bigint NOT NULL,
+    PRIMARY KEY (network_key, era, host_id, node_id, operation)
+);
+CREATE TABLE host_qualified_operations (
+    network_key text NOT NULL, era text NOT NULL, host_id bigint NOT NULL REFERENCES hosts(id),
+    config_sha256 varchar(64) NOT NULL, operation text NOT NULL,
+    status text NOT NULL CHECK (status IN ('verified', 'unsupported', 'unverified', 'unavailable')),
+    cli_sha256 varchar(64) NOT NULL, node_sha256 varchar(64) NOT NULL,
+    evidence_id text NOT NULL, evidence_sha256 varchar(64) NOT NULL, era_generation bigint NOT NULL,
+    PRIMARY KEY (network_key, era, host_id, config_sha256, operation)
+);
+CREATE TABLE authorized_operations (
+    id varchar(255) PRIMARY KEY, preview_id varchar(255) NOT NULL UNIQUE, network_key text NOT NULL,
+    node_id bigint NOT NULL REFERENCES nodes(id), host_id bigint NOT NULL REFERENCES hosts(id),
+    operation text NOT NULL, era text NOT NULL, era_generation bigint NOT NULL,
+    capability_fingerprint text NOT NULL, state text NOT NULL, request_fingerprint text NOT NULL,
+    request_payload text NOT NULL, parameter_fingerprint text NOT NULL, state_fingerprint text NOT NULL,
+    tx_id varchar(255) NOT NULL, unsigned_body text NOT NULL, signed_batch text,
+    fee numeric(78,0) NOT NULL, deposit numeric(78,0) NOT NULL, refund numeric(78,0) NOT NULL,
+    valid_from bigint, valid_until bigint, confirmation_hash text, confirmation_slot numeric(20,0), confirmation_height numeric(20,0),
+    UNIQUE (network_key, tx_id)
+);
+CREATE TABLE authorized_operation_inputs (
+    id varchar(255) PRIMARY KEY, operation_id varchar(255) NOT NULL REFERENCES authorized_operations(id),
+    network_key text NOT NULL, input_tx_id varchar(255) NOT NULL, input_index integer NOT NULL,
+    UNIQUE (network_key, input_tx_id, input_index)
+);
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>

@@ -10,7 +10,8 @@ import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocolMessage
 import java.nio.ByteBuffer
 
 class MsgFindIntersect(
-    private val intersectBlocks: List<Pair<Long, ByteArray>>
+    private val intersectBlocks: List<Pair<Long, ByteArray>>,
+    private val includeOrigin: Boolean = false,
 ) : MiniProtocolMessage {
     companion object {
         private const val MESSAGE_ID = 4L
@@ -32,6 +33,7 @@ class MsgFindIntersect(
                                 }
                             )
                         }
+                        if (includeOrigin) add(CborArray.create())
                     }
                 )
             }

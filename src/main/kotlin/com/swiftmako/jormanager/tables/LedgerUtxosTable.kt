@@ -17,8 +17,13 @@ object LedgerUtxosTable : JmLongIdTable(name = "ledger_utxos") {
     val lovelace: Column<String> = text("lovelace")
 
     // when this utxo was created or spent
-    val blockCreated: Column<Long> = long("block_created")
-    val slotCreated: Column<Long> = long("slot_created")
-    val blockSpent: Column<Long?> = long("block_spent").nullable()
-    val slotSpent: Column<Long?> = long("slot_spent").nullable()
+    val blockCreated = decimal("block_created", 20, 0)
+    val slotCreated = decimal("slot_created", 20, 0)
+    val blockSpent = decimal("block_spent", 20, 0).nullable()
+    val slotSpent = decimal("slot_spent", 20, 0).nullable()
+
+    // Null denotes legacy coverage awaiting verified network assignment/replay.
+    val networkKey = text("network_key").nullable()
+    val outputOccurrenceId = long("output_occurrence_id").references(OutputOccurrencesTable.id).nullable()
+    val spendingInclusionId = long("spending_inclusion_id").references(ChainInclusionsTable.id).nullable()
 }

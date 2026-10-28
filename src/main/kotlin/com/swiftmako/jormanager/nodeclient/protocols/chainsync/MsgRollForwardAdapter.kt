@@ -3,6 +3,9 @@ package com.swiftmako.jormanager.nodeclient.protocols.chainsync
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborReader
+import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DijkstraBlockDecoder
+import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.ByronBlockDecoder
+import com.swiftmako.jormanager.utils.CborSpans
 import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.ktx.elementToByteArray
 import com.swiftmako.jormanager.ktx.elementToHexString
@@ -27,14 +30,44 @@ object MsgRollForwardAdapter {
     private const val ERA_BABBAGE = 5L
 //    private var tipDone = false
 
-    fun fromCborArray(cborArray: CborArray): Optional<MsgRollForward> {
+    fun fromCborArray(cborArray: CborArray, byronEpochSlots: Long? = null): Optional<MsgRollForward> {
         try {
             assert(MsgRollForward.MESSAGE_ID == cborArray.elementToLong(0))
 
             // parse wrappedHeader
             val headerCborArray = cborArray.elementAt(1) as CborArray
             val blockEra = headerCborArray.elementToLong(0)
+            if (blockEra == 0L) {
+                val nested = headerCborArray.elementAt(1) as CborArray
+                val context = nested.elementAt(0) as CborArray
+                val tag = context.elementToLong(0)
+                require(tag == 0L || tag == 1L)
+                val header = ByronBlockDecoder.decodeHeader(nested.elementToByteArray(1), tag == 0L, requireNotNull(byronEpochSlots))
+                val tip = cborArray.elementAt(2) as CborArray
+                val point = tip.elementAt(0) as CborArray
+                return Optional.of(MsgRollForward(
+                    header.blockNumber.longValueExact(), header.slot.longValueExact(),
+                    header.headerHash.toHexString(), header.previousHash.toHexString(),
+                    "", "", "", "", "",
+                    ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
+                ))
+            }
             val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
+            if (blockEra == 7L) {
+                val header = DijkstraBlockDecoder.decodeHeader(wrappedBlockHeaderBytes)
+                val blockVrf = header.vrfResult.toHexString()
+                val tip = cborArray.elementAt(2) as CborArray
+                val point = tip.elementAt(0) as CborArray
+                return Optional.of(MsgRollForward(
+                    header.blockNumber.longValueExact(), header.slot.longValueExact(),
+                    CborSpans.parse(wrappedBlockHeaderBytes).hash256().toHexString(),
+                    header.previousHash?.toHexString() ?: "", header.issuerVkey.toHexString(),
+                    Blake2b.hash256(NONCE_VRF_HEADER + header.vrfResult).toHexString(),
+                    Blake2b.hash256(LEADER_VRF_HEADER + header.vrfResult).toHexString(),
+                    blockVrf, header.vrfProof.toHexString(),
+                    ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
+                ))
+            }
 
             // calculate the block hash
             val hash = SodiumLibrary.cryptoBlake2bHash(wrappedBlockHeaderBytes, null).toHexString()
@@ -107,7 +140,7 @@ object MsgRollForwardAdapter {
                 )
             )
         } catch (e: Throwable) {
-            log.error("Unable to parse MsgRollForward. skipping...")
+            log.error("Unable to parse MsgRollForward", e)
             return Optional.empty()
         }
     }

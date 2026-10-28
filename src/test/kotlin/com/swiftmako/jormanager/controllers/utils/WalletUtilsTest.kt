@@ -33,7 +33,10 @@ class WalletUtilsTest {
                 argon2PasswordEncoder = mockk(),
                 spendingPasswordHash = "",
                 stakingInfoAdapter = mockk(),
-                queryUtxoJsonAdapter = mockk(),
+                genesisAdapter = mockk(),
+                queryTipAdapter = mockk(),
+                chainIngestionCoordinator = mockk(),
+                cardanoRepository = mockk(),
                 regCertAdapter = mockk(),
                 ledgerDao = mockk(),
             )
@@ -81,7 +84,10 @@ class WalletUtilsTest {
                 argon2PasswordEncoder = passwordEncoder,
                 spendingPasswordHash = "hash",
                 stakingInfoAdapter = mockk(),
-                queryUtxoJsonAdapter = mockk(),
+                genesisAdapter = mockk(),
+                queryTipAdapter = mockk(),
+                chainIngestionCoordinator = mockk(),
+                cardanoRepository = mockk(),
                 regCertAdapter = mockk(),
                 ledgerDao = mockk(),
             )

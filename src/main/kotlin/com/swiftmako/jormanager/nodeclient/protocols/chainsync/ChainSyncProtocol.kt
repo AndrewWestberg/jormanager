@@ -8,29 +8,31 @@ import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.ChainBlock
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.ktx.elementToLong
+import com.swiftmako.jormanager.ktx.elementToHexString
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.pooltool.Data
 import com.swiftmako.jormanager.model.pooltool.PooltoolStats
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.NetworkChainSession
+import com.swiftmako.jormanager.model.ChainPoint
+import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import java.io.ByteArrayInputStream
-import java.lang.Long.max
 import java.nio.ByteBuffer
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.floor
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.digests.Blake2bDigest
@@ -49,6 +51,10 @@ class ChainSyncProtocol(
     private val pooltoolService: PooltoolService,
     private val pooltoolApiKey: String,
     private val poolId: String,
+    private val session: NetworkChainSession? = null,
+    private val node: Node? = null,
+    private val cardanoRepository: CardanoRepository? = null,
+    private val intersectionPoints: List<ChainPoint> = emptyList(),
 ) : MiniProtocol(protocolId = 0x0002.toShort()),
     CoroutineScope {
     private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
@@ -98,8 +104,9 @@ class ChainSyncProtocol(
             Pair(719L, "e5400faf19e712ebc5ff5b4b44cecb2b140d1cca25a011e36a91d89e97f53e2e".hexToByteArray()), // guild
         )
 
-    // private val blockSaveChannel = Channel<MsgRollForward>(Channel.RENDEZVOUS)
     private val blockSaveFlow = MutableSharedFlow<MsgRollForward>()
+    private val eras = Channel<Int>(Channel.CONFLATED)
+    private var lastObservedEra: Int? = null
 
     private val chainBlocksPairs by lazy {
         chainBlocks.map { chainBlock ->
@@ -116,16 +123,26 @@ class ChainSyncProtocol(
 
     init {
         initBlockReceiveHandler()
+        if (session != null && node != null && cardanoRepository != null) {
+            launch {
+                for (era in eras) {
+                    try { cardanoRepository.observeBlockEra(host, node, era) }
+                    catch (e: Exception) { log.warn("Current-era refresh failed for node ${node.id}", e) }
+                }
+            }
+        }
     }
 
     override fun shutdown() {
         state = State.Done
+        eras.close()
         job.cancelChildren()
     }
 
     override suspend fun sendData(): ByteBuffer =
         when (state) {
             State.Idle -> {
+                if (isIntersectFound) session?.reserve()
                 val payload = muxByteBufferPool.borrow()
                 state =
                     if (isIntersectFound) {
@@ -134,7 +151,9 @@ class ChainSyncProtocol(
                         State.CanAwait
                     } else {
                         log.trace("MsgFindIntersect")
-                        if (tipToIntersect.isNotEmpty()) {
+                        if (session != null) {
+                            MsgFindIntersect(intersectionPoints.map { it.slot.toLong() to it.hash.hexToByteArray() }, includeOrigin = true).writeToBuffer(payload)
+                        } else if (tipToIntersect.isNotEmpty()) {
                             MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
                         } else {
                             MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
@@ -167,7 +186,11 @@ class ChainSyncProtocol(
                                     if (log.isTraceEnabled) {
                                         log.trace("MsgRollForward: ${cborArray.toCborByteArray().toHexString()}")
                                     }
-                                    MsgRollForwardAdapter.fromCborArray(cborArray).ifPresent { msgRollForward ->
+                                    val era = (cborArray.elementAt(1) as CborArray).elementToLong(0).toInt()
+                                    val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray, session?.byronEpochSlots).orElseThrow {
+                                        IllegalStateException("Unable to decode era $era chain header")
+                                    }
+                                    run {
                                         val isTip = msgRollForward.chainTip.hash == msgRollForward.hash
 
                                         if (isPooltool) {
@@ -187,19 +210,14 @@ class ChainSyncProtocol(
                                                 isIntersectFound = false
                                             }
                                         } else {
-                                            // sync mode
-                                            runBlocking {
-                                                blockSaveFlow.emit(msgRollForward)
-                                                if (msgRollForward.blockNumber > msgRollForward.chainTip.block) {
-                                                    // in babbage, the block can run ahead of the tip so treat it
-                                                    // like the tip
-                                                    tipBlockNumber = msgRollForward.blockNumber
-                                                    tipHash = msgRollForward.hash
-                                                } else {
-                                                    tipBlockNumber = msgRollForward.chainTip.block
-                                                    tipHash = msgRollForward.chainTip.hash
-                                                }
+                                            val active = requireNotNull(session)
+                                            if (lastObservedEra != era) {
+                                                lastObservedEra = era
+                                                eras.trySend(era)
                                             }
+                                            active.coordinator.observeTip(active.networkKey, ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash), active.generation)
+                                            if (active.defaultNetwork && era != 0) saveHeader(msgRollForward)
+                                            active.enqueue(ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash))
                                         }
                                     }
                                     state = State.Idle
@@ -207,6 +225,16 @@ class ChainSyncProtocol(
 
                                 MsgRollBackward.MESSAGE_ID -> {
                                     log.info("MsgRollBackward: ${cborArray.toCborByteArray().toHexString()}")
+                                    session?.let { active ->
+                                        val point = parsePoint(cborArray.elementAt(1) as CborArray)
+                                        active.rollback(point)
+                                        active.release()
+                                        if (active.defaultNetwork) rollbackHeaders(point)
+                                        val tip = cborArray.elementAt(2) as CborArray
+                                        parsePoint(tip.elementAt(0) as CborArray)?.let {
+                                            active.coordinator.observeTip(active.networkKey, it, active.generation)
+                                        }
+                                    }
                                     state = State.Idle
                                 }
 
@@ -229,14 +257,24 @@ class ChainSyncProtocol(
                             when (messageId) {
                                 MsgIntersectFound.MESSAGE_ID -> {
                                     log.info("MsgIntersectFound: ${cborArray.toCborByteArray().toHexString()}")
+                                    session?.let { active ->
+                                        val point = parsePoint(cborArray.elementAt(1) as CborArray)
+                                        if (point != intersectionPoints.firstOrNull()) {
+                                            active.rollback(point)
+                                            if (active.defaultNetwork) rollbackHeaders(point)
+                                        }
+                                        val tip = cborArray.elementAt(2) as CborArray
+                                        parsePoint(tip.elementAt(0) as CborArray)?.let {
+                                            active.coordinator.observeTip(active.networkKey, it, active.generation)
+                                        }
+                                    }
                                     isIntersectFound = true
                                     state = State.Idle
                                 }
 
                                 MsgIntersectNotFound.MESSAGE_ID -> {
                                     log.info("MsgIntersectNotFound: ${cborArray.toCborByteArray().toHexString()}")
-                                    // start from genesis if we can't find an intersect and we passed on existing
-                                    // tipToIntersect blocks
+                                    if (session != null) throw IllegalStateException("No chain intersection, including origin")
                                     isIntersectFound = tipToIntersect.isEmpty()
                                     state = State.Idle
                                 }
@@ -250,71 +288,36 @@ class ChainSyncProtocol(
         }
     }
 
-    private fun initBlockReceiveHandler() {
-        launch {
-            blockSaveFlow.collect { msgRollForward ->
-                if (isPooltool) {
-                    // We're on tip! Send to pooltool
-                    sendBlockToPooltool(msgRollForward)
-                } else {
-                    val savedChainBlock =
-                        transaction {
-                            // delete any blocks that have higher block numbers than this one in case we jumped back on a fork
-                            chainRepository.deleteByBlockNumberAndAbove(msgRollForward.blockNumber)
-// LedgerRepository.doRollback(msgRollForward.blockNumber)
-                            val previousChainBlock = chainRepository.findByBlockNumber(msgRollForward.blockNumber - 1)
+    private fun parsePoint(point: CborArray): ChainPoint? =
+        if (point.size() == 0) null else ChainPoint(point.elementToLong(0).toString(), point.elementToHexString(1))
 
-                            // evolve the etaV nonce value
-                            val previousEtaV = previousChainBlock?.etaV?.hexToByteArray() ?: shelleyGenesisHash
-                            if (previousEtaV.contentEquals(shelleyGenesisHash)) {
-                                log.warn("Using shelleyGenesisHash for previousEtaV value at block ${msgRollForward.blockNumber}: ${previousEtaV.toHexString()}")
-                            }
-                            val eta = SodiumLibrary.cryptoBlake2bHash(msgRollForward.etaVrf.hexToByteArray(), null)
-                            val etaV = SodiumLibrary.cryptoBlake2bHash(previousEtaV + eta, null).toHexString()
-
-                            // add this block to the database
-                            chainRepository.save(
-                                ChainBlock(
-                                    blockNumber = msgRollForward.blockNumber,
-                                    slotNumber = msgRollForward.slotNumber,
-                                    hash = msgRollForward.hash,
-                                    prevHash = msgRollForward.prevHash,
-                                    etaV = etaV,
-                                    poolId = nodeVKeyToPoolId(msgRollForward.nodeVKey),
-                                    leaderVrf = msgRollForward.leaderVrf,
-                                )
-                            )
-                        }
-
-                    isTip =
-                        msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
-                    if (canLog() || isTip) {
-                        log.info(
-                            "ChainSync: Saved block: ${msgRollForward.blockNumber} of ${
-                                max(
-                                    msgRollForward.blockNumber,
-                                    msgRollForward.chainTip.block
-                                )
-                            }, %.2f%% synced, poolId: ${
-                                savedChainBlock.poolId.substring(0..8)
-                            }...".format(
-                                floor(
-                                    msgRollForward.blockNumber.toDouble() /
-                                        max(
-                                            msgRollForward.blockNumber,
-                                            msgRollForward.chainTip.block
-                                        ) * 10000.0
-                                ) / 100.0
-                            )
-                        )
-
-                        // Notify that a new block has arrived. If we're not on tip, we don't emit every block so
-                        // we can hopefully BlockFetch a group at a time.
-                        newBlockMutableSharedFlow.emit(msgRollForward.hash)
-                    }
-                }
+    private fun rollbackHeaders(point: ChainPoint?) {
+        transaction {
+            if (point == null) {
+                chainRepository.deleteAll()
+            } else {
+                val block = chainRepository.findBySlot(point.slot.toLong())
+                if (block != null && block.hash == point.hash) chainRepository.deleteByBlockNumberAndAbove(block.blockNumber + 1)
+                else chainRepository.deleteAll()
             }
         }
+    }
+
+    private fun saveHeader(msg: MsgRollForward) {
+        transaction {
+            chainRepository.deleteByBlockNumberAndAbove(msg.blockNumber)
+            val previous = chainRepository.findByBlockNumber(msg.blockNumber - 1)?.etaV?.hexToByteArray() ?: shelleyGenesisHash
+            val eta = SodiumLibrary.cryptoBlake2bHash(msg.etaVrf.hexToByteArray(), null)
+            chainRepository.save(ChainBlock(
+                blockNumber = msg.blockNumber, slotNumber = msg.slotNumber, hash = msg.hash,
+                prevHash = msg.prevHash, etaV = SodiumLibrary.cryptoBlake2bHash(previous + eta, null).toHexString(),
+                poolId = nodeVKeyToPoolId(msg.nodeVKey), leaderVrf = msg.leaderVrf,
+            ))
+        }
+    }
+
+    private fun initBlockReceiveHandler() {
+        launch { blockSaveFlow.collect { sendBlockToPooltool(it) } }
     }
 
     private var lastNodeVersionTime = 0L
@@ -372,33 +375,6 @@ class ChainSyncProtocol(
         return output.toHexString()
     }
 
-    private var nextLogTimeDebug = System.currentTimeMillis()
-
-    private fun canLogDebug(updateNext: Boolean = true): Boolean {
-        val now = System.currentTimeMillis()
-        return if (!isPooltool && now > nextLogTimeDebug) {
-            if (updateNext) {
-                nextLogTimeDebug = now + 10_000L
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    private var nextLogTime = System.currentTimeMillis()
-
-    private fun canLog(updateNext: Boolean = true): Boolean {
-        val now = System.currentTimeMillis()
-        return if (!isPooltool && now > nextLogTime) {
-            if (updateNext) {
-                nextLogTime = now + 10_000L
-            }
-            true
-        } else {
-            false
-        }
-    }
 
     enum class State {
         Idle,
@@ -408,16 +384,4 @@ class ChainSyncProtocol(
         Done
     }
 
-    companion object {
-        private val newBlockMutableSharedFlow =
-            MutableSharedFlow<String>(
-                replay = 0,
-                extraBufferCapacity = 1,
-                onBufferOverflow = BufferOverflow.DROP_OLDEST
-            )
-        val newBlockFlow = newBlockMutableSharedFlow.distinctUntilChanged()
-        var isTip = false
-        var tipBlockNumber: Long = 0L
-        var tipHash: String = ""
-    }
 }

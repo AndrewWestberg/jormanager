@@ -32,6 +32,6 @@ data class AuthorizedOperation(
     @Column(name = "valid_from") val validFrom: Long? = null,
     @Column(name = "valid_until") val validUntil: Long? = null,
     @Column(name = "confirmation_hash") val confirmationHash: String? = null,
-    @Column(name = "confirmation_slot") val confirmationSlot: Long? = null,
-    @Column(name = "confirmation_height") val confirmationHeight: Long? = null,
+    @Column(name = "confirmation_slot", precision = 20, scale = 0) val confirmationSlot: BigInteger? = null,
+    @Column(name = "confirmation_height", precision = 20, scale = 0) val confirmationHeight: BigInteger? = null,
 )
