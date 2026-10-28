@@ -35,3 +35,16 @@ out/
 
 ### Haskell ###
 dist-newstyle
+
+### Generated artifacts and local configuration ###
+node_modules/
+dist/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.log
+.env*
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db

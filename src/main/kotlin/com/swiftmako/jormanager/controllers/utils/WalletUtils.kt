@@ -17,7 +17,6 @@ import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
-import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
@@ -54,7 +53,6 @@ class WalletUtils
         private val argon2PasswordEncoder: Argon2PasswordEncoder,
         @param:Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
         private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
-        private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
         private val regCertAdapter: JsonAdapter<RegCert>,
         private val ledgerDao: LedgerDao,
     ) {
@@ -99,30 +97,19 @@ class WalletUtils
             val start = System.currentTimeMillis()
             val stakingInfoString =
                 if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
-                    try {
-                        hostConnection.command(
-                            "${host.cardanoCliPath} $era query stake-address-info --address ${walletEntry.stakingAddr} $magicString $socketPath --output-json"
-                        )
-                    } catch (t: Throwable) {
-                        if (t.message?.contains("EraMismatch") == false) {
-                            log.error("Error getting stake addr info!", t)
-                        }
-                        ""
-                    }
+                    hostConnection.command(
+                        "${host.cardanoCliPath} $era query stake-address-info --address ${walletEntry.stakingAddr} $magicString $socketPath --output-json"
+                    )
                 } else {
                     null
                 }
             val stakingAddrLovelace =
                 stakingInfoString?.let { json ->
-                    try {
-                        val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
-                        if (stakeAddressInfos?.isNotEmpty() == true) {
-                            stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
-                        } else {
-                            null
-                        }
-                    } catch (t: Throwable) {
-                        log.warn("Error parsing staking info json: $json", t)
+                    val stakeAddressInfos = stakingInfoAdapter.fromJson(json)
+                        ?: throw IOException("Invalid stake address information")
+                    if (stakeAddressInfos.isNotEmpty()) {
+                        stakeAddressInfos.sumByBigInteger { it.rewardAccountBalance }
+                    } else {
                         null
                     }
                 }
@@ -162,38 +149,8 @@ class WalletUtils
                 runBlocking {
                     ledgerDao.queryLiveUtxos(paymentAddr)
                 }
-//        } else if (ChainSyncProtocol.isTip) {
-//            log.warn("Not on tip! running old queryUtxo()!")
-//            // find payment_addr balance
-//            val start = System.currentTimeMillis()
-//            val addressInfoJson =
-//                try {
-//                    hostConnection
-//                        .command(
-//                            "${host.cardanoCliPath} $era query utxo --address $paymentAddr $magicString $socketPath --output-json"
-//                        ).trim()
-//                } catch (t: Throwable) {
-//                    if (t.message?.contains("EraMismatch") == false) {
-//                        log.error("Error getting payment addr info!", t)
-//                    }
-//                    ""
-//                }
-//            val utxos =
-//                try {
-//                    queryUtxoJsonAdapter.fromJson(addressInfoJson)
-//                } catch (e: Throwable) {
-//                    log.error("Failed to query utxos for address: $paymentAddr, json: $addressInfoJson")
-//                    throw e
-//                }
-//
-//            (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
-//                log.warn("queryUtxo $index of $total: $paymentAddr, ${it}ms")
-//            }
-//
-//            utxos ?: emptyList()
             } else {
-                log.warn("Not on tip! skipping queryUtxo()!")
-                emptyList()
+                throw IOException("Wallet UTxO state is unavailable while the index is not at the chain tip")
             }
 
         fun queryReferenceScriptSize(

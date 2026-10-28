@@ -10,13 +10,13 @@ description: "Executable tasks for complete Musashi Dijkstra support and provisi
 
 **Baseline**: Musashi Dōjō is the Dijkstra qualification baseline, not a replacement baseline for previously supported networks and eras. Existing Conway deployments and operations remain supported without Musashi-only configuration or credentials; do not restore the former independent Cardano pins. Exact upstream revisions/build/configuration hashes are evidence snapshots. Public Musashi starts Dijkstra at epoch zero; use independent standalone era and ordinary fault scenarios without orchestrating a hard fork.
 
-**Tests**: included because FR-031/FR-032 and SC-001–SC-012 explicitly require independent valid/rejected/boundary comparisons and safe end-to-end evidence. Add the listed deterministic consumer-visible regressions before implementation and observe their failure for the missing behavior. Do not add wiring/source-text/mock-echo tests. Real GUI/node/CLI/SSH/PostgreSQL smoke remains mandatory; test compilation or documentation validation is not compatibility evidence.
+**Tests and scheduling override (2026-10-28):** The user directs a code-first pass: no qualification environments or feature test authoring/execution now; the user coordinates later manual integration qualification, owners and reviewers. Parent integration may perform local compiler/smoke correctness checks after integration; these do not establish compatibility. Every test, reference and execution task remains unchecked and required for full acceptance. FR-031/FR-032 and SC-001–SC-012 retain independent valid/rejected/boundary and real-boundary evidence requirements. Later tests assert consumer-visible behavior, not wiring/source text/mock echoes. Failing-before observations remain later verification obligations, not code blockers.
 
-**Organization**: all eight stories remain in scope. Phases order the P1 stories US1–US5 and US8 before P2 US6–US7 without renumbering story identities. Shared facilities precede all stories. US6 implementation precedes US7, while full US6 acceptance follows US7 integration and acceptance. US5 has a final all-story acceptance dependency because later integrations add state that must also survive recovery.
+**Organization**: all eight stories remain in scope. Phase labels order the P1 stories US1–US5 and US8 before P2 US6–US7 without renumbering; they do not impose evidence checkpoints on code. Shared interfaces precede consumers. Full US6 acceptance follows US7 integration and acceptance. US5 has a final all-story acceptance dependency because later integrations add state that must survive recovery.
 
 ## Format and path conventions
 
-Each task uses `- [ ] Tnnn [P?] [USn?] Description` with exact repository-relative file paths. IDs are sequential in the priority-ordered execution list; explicit dependency IDs define safe ready waves. `[P]` means an independent file set within its ready wave **after** its listed prerequisites are complete, not permission to ignore prerequisites. Unmarked tasks are serialized by their file owner. Story labels appear only in story phases.
+Each task uses `- [ ] Tnnn [P?] [USn?] Description` with exact repository-relative file paths. IDs and acceptance obligations remain unchanged. Listed dependencies describe the full-acceptance sequence; the code scheduling override below distinguishes implementation prerequisites from deferred evidence dependencies. `[P]` permits independent file sets only with shared-file ownership respected.
 
 Existing source locations were checked during generation. Named files that do not yet exist are **proposed new implementation/test/evidence files**, not claims of existing APIs or harnesses. Keep them in the existing package/test conventions; do not create a new service/framework. Evidence records named here are future outputs: store actual sanitized results, immutable fixture/capture digests and independent expected-versus-observed outcomes, never signing secrets or fabricated success. Reference manifests enumerate raw fixture files under `src/test/resources/dijkstra/`.
 
@@ -27,15 +27,15 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 - **B1**: independently capture and exercise actual Musashi transport, era/header hashes, complete direct/certified closure/order and rollback. No invented EB-fetch protocol.
 - **B2**: the supplied CLI 11.6.0.0 and `cardano-node-leios` 11.2.0.164 revision `746f1b3cbdaada2c3ed2f702b0946643248dd30b` are available qualification inputs. Local help exposes BLS registration and singleton/bulk startup flags. PR #6749 documents the per-pool bulk format; implement JorManager generation/loading and exercise proof/snapshot/producer behavior rather than wait for a missing upstream loader.
 - **B3**: all eight Musashi catalog assets are now published and downloadable from `https://bluecheesestakehouse.com/jormanager/index.html`. The observed stable `musashi-*` aliases have no linked manifest or versioned filenames. T057 retains only completion/verification of the planned immutable publication contract; application snapshots, fifth-genesis/peer support and clean relay/pool qualification still remain. Publisher access is required only for further server changes, not current downloads.
-- Record precise remaining prerequisites and owners, without reintroducing resolved availability blockers. Do not mark whole tasks complete from partial evidence or substitute mocks/manual imports. Open PR status does not prevent qualification of the supplied build; record build/source provenance and actual results without claiming an upstream merge. B3 still blocks provisioning acceptance/release, not unrelated local edits.
-- Commands that spend disposable funds or write/restart managed hosts run only after explicit operator authorization. No production keys/funds/nodes are test inputs. Research and task generation themselves authorize no remote mutation.
-- Run the focused regression and actual surface scenario at the appropriate integration checkpoint; full suites and final Q0–Q8 follow the completed cutover. Q8 uses independently established Conway and Dijkstra targets and controlled block observations/node responses in standalone app or contract cases, not hard-fork transition or cross-era rollback tests. Do not run formatters/builds repeatedly mid-edit or retry failed gates into a pass.
+- B1–B3 and G1–G6 remain evidence/release gates, not prerequisites for beginning code; missing owners, inputs or failed runtime checkpoints are not passes and do not stop unrelated implementation. The user coordinates later owner/reviewer assignment and qualification.
+- Commands that spend disposable funds or write/restart managed hosts require explicit operator authorization. No production keys/funds/nodes are test inputs; this pass performs no signing, submission or SSH execution.
+- Focused regressions, surface scenarios, full suites and Q0–Q8 are deferred to later verification. Q8 uses independently established Conway and Dijkstra targets and controlled block observations/node responses in standalone app or contract cases, not hard-fork transition or cross-era rollback tests.
 
 **Evidence update (2026-10-28):** [research section 7](research.md#qualification-update--2026-10-28) records user-supplied build facts, observed download digests/JSON/reference checks, help output and [PR #6749](https://github.com/IntersectMBO/cardano-node/pull/6749). Old local CLI diagnostics are historical. All original responsibilities remain unchecked because each includes work beyond these newly available prerequisites; T057's initial asset-publication portion is complete.
 
-## Phase 1: Setup (Shared Qualification Inputs)
+## Phase 1: Qualification inputs (deferred)
 
-**Goal**: Reuse the existing Kotlin/Java 21/Spring/PostgreSQL/Liquibase/Vue stack; do not initialize a second application or restore independent Cardano pins. Assign the plan gate owners and prepare safe, independently reproducible inputs.
+**Goal**: Retain all input, provenance and independent-oracle obligations for later user-coordinated qualification. Reuse the existing stack; no corpus, host or environment setup is required to begin code. T001's observed provenance in plan.md is partial, not a completed runtime manifest.
 
 ### Implementation
 
@@ -45,9 +45,9 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 - [ ] T004 [P] Provision disposable PostgreSQL/app/SSH targets, a supported standalone Conway environment and public Musashi test resources plus a private same-bundle Dijkstra environment with controlled ordinary rollback/fault commands; capture actual environment and safety checks. The Conway environment must remain usable without Musashi assets or Leios credentials; the two networks must be usable concurrently for isolation checks. Reuse the published eight-file catalog; arrange publisher coordination only for the remaining immutable manifest/versioned assets, recording the real external deployment handoff without committing credentials or inventing a local server repository. Files: `specs/001-dijkstra-era-support/evidence/environment.md`, `specs/001-dijkstra-era-support/evidence/publication-handoff.md`. Dependencies: T001.
 - [ ] T005 Execute reference-node/CLI qualification using the supplied upgraded executables on disposable targets: capture negotiated framing/era/header commitments, direct/certified acquisition/order, rollback, accepted submission forms, proof/registration/snapshot queries and actual loaded keys. Exercise PR #6749's per-pool embedded BLS envelope/array, ordering, mixed legacy entries and malformed-key rejection; distinguish upstream author-reported tests from this run. Help alone cannot clear B1/B2. No production signing/deployment. Files: `src/test/resources/dijkstra/delivery-manifest.json`, `src/test/resources/dijkstra/tool-capabilities.json`, `specs/001-dijkstra-era-support/evidence/reference-boundaries.md`. Dependencies: T003, T004.
 
-## Phase 2: Foundational (Blocking Shared Infrastructure)
+## Phase 2: Foundational shared infrastructure
 
-**Goal**: Complete these shared contracts and persistence facilities before story implementation. Use Exposed for the chain commit and existing JPA/File credential conventions for configuration; no mixed-transaction-manager atomicity assumption.
+**Goal**: Implement shared contracts and persistence facilities before their consumers, using available authoritative sources. Use Exposed for the chain commit and existing JPA/File credential conventions; no mixed-transaction-manager atomicity assumption. Deferred fixture and runtime prerequisites are not code blockers.
 
 ### Implementation
 
@@ -62,7 +62,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 - [ ] T014 Implement the normalized AdoptedBlock/Rollback/BoundaryFailure boundary and one atomic adoption/rollback coordinator per network; generation/predecessor checks reject stale in-flight work. Journal effects and durable progress together, invalidate affected projection caches and publish only after commit; no CLI/SSH in the transaction. Preserve separate observed tip, complete point and replay-required state; do not prune reversible history until the supported horizon is verified. ChainInclusion fields: “network, point, predecessor point, height, era, baseline FK, raw header/body, adopted flag, content/completion state, direct/Leios provenance”. Constraint: “Unique network/header hash; predecessor continuity checked against adopted chain; complete only after durable closure/effects; raw point identity cannot be rewritten”. SyncState fields: “network PK, observed tip, nullable cached node-observed current era and its nullable source/point/time, era freshness `current/refresh_required/unavailable`, last complete inclusion FK or origin, attempted/gap point, delivery generation, replay start, status/reason, update time”. Constraint: “One commit authority per network; last complete points only to a complete adopted inclusion; later headers do not move it; initialize or re-establish target context by querying a verified node for that network, never by inferring current era from persisted provenance; only a successful matching-network node response updates cached era and source/point/time; matching-era blocks reuse it, differing-era blocks mark `refresh_required` and trigger a fresh node query without overwriting it; initial unknown or failed query is `unavailable`, and retained non-current values are display-only; pending, failed, unknown or wrong-network evidence cannot authorize dependent writes; source/point/time are provenance, not expiry”. ReversibleChange fields: “inclusion FK, sequence, affected projection/key, prior value or creation marker, resulting value identity”. Constraint: “Append in same transaction as effects; reverse in descending sequence; no secret values; enables rollback before replacement and crash recovery”. Track observation and dispatch independently per network, selecting each historical block by its own era and invalidating era-dependent previews when the node confirms a changed current era; do not use a global switch. Files: `src/main/kotlin/com/swiftmako/jormanager/model/ChainDeliveryEvent.kt`, `src/main/kotlin/com/swiftmako/jormanager/services/ChainIngestionCoordinator.kt`, `src/main/kotlin/com/swiftmako/jormanager/tables/ChainInclusionsTable.kt`, `src/main/kotlin/com/swiftmako/jormanager/tables/SyncStatesTable.kt`, `src/main/kotlin/com/swiftmako/jormanager/tables/ReversibleChangesTable.kt`, `src/main/kotlin/com/swiftmako/jormanager/repositories/LedgerDao.kt`. Dependencies: T013, T010.
 - [ ] T015 Define the common Network/ChainPoint/Target/DecimalString/ReadState/OperationResult public types and sanitized exception DTO, preserving SocketResponse envelopes and STOMP transport. Use canonical integer strings, null-with-reason for unavailable values and explicit target authorization; shared /topic/messages never carries passwords/private material. Migrate shared Vue types/store exact-value handling and correlation without old-number shims; status enums and nullable fields must match contracts/operator-messages.md. Files: `src/main/kotlin/com/swiftmako/jormanager/model/ChainReadState.kt`, `src/main/kotlin/com/swiftmako/jormanager/entities/SocketResponse.kt`, `vue/src/types/index.ts`, `vue/src/stores/jormanager.ts`, `vue/src/utils/filters.ts`. Dependencies: T014.
 
-**Checkpoint**: actual input contracts, complete schema, exact/common types, durable authorization and one commit authority are ready. No story work starts before this checkpoint; source-only or missing external evidence cannot be declared runtime verification.
+**Code checkpoint**: shared types, schema and commit interfaces precede their actual consumers; source-disjoint work can proceed as interfaces are established. The separate evidence checkpoint remains pending and cannot be inferred from code.
 
 ## Phase 3: User Story 1 — Follow the chain through Dijkstra (P1)
 
@@ -70,7 +70,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q1: independently replay supported historical-era blocks and standalone Dijkstra blocks; match block/member/output/value results and stop completeness at unsupported era/content. Public epoch-zero Musashi supplies Dijkstra integration evidence. SC-001/SC-006/SC-007/SC-011/SC-012.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T016 [P] [US1] Add independent per-era header/body/envelope conformance cases, byte-hash fidelity, malformed/unknown-era and producer-invalid outcomes. Assert visible typed failures instead of empty success or process exit; establish failing-before behavior on the current implementation. Cover supported historical-era block decoding by each block era and Dijkstra-capable binaries connected to a still-Conway network without selecting Dijkstra decoding. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/DijkstraBlockDecodeTest.kt`. Dependencies: T015.
 - [ ] T017 [P] [US1] Add consumer-visible wallet freshness tests for unavailable versus zero funds, pending versus confirmed values and disabled dependent spend actions; use contract values and exact large amounts rather than source-text or default-value assertions. Files: `vue/tests/unit/views/WalletChainState.spec.ts`. Dependencies: T015.
@@ -87,7 +87,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T023 [US1] Run focused per-era regressions and Q1 through the actual browser/backend/PostgreSQL/qualified delivery on disposable targets; compare independent values and legacy IDs, exercise incompatible tools and unknown era, and record expected/observed results. Read-only direct-chain milestone is not a full Dijkstra release. Files: `specs/001-dijkstra-era-support/evidence/US1-chain-following.md`. Dependencies: T022.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 4: User Story 2 — Find every nested transaction and its effects (P1)
 
@@ -95,7 +95,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q2: parent and two children each create output zero under distinct IDs; query all members and confirm a later child-output spend. Aggregate-balanced, script-failed, reference-input and rejected nesting cases must match the reference with no partial effects. SC-001/SC-002/SC-003.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T024 [P] [US2] Add independent parent/two-child output-zero, child-only metadata/no-payment-member, later-spend and conflicting-branch occurrence cases; reject duplicate child bodies with different witnesses, recursion and forbidden child fee/collateral/starting intervals. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/NestedTransactionIdentityTest.kt`. Dependencies: T023.
 - [ ] T025 [P] [US2] Add reference aggregate-balanced/individually-unbalanced, reference-input, same-batch-spend rejection and script-failed/collateral-return scenarios; assert one parent fee/collateral and zero ordinary effects for invalid batches. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/BatchEffectsTest.kt`. Dependencies: T023.
@@ -110,7 +110,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T029 [US2] Execute Q2 nested and batch-validity scenarios through real ingestion/query/UI and PostgreSQL, including the later child-output spend and malformed input rejection. Save exact independent identity/value comparisons and demonstrate no missing non-payment members; full changed-family extension is additionally owned by US7. Files: `specs/001-dijkstra-era-support/evidence/US2-nested-batches.md`. Dependencies: T028.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 5: User Story 3 — Register and maintain Leios voting keys safely (P1)
 
@@ -118,7 +118,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q4: a representative operator registers, retains the scheduled key during ordinary update, rotates, observes snapshots/expiration/retirement and installs the key; bad proof, uncertain submission and remote failure remain actionable with no leaked secrets. SC-005/SC-006/SC-007/SC-008.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T030 [P] [US3] Add selected-bundle key/proof length/domain/relation, current-versus-future retention, invalid import and public-only historical-key cases. Use independent proof artifacts without committing signing secrets; no invented cross-pool BLS uniqueness requirement. Cover pool certificate/deposit/refund projection and operation confirmation, retained current/future keys, retirement and qualified re-registration cancellation with independent cases. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/LeiosKeyLifecycleTest.kt`. Dependencies: T023.
 - [ ] T031 [P] [US3] Add operator-visible tests separating submitted/confirmed/scheduled/eligible/selected/installed/loaded/unknown state, stale preview rejection, exact consequences and secret clearing; never assert success from a mocked command echo. Cover retirement and cancellation review, timing, current/future keys and Conway controls without Leios prerequisites. Files: `vue/tests/unit/components/LeiosKeyPanel.spec.ts`. Dependencies: T023.
@@ -138,7 +138,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T040 [US3] Execute Q4 with actual GUI/CLI/SSH/node boundaries on disposable infrastructure: initial registration, ordinary update retaining future key, rotation/snapshot age, expiration, retirement/cancellation, invalid proof, uncertain response and failed reload. Verify independent fingerprints/statuses and zero secret disclosure, recording B2 operational findings without claiming that installation guarantees voting. Files: `specs/001-dijkstra-era-support/evidence/US3-leios-keys.md`. Dependencies: T039.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 6: User Story 4 — Account for Leios-certified transactions (P1)
 
@@ -146,7 +146,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q3: compare direct-plus-certified application order and nested effects to reference delivery; withhold/restore closure, duplicate delivery, replace branches and reject disabled Peras without false complete progress. SC-002/SC-003/SC-007.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T041 [P] [US4] Add independent ordered-reference/full-hash/size, certificate-with-direct-transactions, missing closure, duplicate content and transport-inlining cases. Reject invalid certificates according to independent accepted/rejected observations, without pretending JorManager executes consensus. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/LeiosClosureTest.kt`. Dependencies: T029.
 - [ ] T042 [P] [US4] Add PostgreSQL adoption/provenance cases where announcements cause no effects, repeated certification does not reapply content, abandoned branches remain historical and non-null Peras remains disabled; assert last-complete point stops before missing content. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/LeiosAdoptionTest.kt`. Dependencies: T029.
@@ -162,7 +162,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T047 [US4] Execute Q3 with actual qualified delivery and independent outcomes, including simultaneous ordinary and certified nested transactions, absent/restored closure and branch abandonment; record the observed transport/application order and no false completeness. Include these scenarios in the fixed 100-batch corpus, not as substitute synthetic round trips. Files: `specs/001-dijkstra-era-support/evidence/US4-certified-content.md`. Dependencies: T046.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 7: User Story 5 — Recover and upgrade without misleading state (P1)
 
@@ -170,7 +170,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q6/Q7: compare interrupted/duplicate/rolled-back and fresh/upgraded databases at the same exact point, including rollback before replacement and restored backups. Full story acceptance is closed by the final all-story replay after US6/US7/US8 integration; no early release claim. SC-004/SC-007/SC-008.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T048 [P] [US5] Add independent PostgreSQL rollback/restart cases at acquisition, before/during/after commit, duplicate delivery and late old-generation fetch; compare persisted state to the independent reference and leave replacement blocks withheld. Cover projections and authorized confirmation, not only UTxOs. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/ChainRecoveryTest.kt`. Dependencies: T040, T047.
 - [ ] T049 [P] [US5] Add fresh-versus-upgraded database and restore scenarios from sanitized legacy fixtures, checking historical IDs/configuration and explicit ambiguity/replay-required failures. Use isolated PostgreSQL and real Liquibase; never delete duplicate historical rows to force migration success. Assert upgraded Conway installations retain provisioning, existing configuration and operations without invented Dijkstra state or keys. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/DijkstraUpgradeTest.kt`. Dependencies: T040, T047.
@@ -185,7 +185,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T053 [US5] Write exercised backup/restore and upgrade instructions including affected relay/core/pool roles, paused ingestion, disk/replay requirements, encrypted-key backup, remote prerequisites, deep rollback limits and old-binary restore procedure. Record that later story migrations/consumers must also pass the final Q6/Q7 run before this story is accepted. Files: `docs/dijkstra-upgrade-guide.md`, `specs/001-dijkstra-era-support/evidence/US5-recovery.md`. Dependencies: T052.
 
-**Checkpoint**: core recovery/cutover facilities and current scenarios are ready. Full US5 acceptance is deliberately closed by T079 after every later state-producing story, not by a narrow earlier replay.
+**Acceptance checkpoint (pending)**: core recovery scenarios require recorded evidence. Full US5 acceptance is closed by T079 after every later state-producing story, not by a narrow earlier replay.
 
 ## Phase 8: User Story 8 — Create new Musashi nodes and pools (P1)
 
@@ -193,7 +193,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q0: on a clean installation, download from the actual JorManager catalog, create/sync a relay and register/configure a new pool; independently verify reset, keys and producer state. Missing/corrupt/mixed/reset assets cannot alter existing nodes or claim readiness. SC-009/SC-010/SC-011/SC-012.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T054 [P] [US8] Add bundle contract cases for partial publication, HTTP errors, duplicate basenames, corrupt/missing peer/genesis assets, wrong node genesis hash, untrusted redirects and mixed/reset identity; promotion must be atomic and existing selectable/node snapshots unchanged. Validate the checked-in schema and synthetic vector with format assertions, reject duplicate JSON keys, unknown properties, invalid IDs and mutated identity/payload; the vector is not live qualification evidence. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/MusashiCatalogTest.kt`. Dependencies: T002, T015.
 - [ ] T055 [P] [US8] Add operator-visible bundle selection/host preflight/parent-network/authorization cases and distinct installed/started/synchronized/registered/loaded statuses; ensure failed provisioning does not become ready and existing non-Musashi options remain usable. Cover standalone Conway provisioning with no Dijkstra genesis, Musashi config or Leios credentials and mixed-network selection isolation. Files: `vue/tests/unit/components/MusashiProvisioning.spec.ts`. Dependencies: T015.
@@ -212,7 +212,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T063 [US8] Execute Q0 from a clean JorManager/database and disposable hosts using only the actual published remote catalog: create and sync a relay, create/register/configure a pool and verify independent network/key/producer observations. Exercise missing/corrupt/mixed/unavailable assets and private reset/role-failure scenarios; preserve existing networks and selected bundles. Close B3/G6 only with actual publication/download/UI/SSH evidence and no manual network-file imports. Execute only Q8's provisioning, monitoring and mixed-network-selection slice here: provision and monitor a standalone Conway relay/pool using existing supported configuration without Musashi, Dijkstra genesis or Leios keys; verify selection isolation from the Musashi target. Record this as partial Q8 evidence, not full Q8 acceptance. Full Q8, including existing transaction workflows and era-cache behavior, is accepted at T081 after all caller and data integration. Files: `specs/001-dijkstra-era-support/evidence/US8-provisioning.md`. Dependencies: T057, T062.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 9: User Story 6 — Continue existing transaction workflows (P2)
 
@@ -220,7 +220,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q5: actual send/assets, rewards, stake registration/deregistration/delegation, pool creation/update/retirement and affected governance succeed and reconcile exact body IDs. Both permitted submission forms retain identity; disallowed forms, missing capabilities and uncertain outcomes cannot cause duplicate spend. SC-006/SC-007/SC-011/SC-012.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T064 [P] [US6] Add independent three-element and transitional-true submission equivalence, false-flag rejection, included-versus-submitted distinction and standalone-child rejection cases; verify authorized bytes are never repaired into a different transaction. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/DijkstraSubmissionTest.kt`. Dependencies: T029, T040.
 - [ ] T065 [P] [US6] Add durable-operation tests for lost submit response, repeated request, changed target/fees/validity, insufficient capability and whole-batch reconciliation; check no repeat spend or child-only resubmit and no conflation with confirmed UTxOs. Exercise initial node query and cached matching-era reuse, mismatch-triggered query with node response overriding block inference, pending/error/unknown/wrong-network evidence blocking side effects, same-era response preserving an unchanged review, confirmed era change invalidating dependent review and requiring requalification, independent network capability isolation and Dijkstra-capable tools against still-Conway operations. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/AuthorizedWorkflowTest.kt`. Dependencies: T029, T040.
@@ -241,7 +241,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 **Independent test**: Q2/Q2a: compare every changed family and its boundaries to independent outcomes; parent/child directDeposits credit the correct account exactly once, failed batches do not credit, and rollback reverses effects. Validate original/current checkpoints and no withdrawal of fresh same-batch deposits. SC-001/SC-002/SC-004/SC-007.
 
-### Tests — implement before the story behavior
+### Deferred test authoring
 
 - [ ] T070 [P] [US7] Add independent body-key-25 parent/child directDeposits cases with multiple recipients/shared account/no payment output, registration-before-deposit, child-to-parent checkpoint, original withdrawal limit, failed batch, duplicate direct/certified delivery and rollback. Reject empty/null maps, wrong-network/missing accounts and reference-defined invalid amounts/multiasset values without guessing zero/max acceptance. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/DirectDepositsTest.kt`. Dependencies: T029, T047.
 - [ ] T071 [P] [US7] Add independent guards/required guards, all script versions/purposes, structured redeemer ownership, datums/reference scripts, certificate/vote/proposal, numeric/rational/binary-name/presence/tag boundary cases. Keep accepted, rejected and disabled expectations distinct and never use local round-trip output as oracle. Files: `src/test/kotlin/com/swiftmako/jormanager/dijkstra/DijkstraDataFamiliesTest.kt`. Dependencies: T029, T047.
@@ -258,7 +258,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T077 [US7] Execute Q2/Q2a against independent pre/post-state through actual direct and certified ingestion, query/UI and PostgreSQL; prove account credits, exact checkpoints, original withdrawal allowance, ineffective failed intent, no-output discovery and atomic duplicate/restart/rollback behavior. Record accepted/rejected/disabled/boundary coverage for every research inventory family; no omission justified by the 100-batch minimum. Files: `specs/001-dijkstra-era-support/evidence/US7-data-and-direct-deposits.md`. Dependencies: T076.
 
-**Checkpoint**: the independent criteria above have actual recorded evidence; unsupported or incomplete cases remain visible. This story checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record the independent criteria above; unsupported or incomplete cases remain visible. This checkpoint alone does not authorize a full-feature release.
 
 ## Phase 11: User Story 6 — Acceptance continuation (P2)
 
@@ -268,7 +268,7 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 - [ ] T078 [US6] Execute the full Q5 workflow matrix through actual GUI/CLI/node boundaries with disposable funded accounts, independently reconcile identity/economic effects and deliberately lose a submit response. Record each named workflow, permitted/rejected envelope and incompatible combination; a mocked controller suite or one successful send cannot close SC-006. Exercise standalone Conway send, stake and pool registration/update/retirement/cancellation on a Dijkstra-capable binary while the network remains Conway; also exercise a separate qualified Dijkstra network concurrently. Check unrelated networks/read-only history survive unavailable evidence. Files: `specs/001-dijkstra-era-support/evidence/US6-existing-workflows.md`. Dependencies: T069, T077.
 
-**Checkpoint**: US6's full independent Q5 criteria from Phase 9 now have actual recorded evidence, including reconciliation through the completed US7 index/query paths. Unsupported or incomplete cases remain visible; caller migration alone did not close this story. This checkpoint alone does not authorize a full-feature release.
+**Acceptance checkpoint (pending)**: record US6's full independent Q5 criteria from Phase 9, including reconciliation through completed US7 index/query paths. Caller migration alone does not close this story or authorize a release.
 
 ## Phase 12: Polish & Cross-Cutting Release Gates
 
@@ -299,33 +299,34 @@ The migration name `src/main/resources/db/changelog/043-dijkstra-schema.xml` is 
 
 ### Phase and story dependencies
 
-Setup → foundation is mandatory. Thereafter, source-disjoint ready work may proceed in parallel using the task-level edges. The default sequential order is the phase order; every dependency names an earlier task. Story *completion* is not inferred merely because a model or test was added.
+The user directs a code-first pass, followed by user-coordinated manual qualification. Task descriptions retain their full evidence obligations and IDs, but **test authoring and verification dependencies do not gate code work now**:
+
+- T001 and T003–T007 are deferred qualification/provenance or test work; T002's existing schema/vector is a design contract, not a requirement to execute verification before coding. T005 remains a later evidence prerequisite for T006 but not for T008 onward. T057's external publication evidence is deferred; its defined manifest contract still guides implementation.
+- Test-authoring tasks T016–T017, T024–T025, T030–T031, T041–T042, T048–T049, T054–T055, T064–T065 and T070–T071 and execution checkpoints T023, T029, T040, T047, T053, T063, T077–T079 and T081 do not block implementation tasks. Their original scenario coverage, dependencies for later acceptance and unchecked status remain. Test/rehearsal/execution wording embedded in a mixed implementation task is likewise deferred, not deleted or reported complete.
+- Replace a code task's dependency on a deferred test or checkpoint with the actual implementation interfaces that checkpoint covers. For example, T067 needs the T061–T062 provisioning implementation and T038 lifecycle path, not execution of T063. T080 follows integration of all affected code, not execution of T079. Maintain code-to-code prerequisites, in particular T073 depends on T034. Phase order, story checkpoints and test-pair joins are not additional code barriers.
+- User-owned acceptance retains its original evidence edges: T063 covers only the Q8 provisioning/monitoring/selection slice; T081 covers full Q8. T078's full Q5 remains after T069 and US7 acceptance T077. T079 remains all-story recovery/upgrade acceptance. T082–T084's exercised guidance and independent review remain dependent on real results.
 
 ```mermaid
 graph TD
-  S[Setup and reference qualification] --> F[Shared foundation]
-  F --> U1[US1 chain following]
-  F --> P8[US8 catalog model and publication track]
-  U1 --> U2[US2 nested indexing]
-  U2 --> U3[US3 pool ingestion and key lifecycle]
-  U2 --> U4[US4 certified content]
-  U3 --> U5[US5 recovery infrastructure]
+  C[Available contracts and authoritative sources] --> F[Shared code interfaces and persistence]
+  F --> U1[US1 chain code]
+  F --> U8[US8 configuration code]
+  U1 --> U2[US2 nested code]
+  U2 --> U3[US3 pool and key code]
+  U2 --> U4[US4 certified code]
+  U3 --> U5[US5 recovery code]
   U4 --> U5
-  P8 --> U8[US8 complete relay and pool workflow]
-  U1 --> U8
   U3 --> U8
-  U2 --> U6[US6 caller implementation]
-  U3 --> U6
+  U3 --> U6[US6 caller code]
   U8 --> U6
-  U2 --> U7[US7 full data and directDeposits]
-  U4 --> U7
+  U2 --> U7[US7 data and directDeposits code]
   U3 --> U7
-  U6 --> U6A[US6 final Q5 acceptance]
-  U7 --> U6A
-  U5 --> A[All-story recovery and final gates]
-  U6A --> A
-  U7 --> A
-  U8 --> A
+  U4 --> U7
+  U6 --> V[User-coordinated tests and manual qualification]
+  U7 --> V
+  U5 --> V
+  U8 --> V
+  V --> R[Full evidence and independent release review]
 ```
 
 US7 uses the foundational protocol-snapshot task and extends the US3 pool-effect mappings, not every US6 UI change; independent fixture tests can start earlier. US8 now starts from available catalog assets; its remaining immutable-publication/download work depends on foundation, not US5 completion. US3/US8 reuse shared authorization and one registration path; US6 migrates remaining callers, not a second submission implementation. US6 final Q5 acceptance depends on its caller UI and US7 integration/acceptance; its implementation milestone is not story completion. US5 full acceptance must include every later state-producing integration.
@@ -334,11 +335,11 @@ US3 pool mapping depends on US2 batch effects and foundational economics; US3 re
 
 ### Shared-file ownership and parallel safety
 
-One integration owner serializes shared MemberData, AccountEffect, CertificateGovernanceEffect and DerivedAccountGovernanceState mappings: foundation and US3 own initial mappings, US7 extends them without duplicating pool ownership. One integration owner serializes `NodeController.kt`, `WalletController.kt`, `WalletUtils.kt`, `LedgerDao.kt`, `LedgerRepository.kt`, `ChainIngestionCoordinator.kt`, `DijkstraBlockDecoder.kt`, `vue/src/stores/jormanager.ts`, `vue/src/types/index.ts` and the master migration file. Stories touching these files are **not** independent concurrent edit slices. New test pairs below have disjoint paths and only completed shared prerequisites; they are safe parallel tasks. Setup corpus and environment collection have separate outputs. Documentation pair at the end also has disjoint files. Production implementation tasks are intentionally not decorated `[P]` merely because their headings differ.
+One integration owner serializes shared MemberData, AccountEffect, CertificateGovernanceEffect and DerivedAccountGovernanceState mappings and shared controller, repository, store, type and migration files. Stories touching shared files are not independent concurrent edit slices. Deferred test pairs have disjoint paths but are not dispatched during this code pass.
 
-### Parallel execution examples per story
+### Deferred test pairs
 
-The examples are scheduler instructions, not new shell commands or duplicate checklist tasks. Complete each pair's listed prerequisites first; then dispatch both files together, join results, and continue its implementation tasks in dependency order.
+The following historical pairings identify required later test work, not instructions to join before code. Their listed prerequisites apply when preparing independent verification; each "join" below applies only to that later verification, never to current implementation.
 
 ### US1 parallel example
 
@@ -420,7 +421,7 @@ Task T071: src/test/kotlin/com/swiftmako/jormanager/dijkstra/DijkstraDataFamilie
 Join both results before the next story implementation task.
 ```
 
-Additional ready pairs: T003 + T004 after T001; T082 + T083 after T081. No parallel publication/monitor edits to the same artifact.
+T003 and T004 are later qualification inputs; T082 and T083 follow actual T081 results. No concurrent publication/monitor edits to the same artifact.
 
 ## Requirement, entity and contract coverage
 
@@ -460,18 +461,18 @@ All 25 logical entities have their exact fields and constraints quoted in their 
 
 ## Implementation Strategy
 
-### First internal milestone (suggested MVP scope)
+### First internal code milestone
 
-Complete setup/foundation and US1 while preserving existing Conway deployment, provisioning and operations; then execute its direct-chain independent checks. Use a read-only isolated demonstration; unsupported nested/certified/data families must remain explicitly incomplete, not silently ignored. This is a sequencing milestone, **not** approval to reduce the specified feature or ship partial Dijkstra support. Full operational deployment requires every story, directDeposits, actual Musashi publication/new relay/pool creation and all release gates, including standalone Conway and mixed-network compatibility.
+Implement the shared foundation and US1 while preserving existing Conway deployment, provisioning and operations. Direct-chain independent checks and isolated demonstrations are deferred to user-coordinated qualification; unsupported nested/certified/data families must remain explicitly incomplete, not silently ignored. This is a sequencing milestone, **not** approval to reduce the specified feature or ship partial Dijkstra support. Full operational deployment requires every story, directDeposits, actual Musashi publication/new relay/pool creation and all release gates, including standalone Conway and mixed-network compatibility.
 
 ### Incremental implementation and acceptance
 
-1. Establish actual Musashi and independent-oracle inputs; finish the shared schema, exact types, durable authorization and single commit authority.
-2. Complete the remaining immutable-publication/provenance track using the existing downloadable files. Build and verify US1, then own-ID nested indexing; key lifecycle can progress with the supplied bulk-capable node on a disposable producer only where file ownership permits.
-3. Integrate certified closure and immediate rollback/recovery; complete new-relay/new-pool catalog-driven provisioning rather than substituting manual setup.
-4. Migrate every existing operational caller, then integrate and accept the full semantic data family with explicit parent/child directDeposits end-to-end coverage; only then complete full US6 Q5 acceptance.
-5. Re-run full all-story recovery/upgrade/restore and every real-boundary scenario, complete the clean cutover and operator guidance, and independently review evidence. Remaining provenance/application qualification blocks release; do not reopen the already-resolved absence of catalog assets or bulk-loader implementation.
+1. Implement shared schema, exact types, durable authorization and a single commit authority against available contracts; retain observed provenance without inventing a runtime manifest or corpus.
+2. Implement US1, nested indexing, key lifecycle and immutable-publication/downloader code with shared-file ownership. External publication and disposable producer qualification are deferred.
+3. Integrate certified closure, immediate rollback/recovery and catalog-driven new relay/pool provisioning, preserving Conway and prior-era paths.
+4. Migrate all operational callers and integrate the complete semantic data family, including parent/child directDeposits. Caller migration is not full Q5 acceptance.
+5. The user coordinates deferred independent fixtures, test authoring and execution, environment setup, Q0–Q8, full Q5 after US7, all-story recovery, G1–G6, operator guidance based on actual results and independent review. Runtime qualification and release are not claimed by code completion.
 
 ### Completion rule
 
-All checklist items represent future implementation/evidence work and remain unchecked at generation. A task is done only when its observable result, affected callers, focused regression/smoke and evidence are complete; no placeholder implementation or copied expected output. Document-only validation of this file verifies scheduling/coverage/format, not Cardano compatibility or deployment.
+All checklist items remain unchecked until their complete stated observable outcomes are actually met; code completion alone cannot close tasks containing deferred evidence. No placeholder implementation or copied expected output. Deferral is not a constitution exception or waiver; release/runtime claims require applicable evidence or a constitution-governed exception. Document-only validation does not establish compatibility or deployment.

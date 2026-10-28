@@ -6,7 +6,7 @@
       :title="modalTitle"
       size="xl"
       :no-close-on-backdrop="true"
-      @ok="handleValidateAndSend"
+      @ok.prevent
     >
       <template #footer="{ cancel }">
         <div class="w-100 d-flex justify-content-between align-items-center">
@@ -19,16 +19,17 @@
           </BButton>
           <div>
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
-            <BButton
-              variant="primary"
-              @click="handleValidateAndSend"
-              :disabled="requestFeesUUID !== responseFeesUUID"
-            >Send</BButton>
+            <BButton variant="primary" disabled>Review and send unavailable</BButton>
           </div>
         </div>
       </template>
+      <div class="alert alert-warning" role="alert">
+        A transaction cannot be authorized until a target-network era, qualified operation,
+        complete wallet state and a durable transaction preview are available. Amounts below are
+        provisional; fees and final consequences have not been reviewed.
+      </div>
       
-      <BForm ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
+      <BForm ref="sendAdaForm" @submit.stop.prevent>
         <div class="accordion" role="tablist">
           <BCard
             no-body
@@ -51,8 +52,7 @@
                     v-b-tooltip.hover.bottom="'Fee Payer'"
                   />
                   <span>
-                     Available: {{ entryAvailableLabel(index, toAccount.currency) }} | 
-                     Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}
+                     {{ toAccount.currency === 'ada' ? 'ADA' : toAccount.currency }} — review unavailable
                   </span>
                 </div>
                 <div class="d-flex align-items-center">
@@ -244,7 +244,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { find, map, clone, countBy } from 'lodash-es'
+import { find } from 'lodash-es'
 import bs58 from 'bs58check'
 import {
   BModal,
@@ -265,7 +265,6 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
-import { lovelaceToAda, generateUUID } from '@/utils/filters'
 
 interface ToAccount {
   currency: string
@@ -275,29 +274,29 @@ interface ToAccount {
   type: 'amount' | 'percent' | null
   amount: string | null
   percent: number
-  tokenFee: number
+  tokenFee: string
   isFeePayer?: boolean
 }
 
 interface WalletItemRef {
   id: number
   name: string
-  paymentAddrLovelace: number
-  stakingAddrLovelace: number
-  nativeAssetMap: Record<string, number>
+  paymentAddrLovelace: string
+  stakingAddrLovelace: string | null
+  nativeAssetMap: Record<string, string>
 }
 
 const store = useJorManagerStore()
-const { walletItems, txFee, tokenKeepFee, tokenFees, tokenLocked, minUTxOValue, requestFeesUUID, responseFeesUUID, toastSuccess } = storeToRefs(store)
+const { walletItems, txFee, tokenKeepFee, tokenFees, tokenLocked, minUTxOValue } = storeToRefs(store)
 const emitter = useEventBus()
 
 const isVisible = ref(false)
-const remainingLovelace = ref(0)
+const remainingLovelace = ref(0n)
 const fromWalletItem = ref<WalletItemRef>({
   id: 0,
   name: '',
-  paymentAddrLovelace: 0,
-  stakingAddrLovelace: 0,
+  paymentAddrLovelace: '0',
+  stakingAddrLovelace: '0',
   nativeAssetMap: {}
 })
 
@@ -344,40 +343,34 @@ const currencyOptions = computed(() => {
   return options
 })
 
-const paymentOptions = computed(() => {
-  const formatter = (val: number, _sym: string, dec: number) => lovelaceToAda(val * 1000000, dec)
-  return store.paymentSelectOptions(formatter)
-})
+const paymentOptions = computed(() => walletItems.value.map(item => ({
+  value: item.id,
+  text: `${item.name} - ${formatAda(item.paymentAddrLovelace)}`
+})).sort((a, b) => a.text.localeCompare(b.text)))
 
-const sendingAmount = computed(() => {
-  if (formSendAda.value.isMultiClaim) {
-    return fromWalletItems.value.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
+function integer(value: string | number | bigint | null | undefined): bigint {
+  if (value == null) return 0n
+  const text = String(value)
+  if (!/^-?\d+$/.test(text) || (typeof value === 'number' && !Number.isSafeInteger(value))) {
+    throw new Error('Amount is not an exact integer')
   }
-  return formSendAda.value.isClaim
-    ? fromWalletItem.value.stakingAddrLovelace
-    : fromWalletItem.value.paymentAddrLovelace
-})
+  return BigInt(text)
+}
 
-const modalTitle = computed(() => {
-  const tkFee = tokenKeepFee.value || 0
-  const tkLocked = tokenLocked.value || 0
-  const remaining = remainingLovelace.value + tkFee + tkLocked
-  const sending = sendingAmount.value
-  
-  let title = ''
-  if (formSendAda.value.isMultiClaim) {
-    title = `Claiming from ${fromWalletItems.value.length} addresses: `
-  } else {
-    title = (formSendAda.value.isClaim ? 'Claiming: ' : 'Sending: ')
-  }
-  title += lovelaceToAda(sending) + ', TxFee: ' + lovelaceToAda(txFee.value || 0)
-  
-  if (tkLocked > 0) title += ', TokenLocked: ' + lovelaceToAda(tkLocked)
-  if (tkFee > 0) title += ', TokenKeep: ' + lovelaceToAda(tkFee)
-  
-  title += ', Remaining: ' + lovelaceToAda(remaining)
-  return title
-})
+function formatAda(value: bigint | string | number): string {
+  const amount = integer(value)
+  const sign = amount < 0n ? '-' : ''
+  const absolute = amount < 0n ? -amount : amount
+  return `${sign}₳${absolute / 1000000n}.${(absolute % 1000000n).toString().padStart(6, '0')}`
+}
+
+const sendingAmount = computed(() => formSendAda.value.isMultiClaim
+  ? fromWalletItems.value.reduce((sum, item) => sum + integer(item.stakingAddrLovelace), 0n)
+  : integer(formSendAda.value.isClaim ? fromWalletItem.value.stakingAddrLovelace : fromWalletItem.value.paymentAddrLovelace))
+
+const modalTitle = computed(() => formSendAda.value.isMultiClaim
+  ? `Claiming from ${fromWalletItems.value.length} addresses: ${formatAda(sendingAmount.value)}`
+  : `${formSendAda.value.isClaim ? 'Claiming' : 'Sending'}: ${formatAda(sendingAmount.value)}`)
 
 const metadataState = computed(() => {
   if (!formSendAda.value.metadata) return true
@@ -428,7 +421,7 @@ function createEmptyToAccount(): ToAccount {
     type: null,
     amount: null,
     percent: 0,
-    tokenFee: 0
+    tokenFee: '0'
   }
 }
 
@@ -528,9 +521,8 @@ function amountState(index: number, amount: string | null, currency: string): bo
   recalculateRemaining()
   if (amount != null && amount !== '') {
     const tokens = parseAmount(amount, currency)
-    const spent = calculateSpent(index + 1)
-    const remaining = spent.remaining[currency] || 0
-    return tokens >= (currency === 'ada' ? minUTxOValue.value : 1) && remaining >= 0
+    const remaining = calculateSpent(index + 1).remaining[currency] || 0n
+    return tokens !== null && tokens >= (currency === 'ada' ? integer(minUTxOValue.value) : 1n) && remaining >= 0n
   }
   return null
 }
@@ -539,18 +531,20 @@ function percentState(index: number, percent: number, currency: string): boolean
   recalculateRemaining()
   if (percent != null && percent > 0) {
     const spent = calculateSpent(index + 1)
-    const tokens = spent.amount[currency] || 0
-    const remaining = spent.remaining[currency] || 0
-    return tokens >= (currency === 'ada' ? minUTxOValue.value : 1) && remaining >= 0
+    const tokens = spent.amount[currency] || 0n
+    const remaining = spent.remaining[currency] || 0n
+    return tokens >= (currency === 'ada' ? integer(minUTxOValue.value) : 1n) && remaining >= 0n
   }
   return null
 }
 
-function parseAmount(amount: string | null, currency: string): number {
-  if (!amount) return 0
-  const numStr = amount.replace(/[^0-9.-]/g, '')
-  const val = parseFloat(numStr) || 0
-  return currency === 'ada' ? Math.round(val * 1000000) : Math.round(val)
+function parseAmount(amount: string | null, currency: string): bigint | null {
+  if (!amount) return null
+  const match = currency === 'ada' ? /^(\d+)(?:\.(\d{1,6}))?$/.exec(amount.trim()) : /^(\d+)$/.exec(amount.trim())
+  if (!match) return null
+  return currency === 'ada'
+    ? BigInt(match[1]) * 1000000n + BigInt((match[2] || '').padEnd(6, '0'))
+    : BigInt(match[1])
 }
 
 function headerVariant(_index: number, toAccount: ToAccount): string {
@@ -564,33 +558,23 @@ function headerVariant(_index: number, toAccount: ToAccount): string {
   return isValid ? 'success' : 'danger'
 }
 
-// Add methods to help with template display for Accordion
-function entryAvailableLabel(index: number, currency: string): string {
-  const spent = calculateSpent(index, true)
-  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
-}
-
-function entryRemainingLabel(index: number, currency: string): string {
-  const spent = calculateSpent(index + 1, false) // Include fees in remaining
-  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
-}
 
 function amountPlaceholder(currency: string): string {
-  return currency === 'ada' ? 'e.g. ₳10.000000' : 'e.g. 100'
+  return currency === 'ada' ? 'e.g. 10.000000' : 'e.g. 100'
 }
 
 function minAmountLabel(currency: string): string {
-  return currency === 'ada' ? lovelaceToAda(minUTxOValue.value) : '1'
+  return currency === 'ada' ? formatAda(minUTxOValue.value) : '1'
 }
 
 function amountRemainingLabel(index: number, currency: string): string {
   const spent = calculateSpent(index, true)
-  return currency === 'ada' ? lovelaceToAda(spent.remaining['ada'] || 0) : String(spent.remaining[currency] || 0)
+  return currency === 'ada' ? formatAda(spent.remaining['ada'] || 0n) : String(spent.remaining[currency] || 0n)
 }
 
 function percentLabel(index: number, percent: number, currency: string): string {
-  const amount = calculateSpent(index + 1).amount[currency] || 0
-  const formatted = currency === 'ada' ? lovelaceToAda(amount) : String(amount)
+  const amount = calculateSpent(index + 1).amount[currency] || 0n
+  const formatted = currency === 'ada' ? formatAda(amount) : String(amount)
   return `${percent}% - ${formatted}`
 }
 
@@ -617,84 +601,65 @@ function onTypeChange(toAccount: ToAccount) {
 }
 
 function recalculateRemaining() {
-  remainingLovelace.value = calculateSpent(formSendAda.value.toAccounts.length).remaining['ada'] || 0
+  remainingLovelace.value = calculateSpent(formSendAda.value.toAccounts.length).remaining['ada'] || 0n
 }
 
 function calculateClaimRewardsFeePayer(): number {
   for (const account of formSendAda.value.toAccounts) {
     const walletItem = find(walletItems.value, ['id', account.account])
     if (walletItem && (walletItem as any).type !== 'address' && (walletItem as any).type !== 'pledge' &&
-        walletItem.paymentAddrLovelace >= 1000000 + (txFee.value || 0)) {
+        integer(walletItem.paymentAddrLovelace) >= 1000000n + integer(txFee.value)) {
       return walletItem.id
     }
   }
   return -1
 }
 
-function calculateSpent(index: number, skipTokenFees = false): { remaining: Record<string, number>, amount: Record<string, number> } {
-  let feePayerAccountId = formSendAda.value.isClaim ? calculateClaimRewardsFeePayer() : fromWalletItem.value.id
-  const tkKeepFee = skipTokenFees ? 0 : (tokenKeepFee.value || 0)
-  const tkLocked = skipTokenFees ? 0 : (tokenLocked.value || 0)
-  
-  const baseAmount: Record<string, number> = fromWalletItem.value.nativeAssetMap
-    ? clone(fromWalletItem.value.nativeAssetMap)
-    : {}
-  
-  // For multi-claim, sum staking rewards from all wallet items
-  const totalStakingRewards = formSendAda.value.isMultiClaim
-    ? fromWalletItems.value.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
-    : fromWalletItem.value.stakingAddrLovelace
+function calculateSpent(index: number, skipTokenFees = false): { remaining: Record<string, bigint>, amount: Record<string, bigint> } {
+  const feePayerAccountId = formSendAda.value.isClaim ? calculateClaimRewardsFeePayer() : fromWalletItem.value.id
+  const tkKeepFee = skipTokenFees ? 0n : integer(tokenKeepFee.value)
+  const tkLocked = skipTokenFees ? 0n : integer(tokenLocked.value)
+  const baseAmount: Record<string, bigint> = {}
+  for (const [asset, quantity] of Object.entries(fromWalletItem.value.nativeAssetMap || {})) {
+    baseAmount[asset] = integer(quantity)
+  }
+  const rewards = formSendAda.value.isMultiClaim
+    ? fromWalletItems.value.reduce((sum, item) => sum + integer(item.stakingAddrLovelace), 0n)
+    : integer(fromWalletItem.value.stakingAddrLovelace)
+  baseAmount.ada = formSendAda.value.isClaim
+    ? rewards
+    : integer(fromWalletItem.value.paymentAddrLovelace) - integer(txFee.value) - tkKeepFee - tkLocked
 
-  baseAmount['ada'] = formSendAda.value.isClaim
-    ? totalStakingRewards
-    : fromWalletItem.value.paymentAddrLovelace - (txFee.value || 0) - tkKeepFee - tkLocked
-  
-  const alreadySpentPercentages: Record<string, number> = {}
-  const amount: Record<string, number> = {}
-  
+  const spentPercentages: Record<string, number> = {}
+  const amount: Record<string, bigint> = {}
   for (let i = 0; i < index; i++) {
     const account = formSendAda.value.toAccounts[i]
-    amount[account.currency] = 0
+    const currency = account.currency
+    amount[currency] = 0n
     account.isFeePayer = feePayerAccountId === account.account
-    
-    if (account.type === 'amount' && account.amount != null) {
-      amount[account.currency] = parseAmount(account.amount, account.currency)
-      baseAmount[account.currency] = (baseAmount[account.currency] || 0) - amount[account.currency]
-      
-      if (formSendAda.value.isClaim && account.account === feePayerAccountId && account.currency === 'ada') {
-        baseAmount[account.currency] -= (txFee.value || 0)
-      }
-      alreadySpentPercentages[account.currency] = 0
+    if (account.type === 'amount') {
+      amount[currency] = parseAmount(account.amount, currency) ?? 0n
+      spentPercentages[currency] = 0
     } else if (account.type === 'percent' && account.percent > 0) {
-      if (alreadySpentPercentages[account.currency] === undefined) {
-        alreadySpentPercentages[account.currency] = 0
-      }
-      const percent = account.percent
-      if (alreadySpentPercentages[account.currency] >= 100) {
-        amount[account.currency] = 0
-      } else {
-        amount[account.currency] = Math.round(
-          (baseAmount[account.currency] || 0) * (percent / (100 - alreadySpentPercentages[account.currency]))
-        )
-        alreadySpentPercentages[account.currency] += percent
-      }
-      baseAmount[account.currency] = (baseAmount[account.currency] || 0) - amount[account.currency]
-      
-      if (formSendAda.value.isClaim && account.account === feePayerAccountId && account.currency === 'ada') {
-        if (baseAmount[account.currency] >= (txFee.value || 0)) {
-          baseAmount[account.currency] -= (txFee.value || 0)
-        } else {
-          amount[account.currency] -= (txFee.value || 0)
-        }
+      const previous = spentPercentages[currency] || 0
+      if (previous < 100) {
+        const denominator = BigInt(100 - previous)
+        const numerator = (baseAmount[currency] || 0n) * BigInt(account.percent)
+        amount[currency] = (numerator + denominator / 2n) / denominator
+        spentPercentages[currency] = previous + Number(account.percent)
       }
     }
-    
-    if (!skipTokenFees && account.currency !== 'ada') {
-      account.tokenFee = (tokenFees.value as number[])?.[i] || 0
-      baseAmount['ada'] = (baseAmount['ada'] || 0) - account.tokenFee
+    baseAmount[currency] = (baseAmount[currency] || 0n) - amount[currency]
+    if (formSendAda.value.isClaim && account.account === feePayerAccountId && currency === 'ada') {
+      const fee = integer(txFee.value)
+      if (account.type === 'amount' || baseAmount[currency] >= fee) baseAmount[currency] -= fee
+      else amount[currency] -= fee
+    }
+    if (!skipTokenFees && currency !== 'ada') {
+      account.tokenFee = String(tokenFees.value?.[i] ?? '0')
+      baseAmount.ada = (baseAmount.ada || 0n) - integer(account.tokenFee)
     }
   }
-  
   return { remaining: baseAmount, amount }
 }
 
@@ -717,114 +682,7 @@ function validateMetadataItem(field: unknown): string | null {
 
 function prepareCalculateSendAdaFees() {
   recalculateRemaining()
-  const uniqueToAccounts = Object.keys(countBy(formSendAda.value.toAccounts, (ta) => 
-    ta.account && ta.account > 0 ? ta.account : ta.address
-  )).length
-  const returnChangeTxOut = remainingLovelace.value + (tokenKeepFee.value || 0) > 0 ? 1 : 0
-  
-  const toAccounts = map(formSendAda.value.toAccounts, (toAccount, index) => ({
-    currency: toAccount.currency,
-    account: toAccount.account || -1,
-    address: toAccount.address,
-    type: toAccount.type,
-    amount: toAccount.amount == null
-      ? calculateSpent(index + 1).amount[toAccount.currency]
-      : parseAmount(toAccount.amount, toAccount.currency),
-    percent: toAccount.percent,
-    tokenFee: toAccount.tokenFee
-  }))
-  
-  const request = {
-    fromId: fromWalletItem.value.id,
-    fromIds: formSendAda.value.fromIds,
-    toAccounts,
-    txOut: uniqueToAccounts + returnChangeTxOut,
-    isClaim: formSendAda.value.isClaim,
-    metadata: formSendAda.value.metadata,
-    uuid: generateUUID()
-  }
-  
-  validateForm()
-
-  if (request.fromIds.length > 0 && formSendAda.value.valid) {
-    store.calculateSendAdaFees(request)
-  } else {
-    store.invalidateSendAdaFees()
-  }
-}
-
-function validateForm() {
-  formSendAda.value.valid = true
-  for (const toAccount of formSendAda.value.toAccounts) {
-    if (!currencyState(toAccount.currency) || !destinationState(toAccount.destination) ||
-        !accountState(toAccount) || !addressState(toAccount) || !typeState(toAccount.type)) {
-      formSendAda.value.valid = false
-      break
-    }
-    if (toAccount.type === 'amount' && !amountState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.amount, toAccount.currency)) {
-      formSendAda.value.valid = false
-      break
-    }
-    if (toAccount.type === 'percent' && !percentState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.percent, toAccount.currency)) {
-      formSendAda.value.valid = false
-      break
-    }
-  }
-  if (formSendAda.value.valid && !metadataState.value) {
-    formSendAda.value.valid = false
-  }
-}
-
-function handleValidateAndSend() {
-  // Validate all entries
-  for (const toAccount of formSendAda.value.toAccounts) {
-    if (!currencyState(toAccount.currency) || !destinationState(toAccount.destination) ||
-        !accountState(toAccount) || !addressState(toAccount) || !typeState(toAccount.type)) {
-      store.toastError = { title: 'Invalid Form', message: 'Please fill out all required fields.' }
-      return
-    }
-    if (toAccount.type === 'amount' && !amountState(formSendAda.value.toAccounts.indexOf(toAccount), toAccount.amount, toAccount.currency)) {
-      store.toastError = { title: 'Invalid Form', message: 'Invalid amount specified.' }
-      return
-    }
-  }
-  
-  if (remainingLovelace.value < 0) {
-    store.toastError = { title: 'Invalid Form', message: 'Negative remaining balance or not enough left to keep tokens!' }
-    return
-  }
-  
-  emitter.emit('show-spending-password-modal', { action: 'send-ada' })
-}
-
-function passwordConfirmed(spendingPassword: string) {
-  const toAccounts = map(formSendAda.value.toAccounts, (toAccount, index) => ({
-    currency: toAccount.currency,
-    account: toAccount.account ?? -1,
-    address: toAccount.address,
-    type: toAccount.type,
-    amount: toAccount.amount == null
-      ? calculateSpent(index + 1).amount[toAccount.currency]
-      : parseAmount(toAccount.amount, toAccount.currency),
-    percent: toAccount.percent,
-    tokenFee: toAccount.tokenFee
-  }))
-  
-  store.submitTransaction({
-    spendingPassword,
-    fromId: formSendAda.value.fromId!,
-    fromIds: formSendAda.value.fromIds,
-    isClaim: formSendAda.value.isClaim,
-    txFee: txFee.value || 0,
-    tokenKeepFee: tokenKeepFee.value || 0,
-    toAccounts,
-    metadata: formSendAda.value.metadata
-  })
-}
-
-function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
-  if (data.action !== 'send-ada') return
-  passwordConfirmed(data.password)
+  store.invalidateSendAdaFees()
 }
 
 function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
@@ -835,19 +693,12 @@ function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: Wa
   }
 }
 
-// Watch for successful send
-watch(toastSuccess, (toast) => {
-  if (toast?.title === 'Ada Sent') {
-    isVisible.value = false
-    clearFormSendAda()
-  }
-})
 
 // Watch token fees updates
 watch(tokenFees, (fees) => {
   if (fees) {
     for (let i = 0; i < formSendAda.value.toAccounts.length; i++) {
-      formSendAda.value.toAccounts[i].tokenFee = (fees as number[])[i] || 0
+      formSendAda.value.toAccounts[i].tokenFee = String(fees[i] ?? '0')
     }
   }
 })
@@ -855,12 +706,10 @@ watch(tokenFees, (fees) => {
 onMounted(() => {
   clearFormSendAda()
   emitter.on('show-send-ada-modal', onShowSendAdaModal as any)
-  emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 
 onUnmounted(() => {
   emitter.off('show-send-ada-modal', onShowSendAdaModal as any)
-  emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
 

@@ -18,17 +18,17 @@ data class ProtocolParameters(
     @param:Json(name = "utxoCostPerByte")
     val utxoCostPerByte: Long? = null,
     @param:Json(name = "decentralization")
-    val decentralisationParam: BigDecimal?,
+    val decentralisationParam: BigDecimal? = null,
     @param:Json(name = "maxTxSize")
     val maxTxSize: Long,
     @param:Json(name = "minPoolCost")
-    val minPoolCost: Long,
+    val minPoolCost: BigInteger,
     @param:Json(name = "txFeePerByte")
-    val txFeePerByte: Long,
+    val txFeePerByte: BigInteger,
     @param:Json(name = "maxBlockBodySize")
     val maxBlockBodySize: Long,
     @param:Json(name = "txFeeFixed")
-    val txFeeFixed: Long,
+    val txFeeFixed: BigInteger,
     @param:Json(name = "poolRetireMaxEpoch")
     val poolRetireMaxEpoch: Long,
     @param:Json(name = "maxBlockHeaderSize")
@@ -38,9 +38,9 @@ data class ProtocolParameters(
     @param:Json(name = "stakePoolTargetNum")
     val stakePoolTargetNum: Long,
     @param:Json(name = "monetaryExpansion")
-    val monetaryExpansion: Double,
+    val monetaryExpansion: BigDecimal,
     @param:Json(name = "treasuryCut")
-    val treasuryCut: Double,
+    val treasuryCut: BigDecimal,
     @param:Json(name = "poolPledgeInfluence")
-    val poolPledgeInfluence: Double
+    val poolPledgeInfluence: BigDecimal
 )

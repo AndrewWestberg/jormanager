@@ -45,6 +45,7 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.services.CardanoCapabilities
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
@@ -104,6 +105,7 @@ class NodeController
         private val ledgerDao: LedgerDao,
         private val cardanoUtils: CardanoUtils,
         private val cardanoRepository: CardanoRepository,
+        private val cardanoCapabilities: CardanoCapabilities,
         // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
@@ -324,6 +326,7 @@ class NodeController
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                            cardanoCapabilities.requireOperation(defaultHost, defaultNode, "pool.register")
                             val protocolParamsJson =
                                 defaultHostConnection
                                     .command(
@@ -954,7 +957,7 @@ class NodeController
                                         }
                                     }
                                     append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
-                                    if (era.equals("conway", ignoreCase = true)) {
+                                    if (era.equals("conway", ignoreCase = true) || era.equals("dijkstra", ignoreCase = true)) {
                                         append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
                                     }
                                     append("$magicString ")
@@ -1324,6 +1327,8 @@ class NodeController
                             val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                             try {
                                 val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                                cardanoCapabilities.requireOperation(defaultHost, defaultNode, "pool.update")
+                                requireSameNetwork(defaultNode, request.id)
                                 val protocolParamsJson =
                                     defaultHostConnection
                                         .command(
@@ -1528,7 +1533,7 @@ class NodeController
                                                 }
                                             }
                                             append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
-                                            if (era.equals("conway", ignoreCase = true)) {
+                                            if (era.equals("conway", ignoreCase = true) || era.equals("dijkstra", ignoreCase = true)) {
                                                 append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
                                             }
                                             append("$magicString ")
@@ -1993,6 +1998,8 @@ class NodeController
                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                 try {
                     val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, "pool.update")
+                    requireSameNetwork(defaultNode, request.id)
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
@@ -2402,7 +2409,7 @@ class NodeController
                                     }
                                 }
                                 append("--metadata-url $metadataUrl --metadata-hash $metadataHash ")
-                                if (era.equals("conway", ignoreCase = true)) {
+                                if (era.equals("conway", ignoreCase = true) || era.equals("dijkstra", ignoreCase = true)) {
                                     append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
                                 }
                                 append("$magicString ")
@@ -2555,6 +2562,8 @@ class NodeController
                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                 try {
                     val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, "pool.update")
+                    requireSameNetwork(defaultNode, request.nodeId)
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
@@ -2770,7 +2779,7 @@ class NodeController
                                     }
                                 }
                                 append("--metadata-url ${node.metadataUrl} --metadata-hash $metadataHash ")
-                                if (era.equals("conway", ignoreCase = true)) {
+                                if (era.equals("conway", ignoreCase = true) || era.equals("dijkstra", ignoreCase = true)) {
                                     append("--pool-registration-deposit ${protocolParameters.stakePoolDeposit} ")
                                 }
                                 append("$magicString ")
@@ -2891,6 +2900,9 @@ class NodeController
                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
 
                 val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Node not found!")
+                require(cardanoRepository.networkKey(node) == cardanoRepository.networkKey(defaultNode)) {
+                    "Pool and observer are on different networks"
+                }
                 if (node.isDefault) {
                     throw IOException("Cannot delete the default node!")
                 }
@@ -2913,10 +2925,11 @@ class NodeController
 
                 try {
                     val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, "pool.retire")
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
+                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
@@ -2926,7 +2939,7 @@ class NodeController
                     val transaction = StringBuilder()
                     val certificates = StringBuilder()
                     val signingKeys = StringBuilder()
-                    transaction.append("${defaultHost.cardanoCliPath} conway transaction build-raw ")
+                    transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                     val feePayerAccount =
                         walletRepository.findByIdOrNull(request.retireFeesAccount)
                             ?: throw IOException("Registration fees account not found!")
@@ -2957,7 +2970,7 @@ class NodeController
 
                     val queryTipJson =
                         defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
+                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
@@ -2996,13 +3009,13 @@ class NodeController
                             defaultHostConnection,
                             magicString,
                             socketPath,
-                            "conway",
+                            era,
                             utxos,
                         )
                     val feesString =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
+                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("fees: $fees")
@@ -3035,59 +3048,21 @@ class NodeController
 
                     // 10. Sign the transaction
                     defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} conway transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
+                        "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
                     )
 
-                    nodeRepository.save(node.copy(isDeleted = true))
-
-                    // do not stop node right now. It might be retiring in the future.
-//                if (hostConnection.hasSystemd) {
-//                    hostConnection.sudoCommand("systemctl stop ${node.name}-node.service", request.sudoPassword)
-//                    hostConnection.sudoCommand("systemctl disable ${node.name}-node.service", request.sudoPassword)
-//                }
-                    val now = System.currentTimeMillis()
-                    fileRepository.findByIdOrNull(node.coreSKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.coreVKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.vrfVKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.vrfSKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.kesSKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.kesVKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.opcertId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.coreCounterId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.itnPublicKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
-                    fileRepository.findByIdOrNull(node.itnPrivateKeyId)?.let {
-                        fileRepository.save(it.copy(name = it.name + "-$now"))
-                    }
 
                     val txid =
                         runBlocking {
                             TransactionCache.withLock {
                                 // 11. Submit the transaction
                                 defaultHostConnection.command(
-                                    "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
+                                    "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
                                 )
                                 val txid =
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
+                                            "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
                                 val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
@@ -3922,10 +3897,12 @@ class NodeController
 
                 try {
                     val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, "governance.vote")
+                    request.votes.forEach { requireSameNetwork(defaultNode, it.nodeId) }
                     val protocolParamsJson =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
+                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
                     defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
 
@@ -3935,7 +3912,7 @@ class NodeController
                     val voteFiles = StringBuilder()
                     val signingKeys = StringBuilder()
 
-                    transaction.append("${defaultHost.cardanoCliPath} conway transaction build-raw ")
+                    transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
 
                     // Get fee payer account
                     val feePayerAccount =
@@ -3971,7 +3948,7 @@ class NodeController
                     // Get TTL
                     val queryTipJson =
                         defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
+                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
                     transaction.append("--invalid-hereafter $ttl ")
@@ -4015,7 +3992,7 @@ class NodeController
                         }
 
                         val voteCreateCommand = StringBuilder()
-                        voteCreateCommand.append("${defaultHost.cardanoCliPath} conway governance vote create ")
+                        voteCreateCommand.append("${defaultHost.cardanoCliPath} $era governance vote create ")
                         voteCreateCommand.append("$voteFlag ")
                         voteCreateCommand.append("--governance-action-tx-id $govActionTxId ")
                         voteCreateCommand.append("--governance-action-index $govActionIndex ")
@@ -4046,13 +4023,13 @@ class NodeController
                             defaultHostConnection,
                             magicString,
                             socketPath,
-                            "conway",
+                            era,
                             utxos,
                         )
                     val feesString =
                         defaultHostConnection
                             .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
+                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
                             ).trim()
                     val fees = feesString.split(" ")[0].toBigInteger()
                     log.debug("Calculated fees: $fees")
@@ -4085,19 +4062,19 @@ class NodeController
 
                     // Sign the transaction
                     defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} conway transaction sign --tx-body-file /tmp/governance-vote.txbody $signingKeys $magicString --out-file /tmp/governance-vote.txsigned"
+                        "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/governance-vote.txbody $signingKeys $magicString --out-file /tmp/governance-vote.txsigned"
                     )
 
                     val txid = runBlocking {
                         TransactionCache.withLock {
                             // Submit the transaction
                             defaultHostConnection.command(
-                                "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/governance-vote.txsigned $magicString $socketPath"
+                                "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/governance-vote.txsigned $magicString $socketPath"
                             )
                             val txid =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/governance-vote.txbody --output-text"
+                                        "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/governance-vote.txbody --output-text"
                                     ).trim()
                             val txSigned = defaultHostConnection.commandReadFile("/tmp/governance-vote.txsigned")
                             TransactionCache.put(txid, txSigned)
@@ -4146,6 +4123,13 @@ class NodeController
                     log.debug("SKIP Creating $nodeFolder/topology.json from db file ${topologyFile.name}")
                 }
             } ?: throw IOException("Topology file not found in db!")
+        }
+
+        private fun requireSameNetwork(observer: Node, targetId: Long) {
+            val target = nodeRepository.findByIdOrNull(targetId) ?: throw IOException("Node $targetId not found")
+            require(cardanoRepository.networkKey(target) == cardanoRepository.networkKey(observer)) {
+                "Pool and observer are on different networks"
+            }
         }
 
         private fun createGenesisFile(
