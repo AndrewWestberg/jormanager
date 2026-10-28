@@ -19,6 +19,7 @@ export interface Node {
   host: Host
   status: string
   color: string
+  isDraft: boolean
   [key: string]: unknown
 }
 
@@ -40,11 +41,84 @@ export interface WalletItem {
   id: number
   name: string
   paymentAddress: string
-  paymentAddrLovelace: number
+  paymentAddrLovelace: string
   stakingAddress?: string
-  stakingAddrLovelace: number
-  nativeAssetMap: Record<string, number>
+  stakingAddrLovelace: string | null
+  nativeAssetMap: Record<string, string>
   [key: string]: unknown
+}
+
+export interface ChainPoint { slot: string; hash: string }
+export interface ChainReadState {
+  networkKey: string
+  status: string
+  reason: string | null
+  observedTip: ChainPoint | null
+  lastCompletePoint: ChainPoint | null
+}
+
+export interface LedgerReplayCoverage {
+  networkKey: string
+  readState: ChainReadState
+  genesisVerifiedAndSeeded: boolean
+  retainedAdoptedInclusions: string
+  unassignedLegacyOutputs: string
+  replayAnchor: string
+  recovery: string
+}
+
+export interface NodeIndexStatus {
+  readState: ChainReadState | null
+  replay: LedgerReplayCoverage | null
+  error: string | null
+}
+
+export interface WalletReview {
+  previewId: string
+  txId: string
+  networkKey: string
+  era: string
+  fee: string
+  deposit: string
+  refund: string
+  validFrom: string | null
+  validUntil: string | null
+  state: string
+  reason?: string | null
+  effects?: unknown
+}
+
+export interface WalletReconciliation {
+  requestId: string
+  previewId: string
+  txId: string
+  networkKey: string
+  state: string
+  reason: string | null
+}
+
+export interface TransactionOccurrence {
+  state: string
+  inclusion: { hash: string; slot: string; height: string; era: number; adopted: boolean; source: string }
+  leios: { announcingPoint: ChainPoint; ebHash: string; fullTransactionHash: string; referencePosition: number; transactionSize: string; certificateHex: string } | null
+  parentId: string | null
+  childIds: string[]
+  valid: boolean
+  effective: boolean
+  fee: string | null
+  inputs: Array<{ txId: string; index: number; role: string; effective: boolean }>
+  outputs: Array<{ index: number; addressHex: string; coin: string; assets: Array<{ policyHex: string; nameHex: string; quantity: string }>; collateralReturn: boolean; effective: boolean }>
+  directDeposits: { presence: string; entries: Array<{ accountAddressHex: string; amount: string; effective: boolean }> }
+  accountEffects: Array<{ kind: string; accountAddressHex: string; amount: string | null; effective: boolean; lowerInclusive: string | null; upperExclusive: string | null }>
+  memberData: Array<{ family: string; position: number; rawHex: string; typed: unknown }>
+}
+export interface TransactionDetail {
+  requestId: string
+  networkKey: string
+  txId: string
+  operationState: string | null
+  readState: ChainReadState
+  occurrences: TransactionOccurrence[]
 }
 
 export interface SeriesDataPoint {

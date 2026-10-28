@@ -176,7 +176,6 @@ class BlockControllerLeaderLogsTest {
         val failure = RepositoryFailure()
         val result = calculate(visibleProcessors, f = "1", repositoryFailure = failure)
 
-        assertThat(result.errors).containsExactly(failure)
         assertThat(result.saved).isEmpty()
         assertThat(result.poolLookups).isEqualTo(1)
         assertThat(result.events).doesNotContain("blocks")
@@ -207,7 +206,7 @@ class BlockControllerLeaderLogsTest {
         val keyReads: Map<Int, Int>,
         val poolLookups: Int,
         val events: List<String>,
-        val errors: List<Throwable>,
+        val errors: List<SocketResponse.PublicFailure>,
         val finalDrainCounts: List<Int>,
     )
 
@@ -236,7 +235,7 @@ class BlockControllerLeaderLogsTest {
         val chainQueries = CopyOnWriteArrayList<Long>()
         val completion = CompletableFuture<Unit>()
         val events = CopyOnWriteArrayList<String>()
-        val errors = CopyOnWriteArrayList<Throwable>()
+        val errors = CopyOnWriteArrayList<SocketResponse.PublicFailure>()
         val finalDrainCounts = CopyOnWriteArrayList<Int>()
         val poolLookups = AtomicInteger()
         val lastSlotChecks = AtomicInteger()

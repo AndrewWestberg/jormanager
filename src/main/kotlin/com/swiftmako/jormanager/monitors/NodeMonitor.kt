@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeStats
 import com.swiftmako.jormanager.moshi.adapters.PoolLedgerJsonAdapter
+import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
@@ -58,6 +59,7 @@ class NodeMonitor
         private val nodeRepository: NodeRepository,
         private val fileRepository: FileRepository,
         private val chainRepository: ChainRepository,
+        private val cardanoRepository: CardanoRepository,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val moshi: Moshi,
@@ -137,7 +139,7 @@ class NodeMonitor
                     val coreNodes =
                         nodeRepository
                             .findAll()
-                            .filter { !it.isDeleted && it.type != "relay" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                            .filter { !it.isDeleted && !it.isDraft && it.type != "relay" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
                     if (coreNodes.isEmpty()) {
                         return@launch
                     }
@@ -154,24 +156,25 @@ class NodeMonitor
                             hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                                 val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                                val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
 
                                 val ledgerStateFile = "/tmp/ledger-state-${genesisShelley.networkMagic}_pools.json"
                                 defaultHostConnection.bashCommand(
-                                    "${defaultHost.cardanoCliPath} conway query ledger-state $magicString $socketPath --output-json | jq -c > $ledgerStateFile",
+                                    "${defaultHost.cardanoCliPath} $era query ledger-state $magicString $socketPath --output-json | jq -c > $ledgerStateFile",
                                     timeoutSecs = 300L
                                 )
                                 val poolLedger =
                                     defaultHostConnection
                                         .commandGetFileBufferedSource(ledgerStateFile)
                                         .use { ledgerStateJsonSource ->
-                                            val poolIds = coreNodes.mapNotNull { it.poolId }.toSet()
+                                            val poolIds = coreNodes.filter { cardanoRepository.networkKey(it) == cardanoRepository.networkKey(defaultNode) }.mapNotNull { it.poolId }.toSet()
                                             val poolLedgerAdapter = PoolLedgerJsonAdapter(moshi, poolIds)
                                             poolLedgerAdapter.fromJson(ledgerStateJsonSource)
                                                 ?: throw IOException("Error dumping ledger state!")
                                         }
                                 defaultHostConnection.command("rm -f $ledgerStateFile")
 
-                                coreNodes.forEach { coreNode ->
+                                coreNodes.filter { cardanoRepository.networkKey(it) == cardanoRepository.networkKey(defaultNode) }.forEach { coreNode ->
                                     val updatedCoreNode =
                                         nodeRepository.save(
                                             coreNode.copy(
@@ -216,6 +219,7 @@ class NodeMonitor
         }
 
         private suspend fun refreshNode(node: Node) {
+            if (node.isDraft) return
             val nodeId = node.id ?: return
 
             mutex.withLock {

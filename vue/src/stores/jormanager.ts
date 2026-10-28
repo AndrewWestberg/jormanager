@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import SockJS from 'sockjs-client'
 import Stomp, { type Client as StompClient, type Message } from 'webstomp-client'
 import { orderBy, unionWith, findIndex, sortBy, find, filter, map, uniqBy } from 'lodash-es'
-import { generateUUID } from '@/utils/filters'
+import { generateUUID, lovelaceToAda } from '@/utils/filters'
 import JSONBIG from 'json-bigint'
 import type {
   Host,
@@ -15,8 +15,40 @@ import type {
   NodeStatEvent,
   Toast,
   AppVersionData,
-  TxFeeData
+  ChainReadState,
+  NodeIndexStatus,
+  LedgerReplayCoverage,
+  WalletReview,
+  TransactionDetail,
+  WalletReconciliation
 } from '@/types'
+
+const exactJson = JSONBIG({ storeAsString: true })
+const pendingReviews = new Map<string, {
+  type: string
+  resolve: (data: unknown) => void
+  reject: (error: Error) => void
+  timer: number
+}>()
+
+type LeiosStatusValue = {
+  requestId: string
+  target: { nodeId: number; hostId: number; networkKey?: string | null }
+  readState: { status: string; reasonCode: string; affectedData: string[]; [key: string]: unknown }
+  [key: string]: unknown
+}
+
+function staleLeios(value: LeiosStatusValue): LeiosStatusValue {
+  return {
+    ...value,
+    readState: {
+      ...value.readState,
+      status: 'stale',
+      reasonCode: 'CHAIN_INDEX_CHANGED',
+      affectedData: [...new Set([...(value.readState?.affectedData ?? []), 'registration', 'eligibility', 'selection'])]
+    }
+  }
+}
 
 interface SelectOption {
   value: string | number
@@ -45,14 +77,21 @@ interface JorManagerState {
   blocks: Block[]
   files: FileOption[]
   walletItems: WalletItem[]
+  networkBundleOptions: { bundles: Array<{ bundleId: string; resetId: string; catalogPrefix: string; networkMagic: number; systemStart: string }>; status: string }
+  leiosStatus: unknown | null
+  leiosStatusError: string | null
+  leiosStatusRequest: { requestId: string; nodeId: number; hostId: number; networkKey: string | null } | null
+  leiosResponses: Record<string, { data?: unknown; exception?: { message: string; requestId?: string } }>
+  walletNetworkKey: string | null
+  chainReadState: ChainReadState | null
+  chainStatusRequestId: string | null
+  nodeIndexStatus: Record<number, NodeIndexStatus>
+  nodeIndexRequests: Record<number, string>
+  networkInvalidations: Record<string, number>
+  networkReadStates: Record<string, ChainReadState>
+  transactionDetail: TransactionDetail | { error: string } | null
+  transactionRequestId: string | null
 
-  // Transaction fees
-  txFee: number
-  tokenFees: number[]
-  tokenKeepFee: number
-  tokenLocked: number
-  requestFeesUUID: string
-  responseFeesUUID: string
 
   // Chart data
   nodeColors: string[]
@@ -96,14 +135,21 @@ export const useJorManagerStore = defineStore('jormanager', {
     blocks: [],
     files: [],
     walletItems: [],
+    networkBundleOptions: { bundles: [], status: 'Not requested' },
+    leiosStatus: null,
+    leiosStatusError: null,
+    leiosStatusRequest: null,
+    leiosResponses: {},
+    walletNetworkKey: null,
+    chainReadState: null,
+    chainStatusRequestId: null,
+    nodeIndexStatus: {},
+    nodeIndexRequests: {},
+    networkInvalidations: {},
+    networkReadStates: {},
+    transactionDetail: null,
+    transactionRequestId: null,
 
-    // Transaction fees
-    txFee: 0,
-    tokenFees: [],
-    tokenKeepFee: 0,
-    tokenLocked: 0,
-    requestFeesUUID: 'ec8301e5-98bb-4be2-82d4-0f97fa82bb32',
-    responseFeesUUID: '200bbde5-d0ba-4810-ae31-aa5c66ff0bd1',
 
     // Chart data
     nodeColors: [],
@@ -257,92 +303,42 @@ export const useJorManagerStore = defineStore('jormanager', {
       )
     },
 
-    paymentSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      return sortBy(
-        map(this.walletItems, (walletItem) => ({
-          value: walletItem.id,
-          text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-        })),
-        ['text']
-      )
+    paymentSelectOptions(): SelectOption[] {
+      return sortBy(this.walletItems.map(item => ({ value: item.id, text: `${item.name} - ${lovelaceToAda(item.paymentAddrLovelace)}` })), ['text'])
     },
 
-    registrationFeesSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      const filtered = this.walletItems.filter((walletItem: WalletItem) =>
-        (walletItem as any).type !== 'address' &&
-        (walletItem as any).hasPaymentKeys &&
-        walletItem.paymentAddrLovelace > 3000000
-      )
-      return sortBy(
-        filtered.map((walletItem: WalletItem) => ({
-          value: walletItem.id,
-          text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-        })),
-        ['text']
-      )
+    registrationFeesSelectOptions(): SelectOption[] {
+      return this.feeAccountOptions(3000000n)
     },
 
-    reregistrationFeesSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      const filtered = this.walletItems.filter((walletItem: WalletItem) =>
-        (walletItem as any).type !== 'address' &&
-        (walletItem as any).hasPaymentKeys &&
-        walletItem.paymentAddrLovelace > 1000000
-      )
-      return sortBy(
-        filtered.map((walletItem: WalletItem) => ({
-          value: walletItem.id,
-          text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-        })),
-        ['text']
-      )
+    reregistrationFeesSelectOptions(): SelectOption[] {
+      return this.feeAccountOptions(1000000n)
     },
 
-    stakingFeesSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      const filtered = this.walletItems.filter((walletItem: WalletItem) =>
-        (walletItem as any).type !== 'address' &&
-        (walletItem as any).hasPaymentKeys &&
-        walletItem.paymentAddrLovelace > 3000000
-      )
-      return sortBy(
-        filtered.map((walletItem: WalletItem) => ({
-          value: walletItem.id,
-          text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-        })),
-        ['text']
-      )
+    stakingFeesSelectOptions(): SelectOption[] {
+      return this.feeAccountOptions(3000000n)
     },
 
-    stakingSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      return sortBy(
-        map(
-          filter(this.walletItems, (walletItem) =>
-            (walletItem as any).type === 'stake' || (walletItem as any).type === 'pledge'
-          ),
-          (walletItem) => ({
-            value: walletItem.id,
-            text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-          })
-        ),
-        ['text']
-      )
+    feeAccountOptions(minimum: bigint): SelectOption[] {
+      return sortBy(this.walletItems.filter(item =>
+        item.type !== 'address' && item.hasPaymentKeys &&
+        /^\d+$/.test(String(item.paymentAddrLovelace)) && BigInt(item.paymentAddrLovelace) > minimum
+      ).map(item => ({ value: item.id, text: `${item.name} - ${lovelaceToAda(item.paymentAddrLovelace)}` })), ['text'])
     },
 
-    rewardsSelectOptions(currencyFormatter: (val: number, sym: string, dec: number) => string): SelectOption[] {
-      return sortBy(
-        map(
-          filter(this.walletItems, (walletItem) => (walletItem as any).type === 'stake'),
-          (walletItem) => ({
-            value: walletItem.id,
-            text: `${walletItem.name} - ${currencyFormatter(walletItem.paymentAddrLovelace / 1000000, '₳', 6)}`
-          })
-        ),
-        ['text']
-      )
+    stakingSelectOptions(): SelectOption[] {
+      return sortBy(this.walletItems.filter(item => item.type === 'stake' || item.type === 'pledge')
+        .map(item => ({ value: item.id, text: `${item.name} - ${lovelaceToAda(item.paymentAddrLovelace)}` })), ['text'])
+    },
+
+    rewardsSelectOptions(): SelectOption[] {
+      return sortBy(this.walletItems.filter(item => item.type === 'stake')
+        .map(item => ({ value: item.id, text: `${item.name} - ${lovelaceToAda(item.paymentAddrLovelace)}` })), ['text'])
     },
 
     walletItemById(walletId: number): WalletItem {
-      return find(this.walletItems, (walletItem) => walletItem.id === walletId) || 
-        { id: 0, name: '', paymentAddress: '', paymentAddrLovelace: 0, stakingAddrLovelace: 0, nativeAssetMap: {} }
+      return find(this.walletItems, (walletItem) => walletItem.id === walletId) ||
+        { id: 0, name: '', paymentAddress: '', paymentAddrLovelace: '0', stakingAddrLovelace: '0', nativeAssetMap: {} }
     },
 
     hex2ascii(hexx: string): string {
@@ -371,6 +367,9 @@ export const useJorManagerStore = defineStore('jormanager', {
         },
         (error: unknown) => {
           this.connected = false
+          this.invalidateAllNetworkObservations()
+          this.nodeIndexStatus = {}
+          this.nodeIndexRequests = {}
           console.error('WebSocket connection error:', error)
         }
       )
@@ -380,14 +379,43 @@ export const useJorManagerStore = defineStore('jormanager', {
       if (!this.stompClient) return
 
       this.stompClient.subscribe('/topic/messages', (tick: Message) => {
-        const message = JSONBIG.parse(tick.body) as { type: string; data?: unknown; exception?: { message: string } }
+        const message = exactJson.parse(tick.body) as { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string } }
         this.handleMessage(message)
       })
+      this.invalidateAllNetworkObservations()
       this.connected = true
+      this.nodeIndexStatus = {}
+      this.nodeIndexRequests = {}
+      this.requestNodes()
     },
 
-    handleMessage(message: { type: string; data?: unknown; exception?: { message: string } }) {
+    handleMessage(message: { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string } }) {
       switch (message.type) {
+        case 'walletreview':
+        case 'walletsubmit':
+        case 'walletreconcile':
+        case 'governancereview':
+        case 'governancepublish':
+        case 'governancesubmit':
+        case 'pool_retirement_review':
+        case 'pool_retirement_submit':
+        case 'node_pool_deployment_preview':
+        case 'node_pool_deployment_install':
+        case 'leios_registration_preview':
+        case 'leios_registration_submitted': {
+          if (message.type.startsWith('node_pool_deployment_') || message.type.startsWith('leios_registration_')) {
+            this.leiosResponses = { ...this.leiosResponses, [message.type]: { data: message.data, exception: message.exception } }
+          }
+          const data = message.data as { requestId: string } | undefined
+          const requestId = data?.requestId || message.exception?.requestId
+          const pending = requestId ? pendingReviews.get(requestId) : undefined
+          if (!pending || pending.type !== message.type) break
+          clearTimeout(pending.timer)
+          pendingReviews.delete(requestId!)
+          if (data) pending.resolve(data)
+          else pending.reject(new Error(message.exception?.message || 'Operation failed'))
+          break
+        }
         case 'version':
           this.setAppVersion(message.data as AppVersionData)
           break
@@ -401,8 +429,51 @@ export const useJorManagerStore = defineStore('jormanager', {
           this.hosts = message.data as Host[]
           break
         case 'nodes':
-          this.nodes = message.data as Node[]
+          if (Array.isArray(message.data)) {
+            const nextNodes = message.data as Node[]
+            const leios = this.leiosStatus as LeiosStatusValue | null
+            const targetId = this.leiosStatusRequest?.nodeId ?? leios?.target?.nodeId
+            if (targetId != null) {
+              const before = this.nodes.find(node => node.id === targetId)
+              const after = nextNodes.find(node => node.id === targetId)
+              const [oldIdentity, newIdentity] = [before, after].map(node => node ? JSON.stringify([
+                node.id, node.hostId, node.genesisByronFileId, node.genesisShelleyFileId,
+                node.genesisAlonzoFileId, node.genesisConwayFileId, node.genesisDijkstraFileId,
+                node.configFileId, node.configurationBundleId, node.configurationResetId
+              ]) : null)
+              if (oldIdentity !== newIdentity) {
+                const oldNetwork = this.leiosStatusRequest?.networkKey ?? leios?.target?.networkKey
+                if (oldNetwork) this.invalidateNetworkObservations(oldNetwork)
+                this.leiosStatus = null
+                this.leiosStatusRequest = null
+                this.leiosStatusError = 'Node configuration changed; refresh Leios status for the new target.'
+              }
+            }
+            this.nodes = nextNodes
+            // An ID can retain its identity while its host or configuration changes.
+            // Discard every old association until this exact list has been resolved.
+            this.nodeIndexStatus = {}
+            this.nodeIndexRequests = {}
+            this.nodes.forEach(node => this.requestNodeIndexStatus(node.id))
+          }
           break
+        case 'node_chainstatus': {
+          const data = message.data as { requestId: string; nodeId: number; readState: ChainReadState; replay: LedgerReplayCoverage } | undefined
+          const requestId = data?.requestId || message.exception?.requestId
+          const nodeId = data?.nodeId ?? (message.exception?.target?.startsWith('node:') ? Number(message.exception.target.slice(5)) : NaN)
+          if (!Number.isSafeInteger(nodeId) || !requestId || this.nodeIndexRequests[nodeId] !== requestId) break
+          delete this.nodeIndexRequests[nodeId]
+          if (data?.readState && data.replay && this.nodes.some(node => node.id === nodeId) &&
+              data.readState.networkKey === data.replay.networkKey) {
+            // A network broadcast may have arrived while this request was in flight.
+            // Once the association is known, prefer the latest broadcast for its state.
+            const state = this.networkReadStates[data.readState.networkKey] ?? data.readState
+            this.nodeIndexStatus[nodeId] = { readState: state, replay: data.replay, error: null }
+          } else {
+            this.nodeIndexStatus[nodeId] = { readState: null, replay: null, error: message.exception?.message || 'Node network index status unavailable' }
+          }
+          break
+        }
         case 'addhost':
           if (message.data) {
             this.toastSuccess = { title: 'Host Saved', message: message.data as string }
@@ -412,6 +483,45 @@ export const useJorManagerStore = defineStore('jormanager', {
           break
         case 'file_options':
           this.files = message.data as FileOption[]
+          break
+        case 'network_bundle_options':
+          if (message.data) this.networkBundleOptions = message.data as JorManagerState['networkBundleOptions']
+          else this.networkBundleOptions = { bundles: [], status: message.exception?.message || 'Unavailable' }
+          break
+        case 'leios_status': {
+          const data = message.data as LeiosStatusValue | undefined
+          const pending = this.leiosStatusRequest
+          const requestId = data?.requestId ?? message.exception?.requestId
+          if (!pending || !requestId || pending.requestId !== requestId) break
+          this.leiosStatusRequest = null
+          if (data && data.target?.nodeId === pending.nodeId && data.target.hostId === pending.hostId &&
+              (!pending.networkKey || data.target.networkKey === pending.networkKey) && data.readState) {
+            const current = data.target.networkKey ? this.networkReadStates[data.target.networkKey] : null
+            this.leiosStatus = current && current.status !== 'complete' ? staleLeios(data) : data
+            this.leiosStatusError = null
+          } else {
+            const previous = this.leiosStatus as LeiosStatusValue | null
+            if (previous?.target?.nodeId === pending.nodeId && previous.readState) this.leiosStatus = staleLeios(previous)
+            this.leiosStatusError = message.exception?.message || 'Leios status unavailable'
+          }
+          break
+        }
+        case 'capabilities':
+          this.leiosResponses = { ...this.leiosResponses, capabilities: { data: message.data, exception: message.exception } }
+          break
+        case 'leios_key_prepared':
+        case 'leios_key_imported':
+        case 'leios_key_install_preview':
+        case 'leios_key_installation':
+        case 'network_reconfiguration_preview':
+        case 'network_reconfiguration_authorize':
+        case 'network_configuration_restore':
+        case 'node_provisioning_preview':
+        case 'node_pool_draft':
+        case 'node_pool_draft_context':
+        case 'capability_qualification':
+        case 'host_capability_qualification':
+          this.leiosResponses = { ...this.leiosResponses, [message.type]: { data: message.data, exception: message.exception } }
           break
         case 'createnode':
           if (message.data) {
@@ -423,9 +533,56 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'nodestats':
           this.saveNodeStats(message.data as NodeStatEvent[])
           break
-        case 'wallet':
-          this.walletItems = message.data as WalletItem[]
+        case 'wallet': {
+          if (!message.data) {
+            this.walletItems = []
+            this.walletNetworkKey = null
+            this.chainReadState = null
+            this.toastError = { title: 'Wallet unavailable', message: message.exception?.message || 'Could not load wallet' }
+            break
+          }
+          const data = message.data as { items: WalletItem[]; networkKey: string }
+          this.walletNetworkKey = data.networkKey
+          this.walletItems = data.items.map(item => ({
+            ...item,
+            paymentAddrLovelace: String(item.paymentAddrLovelace),
+            stakingAddrLovelace: item.stakingAddrLovelace == null ? null : String(item.stakingAddrLovelace),
+            nativeAssetMap: Object.fromEntries(Object.entries(item.nativeAssetMap || {}).map(([key, value]) => [key, String(value)]))
+          }))
+          this.requestChainStatus(data.networkKey)
           break
+        }
+        case 'chainstatus': {
+          const data = message.data as (ChainReadState & { requestId?: string }) | undefined
+          const accepted = !!data && (!data.requestId ||
+            (data.requestId === this.chainStatusRequestId && data.networkKey === this.walletNetworkKey))
+          if (data && accepted && data.networkKey) {
+            if (data.networkKey === this.walletNetworkKey) this.chainReadState = data
+            this.networkReadStates[data.networkKey] = data
+            if (data.status !== 'complete') this.invalidateNetworkObservations(data.networkKey)
+            Object.values(this.nodeIndexStatus).forEach(status => {
+              if (status.readState?.networkKey === data.networkKey) status.readState = data
+            })
+          } else if (!data && message.exception?.requestId === this.chainStatusRequestId && message.exception.target === this.walletNetworkKey) {
+            this.chainReadState = null
+            if (this.walletNetworkKey) {
+              delete this.networkReadStates[this.walletNetworkKey]
+              this.invalidateNetworkObservations(this.walletNetworkKey)
+            }
+          }
+          break
+        }
+        case 'transaction': {
+          const data = message.data as TransactionDetail | undefined
+          if (data && data.requestId === this.transactionRequestId && data.networkKey === this.walletNetworkKey) {
+            const networkState = this.networkReadStates[data.networkKey]
+            this.transactionDetail = data.readState.status !== 'complete' || (networkState && networkState.status !== 'complete')
+              ? { ...data, readState: { ...data.readState, status: 'stale', reason: 'Chain index is incomplete; inclusion labels are historical until a complete refresh.' } }
+              : data
+          }
+          else if (!data && message.exception?.requestId === this.transactionRequestId && message.exception.target === this.walletNetworkKey) this.transactionDetail = { error: message.exception.message || 'Transaction unavailable' }
+          break
+        }
         case 'createwalletentry':
           if (message.data) {
             this.toastSuccess = { title: 'Success', message: message.data as string }
@@ -440,20 +597,6 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.fetchWalletItems()
           } else {
             this.toastError = { title: 'Delete WalletEntry Error', message: message.exception!.message }
-          }
-          break
-        case 'calculatefee':
-          if (message.data) {
-            this.saveTxFee(message.data as TxFeeData)
-          } else {
-            this.toastError = { title: 'CalculateFee Error', message: message.exception!.message }
-          }
-          break
-        case 'submittransaction':
-          if (message.data) {
-            this.toastSuccess = { title: 'Ada Sent', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Submit Transaction Error', message: message.exception!.message }
           }
           break
         case 'restartnode':
@@ -512,13 +655,6 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.toastError = { title: 'Update Metadata Error', message: message.exception!.message }
           }
           break
-        case 'updatestakingaddress':
-          if (message.data) {
-            this.toastSuccess = { title: 'Update Staking Address...', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Update Staking Address Error', message: message.exception!.message }
-          }
-          break
         case 'editrelays':
           if (message.data) {
             this.toastSuccess = { title: 'Edit Relays...', message: message.data as string }
@@ -532,13 +668,6 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.toastWarn = { title: 'Retire Pool', message: 'Pool has been left running intentionally. You should stop it and disable systemd scripts manually after retirement.' }
           } else {
             this.toastError = { title: 'Retire Pool Error', message: message.exception!.message }
-          }
-          break
-        case 'governancevote':
-          if (message.data) {
-            this.toastSuccess = { title: 'Governance Vote', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Governance Vote Error', message: message.exception!.message }
           }
           break
       }
@@ -695,13 +824,6 @@ export const useJorManagerStore = defineStore('jormanager', {
       }
     },
 
-    saveTxFee(data: TxFeeData) {
-      this.txFee = data.txFee
-      this.tokenFees = data.tokenFees
-      this.tokenKeepFee = data.tokenKeepFee
-      this.tokenLocked = data.tokenLocked
-      this.responseFeesUUID = data.uuid
-    },
 
     // WebSocket send actions
     sendMessage(endpoint: string, data?: unknown) {
@@ -714,6 +836,112 @@ export const useJorManagerStore = defineStore('jormanager', {
       } else {
         this.toastError = { title: 'Communication Error!', message: 'stompClient not connected!' }
       }
+    },
+    requestNodeIndexStatus(nodeId: number) {
+      if (!this.connected || !Number.isSafeInteger(nodeId)) return
+      const requestId = generateUUID()
+      this.nodeIndexRequests[nodeId] = requestId
+      this.nodeIndexStatus[nodeId] = { readState: null, replay: null, error: null }
+      this.sendMessage('/jormanager/node/chainstatus', { requestId, nodeId })
+    },
+
+    invalidateNetworkObservations(networkKey: string) {
+      this.networkInvalidations[networkKey] = (this.networkInvalidations[networkKey] ?? 0) + 1
+      const detail = this.transactionDetail
+      if (detail && !('error' in detail) && detail.networkKey === networkKey) {
+        this.transactionDetail = {
+          ...detail,
+          readState: { ...detail.readState, status: 'stale', reason: 'Chain index changed; refresh the transaction before relying on its inclusion.' }
+        }
+      }
+      if (this.walletNetworkKey === networkKey) {
+        this.transactionRequestId = null
+        this.chainStatusRequestId = null
+      }
+      const leios = this.leiosStatus as LeiosStatusValue | null
+      if (leios?.target?.networkKey === networkKey && leios.readState) this.leiosStatus = staleLeios(leios)
+      const pending = this.leiosStatusRequest
+      if (pending && (!pending.networkKey || pending.networkKey === networkKey)) this.leiosStatusRequest = null
+    },
+    invalidateAllNetworkObservations() {
+      const networks = new Set(Object.keys(this.networkReadStates))
+      if (this.walletNetworkKey) networks.add(this.walletNetworkKey)
+      const detail = this.transactionDetail
+      if (detail && !('error' in detail)) networks.add(detail.networkKey)
+      const leios = this.leiosStatus as LeiosStatusValue | null
+      if (leios?.target?.networkKey) networks.add(leios.target.networkKey)
+      networks.forEach(network => this.invalidateNetworkObservations(network))
+      this.networkReadStates = {}
+      this.chainReadState = null
+      this.chainStatusRequestId = null
+      this.transactionRequestId = null
+      this.leiosStatusRequest = null
+    },
+
+
+    requestLeiosStatus(target: { nodeId: number; hostId: number; poolId?: string; networkKey?: string }) {
+      if (!this.connected) return
+      const requestId = generateUUID()
+      const old = this.leiosStatus as LeiosStatusValue | null
+      const networkKey = target.networkKey ?? this.nodeIndexStatus[target.nodeId]?.readState?.networkKey ?? null
+      this.leiosStatusRequest = { requestId, nodeId: target.nodeId, hostId: target.hostId, networkKey }
+      if (old?.target?.nodeId === target.nodeId && old.readState) this.leiosStatus = staleLeios(old)
+      this.leiosStatusError = null
+      this.sendMessage('/jormanager/leios/status', { requestId, target })
+    },
+
+
+    requestChainStatus(networkKey: string) {
+      this.chainReadState = null
+      this.chainStatusRequestId = generateUUID()
+      this.sendMessage('/jormanager/chainstatus', { requestId: this.chainStatusRequestId, networkKey })
+    },
+
+    requestTransaction(txId: string) {
+      if (!this.walletNetworkKey) return
+      this.transactionDetail = null
+      this.transactionRequestId = generateUUID()
+      this.sendMessage('/jormanager/transaction', { requestId: this.transactionRequestId, networkKey: this.walletNetworkKey, txId })
+    },
+
+    socketRequest<T>(destination: string, responseType: string, payload: Record<string, unknown>): Promise<T> {
+      if (!this.stompClient?.connected) return Promise.reject(new Error('Not connected to the server'))
+      const requestId = generateUUID()
+      return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          pendingReviews.delete(requestId)
+          reject(new Error('No response received; the operation outcome may be uncertain'))
+        }, 60000)
+        pendingReviews.set(requestId, { type: responseType, resolve: value => resolve(value as T), reject, timer })
+        try {
+          this.sendMessage(destination, { ...payload, requestId })
+        } catch (error) {
+          clearTimeout(timer)
+          pendingReviews.delete(requestId)
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+      })
+    },
+
+    reviewWallet(kind: string, request: unknown): Promise<WalletReview> {
+      return this.socketRequest<WalletReview>('/jormanager/walletreview', 'walletreview', { kind, request })
+    },
+
+    reviewGovernance(request: unknown): Promise<WalletReview> {
+      return this.socketRequest<WalletReview>('/jormanager/governancereview', 'governancereview', { request })
+    },
+
+    async submitReviewedWallet(previewId: string, spendingPassword: string, governance = false): Promise<WalletReview> {
+      const type = governance ? 'governancesubmit' : 'walletsubmit'
+      const result = await this.socketRequest<WalletReview>(`/jormanager/${type}`, type, { previewId, spendingPassword })
+      if (result.previewId !== previewId) throw new Error('Submission response did not match the reviewed preview')
+      return result
+    },
+
+    async reconcileWallet(previewId: string, spendingPassword: string): Promise<WalletReconciliation> {
+      const result = await this.socketRequest<WalletReconciliation>('/jormanager/walletreconcile', 'walletreconcile', { previewId, spendingPassword })
+      if (result.previewId !== previewId) throw new Error('Reconciliation response did not match the reviewed preview')
+      return result
     },
 
     requestAppVersion() {
@@ -734,6 +962,10 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     requestFileOptions() {
       this.sendMessage('/jormanager/file_options')
+    },
+
+    requestNetworkBundleOptions() {
+      this.sendMessage('/jormanager/network_bundle_options')
     },
 
     createNode(formNode: unknown) {
@@ -765,19 +997,6 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.sendMessage('/jormanager/wallet')
     },
 
-    calculateSendAdaFees(request: { uuid: string; [key: string]: unknown }) {
-      this.requestFeesUUID = request.uuid
-      this.sendMessage('/jormanager/calculatefee', request)
-    },
-
-    invalidateSendAdaFees() {
-      this.requestFeesUUID = generateUUID()
-      this.responseFeesUUID = generateUUID()
-    },
-
-    submitTransaction(formSendAda: unknown) {
-      this.sendMessage('/jormanager/submittransaction', formSendAda)
-    },
 
     restartNodeByName(nodeName: string) {
       const node = find(this.nodes, ['name', nodeName])
@@ -809,9 +1028,6 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.sendMessage('/jormanager/updatemetadata', editMetadataForm)
     },
 
-    updateStakingAddress(stakingAddressForm: unknown) {
-      this.sendMessage('/jormanager/updatestakingaddress', stakingAddressForm)
-    },
 
     sendEditRelays(editRelaysForm: unknown) {
       this.sendMessage('/jormanager/editrelays', editRelaysForm)
@@ -820,9 +1036,5 @@ export const useJorManagerStore = defineStore('jormanager', {
     sendRetirePool(retirePoolForm: unknown) {
       this.sendMessage('/jormanager/retirepool', retirePoolForm)
     },
-
-    submitGovernanceVote(voteRequest: unknown) {
-      this.sendMessage('/jormanager/governancevote', voteRequest)
-    }
   }
 })

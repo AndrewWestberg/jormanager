@@ -12,17 +12,13 @@ import io.ktor.utils.io.readFully
 import io.ktor.utils.io.writeFully
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.time.Instant
 import kotlin.experimental.xor
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.takeWhile
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
@@ -70,8 +66,8 @@ class Mux(
                             .takeWhile { agency -> agency != Agency.None }
                             .filter { agency -> agency == Agency.Client }
                             .collect {
-                                val sendBuffer = muxByteBufferPool.borrow()
                                 val payload = protocol.sendData()
+                                val sendBuffer = muxByteBufferPool.borrow()
                                 try {
                                     sendBuffer.putInt(timestampNow)
                                     sendBuffer.putShort(protocol.protocolId)
@@ -123,75 +119,27 @@ class Mux(
                 if (serverAgencyProtocols.isNotEmpty()) {
                     val header = readHeader(rxChannel)
                     val rxProtocol = serverAgencyProtocols[header.protocolId]!!
-                    val rxMuxBuffer =
-                        rxMuxBufferMap[header.protocolId]
-                            ?: MuxRxBuffer(
-                                ByteBuffer.allocate(rxProtocol.rxBufferSize).apply {
-                                    clear()
-                                    limit(0)
-                                }
-                            ).also {
-                                rxMuxBufferMap[header.protocolId] = it
-                            }
-                    rxMuxBuffer.timeoutJob?.cancel()
-                    rxMuxBuffer.rxBuffer.limit(rxMuxBuffer.rxBuffer.limit() + header.payloadLength)
-                    rxChannel.readFully(rxMuxBuffer.rxBuffer)
-                    rxMuxBuffer.lastRxTimestamp = Instant.now()
-
-                    log.debug("rxProtocol: ${header.protocolId}, payloadLength: ${header.payloadLength}")
-
-                    if (header.payloadLength < MAX_SESSION_DATA_UNIT_LENGTH) {
-                        // We have a full item, process it
-                        with(rxMuxBuffer) {
-                            rxBuffer.flip()
-                            if (log.isTraceEnabled) {
-                                val hex =
-                                    rxBuffer
-                                        .array()
-                                        .copyOfRange(
-                                            rxBuffer.position(),
-                                            rxBuffer.position() + rxBuffer.remaining()
-                                        ).toHexString()
-                                log.warn("< : $hex")
-                            }
-
-                            rxProtocol.receiveData(rxBuffer)
-                            rxBuffer.clear()
-                            rxBuffer.limit(0)
-                        }
-                    } else {
-                        // We have a full frame partial item. Start timeout job to send it in case
-                        // we never see any more than exactly 0x3000 bytes of data for 2000ms.
-                        with(rxMuxBuffer) {
-                            timeoutJob =
-                                launch {
-                                    delay(2000)
-                                    log.warn("Processing item after 2000ms timeout for protocol ${rxProtocol.protocolId}")
-                                    rxProtocol.receiveData(rxBuffer.flip())
-                                    rxBuffer.clear()
-                                    rxBuffer.limit(0)
-                                }
-                        }
+                    val rxMuxBuffer = rxMuxBufferMap.getOrPut(header.protocolId) {
+                        MuxRxBuffer(ByteBuffer.allocate(rxProtocol.rxBufferSize))
+                    }
+                    val buffer = rxMuxBuffer.rxBuffer
+                    require(header.payloadLength <= buffer.remaining()) { "Mux message exceeds protocol buffer limit" }
+                    val oldLimit = buffer.limit()
+                    buffer.limit(buffer.position() + header.payloadLength)
+                    rxChannel.readFully(buffer)
+                    buffer.limit(oldLimit)
+                    while (true) {
+                        val end = rxMuxBuffer.framer.advance(buffer.array(), buffer.position()) ?: break
+                        val count = buffer.position()
+                        rxProtocol.receiveData(ByteBuffer.wrap(buffer.array(), 0, end).slice())
+                        val left = count - end
+                        if (left > 0) System.arraycopy(buffer.array(), end, buffer.array(), 0, left)
+                        buffer.clear()
+                        buffer.position(left)
+                        rxMuxBuffer.framer = CborMessageFramer()
                     }
                 }
 
-                // See if we received any messages that were exactly 0x3000 bytes long and we haven't processed yet
-                rxMuxBufferMap.entries
-                    .filter {
-                        it.value.rxBuffer.position() > 0 &&
-                            it.value.lastRxTimestamp
-                                .plusMillis(500)
-                                .isBefore(Instant.now())
-                    }.forEach { entry ->
-                        // We've received content, but haven't seen any more for over half a second. Assume it's a full item
-                        val rxProtocol = serverAgencyProtocols[entry.key]!!
-                        val rxMuxBuffer = entry.value
-                        with(rxMuxBuffer) {
-                            rxProtocol.receiveData(rxBuffer.flip())
-                            rxBuffer.clear()
-                            rxBuffer.limit(0)
-                        }
-                    }
 
                 // Are all protocols in Agency.None? If so, then we're done.
                 protocolsDone = !socketConnection.socket.isClosed &&
@@ -212,7 +160,7 @@ class Mux(
             val rawProtocolId = rxHeaderBuffer.short
             // log.debug("rawProtocolId: $rawProtocolId")
             val protocolId = rawProtocolId xor 0x8000.toShort()
-            val payloadLength = rxHeaderBuffer.short.toInt()
+            val payloadLength = rxHeaderBuffer.short.toInt() and 0xffff
             // log.debug("Received Msg: timestamp: 0x${timestamp.toHexString().padStart(8, '0')}, protocolId: 0x${protocolId.toInt().toHexString().padStart(4, '0').substring(4)}, payloadLength: $payloadLength")
 
             return MiniProtocolHeader(timestamp, protocolId, payloadLength)
@@ -235,13 +183,9 @@ class Mux(
     private val timestampNow: Int
         get() = (System.nanoTime() / 1000).toInt()
 
-    companion object {
-        private const val MAX_SESSION_DATA_UNIT_LENGTH = 0x3000 // 12288 bytes
-    }
 
     private class MuxRxBuffer(
         val rxBuffer: ByteBuffer,
-        var timeoutJob: Job? = null,
-        var lastRxTimestamp: Instant = Instant.now(),
+        var framer: CborMessageFramer = CborMessageFramer(),
     )
 }

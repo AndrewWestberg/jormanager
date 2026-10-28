@@ -17,7 +17,19 @@ class CapabilitiesController(
     private val eras: CardanoRepository,
     private val capabilities: CardanoCapabilities,
 ) {
-    data class Request(val requestId: String, val hostId: Long, val nodeId: Long? = null, val expectedNetworkKey: String? = null)
+    data class Request(
+        val requestId: String, val hostId: Long, val nodeId: Long? = null, val expectedNetworkKey: String? = null,
+        val observerNodeId: Long? = null, val configSha256: String? = null,
+    )
+    data class QualificationRequest(
+        val requestId: String, val hostId: Long, val nodeId: Long, val expectedNetworkKey: String,
+        val qualification: CardanoCapabilities.Qualification,
+    )
+    data class HostQualificationRequest(
+        val requestId: String, val hostId: Long, val observerNodeId: Long, val expectedNetworkKey: String,
+        val qualification: CardanoCapabilities.Qualification,
+    )
+    data class QualificationResult(val requestId: String, val recorded: Boolean, val reason: String? = null)
     data class Result(
         val requestId: String,
         val networkKey: String? = null,
@@ -31,9 +43,17 @@ class CapabilitiesController(
     fun capabilities(request: Request): SocketResponse<Result> {
         val result = try {
             val host = requireNotNull(hosts.findByIdOrNull(request.hostId))
-            val node = request.nodeId?.let { nodes.findByIdOrNull(it) }
-            if (node == null) {
-                Result(request.requestId, reason = "An existing verified observer node is required")
+            val node = request.nodeId?.let { requireNotNull(nodes.findByIdOrNull(it)) }
+            if (node == null && request.observerNodeId != null && request.configSha256 != null && request.expectedNetworkKey != null) {
+                val observer = requireNotNull(nodes.findByIdOrNull(request.observerNodeId))
+                val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
+                val evidence = eras.evidence(observer)
+                val operations = listOf("node.create", "leios.key.prepare", "leios.key.import").map {
+                    capabilities.hostCapability(host, observerHost, observer, request.expectedNetworkKey, request.configSha256, it)
+                }
+                Result(request.requestId, request.expectedNetworkKey, evidence, operations)
+            } else if (node == null) {
+                Result(request.requestId, reason = "An observer, expected network and effective configuration fingerprint are required")
             } else {
                 require(host.id == node.hostId)
                 val network = eras.networkKey(node)
@@ -47,5 +67,34 @@ class CapabilitiesController(
             Result(request.requestId, reason = "Target or network configuration is unavailable")
         }
         return SocketResponse.Success(type = "capabilities", data = result)
+    }
+
+    @MessageMapping("/capabilities/qualification")
+    @SendTo("/topic/messages")
+    fun qualification(request: QualificationRequest): SocketResponse<QualificationResult> {
+        val result = try {
+            val host = requireNotNull(hosts.findByIdOrNull(request.hostId))
+            val node = requireNotNull(nodes.findByIdOrNull(request.nodeId))
+            capabilities.recordQualification(host, node, request.expectedNetworkKey, request.qualification)
+            QualificationResult(request.requestId, true)
+        } catch (_: Exception) {
+            QualificationResult(request.requestId, false, "Qualification was not recorded; check target, current era, evidence and artifact fingerprints")
+        }
+        return SocketResponse.Success(type = "capability_qualification", data = result)
+    }
+
+    @MessageMapping("/capabilities/host-qualification")
+    @SendTo("/topic/messages")
+    fun hostQualification(request: HostQualificationRequest): SocketResponse<QualificationResult> {
+        val result = try {
+            val host = requireNotNull(hosts.findByIdOrNull(request.hostId))
+            val observer = requireNotNull(nodes.findByIdOrNull(request.observerNodeId))
+            val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
+            capabilities.recordHostQualification(host, observerHost, observer, request.expectedNetworkKey, request.qualification)
+            QualificationResult(request.requestId, true)
+        } catch (_: Exception) {
+            QualificationResult(request.requestId, false, "Host qualification was not recorded; check observer, network, evidence and host artifact fingerprints")
+        }
+        return SocketResponse.Success(type = "host_capability_qualification", data = result)
     }
 }

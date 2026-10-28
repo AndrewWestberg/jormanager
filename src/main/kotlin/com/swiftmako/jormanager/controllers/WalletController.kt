@@ -6,7 +6,6 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.SocketResponse
-import com.swiftmako.jormanager.entities.Transaction
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.CalculateFeeRequest
@@ -16,16 +15,14 @@ import com.swiftmako.jormanager.model.DeleteWalletEntryRequest
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
-import com.swiftmako.jormanager.model.SubmitTransactionRequest
-import com.swiftmako.jormanager.model.UpdateStakingAddressRequest
 import com.swiftmako.jormanager.model.Utxo
-import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.model.WalletResult
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.repositories.TransactionRepository
+import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.CardanoCapabilities
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -61,12 +58,12 @@ class WalletController
         private val fileRepository: FileRepository,
         private val nodeRepository: NodeRepository,
         private val hostRepository: HostRepository,
-        private val transactionRepository: TransactionRepository,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
         private val webSocketTemplate: SimpMessagingTemplate,
         private val cardanoRepository: CardanoRepository,
+        private val protocolSnapshots: ProtocolSnapshotRepository,
         private val cardanoCapabilities: CardanoCapabilities,
     ) : CoroutineScope {
         private val log by lazy { KotlinLogging.logger("WalletController") }
@@ -84,7 +81,7 @@ class WalletController
 
         @MessageMapping("/wallet")
         @SendTo("/topic/messages")
-        fun getWalletEntries(): SocketResponse<List<WalletItem>> =
+        fun getWalletEntries(): SocketResponse<WalletResult> =
             try {
                 nodeRepository.findDefault()?.let { defaultNode ->
                     fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
@@ -100,9 +97,12 @@ class WalletController
                                 ?: throw IOException("Host not found for default node!")
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                        val networkKey = cardanoRepository.networkKey(defaultNode)
+                        val items = runBlocking { walletUtils.getWalletItems(magicString, era) }
+                        check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey) { "Wallet target changed" }
                         SocketResponse.Success(
                             type = "wallet",
-                            data = runBlocking { walletUtils.getWalletItems(magicString, era) }
+                            data = WalletResult(items, networkKey)
                         )
                     } ?: throw IOException("Error finding shelley genesis file!")
                 } ?: throw IOException("Error finding default node!")
@@ -137,10 +137,7 @@ class WalletController
                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                 val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                 cardanoCapabilities.requireOperation(defaultHost, defaultNode, "wallet_fee_preview")
-                val protocolParams =
-                    defaultHostConnection
-                        .command("${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json")
-                        .trim()
+                val protocolParams = protocolSnapshots.query(defaultHost, defaultNode, defaultHostConnection, era, magicString, socketPath)
                 defaultHostConnection.commandWriteFile(
                     "/tmp/protocol-parameters-${genesis.networkMagic}.json",
                     protocolParams
@@ -602,247 +599,6 @@ class WalletController
                 SocketResponse.Error(type = "createwalletentry", exception = e)
             }
 
-        @MessageMapping("/updatestakingaddress")
-        @Transactional
-        fun updateStakingAddress(request: UpdateStakingAddressRequest) {
-            try {
-                if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
-                    throw IllegalArgumentException("Invalid spending password!")
-                }
-                if (!request.isRegistration) {
-                    throw IllegalStateException("Stake deregistration requires the recorded registration deposit; current protocol parameters cannot determine the refund")
-                }
-                nodeRepository.findDefault()?.let { defaultNode ->
-                    fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisFile ->
-                        val genesis = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
-                        val magicString =
-                            if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                                "--testnet-magic ${genesis.networkMagic}"
-                            } else {
-                                "--mainnet"
-                            }
-
-                        hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
-                            val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                            val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
-                            try {
-                                val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
-                                cardanoCapabilities.requireOperation(
-                                    defaultHost,
-                                    defaultNode,
-                                    if (request.isRegistration) "wallet_stake_registration" else "wallet_stake_deregistration"
-                                )
-                                val targetNetworkKey = cardanoRepository.networkKey(defaultNode)
-                                val protocolParamsJson =
-                                    defaultHostConnection
-                                        .command(
-                                            "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
-                                        ).trim()
-                                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                                val protocolParameters =
-                                    protocolParamsAdapter.fromJson(protocolParamsJson)
-                                        ?: throw IOException("Invalid protocol params!")
-
-                                // 1. Create a transaction to dump EVERYTHING into
-                                var depositAndFees = BigInteger.ZERO
-                                var witnessCount = 0
-                                val transaction = StringBuilder()
-                                val certificates = StringBuilder()
-                                val signingKeys = StringBuilder()
-                                transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
-                                val feePayerAccount =
-                                    walletRepository.findByIdOrNull(request.stakingFeesAccount)
-                                        ?: throw IOException("Registration fees account not found!")
-                                val utxos =
-                                    walletUtils.getUtxos(
-                                        defaultHost,
-                                        defaultHostConnection,
-                                        magicString,
-                                        socketPath,
-                                        era,
-                                        feePayerAccount.paymentAddr
-                                    )
-                                utxos.forEach { utxo ->
-                                    transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                                }
-                                val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
-                                log.debug { "feePayerAccount balance: $feePayerAccountBalance" }
-                                witnessCount++ // fee payer is a witness
-                                defaultHostConnection.commandWriteFile(
-                                    "/tmp/feepayer.payment.skey",
-                                    walletUtils.getSKeyContent(
-                                        requireNotNull(feePayerAccount.paymentSkey),
-                                        request.spendingPassword
-                                    )
-                                )
-                                signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
-
-                                // initial dummy value to return change to the fee payer account.
-                                // We'll replace this with the actual change to return later
-                                transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
-                                val queryTipString =
-                                    defaultHostConnection
-                                        .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
-                                        .trim()
-                                val ttl =
-                                    queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 }
-                                        ?: -1
-                                transaction.append("--invalid-hereafter $ttl ")
-                                val dummyFee = "200000".toBigInteger() + protocolParameters.stakeAddressDeposit
-                                transaction.append("--fee $dummyFee ")
-
-                                // 2. Register staking address on the chain if not yet registered
-                                val stakingAccount =
-                                    walletRepository.findByIdOrNull(request.id)
-                                        ?: throw IOException("Owner staking account not found!")
-                                defaultHostConnection.commandWriteFile(
-                                    "/tmp/staking.skey",
-                                    walletUtils.getSKeyContent(
-                                        requireNotNull(stakingAccount.stakingSkey),
-                                        request.spendingPassword
-                                    )
-                                )
-                                defaultHostConnection.commandWriteFile(
-                                    "/tmp/staking.vkey",
-                                    requireNotNull(stakingAccount.stakingVkey?.content)
-                                )
-                                val stakingWalletItem =
-                                    walletUtils.getWalletItem(
-                                        defaultHost,
-                                        defaultHostConnection,
-                                        magicString,
-                                        socketPath,
-                                        era,
-                                        stakingAccount
-                                    )
-
-                                if (request.isRegistration && stakingWalletItem.stakingAddrRegistered) {
-                                    throw IOException("Staking Address already registered!")
-                                } else if (!request.isRegistration && !stakingWalletItem.stakingAddrRegistered) {
-                                    throw IOException("Staking Address already deregistered!")
-                                }
-
-                                if (!stakingWalletItem.stakingAddrRegistered) {
-                                    defaultHostConnection.command(
-                                        "${defaultHost.cardanoCliPath} $era stake-address registration-certificate --key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} --stake-verification-key-file /tmp/staking.vkey --out-file /tmp/staking.cert"
-                                    )
-                                    depositAndFees += protocolParameters.stakeAddressDeposit
-                                    certificates.append("--certificate /tmp/staking.cert ")
-                                } else {
-                                    // staking address is registered. We should *de* register it on chain as part of the transaction
-                                    defaultHostConnection.command(
-                                        "${defaultHost.cardanoCliPath} $era stake-address deregistration-certificate --key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} --stake-verification-key-file /tmp/staking.vkey --out-file /tmp/staking.dereg-cert"
-                                    )
-                                    certificates.append("--certificate /tmp/staking.dereg-cert ")
-                                }
-                                witnessCount++ // the staking.skey is a witness
-                                signingKeys.append("--signing-key-file /tmp/staking.skey ")
-
-                                // 8. Calculate fees
-                                transaction.append(certificates)
-                                transaction.append("--out-file /tmp/transaction.txbody")
-                                defaultHostConnection.command(transaction.toString())
-
-                                log.debug { "depositAndFees: $depositAndFees" }
-                                val referenceScriptSize =
-                                    walletUtils.queryReferenceScriptSize(
-                                        defaultHost,
-                                        defaultHostConnection,
-                                        magicString,
-                                        socketPath,
-                                        era,
-                                        utxos,
-                                    )
-                                val feesString =
-                                    defaultHostConnection
-                                        .command(
-                                            "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                                        ).trim()
-                                log.debug { "feesString: $feesString" }
-                                val fees = feesString.split(" ")[0].toBigInteger()
-                                log.debug { "fees: $fees" }
-                                depositAndFees += fees
-                                log.debug { "final depositAndFees: $depositAndFees" }
-
-                                // 9. Create the transaction
-                                val change =
-                                    utxos.sumByBigInteger { it.lovelace } - depositAndFees +
-                                        if (!request.isRegistration) {
-                                            // for a deregistration, we get the 2 ada deposit back as change
-                                            protocolParameters.stakeAddressDeposit
-                                        } else {
-                                            BigInteger.ZERO
-                                        }
-                                if (change < BigInteger.ONE) {
-                                    throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                                }
-
-                                val tokenChange = StringBuilder()
-                                utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                                    if (amount > BigInteger.ZERO) {
-                                        tokenChange.append("+$amount $currency")
-                                    }
-                                }
-
-                                val realTransaction =
-                                    transaction
-                                        .toString()
-                                        .replace("--fee $dummyFee ", "--fee $fees ")
-                                        .replace(
-                                            "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                            "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                                        )
-                                log.debug { "StakeKey Transaction Command: $realTransaction" }
-                                defaultHostConnection.command(realTransaction)
-
-                                check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == targetNetworkKey)
-                                check(cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath) == era)
-                                cardanoCapabilities.requireOperation(defaultHost, defaultNode, "wallet_stake_registration")
-                                // 10. Sign the transaction
-                                defaultHostConnection.command(
-                                    "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody $signingKeys $magicString --out-file /tmp/transaction.txsigned"
-                                )
-
-                                check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == targetNetworkKey)
-                                check(cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath) == era)
-                                cardanoCapabilities.requireOperation(defaultHost, defaultNode, "wallet_stake_registration")
-                                // 11. Submit the transaction
-                                defaultHostConnection.command(
-                                    "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
-                                )
-                                val txid =
-                                    defaultHostConnection
-                                        .command(
-                                            "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
-                                        ).trim()
-                                transactionRepository.save(Transaction(txid = txid))
-
-                                webSocketTemplate.convertAndSend(
-                                    "/topic/messages",
-                                    SocketResponse.Success(
-                                        type = "updatestakingaddress",
-                                        data = "${stakingAccount.name} ${if (request.isRegistration) "registration" else "deregistration"} submitted. TxId: $txid"
-                                    )
-                                )
-                            } finally {
-                                // Cleanup
-                                defaultHostConnection.command(
-                                    "rm -f /tmp/protocol-parameters.json /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/feepayer.payment.skey /tmp/staking.skey /tmp/staking.vkey /tmp/staking.cert /tmp/staking.dereg-cert"
-                                )
-                            }
-                        } ?: throw IOException("Host not found for default node!")
-                    } ?: throw IOException("Genesis file for default node not found!")
-                } ?: throw IOException("Default node not found!")
-            } catch (e: Throwable) {
-                webSocketTemplate.convertAndSend(
-                    "/topic/messages",
-                    SocketResponse.Error(type = "updatestakingaddress", exception = e)
-                )
-                // rethrow so db transaction is rolled back
-                throw RuntimeException(e)
-            }
-        }
 
         private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry =
             nodeRepository.findDefault()?.let { defaultNode ->
@@ -859,11 +615,7 @@ class WalletController
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         try {
                             val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
-                            val protocolParamsJson =
-                                defaultHostConnection
-                                    .command(
-                                        "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
-                                    ).trim()
+                            val protocolParamsJson = protocolSnapshots.query(defaultHost, defaultNode, defaultHostConnection, era, magicString, socketPath)
                             defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters =
                                 protocolParamsAdapter.fromJson(protocolParamsJson)
@@ -1098,360 +850,6 @@ class WalletController
                 SocketResponse.Error(type = "deletewalletentry", exception = e)
             }
 
-        @MessageMapping("/submittransaction")
-        @Synchronized
-        fun submitTransaction(request: SubmitTransactionRequest) {
-            try {
-                log.debug { "submitTransaction request: $request" }
-                if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
-                    throw IllegalArgumentException("Invalid spending password!")
-                }
-
-                val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node!")
-                val genesisFile =
-                    fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
-                        ?: throw IOException("Genesis file for default node not found!")
-                val genesis =
-                    shelleyGenesisAdapter.fromJson(genesisFile.content)
-                        ?: throw IOException("Unable to parse genesis json")
-                val magicString =
-                    if (genesis.networkId.equals("testnet", ignoreCase = true)) {
-                        "--testnet-magic ${genesis.networkMagic}"
-                    } else {
-                        "--mainnet"
-                    }
-                val defaultHost =
-                    hostRepository.findByIdOrNull(defaultNode.hostId)
-                        ?: throw IOException("Host not found for default node!")
-                val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
-                try {
-                    val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
-                    cardanoCapabilities.requireOperation(
-                        defaultHost,
-                        defaultNode,
-                        if (request.isClaim) "wallet_reward_withdrawal" else "wallet_send"
-                    )
-                    val targetNetworkKey = cardanoRepository.networkKey(defaultNode)
-                    val protocolParams =
-                        defaultHostConnection
-                            .command(
-                                "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
-                            ).trim()
-                    defaultHostConnection.commandWriteFile(
-                        "/tmp/protocol-parameters-${genesis.networkMagic}.json",
-                        protocolParams
-                    )
-
-                    // Load all wallet entries for multi-claim support
-                    val effectiveFromIds = request.getEffectiveFromIds()
-                    val fromWalletEntries = effectiveFromIds.map { id ->
-                        walletRepository.findByIdOrNull(id)
-                            ?: throw IOException("Wallet entry id $id not found!")
-                    }
-                    val fromWalletEntry = fromWalletEntries.first()
-                    val feePayerWalletEntry =
-                        if (request.isClaim) {
-                            calculateClaimRewardsFeePayer(
-                                defaultHost,
-                                defaultHostConnection,
-                                magicString,
-                                socketPath,
-                                era,
-                                request.toAccounts.filter { !it.isAddress }.map { it.account },
-                                request.txFee
-                            )
-                        } else {
-                            fromWalletEntry
-                        }
-
-                    val baseAmount = sortedMapOf<String, BigInteger>()
-                    val utxos =
-                        walletUtils.getUtxos(
-                            defaultHost,
-                            defaultHostConnection,
-                            magicString,
-                            socketPath,
-                            era,
-                            feePayerWalletEntry.paymentAddr
-                        )
-                    log.debug { "XXXX UTXOS: $utxos" }
-                    val transaction = StringBuilder()
-                    transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
-                    val utxosToSpend = mutableListOf<Utxo>()
-                    utxos.forEach { utxo ->
-                        if (utxo.nativeAssets.isEmpty()) {
-                            // Always spend a utxo that is ada-only
-                            transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                            utxosToSpend.add(utxo)
-                        } else {
-                            var shouldSpendUtxo = false
-                            utxo.nativeAssets.forEach nativeAssets@{ nativeAsset ->
-                                val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')
-                                val nativeAssetBaseAmount = baseAmount.getOrDefault(currency, BigInteger.ZERO)
-                                if (nativeAssetBaseAmount > BigInteger.ZERO ||
-                                    request.toAccounts.find { toAccountFeeRequest ->
-                                        toAccountFeeRequest.currency == currency
-                                    } != null
-                                ) {
-                                    // This native asset will be spent, include this utxo
-                                    shouldSpendUtxo = true
-                                    return@nativeAssets // break
-                                }
-                            }
-                            if (shouldSpendUtxo ||
-                                utxo.nativeAssets.size > NATIVE_ASSET_MAX_GROUP_SIZE ||
-                                utxo.nativeAssets.size < NATIVE_ASSET_MIN_GROUP_SIZE
-                            ) {
-                                // We either need to spend this utxo, or we include it because the native assets on it need to be split or consolidated
-                                transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                                utxosToSpend.add(utxo)
-                                utxo.nativeAssets.forEach { nativeAsset ->
-                                    val currency = "${nativeAsset.policy}.${nativeAsset.name}".trimEnd('.')
-                                    val nativeAssetBaseAmount = baseAmount.getOrDefault(currency, BigInteger.ZERO)
-                                    baseAmount[currency] = nativeAssetBaseAmount + nativeAsset.amount
-                                }
-                            }
-                        }
-                    }
-
-                    if (utxosToSpend.isEmpty()) {
-                        // <shrug> spend them all
-                        utxos.forEach { utxo ->
-                            transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                            utxosToSpend.add(utxo)
-                        }
-                    }
-
-                    val walletItem =
-                        walletUtils.getWalletItem(
-                            defaultHost,
-                            defaultHostConnection,
-                            magicString,
-                            socketPath,
-                            era,
-                            fromWalletEntry
-                        )
-
-                    val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
-
-                    // For multi-claim, get wallet items for all stake addresses and sum their rewards
-                    val fromWalletItems = if (request.isClaim && fromWalletEntries.size > 1) {
-                        fromWalletEntries.map { entry ->
-                            walletUtils.getWalletItem(
-                                defaultHost,
-                                defaultHostConnection,
-                                magicString,
-                                socketPath,
-                                era,
-                                entry
-                            )
-                        }
-                    } else {
-                        listOf(walletItem)
-                    }
-                    val totalStakingRewards = fromWalletItems.sumByBigInteger { it.stakingAddrLovelace ?: BigInteger.ZERO }
-
-                    baseAmount["ada"] =
-                        if (request.isClaim) {
-                            totalStakingRewards
-                        } else {
-                            paymentAddressLovelace - request.txFee - request.tokenKeepFee
-                        }
-
-                    val toAccounts = request.toAccounts.toMutableList()
-                    while (toAccounts.size > 0) {
-                        // the group of all toAccounts destined for the same receiving address
-                        val account = toAccounts[0]
-                        val toAccountsGroup =
-                            toAccounts.filter { it.account == account.account && it.address == account.address }
-                        val walletEntry =
-                            when {
-                                account.isAddress -> {
-                                    // This raw receiving address won't be in our db, so just make a dummy WalletEntry
-                                    WalletEntry(
-                                        name = "unnamed_address",
-                                        type = "address",
-                                        paymentAddr = account.address
-                                    )
-                                }
-
-                                else -> {
-                                    walletRepository.findByIdOrNull(account.account)
-                                        ?: throw IOException("Wallet entry id ${account.account} not found!")
-                                }
-                            }
-
-                        var claimAmount = BigInteger.ZERO
-                        val amount =
-                            toAccountsGroup.sumByBigInteger { toAccount ->
-                                if (toAccount.currency == "ada") {
-                                    if (request.isClaim && walletEntry.id == feePayerWalletEntry.id) {
-                                        if ((
-                                                toAccount.percent
-                                                    ?: -1
-                                            ) > 0 &&
-                                            baseAmount["ada"]!! - account.amount!! >= request.txFee
-                                        ) {
-                                            // Reimburse payer for the txFee when claiming rewards
-                                            claimAmount = paymentAddressLovelace - request.txFee
-                                            log.debug { "claimAmount: $claimAmount" }
-                                            account.amount + request.txFee
-                                        } else {
-                                            // We've already reimbursed txFee on the client side. take it out of the base amount
-                                            claimAmount = paymentAddressLovelace
-                                            baseAmount["ada"] = baseAmount["ada"]!! - request.txFee
-                                            toAccount.amount!!
-                                        }
-                                    } else {
-                                        toAccount.amount!!
-                                    }
-                                } else {
-                                    toAccount.tokenFee
-                                }
-                            }
-                        baseAmount["ada"] = baseAmount["ada"]!! - amount
-
-                        transaction.append("--tx-out '${walletEntry.paymentAddr}+${amount + claimAmount}")
-                        toAccountsGroup.forEach { toAccount ->
-                            if (toAccount.currency != "ada") {
-                                transaction.append("+${toAccount.amount} ${toAccount.currency.trimEnd('.')}")
-                                baseAmount[toAccount.currency.trimEnd('.')] =
-                                    baseAmount[toAccount.currency.trimEnd('.')]!! - toAccount.amount!!
-                            }
-                        }
-                        if (request.isClaim && walletEntry == feePayerWalletEntry) {
-                            utxosToSpend.toNativeAssetMap().forEach { (currency, amount) ->
-                                if (amount > BigInteger.ZERO) {
-                                    transaction.append("+$amount $currency")
-                                }
-                            }
-                        }
-                        transaction.append("' ")
-                        toAccounts.removeAll(toAccountsGroup)
-                    }
-
-                    var remaining = baseAmount["ada"]!! + if (!request.isClaim) request.tokenKeepFee else BigInteger.ZERO
-                    if (remaining != BigInteger.ZERO) {
-                        // Sanity check. Should never happen if we did things right
-                        if (request.isClaim) {
-                            throw IOException("We had a remaining balance when claiming rewards!!!: $remaining")
-                        }
-
-                        // split change for tokens into multiple utxo out values of max group size
-                        baseAmount
-                            .filter { it.key != "ada" && it.value > BigInteger.ZERO }
-                            .entries
-                            .chunked(
-                                NATIVE_ASSET_MAX_GROUP_SIZE
-                            ).forEach { chunk ->
-                                val multiAssetString =
-                                    chunk.joinToString(separator = "+") { (currency, amount) -> "$amount $currency" }
-                                val minValueResult =
-                                    defaultHostConnection
-                                        .command(
-                                            "${defaultHost.cardanoCliPath} $era transaction calculate-min-required-utxo --protocol-params-file /tmp/protocol-parameters-${genesis.networkMagic}.json --tx-out 'addr_test1qq9p80xwnjn7h7jnf68gdrl0dpz9q906wcec50lj3gy87rkh0yuewe07amxf24z2d4z8lrkx3ffjnmecyc6zy86fmvrsg5d570 1000000+$multiAssetString'"
-                                        ).trim()
-                                val tokenKeepFee = minValueResult.split(" ")[1].toBigInteger()
-
-                                transaction.append("--tx-out '${fromWalletEntry.paymentAddr}+$tokenKeepFee+$multiAssetString' ")
-                                remaining -= tokenKeepFee
-                            }
-
-                        if (remaining != BigInteger.ZERO) {
-                            // utxo for the remaining ada
-                            transaction.append("--tx-out '${fromWalletEntry.paymentAddr}+$remaining' ")
-                        }
-                    }
-
-                    val queryTipString =
-                        defaultHostConnection
-                            .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
-                            .trim()
-                    val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
-                    transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee ${request.txFee} ")
-
-                    if (!request.metadata.isNullOrBlank()) {
-                        defaultHostConnection.commandWriteFile("/tmp/metadata.json", request.metadata)
-                        transaction.append("--metadata-json-file /tmp/metadata.json ")
-                    }
-
-                    if (request.isClaim) {
-                        // Build withdrawal clauses for all stake addresses
-                        fromWalletItems.forEachIndexed { index, item ->
-                            val entry = fromWalletEntries[index]
-                            transaction.append("--withdrawal ${entry.stakingAddr}+${item.stakingAddrLovelace} ")
-                        }
-                    }
-                    transaction.append("--out-file /tmp/transaction.txbody")
-
-                    // build the transaction
-                    log.debug { "transaction: $transaction" }
-                    defaultHostConnection.command(transaction.toString())
-
-                    check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == targetNetworkKey)
-                    check(cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath) == era)
-                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, if (request.isClaim) "wallet_reward_withdrawal" else "wallet_send")
-                    // sign the transaction
-                    feePayerWalletEntry.paymentSkey?.let { skey ->
-                        val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
-                        defaultHostConnection.commandWriteFile("/tmp/signing.skey", skeyContent)
-                    } ?: throw IllegalArgumentException("Couldn't find payment skey for transaction")
-
-                    if (request.isClaim) {
-                        // Write all staking signing keys
-                        val stakingKeyFiles = mutableListOf<String>()
-                        fromWalletEntries.forEachIndexed { index, entry ->
-                            entry.stakingSkey?.let { skey ->
-                                val skeyContent = walletUtils.getSKeyContent(skey, request.spendingPassword)
-                                val keyFile = "/tmp/staking_signing_$index.skey"
-                                defaultHostConnection.commandWriteFile(keyFile, skeyContent)
-                                stakingKeyFiles.add(keyFile)
-                            } ?: throw IllegalArgumentException("Couldn't find staking skey for wallet entry ${entry.name}")
-                        }
-
-                        // Build signing command with all staking keys
-                        val stakingKeyParams = stakingKeyFiles.joinToString(" ") { "--signing-key-file $it" }
-                        defaultHostConnection.command(
-                            "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $stakingKeyParams $magicString --out-file /tmp/transaction.txsigned"
-                        )
-                    } else {
-                        defaultHostConnection.command(
-                            "${defaultHost.cardanoCliPath} $era transaction sign --tx-body-file /tmp/transaction.txbody --signing-key-file /tmp/signing.skey $magicString --out-file /tmp/transaction.txsigned"
-                        )
-                    }
-                    check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == targetNetworkKey)
-                    check(cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath) == era)
-                    cardanoCapabilities.requireOperation(defaultHost, defaultNode, if (request.isClaim) "wallet_reward_withdrawal" else "wallet_send")
-
-                    defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
-                    )
-                    val txid = defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
-                    ).trim()
-                    transactionRepository.save(Transaction(txid = txid))
-                    webSocketTemplate.convertAndSend(
-                        "/topic/messages",
-                        SocketResponse.Success(type = "submittransaction", data = "transaction submitted: $txid")
-                    )
-                } finally {
-                    defaultHostConnection.command(
-                        "rm -f /tmp/protocol-parameters-${genesis.networkMagic}.json /tmp/signing.skey /tmp/staking_signing_*.skey /tmp/transaction.txbody /tmp/transaction.txsigned /tmp/metadata.json"
-                    )
-                }
-            } catch (e: Throwable) {
-                val error = "Fatal error submitting transaction!"
-                log.error(e) { error }
-                webSocketTemplate.convertAndSend(
-                    "/topic/messages",
-                    SocketResponse.Error(type = "submittransaction", exception = e)
-                )
-                // rethrow so db transaction is rolled back
-                throw RuntimeException(e)
-            }
-        }
 
         /**
          * The first account with at least 1 Ada (1m lovelace) is the fee payer

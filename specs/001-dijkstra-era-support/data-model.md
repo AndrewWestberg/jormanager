@@ -1,6 +1,6 @@
 # Dijkstra data model
 
-**Status:** proposed logical model for implementation, not an applied schema. Storage remains PostgreSQL with Liquibase; Kotlin persistence follows existing Exposed ledger tables and JPA configuration entities. Exact wire rules and source authority remain in [research.md](research.md). External verification blockers are in [plan.md](plan.md).
+**Status:** logical design implemented across Liquibase changesets `043-operational-schema.xml`, `044-dijkstra-ledger.xml` and `045-dijkstra-provisioning.xml`; database application/restore and runtime qualification remain pending. Storage remains PostgreSQL, with Exposed chain tables and JPA configuration entities. Exact wire rules and source authority remain in [research.md](research.md); external verification blockers remain in [plan.md](plan.md).
 
 ## Identity and representation invariants
 
@@ -67,10 +67,12 @@ Transaction queries expose `directDeposits` and account balance views distinguis
 ## State transitions
 
 - Inclusion content: `observed → acquiring → complete` or `incomplete/unsupported/failed`; only complete adopted content advances SyncState. A restored missing closure can resume at the gap. A rolled-back occurrence remains historical, never current.
-- Submission: `previewed → authorized → submitted|uncertain|rejected → confirmed`; rollback changes confirmation to `rolled_back` and requires reconciliation. A child cannot enter this machine independently. Local pending UTxOs never enter CurrentUtxo as confirmed funds.
+- Submission: preview, authorization/signing and submitted/uncertain states are durable. Exact adopted whole-batch identity yields `confirmed` or `phase2_failed`; a parent TxId alone is insufficient. Rollback revokes either outcome and requires explicit reconciliation. A child cannot enter this machine independently. Conclusive cancellation/non-submission or expiry with complete absence evidence can release reservations; unresolved evidence cannot. Confirmation retains reservations for rollback, and a changed review requires a new authorization. Local pending UTxOs never enter CurrentUtxo as confirmed funds.
 - Key material: `prepared/imported → validated → retained`; registration, eligibility, selection and installation evolve independently. Public registration can exist without local material. Expiration or rollback does not imply secret deletion; the inspected Musashi pool rule does not establish a BLS reservation machine.
 - Installation: `not_installed → installing → installed → loaded`, with failure/unknown/stale states. An authorized restart/reload is an external effect, never part of a database rollback.
 - Configuration: `discovered → downloading → validated/selectable → explicitly selected → installed → running/synchronized`, with failed/incomplete states at boundaries. A later bundle/reset is a new selection, not an automatic transition of existing nodes. New-pool registration adds its separate authorized/confirmed/key-loaded observations.
+
+Unavailable upstream observations remain nullable, not inferred: `blsKey.bksRegisteredIn` is stored/displayed as the effective epoch, separate from unavailable actual registration epoch. Mark/set capture epochs, nonempty committee pool attribution and loaded-key identity need upstream evidence/readback absent from the inspected interfaces. An installed key cannot become verified loaded merely from file/restart success. See [operator observation limits](contracts/operator-messages.md#implemented-observation-limits).
 
 ## Atomicity, concurrency and recovery
 

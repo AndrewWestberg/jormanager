@@ -67,7 +67,7 @@ class BlockMonitor
             log.info("Starting BlockMonitor...")
 
             launch {
-                nodeRepository.findAll().filterNot(Node::isDeleted).forEach { node ->
+                nodeRepository.findAll().filter { !it.isDeleted && !it.isDraft }.forEach { node ->
                     nodesChannel.emit(node)
                 }
             }

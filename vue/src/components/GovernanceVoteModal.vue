@@ -7,11 +7,12 @@
     :no-close-on-backdrop="true"
     @hidden="resetForm"
   >
-    <div class="alert alert-warning" role="alert">
-      Voting is unavailable until target-network era and capability evidence and a durable,
-      reviewed transaction preview are available. A rationale can be published publicly even
-      if a submission fails.
+    <div class="alert alert-info" role="alert">
+      Publishing a rationale is a separate authorized action. It is public and may be permanent even if the vote is never submitted.
     </div>
+    <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
+    <WalletReviewPanel v-if="review" :review="review" governance @close="review = null" @submitted="review = $event" />
+    <fieldset v-if="!review" :disabled="busy">
     <BFormGroup label="Fees Account" label-cols-md="4">
       <BFormSelect
         v-model="feesAccountId"
@@ -41,10 +42,18 @@
     <BFormGroup label="Rationale (optional)" label-for="governance-vote-rationale" label-cols-md="4">
       <BFormTextarea id="governance-vote-rationale" v-model="rationale" />
       <BFormText class="text-muted">
-        Published publicly and attached to every pool vote below, even if their choices differ.
-        Publication may remain if the transaction fails.
+        This rationale will be attached to every pool vote below, even if their choices differ.
       </BFormText>
     </BFormGroup>
+    <div v-if="rationale.trim()" class="border rounded p-3 mb-3">
+      <p v-if="anchor">Published: {{ anchor.anchorUrl }}<br>Hash: {{ anchor.anchorHash }}</p>
+      <template v-else>
+        <BFormGroup label="Spending password to authorize publication" label-for="rationale-password">
+          <BFormInput id="rationale-password" v-model="publicationPassword" type="password" autocomplete="current-password" />
+        </BFormGroup>
+        <BButton variant="warning" :disabled="!publicationPassword || busy" @click="publishRationale">Authorize public publication</BButton>
+      </template>
+    </div>
 
     <hr />
 
@@ -80,15 +89,11 @@
         />
       </template>
     </BTable>
+    </fieldset>
 
     <template #footer>
       <BButton variant="secondary" @click="handleCancel">Cancel</BButton>
-      <BButton
-        variant="success"
-        disabled
-      >
-        Review and submit unavailable
-      </BButton>
+      <BButton v-if="!review" variant="success" :disabled="busy || !rationaleReady || store.chainReadState?.status !== 'complete' || !isValidGovActionId || feesAccountId === null || !coreNodes.length" @click="reviewVote">Review vote</BButton>
     </template>
   </BModal>
 </template>
@@ -110,6 +115,8 @@ import {
   BButton
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
+import WalletReviewPanel from '@/components/WalletReviewPanel.vue'
+import type { WalletReview } from '@/types'
 
 const props = defineProps<{
   modelValue: boolean
@@ -127,6 +134,55 @@ const govActionId = ref('')
 const rationale = ref('')
 const nodeVotes = ref<Record<number, 'YES' | 'NO' | 'ABSTAIN'>>({})
 const feesAccountId = ref<number | null>(null)
+const review = ref<WalletReview | null>(null)
+const reviewError = ref('')
+const busy = ref(false)
+const publicationPassword = ref('')
+const anchor = ref<{ anchorUrl: string; anchorHash: string } | null>(null)
+const rationaleReady = computed(() => !rationale.value.trim() || anchor.value !== null)
+watch(rationale, () => { anchor.value = null; publicationPassword.value = '' })
+
+async function publishRationale() {
+  if (busy.value || !rationale.value.trim() || !publicationPassword.value) return
+  const generation = ++reviewGeneration
+  const spendingPassword = publicationPassword.value
+  publicationPassword.value = ''
+  busy.value = true
+  reviewError.value = ''
+  try {
+    const result = await store.socketRequest<{ anchorUrl: string; anchorHash: string }>(
+      '/jormanager/governancepublish', 'governancepublish',
+      { rationale: rationale.value, spendingPassword }
+    )
+    if (generation === reviewGeneration) anchor.value = result
+  } catch (e) {
+    if (generation === reviewGeneration) reviewError.value = `${e instanceof Error ? e.message : String(e)}. Publication may have occurred; check before retrying.`
+  } finally {
+    if (generation === reviewGeneration) busy.value = false
+  }
+}
+let reviewGeneration = 0
+
+async function reviewVote() {
+  if (busy.value || !rationaleReady.value || store.chainReadState?.status !== 'complete' || !isValidGovActionId.value || feesAccountId.value === null || !coreNodes.value.length) return
+  const generation = ++reviewGeneration
+  busy.value = true
+  reviewError.value = ''
+  try {
+    const result = await store.reviewGovernance({
+      govActionId: govActionId.value.trim(),
+      votes: coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] })),
+      feesAccountId: feesAccountId.value,
+      anchorUrl: anchor.value?.anchorUrl ?? null,
+      anchorHash: anchor.value?.anchorHash ?? null
+    })
+    if (generation === reviewGeneration) review.value = result
+  } catch (e) {
+    if (generation === reviewGeneration) reviewError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    if (generation === reviewGeneration) busy.value = false
+  }
+}
 
 // Vote options
 const voteOptions = [
@@ -200,6 +256,12 @@ function initializeDefaultVotes() {
 
 // Reset form
 function resetForm() {
+  reviewGeneration++
+  busy.value = false
+  review.value = null
+  reviewError.value = ''
+  publicationPassword.value = ''
+  anchor.value = null
   govActionId.value = ''
   rationale.value = ''
   nodeVotes.value = {}

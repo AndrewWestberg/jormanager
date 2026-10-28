@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.GenesisShelley
+import com.swiftmako.jormanager.model.WalletResult
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -97,12 +98,14 @@ class WalletMonitor
                             ?: throw IOException("Host not found for default node")
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
+                        val networkKey = cardanoRepository.networkKey(defaultNode)
                         if (magicString.isNotBlank() && era.isNotBlank()) {
                             // A new block has arrived.
                             val walletItems = walletUtils.getWalletItems(magicString, era)
+                            check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey) { "Wallet target changed" }
                             webSocketTemplate.convertAndSend(
                                 "/topic/messages",
-                                SocketResponse.Success(type = "wallet", data = walletItems)
+                                SocketResponse.Success(type = "wallet", data = WalletResult(walletItems, networkKey))
                             )
                         }
                     } catch (e: Throwable) {

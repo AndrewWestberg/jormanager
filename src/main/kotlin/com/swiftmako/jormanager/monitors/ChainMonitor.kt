@@ -1,178 +1,158 @@
 package com.swiftmako.jormanager.monitors
 
 import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
+import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.Config
+import com.swiftmako.jormanager.model.GenesisByron
 import com.swiftmako.jormanager.model.GenesisShelley
-import com.swiftmako.jormanager.monitors.utils.ChainRepositoryHelper.getChainBlocksForSyncStart
+import com.swiftmako.jormanager.nodeclient.protocols.NetworkChainSession
+import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.GenesisLedgerDecoder
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.BlockFetchProtocol
+import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.LeiosFetchProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.handshake.HandshakeProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.keepalive.KeepAliveProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.Mux
+import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import com.swiftmako.jormanager.services.PooltoolService
-import com.swiftmako.jormanager.utils.CardanoUtils
+import com.swiftmako.jormanager.utils.Blake2b
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.network.selector.ActorSelectorManager
 import io.ktor.network.sockets.InetSocketAddress
 import io.ktor.network.sockets.TypeOfService
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.connection
-import java.io.IOException
-import kotlin.coroutines.CoroutineContext
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.config.ConfigurableBeanFactory
+import kotlinx.coroutines.*
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Lazy
-import org.springframework.context.annotation.Scope
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 
 @Component("chainMonitor")
-@Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
 @Lazy(false)
-class ChainMonitor
-    @Autowired
-    constructor(
-        private val cardanoUtils: CardanoUtils,
-        private val chainRepository: ChainRepository,
-        private val hostRepository: HostRepository,
-        private val nodeRepository: NodeRepository,
-        private val fileRepository: FileRepository,
-        private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
-        private val configAdapter: JsonAdapter<Config>,
-        private val pooltoolService: PooltoolService,
-        private val ledgerDao: LedgerDao,
-    ) : SmartLifecycle,
-        CoroutineScope {
-        private val log by lazy { KotlinLogging.logger("ChainMonitor") }
+class ChainMonitor(
+    private val chainRepository: ChainRepository,
+    private val hostRepository: HostRepository,
+    private val nodeRepository: NodeRepository,
+    private val fileRepository: FileRepository,
+    private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
+    private val configAdapter: JsonAdapter<Config>,
+    private val pooltoolService: PooltoolService,
+    private val cardanoRepository: CardanoRepository,
+    private val coordinator: ChainIngestionCoordinator,
+    private val byronGenesisAdapter: JsonAdapter<GenesisByron>,
+    private val moshi: Moshi,
+) : SmartLifecycle {
+    private val log = KotlinLogging.logger("ChainMonitor")
+    private var root: Job? = null
+    override fun isAutoStartup() = System.getProperty("jormanager.mode") != "repair"
+    override fun isRunning() = root?.isActive == true
 
-        private var isShuttingDown = false
-
-        private val job = SupervisorJob()
-        override val coroutineContext: CoroutineContext =
-            job + Dispatchers.IO +
-                CoroutineExceptionHandler { _, throwable ->
-                    if (throwable !is CancellationException) {
-                        log.error(throwable) { "Uncaught coroutine exception!" }
-                    }
-                }
-
-        override fun isAutoStartup() = "repair" != System.getProperty("jormanager.mode")
-
-        override fun isRunning(): Boolean {
-            val isRunning = job.isActive && !job.isCompleted && job.children.count() > 0
-            log.info { "ChainMonitor isRunning: $isRunning" }
-            return isRunning
-        }
-
-        override fun start() {
-            log.info { "Starting ChainMonitor..." }
-            monitorChain()
-        }
-
-        private var mux: Mux? = null
-
-        private fun monitorChain() {
-            launch {
-                while (!isShuttingDown) {
+    override fun start() {
+        if (isRunning) return
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        root = scope.coroutineContext[Job]
+        scope.launch {
+            val observers = mutableMapOf<String, Pair<Node, Job>>()
+            try {
+                while (isActive) {
                     try {
-                        nodeRepository.findDefault()?.let { defaultNode ->
-                            val shelleyGenesisFile =
-                                fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
-                                    ?: throw IOException("Unable to read shelley genesis file!")
-                            val shelley = shelleyGenesisAdapter.fromJson(shelleyGenesisFile.content)!!
-                            val networkMagic = shelley.networkMagic ?: throw IOException("network magic not found!")
-                            val defaultHost =
-                                hostRepository.findByIdOrNull(defaultNode.hostId)
-                                    ?: throw IOException("host for default node not found!")
-                            val configFile =
-                                fileRepository.findByIdOrNull(defaultNode.configFileId)
-                                    ?: throw IOException("Unable to read config file")
-                            val shelleyGenesisHash =
-                                configAdapter.fromJson(configFile.content)!!.shelleyGenesisHash.hexToByteArray()
-
-                            aSocket(ActorSelectorManager(coroutineContext))
-                                .tcp()
-                                .connect(InetSocketAddress(defaultHost.hostname, defaultNode.port)) {
-                                    noDelay = true
-                                    keepAlive = true
-                                    lingerSeconds = 0
-                                    typeOfService = TypeOfService.IPTOS_LOWDELAY
-                                }.use { socket ->
-                                    log.debug { "ChainMonitor Socket connected" }
-                                    val socketConnection = socket.connection()
-                                    mux = Mux(socketConnection)
-                                    mux?.execute(HandshakeProtocol(networkMagic))
-                                    mux?.execute(
-                                        KeepAliveProtocol(),
-                                        ChainSyncProtocol(
-                                            defaultHost,
-                                            shelleyGenesisHash,
-                                            getChainBlocksForSyncStart(chainRepository),
-                                            chainRepository,
-                                            isPooltool = false,
-                                            pooltoolService = pooltoolService,
-                                            pooltoolApiKey = "",
-                                            poolId = "",
-                                        ),
-                                        BlockFetchProtocol(
-                                            cardanoUtils,
-                                            chainRepository,
-                                            ledgerDao,
-                                        )
-                                    )
-                                }
+                        val nodes = nodeRepository.findAll().filterNot { it.isDeleted || it.isDraft }.sortedByDescending { it.isDefault }
+                        val selected = linkedMapOf<String, Node>()
+                        for (node in nodes) {
+                            try { selected.putIfAbsent(cardanoRepository.networkKey(node), node) }
+                            catch (e: Exception) { log.warn(e) { "Unable to identify network for node ${node.id}" } }
                         }
-                    } catch (e: Throwable) {
-                        if (!isShuttingDown) {
-                            log.error(e) { "ChainMonitor error" }
+                        for ((key, pair) in observers.toMap()) {
+                            if (selected[key] != pair.first || !pair.second.isActive) {
+                                pair.second.cancelAndJoin()
+                                observers.remove(key)
+                            }
                         }
-                        mux?.shutdownGracefully()
-                        mux = null
-                    }
-                    if (!isShuttingDown) {
-                        log.info { "ChainMonitor Socket not connected. Wait 10 seconds to reconnect..." }
-                        delay(RECONNECT_DELAY_MS)
-                    } else {
-                        log.info { "ChainMonitor Socket not connected. Shutting down..." }
-                    }
+                        for ((key, node) in selected) {
+                            if (key !in observers) observers[key] = node to launch { observe(key, node) }
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { log.error(e) { "Unable to enumerate chain observers" } }
+                    delay(10_000)
                 }
+            } finally {
+                observers.values.forEach { it.second.cancel() }
             }
-            log.info { "... ChainMonitor start complete." }
-        }
-
-        @OptIn(DelicateCoroutinesApi::class)
-        override fun stop(callback: Runnable) {
-            isShuttingDown = true
-            GlobalScope.launch {
-                mux?.shutdownGracefully()
-                delay(3000)
-                job.cancelChildren()
-                log.info { "ChainMonitor stopped." }
-                callback.run()
-            }
-        }
-
-        override fun stop() {
-        }
-
-        companion object {
-            const val RECONNECT_DELAY_MS = 10000L
         }
     }
+
+    private suspend fun observe(key: String, node: Node) {
+        while (currentCoroutineContext().isActive) {
+            var mux: Mux? = null
+            var session: NetworkChainSession? = null
+            val selector = ActorSelectorManager(currentCoroutineContext())
+            try {
+                val host = requireNotNull(hostRepository.findByIdOrNull(node.hostId))
+                val genesis = requireNotNull(fileRepository.findByIdOrNull(node.genesisShelleyFileId))
+                val shelley = requireNotNull(shelleyGenesisAdapter.fromJson(genesis.content))
+                val config = requireNotNull(fileRepository.findByIdOrNull(node.configFileId))
+                val byronFile = requireNotNull(fileRepository.findByIdOrNull(node.genesisByronFileId))
+                val byron = requireNotNull(byronGenesisAdapter.fromJson(byronFile.content))
+                val epochSlots = Math.multiplyExact(byron.protocolConsts.k, 10L)
+                require(epochSlots > 0)
+                val configValues = moshi.adapter(Map::class.java).lenient().fromJson(config.content)
+                val byronGenesisHash = requireNotNull(configValues?.get("ByronGenesisHash") as? String) { "Byron genesis hash missing" }
+                require(GenesisLedgerDecoder.verifyByronGenesisHash(byronFile.content, byronGenesisHash.hexToByteArray())) { "Byron genesis hash mismatch" }
+                val byronMagic = when (configValues?.get("RequiresNetworkMagic")) {
+                    "RequiresNoMagic" -> null
+                    "RequiresMagic" -> requireNotNull(shelley.networkMagic)
+                    else -> throw IllegalArgumentException("Byron network magic policy missing or invalid")
+                }
+                val genesisOutputs = GenesisLedgerDecoder.byron(byronFile.content, byronMagic) +
+                    if (!shelley.networkId.equals("mainnet", ignoreCase = true) &&
+                        (configValues?.get("TestShelleyHardForkAtEpoch") as? Number)?.toLong() == 0L
+                    ) GenesisLedgerDecoder.shelley(genesis.content) else emptyList()
+                val genesisHash = requireNotNull(configAdapter.fromJson(config.content)).shelleyGenesisHash.hexToByteArray()
+                require(Blake2b.hash256(genesis.content.toByteArray(Charsets.UTF_8)).contentEquals(genesisHash)) { "Shelley genesis hash mismatch" }
+                coordinator.registerNetwork(key, byronGenesisHash.lowercase(), genesisOutputs)
+                aSocket(selector).tcp().connect(InetSocketAddress(host.hostname, node.port)) {
+                    noDelay = true; keepAlive = true; lingerSeconds = 0; typeOfService = TypeOfService.IPTOS_LOWDELAY
+                }.use { socket ->
+                    mux = Mux(socket.connection())
+                    mux!!.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
+                    cardanoRepository.reestablishTarget(host, node)
+                    session = NetworkChainSession(key, coordinator, node.isDefault, coordinator.beginSession(key), epochSlots)
+                    val active = requireNotNull(session)
+                    val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
+                    mux!!.execute(
+                        KeepAliveProtocol(),
+                        ChainSyncProtocol(host, genesisHash, emptyList(), chainRepository, false, pooltoolService, "", "",
+                            active, node, cardanoRepository, coordinator.intersectionPoints(key)),
+                        BlockFetchProtocol(active, leios),
+                        leios,
+                    )
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                log.warn(e) { "Chain observer failed for network $key" }
+                try { session?.let { coordinator.boundaryFailure(key, e.message ?: "Chain connection failed", it.generation) } }
+                catch (failure: Exception) { log.warn(failure) { "Unable to record chain failure" } }
+            } finally {
+                mux?.shutdownGracefully()
+                session?.close()
+                selector.close()
+            }
+            delay(10_000)
+        }
+    }
+
+    override fun stop(callback: Runnable) {
+        val job = root
+        root = null
+        if (job == null) callback.run() else { job.invokeOnCompletion { callback.run() }; job.cancel() }
+    }
+    override fun stop() { root?.cancel(); root = null }
+}

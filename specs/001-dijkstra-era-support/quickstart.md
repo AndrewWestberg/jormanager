@@ -1,6 +1,6 @@
 # Dijkstra validation quickstart
 
-**Status:** validation plan, not a report that Musashi or Dijkstra works. New feature messages and scenarios become runnable after implementation and qualification. Current repository build/start commands below are real entry points; there is no checked-in Dijkstra replay harness or independent corpus yet. Do not substitute a CLI era label, mock node or local round trips for qualified deployed-bundle and independent-reference evidence.
+**Status:** manual validation plan for the implemented code, not a report that Musashi or Dijkstra is qualified. Current repository build/start commands below are real entry points; there is no checked-in independent Dijkstra replay corpus yet. Do not substitute a CLI era label, mock node or local round trips for qualified deployed-bundle and independent-reference evidence. The [upgrade/operator guide](../../docs/dijkstra-upgrade-guide.md) documents implemented entry points and remaining publication/observation prerequisites.
 
 **Scheduling:** This is a guide for later user-coordinated manual integration qualification, not a prerequisite to start implementation. Do not provision these environments or author/run the feature tests in the current code pass. The parent may run local compiler/smoke checks after integration, but those do not satisfy Q0–Q8 or G1–G6. The user coordinates later owners, reviewers, test execution and qualification; all evidence tasks remain pending, with no waiver of release/runtime requirements.
 
@@ -15,7 +15,7 @@ Musashi-specific prerequisites below apply to Dijkstra scenarios, not to existin
 5. Disposable managed relay and producer hosts reachable through the same local/SSH mechanism used by JorManager. Use dedicated SSH credentials, verified targets, appropriate permissions and an approved restart/reload contract. Registration testing does not authorize actions against another host.
 6. Sanitized historical database/configuration fixtures for upgrade rehearsal, safe backup storage, and a tested restore destination. Do not capture secret key material in logs/screenshots/fixture manifests. Existing backup export can contain decrypted signing material; handle it as a secret, not an ordinary evidence artifact.
 
-If any prerequisite is absent, record the exact blocked scenario, owner and missing artifact. A missing fixture, external publication or tool is not a skipped passing test. Musashi resets are expected: network magic 164 alone is not reset identity. This guide does not invent new node-control APIs or claim current JorManager already creates Musashi nodes.
+If any prerequisite is absent, record the exact blocked scenario, owner and missing artifact. A missing fixture, external publication or tool is not a skipped passing test. Musashi resets are expected: network magic 164 alone is not reset identity. Provisioning code is present; successful clean relay/pool operation still needs actual qualification.
 
 ## Build and start the isolated application
 
@@ -142,4 +142,13 @@ Each later run records runtime/fixture manifest IDs, actual steps/commands, expe
 
 Before feature merge/release, execute the applicable gates in plan G1–G6, review failures and record commands/scenarios actually run. Update `README.md`, `docs/README.md`, `docs/installation.md` and the release's applicable upgrade guide with verified prerequisites, new-relay/new-pool catalog workflow, role-specific manual/automatic steps, backup/replay/remote deployment and recovery limits. Do not publish hypothetical commands as tested support.
 
-Observed so far: published eight-file HTTP/JSON/reference checks, user-supplied upgraded builds, local help capabilities and upstream PR documentation. None is a Q0–Q8 application pass. No application startup/tests, ledger execution, signing, submission, key generation, migration or SSH deployment occurred in this documentation update; remaining immutable-provenance and runtime gates stay open.
+Observed implementation checks: Kotlin main/existing test-source compilation, production Vue build, disposable structural codec/framing/account-checkpoint and exact whole-batch identity checks, ManifestV1 serialization checks, and synthetic browser rendering of unavailable funds, certified child/direct-deposit details, immediate historical labeling after network invalidation, and draft network-index/recovery status distinct from process readiness. The existing 74 Vitest tests also passed once through an implicit Gradle dependency; this was not the requested manual qualification run. No new feature tests, independent ledger corpus execution, database migration/restore, signing/submission or SSH deployment were performed. Publication, upstream observation and Q0–Q8 runtime gates remain open.
+
+For compiler/build-only checks that avoid Gradle's frontend test dependency:
+
+```sh
+./gradlew compileKotlin compileTestKotlin -x test -x testVue -x buildVue --console=plain
+npm --prefix vue run build
+```
+
+These commands do not run the Kotlin tests or prove database/node behavior. Disposable smoke scaffolds are removed after use rather than presented as permanent independent qualification tests.

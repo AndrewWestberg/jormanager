@@ -260,6 +260,22 @@ Uncovered families: Structural, Test Effectiveness, Runtime, Change, Architectur
 
 The selected sensors become concrete owner/decision/pass-fail gates in [plan.md](plan.md). Required missing evidence stays blocked, never green. Source review, mocks, local encode/decode loops and multiple checks sharing JorManager-generated expectations cannot substitute for independently sourced conformance and actual operator-boundary evidence.
 
+## 13. Implementation source observation limits
+
+**Decision:** consume the actual flat pool-state and snapshot/committee responses; expose unavailable facts explicitly rather than inventing readiness.
+
+**Evidence:** inspected `cardano-ledger-api-1.16.0.0/src/Cardano/Ledger/Api/State/Query.hs` (`QueryResultStakePoolState`, `ToKeyValuePairs`, `QueryResultLeiosCommittee`) and `cardano-ledger-core-1.23.0.0/src/Cardano/Ledger/State/StakePool.hs` / `State/LeiosCommittee.hs` from the node build source archives. Pool records expose `blsKey`, `futureStakePoolParams` and `retiring`; committee seats expose weight and show-rendered verification key, not pool ID. Current committee uses Set and future committee Mark, but the response does not supply snapshot capture epochs. The inspected CLI `EraBased/Query/Option.hs:176–181` explicitly warns that `bksRegisteredIn` is an effective epoch, not the actual registration epoch; `Query/Run.hs` directly serializes the ledger query results.
+
+**Rationale:** preserve current/future keys and effective epoch while returning null-with-reason for actual registration epoch, snapshot age and nonempty committee pool attribution. An empty committee can establish non-selection; otherwise shared BLS keys prevent assuming a unique pool from a seat key. Coherent before/after node tips and era/capability observations are required even for partial fresh results. Failed refresh retains stale data, not a new success.
+
+**Alternatives considered:** nested `poolParams`/`sps*` parsing, relabeling effective/voting epochs as registration/snapshot epochs, and guessing pool ownership from committee keys were rejected because they contradict the inspected response/ownership semantics.
+
+**Decision:** do not report a verified loaded BLS key without a real public-only readback or possession proof.
+
+**Evidence and rationale:** at node revision `746f1b3cbdaada2c3ed2f702b0946643248dd30b`, `cardano-node/src/Cardano/Node/Tracing/Tracers/ForgingStats.hs:17–30` notes that `setBlockForging` offers no readback; `Protocol/Shelley.hs:168–213,228–315` loads singleton/bulk credentials into the node. Neither supplies a public loaded-key fingerprint. File fingerprints/permissions and restart success are installation evidence only. Generic forging counters are not key identity.
+
+**Alternatives considered:** treating SSH success, installed bytes or generic forging metrics as loaded-key verification was rejected. The missing upstream observation interface and manual producer proof remain explicit prerequisites for T037/T061, not an implemented success fallback. No live producer was modified or qualified during this source inspection.
+
 [musashi]: https://leios.cardano-scaling.org/docs/testnet/getting-started/
 [musashi-pool]: https://leios.cardano-scaling.org/docs/testnet/register-stake-pool/
 [release]: https://github.com/input-output-hk/ouroboros-leios/releases/tag/rc-2026w43

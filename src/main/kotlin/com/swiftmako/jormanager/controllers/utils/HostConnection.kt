@@ -13,6 +13,8 @@ import okio.source
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.io.PrintWriter
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 import java.util.regex.Matcher
 import java.util.regex.Pattern
@@ -33,7 +35,7 @@ class HostConnection(
 
     fun commandFileExists(filePath: String): Boolean =
         if (host.isRemote) {
-            command("if test -f $filePath; then echo true; fi").trim().toBoolean()
+            command("if test -e $filePath; then echo true; fi").trim().toBoolean()
         } else {
             File(filePath).exists()
         }
@@ -53,6 +55,10 @@ class HostConnection(
         } else {
             localCommand(command)
         }
+
+    /** Execute literal arguments, including on SSH where the remote shell otherwise splits them. */
+    fun commandArgs(args: List<String>): String =
+        if (host.isRemote) remoteCommand(args.map { "'${it.replace("'", "'\\''")}'" }) else localCommand(args)
 
     fun bashCommand(
         command: String,
@@ -368,19 +374,18 @@ class HostConnection(
 
     private fun remoteCommandReadFile(fileName: String): String {
         lateinit var ssh: SSHClient
+        val staging = Files.createTempFile("jormanager-download-", ".tmp")
         try {
             ssh = sshClientPool.borrow()
-            ssh.newSCPFileTransfer().download(fileName, "/tmp/jm_scp_download_file.tmp")
-            return localCommandReadFile("/tmp/jm_scp_download_file.tmp")
+            ssh.newSCPFileTransfer().download(fileName, staging.toString())
+            return localCommandReadFile(staging.toString())
         } catch (e: Throwable) {
             if (e is SSHRuntimeException) {
                 throw e
             }
             throw SSHRuntimeException("Error communicating with remote server!", e)
         } finally {
-            ignoreExceptions {
-                File("/tmp/jm_scp_download_file.tmp").delete()
-            }
+            Files.deleteIfExists(staging)
             ignoreExceptions { sshClientPool.recycle(ssh) }
         }
     }
@@ -400,6 +405,39 @@ class HostConnection(
         return ""
     }
 
+    /** Create a private, unique signing-key file without exposing it through shared SCP staging. */
+    fun commandWriteSecret(fileName: String, content: String) {
+        require(Regex("/tmp/[A-Za-z0-9._-]+").matches(fileName)) { "Unsafe secret file path" }
+        if (!host.isRemote) {
+            val path = java.nio.file.Path.of(fileName)
+            Files.createFile(path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+            try {
+                Files.writeString(path, content)
+            } catch (error: Throwable) {
+                Files.deleteIfExists(path)
+                throw error
+            }
+            return
+        }
+        val staging = Files.createTempFile("jormanager-secret-", ".tmp", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+        var ssh: SSHClient? = null
+        var created = false
+        try {
+            Files.writeString(staging, content)
+            bashCommand("umask 077; set -C; : > '$fileName'")
+            created = true
+            ssh = sshClientPool.borrow()
+            ssh.newSCPFileTransfer().upload(FileSystemFile(staging.toFile()), fileName)
+            command(listOf("chmod", "600", fileName))
+        } catch (error: Throwable) {
+            if (created) ignoreExceptions { command(listOf("rm", "-f", fileName)) }
+            throw error
+        } finally {
+            Files.deleteIfExists(staging)
+            ssh?.let { client -> ignoreExceptions { sshClientPool.recycle(client) } }
+        }
+    }
+
     private fun localCommandWriteFile(
         fileName: String,
         content: String
@@ -412,19 +450,18 @@ class HostConnection(
         content: String
     ) {
         lateinit var ssh: SSHClient
+        val staging = Files.createTempFile("jormanager-upload-", ".tmp")
         try {
             ssh = sshClientPool.borrow()
-            localCommandWriteFile("/tmp/jm_scp_file.tmp", content)
-            ssh.newSCPFileTransfer().upload(FileSystemFile("/tmp/jm_scp_file.tmp"), fileName)
+            localCommandWriteFile(staging.toString(), content)
+            ssh.newSCPFileTransfer().upload(FileSystemFile(staging.toFile()), fileName)
         } catch (e: Throwable) {
             if (e is SSHRuntimeException) {
                 throw e
             }
             throw SSHRuntimeException("Error communicating with remote server!", e)
         } finally {
-            ignoreExceptions {
-                File("/tmp/jm_scp_file.tmp").delete()
-            }
+            Files.deleteIfExists(staging)
             ignoreExceptions { sshClientPool.recycle(ssh) }
         }
     }

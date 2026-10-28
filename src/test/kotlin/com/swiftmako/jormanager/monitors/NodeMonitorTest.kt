@@ -417,6 +417,7 @@ class NodeMonitorTest {
             nodeRepository = nodeRepository,
             fileRepository = fileRepository,
             chainRepository = chainRepository,
+            cardanoRepository = mockk(relaxed = true),
             webSocketTemplate = webSocketTemplate,
             shelleyGenesisAdapter = shelleyGenesisAdapter,
             moshi = moshi,

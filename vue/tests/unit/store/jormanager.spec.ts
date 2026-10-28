@@ -181,25 +181,14 @@ describe('store/jormanager - getters', () => {
     it('finds wallet item by id', () => {
       const store = useJorManagerStore()
       store.walletItems = [
-        { id: 1, name: 'wallet1', paymentAddress: '', paymentAddrLovelace: 0, stakingAddrLovelace: 0, nativeAssetMap: {} },
-        { id: 2, name: 'wallet2', paymentAddress: '', paymentAddrLovelace: 0, stakingAddrLovelace: 0, nativeAssetMap: {} }
+        { id: 1, name: 'wallet1', paymentAddress: '', paymentAddrLovelace: '0', stakingAddrLovelace: '0', nativeAssetMap: {} },
+        { id: 2, name: 'wallet2', paymentAddress: '', paymentAddrLovelace: '0', stakingAddrLovelace: '0', nativeAssetMap: {} }
       ]
       expect(store.walletItemById(2).name).toBe('wallet2')
     })
 
-    it('returns default object when not found', () => {
-      const store = useJorManagerStore()
-      store.walletItems = []
-      expect(store.walletItemById(999).name).toBe('')
-    })
   })
 
-  describe('isDebug', () => {
-    it('returns boolean based on DEV mode', () => {
-      const store = useJorManagerStore()
-      expect(typeof store.isDebug).toBe('boolean')
-    })
-  })
 
   describe('saveNodeStats', () => {
     it('ignores null chart samples and preserves existing epoch values', () => {

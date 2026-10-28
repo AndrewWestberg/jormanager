@@ -1,0 +1,145 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="044-dijkstra-ledger" author="jormanager">
+        <preConditions onFail="HALT" onError="HALT">
+            <sqlCheck expectedResult="0"><![CDATA[
+SELECT count(*) FROM ledger_utxos WHERE
+ CASE WHEN lovelace ~ '^(0|[1-9][0-9]*)$' THEN lovelace::numeric > 18446744073709551615 ELSE true END
+            ]]></sqlCheck>
+            <sqlCheck expectedResult="0"><![CDATA[
+SELECT count(*) FROM ledger_utxo_assets WHERE
+ CASE WHEN amount ~ '^(0|[1-9][0-9]*)$' THEN amount::numeric > 18446744073709551615 ELSE true END
+            ]]></sqlCheck>
+            <sqlCheck expectedResult="0">SELECT count(*) FROM (SELECT policy,name FROM ledger_assets GROUP BY policy,name HAVING count(*) > 1) duplicates</sqlCheck>
+            <sqlCheck expectedResult="0">SELECT count(*) FROM (SELECT tx_id,tx_ix FROM ledger_utxos GROUP BY tx_id,tx_ix HAVING count(*) > 1) duplicates</sqlCheck>
+        </preConditions>
+        <!-- Legacy rows stay unassigned: a migration cannot invent network or raw-byte provenance. -->
+        <sql splitStatements="true"><![CDATA[
+CREATE TABLE chain_inclusions (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), network_key text NOT NULL,
+ header_hash bytea NOT NULL CHECK (octet_length(header_hash)=32),
+ slot numeric(20,0) NOT NULL CHECK (slot BETWEEN 0 AND 18446744073709551615),
+ height numeric(20,0) NOT NULL CHECK (height BETWEEN 0 AND 18446744073709551615),
+ previous_hash bytea CHECK (previous_hash IS NULL OR octet_length(previous_hash)=32),
+ era integer NOT NULL CHECK (era BETWEEN 0 AND 7), raw_header bytea NOT NULL, raw_body bytea NOT NULL,
+ adopted boolean NOT NULL, complete boolean NOT NULL, source text NOT NULL,
+ CONSTRAINT uq_chain_network_hash UNIQUE(network_key,header_hash), CHECK (NOT complete OR adopted)
+);
+CREATE INDEX ix_adopted_chain_slot ON chain_inclusions(network_key,slot) WHERE adopted;
+CREATE TABLE sync_states (
+ network_key text PRIMARY KEY, generation bigint NOT NULL DEFAULT 0 CHECK (generation>=0),
+ observed_slot numeric(20,0), observed_hash bytea,
+ complete_inclusion_id bigint REFERENCES chain_inclusions(id),
+ status text NOT NULL CHECK(status IN ('complete','syncing','incomplete','stale','unavailable')),
+ reason text, CHECK ((observed_slot IS NULL)=(observed_hash IS NULL))
+);
+CREATE TABLE transaction_batches (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), inclusion_id bigint NOT NULL REFERENCES chain_inclusions(id),
+ source text NOT NULL CHECK(source IN ('direct','endorsed')), source_position integer NOT NULL CHECK(source_position>=0),
+ application_ordinal integer NOT NULL CHECK(application_ordinal>=0), valid boolean NOT NULL,
+ raw_included bytea NOT NULL, full_hash bytea CHECK(full_hash IS NULL OR octet_length(full_hash)=32),
+ UNIQUE(inclusion_id,source,source_position), UNIQUE(inclusion_id,application_ordinal)
+);
+CREATE TABLE transaction_members (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), batch_id bigint NOT NULL REFERENCES transaction_batches(id),
+ tx_id bytea NOT NULL CHECK(octet_length(tx_id)=32), parent_id bigint REFERENCES transaction_members(id),
+ child_position integer CHECK(child_position>=0), processing_ordinal integer NOT NULL CHECK(processing_ordinal>=0),
+ raw_body bytea NOT NULL, raw_witnesses bytea NOT NULL, raw_auxiliary bytea,
+ auxiliary_presence text NOT NULL CHECK(auxiliary_presence IN ('absent','null','present')),
+ fee numeric(20,0) CHECK(fee BETWEEN 0 AND 18446744073709551615), effective boolean NOT NULL,
+ CHECK ((parent_id IS NULL)=(child_position IS NULL)), CHECK(parent_id IS NULL OR fee IS NULL),
+ UNIQUE(batch_id,tx_id), UNIQUE(batch_id,child_position), UNIQUE(batch_id,processing_ordinal)
+);
+CREATE UNIQUE INDEX uq_batch_parent ON transaction_members(batch_id) WHERE parent_id IS NULL;
+CREATE INDEX ix_member_txid ON transaction_members(tx_id);
+CREATE TABLE output_occurrences (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), member_id bigint NOT NULL REFERENCES transaction_members(id),
+ output_index integer NOT NULL CHECK(output_index BETWEEN 0 AND 65535), raw_output bytea NOT NULL,
+ address bytea NOT NULL, coin numeric(20,0) NOT NULL CHECK(coin BETWEEN 0 AND 18446744073709551615),
+ datum bytea, reference_script bytea, collateral_return boolean NOT NULL, effective boolean NOT NULL,
+ UNIQUE(member_id,output_index)
+);
+CREATE TABLE output_assets (
+ output_id bigint NOT NULL REFERENCES output_occurrences(id), policy bytea NOT NULL CHECK(octet_length(policy)=28),
+ asset_name bytea NOT NULL CHECK(octet_length(asset_name)<=32),
+ quantity numeric(20,0) NOT NULL CHECK(quantity BETWEEN 0 AND 18446744073709551615),
+ PRIMARY KEY(output_id,policy,asset_name)
+);
+CREATE TABLE input_occurrences (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), member_id bigint NOT NULL REFERENCES transaction_members(id),
+ role text NOT NULL CHECK(role IN ('spending','collateral','reference')), position integer NOT NULL CHECK(position>=0),
+ tx_id bytea NOT NULL CHECK(octet_length(tx_id)=32), output_index integer NOT NULL CHECK(output_index BETWEEN 0 AND 65535),
+ resolved_output_id bigint REFERENCES output_occurrences(id), effective boolean NOT NULL,
+ UNIQUE(member_id,role,position), CHECK(role<>'reference' OR NOT effective)
+);
+CREATE TABLE member_data (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), member_id bigint NOT NULL REFERENCES transaction_members(id),
+ family text NOT NULL, position integer NOT NULL CHECK(position>=0), raw_data bytea NOT NULL,
+ typed_data text NOT NULL, effective boolean NOT NULL, UNIQUE(member_id,family,position)
+);
+CREATE TABLE account_effects (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), member_id bigint NOT NULL REFERENCES transaction_members(id),
+ position integer NOT NULL CHECK(position>=0), account bytea NOT NULL, kind text NOT NULL,
+ amount numeric(20,0) CHECK(amount BETWEEN 0 AND 18446744073709551615),
+ lower_inclusive numeric(20,0) CHECK(lower_inclusive BETWEEN 0 AND 18446744073709551615),
+ upper_exclusive numeric(20,0) CHECK(upper_exclusive BETWEEN 0 AND 18446744073709551615),
+ effective boolean NOT NULL, UNIQUE(member_id,position)
+);
+CREATE INDEX ix_account_effect_account ON account_effects(account);
+CREATE TABLE certificate_governance_effects (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), member_id bigint NOT NULL REFERENCES transaction_members(id),
+ position integer NOT NULL CHECK(position>=0), kind text NOT NULL, target bytea,
+ amount numeric(20,0) CHECK(amount BETWEEN 0 AND 18446744073709551615), raw_data bytea NOT NULL,
+ typed_data text NOT NULL, effective boolean NOT NULL, UNIQUE(member_id,kind,position)
+);
+CREATE TABLE derived_account_governance_states (
+ network_key text NOT NULL, family text NOT NULL, state_key bytea NOT NULL, state_value text NOT NULL,
+ inclusion_id bigint NOT NULL REFERENCES chain_inclusions(id), member_id bigint REFERENCES transaction_members(id),
+ PRIMARY KEY(network_key,family,state_key)
+);
+CREATE TABLE reversible_changes (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), inclusion_id bigint NOT NULL REFERENCES chain_inclusions(id),
+ sequence integer NOT NULL CHECK(sequence>=0), family text NOT NULL, state_key bytea NOT NULL,
+ prior_value text, prior_inclusion_id bigint REFERENCES chain_inclusions(id), prior_member_id bigint REFERENCES transaction_members(id),
+ UNIQUE(inclusion_id,sequence), CHECK((prior_value IS NULL)=(prior_inclusion_id IS NULL))
+);
+CREATE TABLE protocol_snapshots (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), network_key text NOT NULL,
+ slot numeric(20,0) NOT NULL, header_hash bytea NOT NULL, era integer NOT NULL,
+ raw_parameters text NOT NULL, evidence_id text NOT NULL, UNIQUE(network_key,header_hash,evidence_id)
+);
+CREATE TABLE leios_announcements (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), inclusion_id bigint NOT NULL REFERENCES chain_inclusions(id),
+ eb_hash bytea NOT NULL CHECK(octet_length(eb_hash)=32), eb_size numeric(20,0) NOT NULL CHECK(eb_size>=0),
+ raw_announcement bytea NOT NULL, UNIQUE(inclusion_id)
+);
+CREATE TABLE leios_certifications (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), inclusion_id bigint NOT NULL REFERENCES chain_inclusions(id),
+ announcement_hash bytea NOT NULL CHECK(octet_length(announcement_hash)=32), raw_certificate bytea NOT NULL,
+ complete boolean NOT NULL, UNIQUE(inclusion_id)
+);
+CREATE TABLE leios_content_references (
+ id bigint PRIMARY KEY DEFAULT nextval('hibernate_sequence'), certification_id bigint NOT NULL REFERENCES leios_certifications(id),
+ position integer NOT NULL CHECK(position>=0), full_hash bytea NOT NULL CHECK(octet_length(full_hash)=32),
+ byte_size numeric(20,0) NOT NULL CHECK(byte_size>=0), batch_id bigint REFERENCES transaction_batches(id),
+ UNIQUE(certification_id,position), UNIQUE(certification_id,full_hash)
+);
+CREATE TABLE network_genesis (
+ network_key text PRIMARY KEY, genesis_hash bytea NOT NULL CHECK(octet_length(genesis_hash)=32),
+ seeded boolean NOT NULL DEFAULT false
+);
+ALTER TABLE ledger_utxos ALTER COLUMN block_created TYPE numeric(20,0);
+ALTER TABLE ledger_utxos ALTER COLUMN slot_created TYPE numeric(20,0);
+ALTER TABLE ledger_utxos ALTER COLUMN block_spent TYPE numeric(20,0);
+ALTER TABLE ledger_utxos ALTER COLUMN slot_spent TYPE numeric(20,0);
+ALTER TABLE ledger_utxos ADD COLUMN network_key text;
+ALTER TABLE ledger_utxos ADD COLUMN output_occurrence_id bigint REFERENCES output_occurrences(id);
+ALTER TABLE ledger_utxos ADD COLUMN spending_inclusion_id bigint REFERENCES chain_inclusions(id);
+CREATE UNIQUE INDEX uq_network_current_output ON ledger_utxos(network_key,tx_id,tx_ix) WHERE network_key IS NOT NULL;
+CREATE UNIQUE INDEX uq_projection_occurrence ON ledger_utxos(output_occurrence_id) WHERE output_occurrence_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_ledger_asset_identity ON ledger_assets(policy,name);
+        ]]></sql>
+        <!-- Recovery requires restoring the matching pre-upgrade database, not erasing indexed provenance. -->
+    </changeSet>
+</databaseChangeLog>

@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.entities
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
@@ -98,4 +99,7 @@ data class Node(
     val configurationBundleId: String? = null,
     @Column(name = "configuration_reset_id")
     val configurationResetId: String? = null,
+    @Column(name = "is_draft", nullable = false)
+    @get:JsonProperty("isDraft")
+    val isDraft: Boolean = false,
 )

@@ -24,6 +24,9 @@ repositories {
     mavenLocal()
     mavenCentral()
 }
+tasks.processResources {
+    from("specs/001-dijkstra-era-support/contracts/network-configuration.schema.json")
+}
 
 configurations.configureEach {
     resolutionStrategy.eachDependency {
@@ -45,6 +48,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${Versions.JACKSON}")
+    implementation("com.networknt:json-schema-validator:1.5.6")
+    implementation("io.github.erdtman:java-json-canonicalization:1.1")
 
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")

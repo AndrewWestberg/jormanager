@@ -11,5 +11,7 @@ data class StakeAddressInfo(
     @param:Json(name = "delegation")
     val delegation: String? = null,
     @param:Json(name = "rewardAccountBalance")
-    val rewardAccountBalance: BigInteger = BigInteger.ZERO
+    val rewardAccountBalance: BigInteger = BigInteger.ZERO,
+    @param:Json(name = "stakeRegistrationDeposit")
+    val stakeAddressDeposit: BigInteger? = null,
 )

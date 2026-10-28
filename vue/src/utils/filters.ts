@@ -31,8 +31,15 @@ export function hex2ascii(hexx: string): string {
 /**
  * Format lovelace to ADA with currency symbol
  */
-export function lovelaceToAda(lovelace: number, decimals: number = 6): string {
-  return formatCurrency(lovelace / 1000000, '₳', decimals)
+export function lovelaceToAda(lovelace: string | number | bigint, decimals: number = 6): string {
+  if (typeof lovelace === 'number' && !Number.isSafeInteger(lovelace)) return 'Unavailable'
+  const text = String(lovelace)
+  if (!/^-?\d+$/.test(text) || !Number.isInteger(decimals) || decimals < 0 || decimals > 6) return 'Unavailable'
+  const amount = BigInt(text)
+  const absolute = amount < 0n ? -amount : amount
+  const whole = (absolute / 1000000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const fraction = (absolute % 1000000n).toString().padStart(6, '0').slice(0, decimals)
+  return `${amount < 0n ? '-' : ''}₳${whole}${decimals ? `.${fraction}` : ''}`
 }
 
 /**
