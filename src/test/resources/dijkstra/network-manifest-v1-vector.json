@@ -1,0 +1,36 @@
+{
+  "resetId": "76aea32cd7f989ede509650d22eb09c91f7217a5860eda662b9b093c492cf0ec",
+  "bundleId": "0e4eeeb3922e1ef9551d18fd4c368f39e827f0edbe61ae36882c06592458c6b8",
+  "payload": {
+    "schemaVersion": 1,
+    "identity": {
+      "networkMagic": 164,
+      "systemStart": "0",
+      "genesisHashes": {
+        "byron-genesis.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "shelley-genesis.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "alonzo-genesis.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "conway-genesis.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "dijkstra-genesis.json": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "assets": {
+      "byron-genesis.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/byron-genesis.json"},
+      "shelley-genesis.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/shelley-genesis.json"},
+      "alonzo-genesis.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/alonzo-genesis.json"},
+      "conway-genesis.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/conway-genesis.json"},
+      "dijkstra-genesis.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/dijkstra-genesis.json"},
+      "config.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/config.json"},
+      "topology.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/topology.json"},
+      "peer-snapshot.json": {"sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", "sourceUrl": "https://example.invalid/musashi/peer-snapshot.json"}
+    },
+    "retrievedAt": "2026-01-01T00:00:00Z",
+    "provenance": {
+      "release": "synthetic",
+      "components": {
+        "node": {"version": null, "revision": null, "binarySha256": null},
+        "cli": {"version": null, "revision": null, "binarySha256": null}
+      }
+    }
+  }
+}
