@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.controllers.utils.HostConnection
@@ -46,16 +46,16 @@ class BlockControllerLeaderLogsTest {
 
     private fun schedule(firstSlot: Long, fDenominator: String = "20"): JsonNode =
         schedules.single {
-            it["mode"].asText() == "praos" &&
+            it["mode"].asString() == "praos" &&
                 it["firstSlot"].asLong() == firstSlot &&
-                it["fDenominator"].asText() == fDenominator
+                it["fDenominator"].asString() == fDenominator
         }
 
     @ParameterizedTest
     @ValueSource(ints = [2, 4])
     fun `current stakeSet schedule matches node and existing pool slot is not duplicated`(visibleProcessors: Int) {
         val oracle = schedule(FIRST_SLOT)
-        val expected = oracle["assignedSlots"].map { it.asLong() }
+        val expected = oracle["assignedSlots"].values().map { it.asLong() }
         assertThat(expected).isNotEmpty()
         val existing = existingBlock(expected.first())
         val result = calculate(visibleProcessors, existing = existing)
@@ -73,7 +73,7 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, requestType = "futureEpoch")
 
         assertThat(result.saved.map { it.slot }.sorted())
-            .containsExactlyElementsIn(oracle["assignedSlots"].map { it.asLong() }).inOrder()
+            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() }).inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT + EPOCH_LENGTH)
         assertThat(result.chainQueries)
             .containsExactly(FIRST_SLOT + EPOCH_LENGTH - 60, FIRST_SLOT).inOrder()
@@ -86,7 +86,7 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, f = "1", stakeSet = "0", stakeMark = "0")
 
         assertThat(result.saved.map { it.slot }.sorted())
-            .containsExactlyElementsIn(oracle["assignedSlots"].map { it.asLong() }).inOrder()
+            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() }).inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT)
     }
 
@@ -268,7 +268,7 @@ class BlockControllerLeaderLogsTest {
             """{"startTime":0,"protocolConsts":{"k":1},"blockVersionData":{"slotDuration":1000}}""")
         val shelley = File(id = 2, name = "shelley", content =
             """{"activeSlotsCoeff":$f,"networkId":"Testnet","networkMagic":2,"slotLength":1,"epochLength":3600,"slotsPerKESPeriod":3600,"systemStart":"1970-01-01T00:00:00Z","maxKESEvolutions":62}""")
-        val syntheticKey = schedule(FIRST_SLOT)["vrfSkeyHex"].asText()
+        val syntheticKey = schedule(FIRST_SLOT)["vrfSkeyHex"].asString()
         val keyFile = File(id = 6, name = "public-synthetic-vrf", content =
             """{"type":"VrfSigningKey_PraosVRF","description":"Public all-zero-seed test key","cborHex":"5840$syntheticKey"}""")
         val poolSnapshots = nodes.map { requireNotNull(it.poolId) }.distinct().joinToString(",") {
@@ -342,7 +342,6 @@ class BlockControllerLeaderLogsTest {
                     }
                 }
             }
-            Unit
         }
 
         mockkConstructor(HostConnection::class)

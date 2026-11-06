@@ -4,9 +4,22 @@
 
 This guide describes the implemented code paths, not a qualified release. Database migration/restore, real node delivery, signing/submission, remote provisioning and producer operation still require the user-coordinated manual qualification in [quickstart.md](../specs/001-dijkstra-era-support/quickstart.md). Local compilation and synthetic smoke checks do not replace that evidence.
 
-Musashi Dōjō is the Dijkstra integration baseline only. Existing supported Conway and earlier-era networks keep their own configuration and operation paths; they do not need a Musashi bundle or BLS credentials. The supplied CLI `11.6.0.0` and `cardano-node-leios` `11.2.0.164`, revision `746f1b3cbdaada2c3ed2f702b0946643248dd30b`, are qualification inputs, not independent permanent version pins or proof of compatibility.
+Musashi Dōjō is the Dijkstra integration baseline only. Conway and earlier supported networks retain their own paths without Musashi files or BLS credentials. Supplied CLI/node builds are qualification inputs, not proof of compatibility.
 
 Use the upstream [Musashi setup guide](https://leios.cardano-scaling.org/docs/testnet/getting-started/) and [pool guide](https://leios.cardano-scaling.org/docs/testnet/register-stake-pool/) for the selected network deployment. Do not replace a working Conway node/configuration merely because JorManager understands Dijkstra. No hard-fork transition or cross-era rollback exercise is required here; ordinary rollback/recovery and independent Conway/Dijkstra operation remain relevant.
+
+### Application JSON runtime
+
+The application uses Spring Boot-managed Jackson 3 for injected mappers, message JSON trees, streaming trace/genesis parsing and Kotlin binding. Shared `com.fasterxml.jackson.annotation` annotations remain intentional; Jackson 2 core/databind/Kotlin-module libraries are not required on the runtime classpath.
+
+The subsequent compiler-warning cleanup uses Jackson 3's `asString()`, `isString`, `stringNode()` and `stringValue()` instead of their deprecated aliases. JSON coercion, validation, exact decimal-string amounts and wire formats are unchanged.
+
+If startup reports that `BatchEffectProjector` needs `com.fasterxml.jackson.databind.ObjectMapper`, deploy a JAR built from the Jackson 3 migration rather than adding a Jackson 2 bean or changing Musashi configuration. This migration adds no database changesets and does not require resetting the database or node. The wider Dijkstra upgrade precautions below still apply when upgrading an older installation.
+
+Earlier Jackson migration checks covered selected tests and isolated mapper/message behavior; they did not establish selected-file provisioning or release qualification.
+
+Moshi remains in use for node/CLI models and registers `JodaDateTimeAdapter` explicitly for `DateTime`, not through annotated method discovery. This prevents a compiler-generated `Object` bridge from treating ordinary config keys as dates. A `ChainMonitor` error such as `Invalid format: "AlonzoGenesisFile"` requires the corrected application build, not changes to genesis dates or configuration keys. Local verification parsed the installed Musashi config and Shelley genesis through the application factory; date parsing, serialization and null handling are covered by focused regressions. This does not establish live chain synchronization.
+
 
 ## Before upgrading the application
 
@@ -20,7 +33,8 @@ Liquibase registers these new changesets before application monitors start:
 
 - `043-operational-schema.xml`: durable era/capability observations, reviewed operations and input reservations, with nullable Dijkstra-specific node fields.
 - `044-dijkstra-ledger.xml`: network-scoped inclusion/member/output/account/governance history, reversal journal, protocol snapshots and Leios commitments; existing UTxO tables become maintained projections.
-- `045-dijkstra-provisioning.xml`: immutable network bundles, node snapshots/drafts, protected Leios key references and independent chain/installation observations.
+- `045-dijkstra-provisioning.xml`: historical provisioning tables, node snapshots/drafts, protected Leios key references and chain/installation observations. Historical data is retained.
+- `046-node-selected-files.xml`: adds nullable topology and peer file references and renames historical `nodes.configuration_reset_id` to the hidden, read-only `network_key_discriminator`, retaining existing serialized network keys and indexed ledger/operations. New standalone selections use null (`-` in the key); a producer joining an existing network copies the observer's opaque discriminator. This is not a public reset API or reset workflow. Historical data and earlier migrations remain intact.
 
 Numeric, duplicate-identity and legacy-data preconditions can halt migration. Do not delete historical rows, invent network identities, or disable checks to force it through. Diagnose the reported data against a backup first. The old `transactions` table is retained as history, but its transaction IDs do not establish durable authorization and are never automatically resubmitted.
 
@@ -30,7 +44,24 @@ There is no supported guessed down-conversion to the old schema. To return to th
 
 Legacy outputs without reliable network provenance remain historical/unassigned. They are not silently relabeled, deleted or treated as spendable. JorManager starts the network index from verified genesis/retained complete history and exposes replay coverage through `/jormanager/chainstatus`. A source unable to provide required content leaves the index unavailable or incomplete; it does not produce a successful empty balance.
 
-Wallet and Nodes distinguish the observed tip from the last complete point. Nodes requests `/jormanager/node/chainstatus` using the persisted node ID and labels the result as the JorManager network index, separately from process/sync metrics; a draft's network index is not proof that its process runs. `syncing`, `incomplete`, `stale` and `unavailable` are not zero funds and cannot authorize dependent spending. Missing certified content reports the requested block/endorsement commitment where known. Complete adoption and ordinary rollback update durable projections together; discarded occurrences remain inspectable under their original transaction IDs.
+Wallet distinguishes the observed tip from the last complete point. The Nodes table stays compact; detailed network-index diagnostics are not a column there. `/jormanager/chainstatus` and `/jormanager/node/chainstatus` remain available, and node-index associations still support Leios status requests. These describe JorManager's index, not proof that a node process is running or synchronized. `syncing`, `incomplete`, `stale` and `unavailable` are not zero funds and cannot authorize dependent spending. Missing certified content reports the requested block/endorsement commitment where known. Complete adoption and ordinary rollback update durable projections together; discarded occurrences remain inspectable under their original transaction IDs.
+
+Sync progress retains the pre-Dijkstra INFO messages: `ChainSync: Saved block: N of T, P% synced, poolId: ...` under `ChainSyncProtocol`, and `BlckFetch: Saved block: N of T, P% synced` under `LedgerDao`. These use block heights, not slots, with a two-decimal percentage truncated rather than rounded up. Every saved block is reported at tip; while catching up, each protocol connection reports at most once every ten seconds. ChainSync reports persisted default-network headers; BlckFetch reports complete block adoption only after the ledger transaction succeeds. The current fetch pipeline commits one block at a time, so it does not print the old batched block ranges. Routine progress no longer includes the long network key or coordinator status text. Existing failure diagnostics and Wallet completeness checks remain; raw ChainSync protocol traffic stays TRACE. No logging configuration change is needed.
+
+### Musashi handshake and initial funding
+
+JorManager offers node-to-node versions 13–16. The Musashi build's pinned [network version contract](https://github.com/IntersectMBO/ouroboros-network/blob/2f1c154f248659b89523d5679ca532f442e7ed2a/cardano-diffusion/api/lib/Cardano/Network/NodeToNode/Version.hs) defines v15 (SRV support) and experimental v16 (a Peras-support field). Versions 13–15 use four version-data fields; v16 uses five. JorManager remains initiator-only, with peer sharing, query mode and Peras disabled. Invalid, unoffered and wrong-network acceptance messages fail negotiation. This does not activate Dijkstra on a Conway network.
+
+For Shelley-at-genesis test networks, initial funding follows the pinned [ledger injection rules](https://github.com/IntersectMBO/cardano-ledger/blob/9df9f98cce86c5f2195142b2c02dd9b39dd9dc7c/eras/shelley/impl/src/Cardano/Ledger/Shelley/Transition.hs): use legacy `initialFunds`, or embedded `extraConfig.initialFunds.data` when the legacy map is empty. Conflicting sources are rejected; external-file injection is explicitly unsupported. Do not move entries between genesis fields or change genesis bytes/hashes to work around an older application decoder.
+
+An older build can mark a network seeded while missing the embedded allocations. On reconnect, the corrected build restores them only if the network's UTxO projection is entirely empty, there is no transaction-batch history (including rolled-back batches), and there are no incomplete block records. Registration is serialized with chain writers and commits all allocations together. Indexed empty blocks are preserved. Existing outputs, including spent genesis outputs, are not reseeded; partial projections are not automatically repaired. Unsafe recovery stops with a diagnostic rather than inventing balances. The observer establishes its fenced session before configuration/genesis validation so a registration failure is recorded as incomplete coverage.
+
+For the reported slot-132 failure, stop JorManager, back up its database, deploy the corrected JAR and restart JorManager. Do not reset the managed node or manually insert/delete UTxOs. For the verified empty-index case, the log reports `Restored 2 genesis outputs ... before transaction ingestion`, then ingestion can continue from retained history.
+
+The focused PostgreSQL regression suite is opt-in: set `JORMANAGER_TEST_DATABASE_URL` to a disposable local `jormanager_test_*` database and run `./gradlew test --tests '*GenesisRecoveryIntegrationTest' -x testVue -x buildVue`. Its role must be able to create/drop databases; the test creates a unique sibling database, applies the real migrations, and removes it afterward. Never point it at an application database.
+
+On 2026-11-05, a read-only connection to the local Musashi node negotiated v16. A separate disposable PostgreSQL 18 instance applied all 46 migrations, ingested the actual empty blocks at slots 16 and 59, restored the two actual genesis allocations, and ingested the exact failing block at slot 132; that block spent one restored genesis output. Focused regressions passed (41 tests, one existing skipped test), including six real PostgreSQL recovery cases. This proves that boundary, not full tip synchronization or release qualification.
+
 
 Current-era activation is separate from historical decoding:
 
@@ -44,19 +75,21 @@ Historical blocks are decoded by their own eras, including when Dijkstra-capable
 
 ## Select a Musashi configuration
 
-The [remote catalog](https://bluecheesestakehouse.com/jormanager/index.html) already publishes the eight stable `musashi-*` assets. Stable aliases alone are not an immutable selectable bundle. The remaining publisher handoff is defined in [network-configuration.md](../specs/001-dijkstra-era-support/contracts/network-configuration.md): publish the ManifestV1 record and all eight `musashi-<resetId>-<bundleId>-<asset>` files, then link the complete set.
+Select individual network files from the ordinary [catalog](https://bluecheesestakehouse.com/jormanager/index.html) or imports; no manifest or publication handoff is needed.
 
-JorManager validates the packaged JSON Schema, duplicate keys, RFC 8785 identities, HTTPS catalog origin, raw asset digests, all five node-required genesis hashes, magic/system start and internal file references before promoting a bundle. Source URLs are provenance, not permission to fetch arbitrary URLs. A bad or partial refresh retains the previous validated selections. No publisher upload or immutable-manifest publication was performed in this implementation pass.
+Before side effects, selected JSON, references, genesis hashes, network magic/system start and peer magic are validated. Missing or inconsistent files block provisioning. Operators own reset and resynchronization.
+
+Generated configs retain the explicit era-specific genesis references and remove the legacy `GenesisFile` alias, including when it appears in an imported template. The node rejects `GenesisFile` together with `ByronGenesisFile`. For a config generated by an affected older build, manually remove only `GenesisFile`; retain the era-specific references and genesis files. Updating JorManager does not automatically rewrite deployed node configs.
 
 For a new Musashi relay:
 
-1. Select one validated bundle and its reset in the existing node wizard; do not mix individual genesis selectors.
-2. Select the persisted host, paths, ports and reviewed local overrides. Establish current-era evidence using an already connected, verified observer on that same network before the new node exists.
-3. Review host provisioning capabilities. Dijkstra qualification records bind the actual CLI/node/configuration hashes, evidence digest, expected era and generation. Recording a qualification is an attestation of independently obtained evidence, not an automatic compatibility test or permission to invent a pass.
-4. Authorize provisioning only after the target and prerequisites are correct. The staging path installs all five genesis files, config, topology and peer snapshot with coherent local references.
+1. Select Byron, Shelley, Alonzo and Conway genesis, config and topology individually; select Dijkstra genesis and peer snapshot when referenced. Optional selections can be cleared for Conway.
+2. Select the intended host, paths and ports. The first relay requires no existing observer or current-era query.
+3. Review target and applicable host prerequisites. A binary or selected genesis does not establish current era.
+4. Authorize provisioning only for the intended target. Selected files are installed with normalized local references.
 5. Observe installation, process start and synchronization separately. A staged configuration or running process does not establish a complete index or voting readiness.
 
-Pre-creation capability discovery uses `/jormanager/capabilities` with the target host, verified observer and effective configuration digest. Reviewed preflight is `/jormanager/node/provisioning-preview`. Applicable manual evidence is recorded through `/jormanager/capabilities/qualification` or `/jormanager/capabilities/host-qualification`; both require the expected current era/generation and matching artifacts. These are protected-deployment STOMP interfaces, not public Internet administration APIs.
+Producer registration and deployment require reviewed authorization, matching connected observer/current-era evidence, selected genesis identity and applicable capabilities. Pool children inherit parent configuration.
 
 ## New pools and reviewed operations
 
@@ -92,6 +125,6 @@ The inspected node source has no public loaded-BLS-key fingerprint readback. Fil
 
 ## Local verification versus manual acceptance
 
-The implementation pass exercised Kotlin main and existing test-source compilation, the production Vue build, disposable structural codec/framing/account-checkpoint checks, exact whole-batch identity checks and ManifestV1 serialization checks. A real browser rendered synthetic unavailable-index Wallet state, a certified child with exact `directDeposits` and ineffective phase-2-failed intent, immediate historical labeling after network invalidation, and a draft's network-index/recovery status separate from process readiness. These inputs were not independent ledger qualification fixtures or backend integration proof. An implicit Gradle dependency also ran the existing 74 Vitest tests once; subsequent compiler/smoke commands exclude that task.
+The direct-file cutover has local backend/frontend regressions, production-browser Musashi/Conway selection checks, live catalog file validation and offline migration SQL checks recorded in the [delivery evidence](../specs/001-dijkstra-era-support/plan.md#direct-file-delivery-verification). These do not replace independent ledger, host, node or database qualification.
 
-No qualification network, application database migration/restore, real signing/submission, SSH provisioning or producer restart was exercised. Before release, complete the independent Conway/Dijkstra, direct/certified content, recovery, bundle-publication and operator scenarios in [quickstart.md](../specs/001-dijkstra-era-support/quickstart.md). Keep the corresponding tasks and release gates pending until actual results exist.
+The local Musashi handshake and isolated early-block recovery above were exercised; the live application database and managed services were not modified. Existing-installation migration/restore, full chain catch-up, real signing/submission, SSH provisioning and producer restart remain unverified. Complete independent Conway/Dijkstra, delivery, recovery, selected-file provisioning and operator scenarios in [quickstart.md](../specs/001-dijkstra-era-support/quickstart.md) before release.

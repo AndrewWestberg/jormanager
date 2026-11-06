@@ -40,7 +40,6 @@ class EnvironmentMonitor
     constructor(
         private val okHttpClient: OkHttpClient,
         private val fileRepository: FileRepository,
-        private val networkBundleValidator: com.swiftmako.jormanager.services.NetworkBundleValidator
     ) : SmartLifecycle,
         CoroutineScope {
         private val log by lazy { LoggerFactory.getLogger("EnvironmentMonitor") }
@@ -77,7 +76,6 @@ class EnvironmentMonitor
                             response.body.string()
                         }
                         val links = Jsoup.parse(index, URL).select("a[href]").map { it.attr("abs:href") }
-                        networkBundleValidator.refresh(links, client, URL)
                         links.forEach { url ->
                             val parsed = url.toHttpUrlOrNull()
                             val origin = URL.toHttpUrl()
@@ -86,7 +84,6 @@ class EnvironmentMonitor
                                 parsed.fragment != null
                             ) return@forEach
                             val remoteFileName = parsed.pathSegments.last()
-                            if (remoteFileName.startsWith("musashi-")) return@forEach
                             val request = Request.Builder().url(parsed).build()
                             client.newCall(request).execute().use { response ->
                                 require(response.isSuccessful) { "$remoteFileName returned HTTP ${response.code}" }
@@ -103,7 +100,6 @@ class EnvironmentMonitor
                         log.info("Fetching environments done.")
                     } catch (e: Throwable) {
                         if (e is CancellationException) throw e
-                        networkBundleValidator.catalogFailure(e.message ?: e.javaClass.simpleName)
                         log.error("Error fetching environments!", e)
                     }
                     delay(RECONNECT_DELAY_MS)

@@ -36,6 +36,7 @@ import liquibase.integration.spring.SpringLiquibase
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.joda.time.DateTime
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
@@ -99,7 +100,7 @@ class Configuration {
             .Builder()
             .add(BigIntegerAdapter)
             .add(BigDecimal::class.java, decimalAdapter)
-            .add(JodaDateTimeAdapter())
+            .add(DateTime::class.java, JodaDateTimeAdapter())
             .build()
     }
 

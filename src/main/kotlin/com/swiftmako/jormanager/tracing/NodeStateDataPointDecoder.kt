@@ -1,7 +1,8 @@
 package com.swiftmako.jormanager.tracing
 
-import com.fasterxml.jackson.core.JsonFactory
-import com.fasterxml.jackson.core.JsonToken
+import tools.jackson.core.JsonToken
+import tools.jackson.core.ObjectReadContext
+import tools.jackson.core.json.JsonFactory
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborTextString
@@ -161,7 +162,7 @@ private fun Map<String, ByteArray?>.parseNodeAddBlock(): NodeAddBlockValue? = fi
 
 private fun parseNodeAddBlock(rawJson: ByteArray): NodeAddBlockValue? =
     runCatching {
-        tracingJsonFactory.createParser(rawJson).use { parser ->
+        tracingJsonFactory.createParser(ObjectReadContext.empty(), rawJson).use { parser ->
             if (parser.nextToken() != JsonToken.START_OBJECT) {
                 return null
             }
@@ -176,7 +177,7 @@ private fun parseNodeAddBlock(rawJson: ByteArray): NodeAddBlockValue? =
                 when (fieldName) {
                     JSON_TAG_FIELD -> tag = parser.valueAsString
                     JSON_CONTENTS_FIELD -> {
-                        if (parser.currentToken != JsonToken.START_ARRAY) {
+                        if (parser.currentToken() != JsonToken.START_ARRAY) {
                             parser.skipChildren()
                             continue
                         }
@@ -213,7 +214,7 @@ private fun parseNodeAddBlock(rawJson: ByteArray): NodeAddBlockValue? =
 
 private fun parseNodeStartupInfo(rawJson: ByteArray): NodeStartupInfo? =
     runCatching {
-        tracingJsonFactory.createParser(rawJson).use { parser ->
+        tracingJsonFactory.createParser(ObjectReadContext.empty(), rawJson).use { parser ->
             if (parser.nextToken() != JsonToken.START_OBJECT) {
                 return null
             }
@@ -261,7 +262,7 @@ private data class NodeAddBlockValue(
 
 private val tracingJsonFactory = JsonFactory()
 
-private fun com.fasterxml.jackson.core.JsonParser.longValueOrNull(): Long? =
+private fun tools.jackson.core.JsonParser.longValueOrNull(): Long? =
     when (currentToken()) {
         JsonToken.VALUE_NUMBER_INT -> longValue
         JsonToken.VALUE_STRING -> valueAsString?.toLongOrNull()

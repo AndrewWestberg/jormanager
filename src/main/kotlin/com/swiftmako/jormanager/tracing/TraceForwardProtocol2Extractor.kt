@@ -1,7 +1,8 @@
 package com.swiftmako.jormanager.tracing
 
-import com.fasterxml.jackson.core.JsonFactory
-import com.fasterxml.jackson.core.JsonToken
+import tools.jackson.core.JsonToken
+import tools.jackson.core.ObjectReadContext
+import tools.jackson.core.json.JsonFactory
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
 import com.google.iot.cbor.CborObject
@@ -62,7 +63,7 @@ class TraceForwardProtocol2Extractor {
 
     private fun parseTraceObject(traceObjectJson: String): ParsedTraceObject? =
         runCatching {
-            jsonFactory.createParser(traceObjectJson).use { parser ->
+            jsonFactory.createParser(ObjectReadContext.empty(), traceObjectJson).use { parser ->
                 if (parser.nextToken() != JsonToken.START_OBJECT) {
                     return null
                 }
@@ -88,7 +89,7 @@ class TraceForwardProtocol2Extractor {
                         AT_FIELD -> at = parser.valueAsString?.takeIf(String::isNotBlank)
                         HOST_FIELD -> host = parser.valueAsString?.takeIf(String::isNotBlank)
                         DATA_FIELD -> {
-                            if (parser.currentToken != JsonToken.START_OBJECT) {
+                            if (parser.currentToken() != JsonToken.START_OBJECT) {
                                 parser.skipChildren()
                                 continue
                             }
@@ -102,7 +103,7 @@ class TraceForwardProtocol2Extractor {
                                     BLOCK_HASH_FIELD -> blockHash = parser.valueAsString?.takeIf(String::isNotBlank)
                                     BLOCK_FIELD -> block = parser.valueAsString?.takeIf(String::isNotBlank)
                                     NEW_SUFFIX_SELECT_VIEW_FIELD -> {
-                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                        if (parser.currentToken() != JsonToken.START_OBJECT) {
                                             parser.skipChildren()
                                             continue
                                         }
@@ -118,7 +119,7 @@ class TraceForwardProtocol2Extractor {
                                     }
 
                                     STATE_FIELD -> {
-                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                        if (parser.currentToken() != JsonToken.START_OBJECT) {
                                             parser.skipChildren()
                                             continue
                                         }
@@ -134,7 +135,7 @@ class TraceForwardProtocol2Extractor {
                                     }
 
                                     PEER_FIELD -> {
-                                        if (parser.currentToken != JsonToken.START_OBJECT) {
+                                        if (parser.currentToken() != JsonToken.START_OBJECT) {
                                             parser.skipChildren()
                                             continue
                                         }
@@ -272,14 +273,14 @@ class TraceForwardProtocol2Extractor {
     }
 }
 
-private fun com.fasterxml.jackson.core.JsonParser.longValueOrNull(): Long? =
+private fun tools.jackson.core.JsonParser.longValueOrNull(): Long? =
     when (currentToken()) {
         JsonToken.VALUE_NUMBER_INT -> longValue
         JsonToken.VALUE_STRING -> valueAsString?.toLongOrNull()
         else -> null
     }
 
-private fun com.fasterxml.jackson.core.JsonParser.intValueOrNull(): Int? =
+private fun tools.jackson.core.JsonParser.intValueOrNull(): Int? =
     when (currentToken()) {
         JsonToken.VALUE_NUMBER_INT -> valueAsInt
         JsonToken.VALUE_STRING -> valueAsString?.toIntOrNull()

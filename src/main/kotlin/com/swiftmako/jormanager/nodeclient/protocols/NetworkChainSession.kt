@@ -18,6 +18,7 @@ class NetworkChainSession(
     private val requests = Channel<Request>(128)
     @Volatile var generation: Long = generation
         private set
+    @Volatile var tipBlockNumber: Long = 0
 
     suspend fun reserve() = permits.acquire()
     fun release() = permits.release()

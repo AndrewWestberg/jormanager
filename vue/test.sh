@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 pushd $(dirname "$0")
 export NVM_DIR=$HOME/.nvm

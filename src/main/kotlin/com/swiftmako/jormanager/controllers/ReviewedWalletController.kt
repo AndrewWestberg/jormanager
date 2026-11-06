@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.AuthorizedOperation
@@ -68,8 +68,8 @@ class ReviewedWalletController(
         requireNotNull(node) { "Target node not found" }
         val host = requireNotNull(hosts.findByIdOrNull(node.hostId)) { "Target host not found" }
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(node.genesisShelleyFileId)).content)
-        val network = if (genesis.path("networkId").asText().equals("testnet", true))
-            listOf("--testnet-magic", genesis.path("networkMagic").asText()) else listOf("--mainnet")
+        val network = if (genesis.path("networkId").asString().equals("testnet", true))
+            listOf("--testnet-magic", genesis.path("networkMagic").asString()) else listOf("--mainnet")
         val magic = network.joinToString(" ")
         val socket = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
         val era = eras.getEra(host, node, magic, socket)
@@ -80,7 +80,7 @@ class ReviewedWalletController(
         return t.connection.commandArgs(args).trim()
     }
     private fun query(t: Target, vararg args: String): String = cmd(t, listOf(t.host.cardanoCliPath, t.era, "query") + args + t.networkArgs + listOf("--socket-path", "${t.host.nodeHomePath}/${t.node.name}/db/socket", "--output-json"))
-    private fun ids(request: JsonNode): List<Long> = request.path("fromIds").takeIf { it.isArray && it.size() > 0 }?.map { it.asLong() }
+    private fun ids(request: JsonNode): List<Long> = request.path("fromIds").takeIf { it.isArray && it.size() > 0 }?.values()?.map { it.asLong() }
         ?: listOf(request.path("fromId").asLong())
     private fun operation(kind: String, request: JsonNode): String = when (kind) {
         "send" -> "wallet_send"
@@ -124,20 +124,20 @@ class ReviewedWalletController(
             digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, t.host.id, t.node.id, capability)))))
     }
     private fun bodyField(body: String, key: Int): BigInteger? {
-        val bytes = json.readTree(body).path("cborHex").asText().hexToByteArray()
+        val bytes = json.readTree(body).path("cborHex").asString().hexToByteArray()
         val tx = CborSpans.parse(bytes).array()
         return tx.first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     }
     private fun exactJson(value: JsonNode): JsonNode = when {
-        value.isObject -> json.createObjectNode().also { out -> value.fields().forEachRemaining { (key, child) -> out.set<JsonNode>(key, exactJson(child)) } }
+        value.isObject -> json.createObjectNode().also { out -> value.properties().forEach { (key, child) -> out.set(key, exactJson(child)) } }
         value.isArray -> json.createArrayNode().also { out -> value.forEach { out.add(exactJson(it)) } }
-        value.isNumber -> json.nodeFactory.textNode(value.asText())
+        value.isNumber -> json.nodeFactory.stringNode(value.asString())
         else -> value
     }
     /** Newer CLI versions no longer render pre-Conway bodies. Preserve their original
      * byte identities and render their values directly rather than selecting a newer era. */
     private fun historicalView(envelope: String): JsonNode {
-        val body = CborSpans.parse(json.readTree(envelope).path("cborHex").asText().hexToByteArray()).array().first()
+        val body = CborSpans.parse(json.readTree(envelope).path("cborHex").asString().hexToByteArray()).array().first()
         fun field(key: Int): CborSpan? = body.entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second
         val outputs = requireNotNull(field(1)).array().map { output ->
             val (address, value) = if (output.major == 4) {
@@ -193,9 +193,9 @@ class ReviewedWalletController(
         UUID.fromString(input.requestId)
         val allowed = if (input.kind == "stake") setOf("id", "stakingFeesAccount", "isRegistration", "poolId")
             else setOf("fromId", "fromIds", "toAccounts", "isClaim", "metadata", "txFee", "tokenKeepFee")
-        require(input.request.fieldNames().asSequence().all { it in allowed }) { "Unexpected review field" }
+        require(input.request.propertyNames().all { it in allowed }) { "Unexpected review field" }
         input.request.path("toAccounts").forEach { destination ->
-            require(destination.isObject && destination.fieldNames().asSequence().all {
+            require(destination.isObject && destination.propertyNames().all {
                 it in setOf("currency", "account", "address", "amount", "percent", "tokenFee")
             }) { "Unexpected destination field" }
         }
@@ -204,7 +204,7 @@ class ReviewedWalletController(
         val payload = json.writeValueAsString(mapOf("kind" to input.kind, "request" to input.request))
         if (existing != null) {
             val previous = json.readTree(existing.requestPayload)
-            check(previous.path("kind").asText() == input.kind && previous.path("request") == input.request) { "Request ID already used for a different review" }
+            check(previous.path("kind").asString() == input.kind && previous.path("request") == input.request) { "Request ID already used for a different review" }
             return result(existing, input.requestId)
         }
         val t = target()
@@ -236,11 +236,11 @@ class ReviewedWalletController(
                 cleanup += listOf(key, cert)
                 t.connection.commandWriteFile(key, requireNotNull(stake.stakingVkey).content)
                 if (delegation) {
-                    val poolId = input.request.path("poolId").asText()
+                    val poolId = input.request.path("poolId").asString()
                     require(poolId.matches(Regex("(pool1[0-9a-z]+|[0-9a-fA-F]{56})"))) { "Invalid pool ID" }
                     cmd(t, listOf(t.host.cardanoCliPath, t.era, "stake-address", "stake-delegation-certificate", "--stake-verification-key-file", key, "--stake-pool-id", poolId, "--out-file", cert))
                 } else {
-                    val amount = if (registration) json.readTree(observation.parameters).path("stakeAddressDeposit").asText().toBigInteger()
+                    val amount = if (registration) json.readTree(observation.parameters).path("stakeAddressDeposit").asString().toBigInteger()
                         else requireNotNull(stakeInfo.single().stakeAddressDeposit) { "Recorded stake deposit unavailable" }
                     if (registration) deposit = amount else refund = amount
                     val certificate = mutableListOf(t.host.cardanoCliPath, t.era, "stake-address", if (registration) "registration-certificate" else "deregistration-certificate")
@@ -256,7 +256,7 @@ class ReviewedWalletController(
                 }
                 val groups = input.request.path("toAccounts").groupBy { destination ->
                     val account = destination.path("account").asLong()
-                    if (account < 0) destination.path("address").asText() else entry(account).paymentAddr
+                    if (account < 0) destination.path("address").asString() else entry(account).paymentAddr
                 }
                 require(groups.isNotEmpty()) { "No destination" }
                 groups.forEach { (address, items) ->
@@ -264,9 +264,9 @@ class ReviewedWalletController(
                     var ada = BigInteger.ZERO
                     val assets = mutableMapOf<String, BigInteger>()
                     items.forEach { item ->
-                        val amount = item.path("amount").asText().toBigInteger()
+                        val amount = item.path("amount").asString().toBigInteger()
                         require(amount.signum() > 0) { "Invalid output amount" }
-                        val currency = item.path("currency").asText()
+                        val currency = item.path("currency").asString()
                         if (currency == "ada") ada += amount else {
                             require(currency.matches(Regex("[0-9a-fA-F]{56}(\\.[0-9a-fA-F]{0,64})?"))) { "Invalid asset" }
                             assets[currency] = (assets[currency] ?: BigInteger.ZERO) + amount
@@ -281,10 +281,10 @@ class ReviewedWalletController(
                     args += listOf("--tx-out", output(ada))
                 }
                 val metadata = input.request.path("metadata")
-                if (metadata.isTextual && metadata.asText().isNotBlank()) {
-                    json.readTree(metadata.asText())
+                if (metadata.isString && metadata.asString().isNotBlank()) {
+                    json.readTree(metadata.asString())
                     val file = "$prefix.metadata"; cleanup += file
-                    t.connection.commandWriteFile(file, metadata.asText()); args += listOf("--metadata-json-file", file)
+                    t.connection.commandWriteFile(file, metadata.asString()); args += listOf("--metadata-json-file", file)
                 }
             }
             args += listOf("--change-address", payer.paymentAddr, "--out-file", bodyPath)
@@ -324,18 +324,18 @@ class ReviewedWalletController(
         val outcome = reviewed.reconcile(input.previewId, t.host, t.node) { operation, inputs ->
             fun tip(): Pair<BigInteger, String> {
                 val value = json.readTree(query(t, "tip"))
-                val slot = value.path("slot").asText().toBigInteger()
-                val hash = value.path("hash").asText().lowercase()
+                val slot = value.path("slot").asString().toBigInteger()
+                val hash = value.path("hash").asString().lowercase()
                 require(slot.signum() >= 0 && hash.matches(Regex("[0-9a-f]{64}")) &&
-                    value.path("era").asText().equals(t.era, ignoreCase = true)) { "Invalid node tip" }
+                    value.path("era").asString().equals(t.era, ignoreCase = true)) { "Invalid node tip" }
                 return slot to hash
             }
             val before = tip()
             val mempool = json.readTree(cmd(t, listOf(t.host.cardanoCliPath, t.era, "query", "tx-mempool") +
                 t.networkArgs + listOf("--socket-path", "${t.host.nodeHomePath}/${t.node.name}/db/socket",
                     "--output-json", "tx-exists", operation.txId)))
-            require(mempool.path("exists").isBoolean && mempool.path("txId").asText().equals(operation.txId, ignoreCase = true) &&
-                mempool.path("slot").asText().toBigInteger() >= before.first) { "Invalid or stale mempool response" }
+            require(mempool.path("exists").isBoolean && mempool.path("txId").asString().equals(operation.txId, ignoreCase = true) &&
+                mempool.path("slot").asString().toBigInteger() >= before.first) { "Invalid or stale mempool response" }
             val unspent = inputs.filter { (txId, index) ->
                 val ref = "$txId#$index"
                 json.readTree(query(t, "utxo", "--tx-in", ref)).has(ref)
@@ -355,7 +355,7 @@ class ReviewedWalletController(
         UUID.fromString(input.requestId)
         require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
         val record = operations.findByPreviewId(input.previewId) ?: throw IllegalArgumentException("Unknown preview")
-        val payload = json.readTree(record.requestPayload); val kind = payload.path("kind").asText(); val request = payload.path("request")
+        val payload = json.readTree(record.requestPayload); val kind = payload.path("kind").asString(); val request = payload.path("request")
         val t = target(record.nodeId)
         var signedEnvelope = ""
         val result = reviewed.submit(input.previewId, t.host, t.node,
@@ -375,13 +375,13 @@ class ReviewedWalletController(
                     keys.forEach { args += listOf("--signing-key-file", it) }; args += t.networkArgs; args += listOf("--out-file", signed)
                     cmd(t, args)
                     signedEnvelope = t.connection.commandReadFile(signed)
-                    json.readTree(signedEnvelope).path("cborHex").asText().also { require(it.isNotBlank()) }
+                    json.readTree(signedEnvelope).path("cborHex").asString().also { require(it.isNotBlank()) }
                 } finally { cmd(t, listOf("rm", "-f", body, signed) + keys) }
             },
             submit = { signedHex ->
                 val path = "/tmp/jormanager-submit-${UUID.randomUUID()}.signed"
                 try {
-                    check(json.readTree(signedEnvelope).path("cborHex").asText().equals(signedHex, ignoreCase = true))
+                    check(json.readTree(signedEnvelope).path("cborHex").asString().equals(signedHex, ignoreCase = true))
                     t.connection.commandWriteFile(path, signedEnvelope)
                     cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", path) + t.networkArgs + listOf("--socket-path", "${t.host.nodeHomePath}/${t.node.name}/db/socket"))
                 } finally { cmd(t, listOf("rm", "-f", path)) }

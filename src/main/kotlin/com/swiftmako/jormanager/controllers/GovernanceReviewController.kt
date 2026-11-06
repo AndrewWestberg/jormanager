@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -109,15 +109,15 @@ class GovernanceReviewController(
     }
 
     private fun bodyField(envelope: String, key: Int): BigInteger? {
-        val hex = json.readTree(envelope).path("cborHex").asText()
+        val hex = json.readTree(envelope).path("cborHex").asString()
         val body = CborSpans.parse(hex.hexToByteArray()).array().first()
         return body.entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     }
 
     private fun exactJson(value: JsonNode): JsonNode = when {
-        value.isObject -> json.createObjectNode().also { out -> value.fields().forEachRemaining { (key, child) -> out.set<JsonNode>(key, exactJson(child)) } }
+        value.isObject -> json.createObjectNode().also { out -> value.properties().forEach { (key, child) -> out.set(key, exactJson(child)) } }
         value.isArray -> json.createArrayNode().also { out -> value.forEach { out.add(exactJson(it)) } }
-        value.isNumber -> json.nodeFactory.textNode(value.asText())
+        value.isNumber -> json.nodeFactory.stringNode(value.asString())
         else -> value
     }
 
@@ -250,10 +250,10 @@ class GovernanceReviewController(
                 args.addAll(target.magic)
                 args.addAll(listOf("--out-file", signed))
                 target.connection.commandArgs(args)
-                json.readTree(target.connection.commandReadFile(signed)).path("cborHex").asText().also { require(it.isNotBlank()) { "Invalid signed transaction" } }
+                json.readTree(target.connection.commandReadFile(signed)).path("cborHex").asString().also { require(it.isNotBlank()) { "Invalid signed transaction" } }
             }, { signedHex ->
                 val envelope = json.readTree(target.connection.commandReadFile(signed))
-                check(envelope.path("cborHex").asText().equals(signedHex, true)) { "Signed transaction changed" }
+                check(envelope.path("cborHex").asString().equals(signedHex, true)) { "Signed transaction changed" }
                 target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "transaction", "submit", "--tx-file", signed) + target.magic + target.socket)
             })
             return result(record, input.requestId)

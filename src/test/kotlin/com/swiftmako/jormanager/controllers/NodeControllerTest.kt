@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.google.common.truth.Truth.assertThat
 import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.HostConnection
@@ -17,12 +17,14 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.services.NodeConfigurationFiles
 import com.swiftmako.jormanager.spring.config.Configuration
 import com.swiftmako.jormanager.utils.Bech32
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
 import io.mockk.unmockkConstructor
+import io.mockk.verify
 import java.io.IOException
 import java.util.Optional
 import okhttp3.Interceptor
@@ -201,6 +203,7 @@ class NodeControllerTest {
             },
         webSocketTemplate: SimpMessagingTemplate = mockk(relaxed = true),
         cardanoRepository: CardanoRepository = mockk(relaxed = true),
+        nodeConfigurationFiles: NodeConfigurationFiles = mockk(relaxed = true),
     ) = NodeController(
         nodeRepository = nodeRepository,
         hostRepository = hostRepository,
@@ -216,10 +219,7 @@ class NodeControllerTest {
         metadataAdapter = config.getMetadataAdapter(moshi),
         keyFileJsonAdapter = mockk(relaxed = true),
         cardanoRepository = cardanoRepository,
-        cardanoCapabilities = mockk(relaxed = true),
-        networkBundleValidator = mockk(relaxed = true),
-        nodeConfigurationSnapshotRepository = mockk(relaxed = true),
-        reviewedNetworkReconfiguration = mockk(relaxed = true),
+        nodeConfigurationFiles = nodeConfigurationFiles,
     )
 
     private class RationaleHttpFixture(
@@ -318,8 +318,8 @@ class NodeControllerTest {
 
         val bytes = checkNotNull(fixture.uploadedBytes)
         val json = jacksonObjectMapper().readTree(bytes)
-        assertThat(json["body"]["comment"].textValue()).isEqualTo(rationale)
-        assertThat(json["hashAlgorithm"].textValue()).isEqualTo("blake2b-256")
+        assertThat(json["body"]["comment"].stringValue()).isEqualTo(rationale)
+        assertThat(json["hashAlgorithm"].stringValue()).isEqualTo("blake2b-256")
         assertThat(json["authors"].isEmpty).isTrue()
         val digest = Blake2bDigest(256)
         digest.update(bytes, 0, bytes.size)
@@ -418,6 +418,103 @@ class NodeControllerTest {
 
         assertThat(exception.cause).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(exception.cause).hasMessageThat().isEqualTo("Tracing listener must be enabled!")
+    }
+
+    @Test
+    fun renderManagedConfigCreatesMissingTraceRoot() {
+        val rendered = createTarget().renderManagedConfig("{}", "relay", "4", true, "127.0.0.1", 12789)
+        val root = objectMapper.readTree(rendered)
+        assertThat(root.path("TraceOptions").path("").path("severity").asString()).isEqualTo("Notice")
+        assertThat(root.path("ByronGenesisFile").asString()).isEqualTo("byron-genesis.json")
+        assertThat(root.has("GenesisFile")).isFalse()
+    }
+
+    @Test
+    fun firstRelayInstallsSelectedFilesWithoutObserver() {
+        val request = createRequest(NodeController.NODE_TYPE_RELAY).copy(
+            isDefault = true, configFileId = 5, topologyFileId = 6,
+            genesisDijkstraFileId = 7, peerSnapshotFileId = 8,
+        )
+        val assets = mapOf(
+            "byron-genesis.json" to "byron", "shelley-genesis.json" to "shelley",
+            "alonzo-genesis.json" to "alonzo", "conway-genesis.json" to "conway",
+            "dijkstra-genesis.json" to "dijkstra", "config.json" to legacyConfigTemplate,
+            "topology.json" to """{"peerSnapshotFile":"source.json"}""",
+            "peer-snapshot.json" to "peer",
+        ).mapValues { it.value.toByteArray() }
+        val topology = """{"peerSnapshotFile":"peer-snapshot.json"}"""
+        val selected = mockk<NodeConfigurationFiles>()
+        every { selected.resolve(request) } returns assets
+        every { selected.renderTopology(assets) } returns topology
+        val nodes = mockk<NodeRepository>(relaxed = true)
+        every { nodes.findDefault() } returns null
+        every { nodes.save(any<Node>()) } answers { firstArg<Node>().copy(id = 10) }
+        val hosts = mockk<HostRepository>()
+        every { hosts.findById(1L) } returns Optional.of(testHost)
+        val written = mutableMapOf<String, String>()
+        mockkConstructor(HostConnection::class)
+        try {
+            every { anyConstructed<HostConnection>().sudoCommand(any<String>(), any()) } returns ""
+            every { anyConstructed<HostConnection>().commandFileExists(any()) } returns false
+            every { anyConstructed<HostConnection>().command(any<String>()) } returns ""
+            every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } answers {
+                written[firstArg()] = secondArg()
+                ""
+            }
+            every { anyConstructed<HostConnection>().commandReadFile(any()) } answers { written.getValue(firstArg()) }
+            every { anyConstructed<HostConnection>().sudoCommandWriteFile(any(), any(), any()) } returns ""
+            val target = createTarget(nodeRepository = nodes, hostRepository = hosts, nodeConfigurationFiles = selected)
+
+            target.createNode(request)
+
+            val folder = "${testHost.nodeHomePath}/${request.name}"
+            assertThat(written["$folder/dijkstra-genesis.json"]).isEqualTo("dijkstra")
+            assertThat(written["$folder/peer-snapshot.json"]).isEqualTo("peer")
+            assertThat(written["$folder/topology.json"]).isEqualTo(topology)
+            assertThat(written["$folder/config.json"]).contains("byron-genesis.json")
+            verify { nodes.save(match { it.isDefault && it.configFileId == 5L && it.topologyFileId == 6L &&
+                it.genesisDijkstraFileId == 7L && it.peerSnapshotFileId == 8L }) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
+    }
+
+    @Test
+    fun invalidSelectedFilesFailBeforeHostWrites() {
+        val selected = mockk<NodeConfigurationFiles>()
+        every { selected.resolve(any()) } throws IllegalArgumentException("Missing selected topology")
+        val hosts = mockk<HostRepository>(relaxed = true)
+        val target = createTarget(hostRepository = hosts, nodeConfigurationFiles = selected)
+
+        val error = assertThrows<RuntimeException> { target.createNode(createRequest(NodeController.NODE_TYPE_RELAY)) }
+
+        assertThat(error.cause).hasMessageThat().isEqualTo("Missing selected topology")
+        verify(exactly = 0) { hosts.findById(any()) }
+    }
+
+    @Test
+    fun existingDirectoryOrServiceFailsBeforeWrites() {
+        val request = createRequest(NodeController.NODE_TYPE_RELAY)
+        val selected = mockk<NodeConfigurationFiles>()
+        every { selected.resolve(request) } returns emptyMap()
+        every { selected.renderTopology(any()) } returns "{}"
+        val hosts = mockk<HostRepository>()
+        every { hosts.findById(1L) } returns Optional.of(testHost)
+        mockkConstructor(HostConnection::class)
+        try {
+            every { anyConstructed<HostConnection>().sudoCommand(any<String>(), any()) } returns ""
+            for (existing in listOf("${testHost.nodeHomePath}/${request.name}", "/etc/systemd/system/${request.name}-node.service")) {
+                every { anyConstructed<HostConnection>().commandFileExists(any()) } answers { firstArg<String>() == existing }
+                assertThrows<RuntimeException> {
+                    createTarget(hostRepository = hosts, nodeConfigurationFiles = selected).createNode(request)
+                }
+            }
+            verify(exactly = 0) { anyConstructed<HostConnection>().commandWriteFile(any(), any()) }
+            verify(exactly = 0) { anyConstructed<HostConnection>().sudoCommandWriteFile(any(), any(), any()) }
+            verify(exactly = 0) { anyConstructed<HostConnection>().command(any<String>()) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test
@@ -551,19 +648,19 @@ class NodeControllerTest {
         assertThat(root.get("UseTraceDispatcher").asBoolean()).isTrue()
         assertThat(root.get("TurnOnLogging").asBoolean()).isTrue()
         assertThat(root.get("TurnOnLogMetrics").asBoolean()).isTrue()
-        assertThat(root.get("minSeverity").asText()).isEqualTo("Critical")
+        assertThat(root.get("minSeverity").asString()).isEqualTo("Critical")
         assertThat(root.get("PeerSharing").asBoolean()).isFalse()
         assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(2)
-        assertThat(root.get("ConwayGenesisFile").asText()).isEqualTo("conway-genesis.json")
-        assertThat(root.get("AlonzoGenesisFile").asText()).isEqualTo("alonzo-genesis.json")
-        assertThat(root.get("ByronGenesisFile").asText()).isEqualTo("byron-genesis.json")
-        assertThat(root.get("ShelleyGenesisFile").asText()).isEqualTo("shelley-genesis.json")
-        assertThat(root.get("GenesisFile").asText()).isEqualTo("shelley-genesis.json")
+        assertThat(root.get("ConwayGenesisFile").asString()).isEqualTo("conway-genesis.json")
+        assertThat(root.get("AlonzoGenesisFile").asString()).isEqualTo("alonzo-genesis.json")
+        assertThat(root.get("ByronGenesisFile").asString()).isEqualTo("byron-genesis.json")
+        assertThat(root.get("ShelleyGenesisFile").asString()).isEqualTo("shelley-genesis.json")
+        assertThat(root.has("GenesisFile")).isFalse()
 
         val rootTraceOptions = root.get("TraceOptions").get("")
-        assertThat(rootTraceOptions.get("severity").asText()).isEqualTo("Warning")
+        assertThat(rootTraceOptions.get("severity").asString()).isEqualTo("Warning")
         assertThat(rootTraceOptions.get("detail")).isNull()
-        assertThat(rootTraceOptions.get("backends").map { it.asText() })
+        assertThat(rootTraceOptions.get("backends").values().map { it.asString() })
             .containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 127.0.0.1 12800")
             .inOrder()
 
@@ -577,30 +674,26 @@ class NodeControllerTest {
             root
                 .get("TraceOptions")
                 .get("Forge.Loop.AdoptedBlock")
-                .get("severity")
-                .asText()
+                .get("severity").asString()
         ).isEqualTo("Info")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
-                .get("severity")
-                .asText()
+                .get("severity").asString()
         ).isEqualTo("Silence")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("Resources")
-                .get("severity")
-                .asText()
+                .get("severity").asString()
         ).isEqualTo("Silence")
-        assertThat(root.fieldNames().asSequence().toList())
+        assertThat(root.propertyNames().toList())
             .containsAtLeast(
                 "ConwayGenesisFile",
                 "AlonzoGenesisFile",
                 "ByronGenesisFile",
                 "ShelleyGenesisFile",
-                "GenesisFile",
                 "PeerSharing",
                 "MaxConcurrencyDeadline",
                 "TraceOptions",
@@ -618,7 +711,7 @@ class NodeControllerTest {
         assertThat(root.get("hasEkg")).isNull()
         assertThat(root.get("hasEKG")).isNull()
         assertThat(root.get("hasPrometheus")).isNull()
-        assertThat(root.get("TraceOptionMetricsPrefix").asText()).isEqualTo("cardano.node.metrics.")
+        assertThat(root.get("TraceOptionMetricsPrefix").asString()).isEqualTo("cardano.node.metrics.")
         assertThat(root.get("TraceOptionResourceFrequency").asInt()).isEqualTo(1000)
     }
 
@@ -641,43 +734,42 @@ class NodeControllerTest {
         assertThat(root.get("UseTraceDispatcher").asBoolean()).isTrue()
         assertThat(root.get("TurnOnLogging").asBoolean()).isTrue()
         assertThat(root.get("TurnOnLogMetrics").asBoolean()).isTrue()
-        assertThat(root.get("minSeverity").asText()).isEqualTo("Critical")
+        assertThat(root.get("minSeverity").asString()).isEqualTo("Critical")
         assertThat(root.get("PeerSharing").asBoolean()).isTrue()
         assertThat(root.get("MaxConcurrencyDeadline").asInt()).isEqualTo(4)
+        assertThat(root.has("GenesisFile")).isFalse()
         assertThat(
             root
                 .get("TraceOptions")
                 .get("")
                 .get("backends")
-                .map { it.asText() }
+                .values()
+                .map { it.asString() }
         ).containsExactly("Stdout MachineFormat", "Forwarder", "PrometheusSimple suffix 0.0.0.0 12900")
             .inOrder()
         assertThat(
             root
                 .get("TraceOptions")
                 .get("Forge.Loop.AdoptedBlock")
-                .get("severity")
-                .asText()
+                .get("severity").asString()
         ).isEqualTo("Info")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
-                .get("severity")
-                .asText()
+                .get("severity").asString()
         ).isEqualTo("Silence")
         val forwarder = root.get("TraceOptionForwarder")
         assertThat(forwarder).isNotNull()
         assertThat(forwarder.get("connQueueSize").asInt()).isEqualTo(64)
         assertThat(forwarder.get("disconnQueueSize").asInt()).isEqualTo(128)
         assertThat(forwarder.get("maxReconnectDelay").asInt()).isEqualTo(30)
-        assertThat(root.fieldNames().asSequence().toList())
+        assertThat(root.propertyNames().toList())
             .containsAtLeast(
                 "ConwayGenesisFile",
                 "AlonzoGenesisFile",
                 "ByronGenesisFile",
                 "ShelleyGenesisFile",
-                "GenesisFile",
                 "PeerSharing",
                 "MaxConcurrencyDeadline",
                 "TraceOptions",
@@ -692,7 +784,7 @@ class NodeControllerTest {
         assertThat(root.get("defaultScribes")).isNull()
         assertThat(root.get("EKGBackend")).isNull()
         assertThat(root.get("PrometheusSimple")).isNull()
-        assertThat(root.get("TraceOptionMetricsPrefix").asText()).isEqualTo("cardano.node.metrics.")
+        assertThat(root.get("TraceOptionMetricsPrefix").asString()).isEqualTo("cardano.node.metrics.")
         assertThat(root.get("TraceOptionResourceFrequency").asInt()).isEqualTo(1000)
     }
 
@@ -730,10 +822,7 @@ class NodeControllerTest {
                 metadataAdapter = config.getMetadataAdapter(moshi),
                 keyFileJsonAdapter = mockk(relaxed = true),
                 cardanoRepository = mockk(relaxed = true),
-                cardanoCapabilities = mockk(relaxed = true),
-                networkBundleValidator = mockk(relaxed = true),
-                nodeConfigurationSnapshotRepository = mockk(relaxed = true),
-                reviewedNetworkReconfiguration = mockk(relaxed = true),
+                nodeConfigurationFiles = mockk(relaxed = true),
             )
 
         val request =

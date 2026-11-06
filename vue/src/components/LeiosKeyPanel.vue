@@ -2,7 +2,6 @@
   <section>
     <p v-if="node">
       Pool {{ node.name }} (node {{ nodeId }}, host {{ node.hostId }}, pool ID {{ node.poolId || 'unavailable' }}).
-      <template v-if="node.configurationResetId">Reset {{ node.configurationResetId }}; bundle {{ node.configurationBundleId }}.</template>
     </p>
     <p v-else class="text-warning">The selected node is no longer available.</p>
     <BButton variant="outline-info" :disabled="!node || !store.connected" @click="refresh">Refresh status</BButton>
@@ -160,7 +159,7 @@ import { generateUUID } from '@/utils/filters'
 const props = defineProps<{ nodeId: number }>()
 const store = useJorManagerStore()
 const node = computed(() => store.nodes.find(item => item.id === props.nodeId) as
-  | (typeof store.nodes[number] & { hostId: number; isDraft?: boolean; poolId?: string | null; configurationBundleId?: string | null; configurationResetId?: string | null })
+  | (typeof store.nodes[number] & { hostId: number; isDraft?: boolean; poolId?: string | null })
   | undefined)
 
 type KeyView = {

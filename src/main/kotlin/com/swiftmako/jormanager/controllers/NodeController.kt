@@ -1,9 +1,9 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.databind.node.ArrayNode
-import com.fasterxml.jackson.databind.node.ObjectNode
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.SerializationFeature
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.databind.node.ObjectNode
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -23,11 +23,7 @@ import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.services.CardanoCapabilities
-import com.swiftmako.jormanager.services.NetworkBundleValidator
-import com.swiftmako.jormanager.services.ReviewedNetworkReconfiguration
-import com.swiftmako.jormanager.repositories.NodeConfigurationSnapshotRepository
-import com.swiftmako.jormanager.entities.NodeConfigurationSnapshot
+import com.swiftmako.jormanager.services.NodeConfigurationFiles
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.Blake2b
@@ -76,17 +72,12 @@ class NodeController
         private val metadataAdapter: JsonAdapter<Metadata>,
         private val keyFileJsonAdapter: JsonAdapter<Key>,
         private val cardanoRepository: CardanoRepository,
-        private val cardanoCapabilities: CardanoCapabilities,
-        private val networkBundleValidator: NetworkBundleValidator,
-        private val nodeConfigurationSnapshotRepository: NodeConfigurationSnapshotRepository,
-        private val reviewedNetworkReconfiguration: ReviewedNetworkReconfiguration,
+        private val nodeConfigurationFiles: NodeConfigurationFiles,
         // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
         private val objectMapper by lazy {
-            ObjectMapper().apply {
-                enable(SerializationFeature.INDENT_OUTPUT)
-            }
+            JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build()
         }
         private val rationaleHttpClient by lazy {
             okHttpClient
@@ -105,36 +96,30 @@ class NodeController
             return SocketResponse.Success(type = "nodes", data = nodes)
         }
         data class ProvisioningPreviewRequest(
-            val hostId: Long, val bundleId: String? = null, val expectedResetId: String? = null,
-            val type: String, val port: Int, val prometheusListen: String, val parentId: Long? = null
+            val hostId: Long, val type: String, val port: Int, val prometheusListen: String,
+            val parentId: Long? = null,
+            @param:com.fasterxml.jackson.annotation.JsonProperty("config") val configFileId: Long = 0,
         )
 
         data class ProvisioningPreview(
             val hostId: Long, val observerNodeId: Long, val networkKey: String,
-            val bundleId: String?, val resetId: String?, val prometheusPort: Int,
-            val tracingPort: Int, val configSha256: String
+            val prometheusPort: Int, val tracingPort: Int, val configSha256: String
         )
 
         @MessageMapping("/node/provisioning-preview")
         @SendTo("/topic/messages")
         fun previewProvisioning(request: ProvisioningPreviewRequest): SocketResponse<ProvisioningPreview> =
             try {
-                require(request.type in setOf(NODE_TYPE_RELAY, NODE_TYPE_CORE, NODE_TYPE_POOL)) { "Invalid node role" }
-                val bundle = request.bundleId?.let {
-                    networkBundleValidator.resolve(it, requireNotNull(request.expectedResetId))
-                }
-                require(bundle != null || request.expectedResetId == null) { "Reset requires a bundle" }
+                require(request.type in setOf(NODE_TYPE_CORE, NODE_TYPE_POOL)) { "Invalid producer role" }
                 val observer = nodeRepository.findDefault() ?: throw IOException("A matching connected observer is required")
-                require(observer.configurationResetId == bundle?.bundle?.resetId) { "Observer is on a different network reset" }
                 val host = hostRepository.findByIdOrNull(request.hostId) ?: throw IOException("Target host not found")
                 val connection = HostConnection(host)
                 val parent = if (request.type == NODE_TYPE_POOL) {
                     val node = request.parentId?.let { nodeRepository.findByIdOrNull(it) }
                         ?: throw IOException("Parent core node not found")
                     require(!node.isDraft && !node.isDeleted && node.type == NODE_TYPE_CORE && node.hostId == request.hostId &&
-                        node.configurationBundleId == bundle?.bundle?.bundleId && node.configurationResetId == bundle?.bundle?.resetId &&
                         cardanoRepository.networkKey(node) == cardanoRepository.networkKey(observer)) {
-                        "Pool parent must be an active core on the selected host and bundle"
+                        "Pool parent must be an active core on the selected host and network"
                     }
                     node
                 } else null
@@ -146,16 +131,14 @@ class NodeController
                 val tracingPort = parent?.tracingPort ?: allocateTracingPort(promPort) { it == request.port || isPortUsed(connection, it) }
                 val config = if (parent != null) connection.commandReadFile("${host.nodeHomePath}/${parent.name}/config.json")
                     else renderManagedConfig(
-                        bundle?.assets?.getValue("config.json")?.toString(Charsets.UTF_8)
-                            ?: (fileRepository.findByIdOrNull(observer.configFileId)?.content
-                                ?: throw IOException("Observer config not found")),
-                        request.type, if (request.type == NODE_TYPE_RELAY) "4" else "2",
-                        request.type == NODE_TYPE_RELAY, request.prometheusListen, promPort)
+                        fileRepository.findByIdOrNull(request.configFileId)?.content
+                            ?: throw IOException("Selected config not found"),
+                        request.type, "2", false, request.prometheusListen, promPort)
                 val digest = MessageDigest.getInstance("SHA-256").digest(config.toByteArray(Charsets.UTF_8))
                     .joinToString("") { "%02x".format(it.toInt() and 255) }
                 SocketResponse.Success(type = "node_provisioning_preview", data = ProvisioningPreview(
                     request.hostId, requireNotNull(observer.id), cardanoRepository.networkKey(observer),
-                    bundle?.bundle?.bundleId, bundle?.bundle?.resetId, promPort, tracingPort, digest
+                    promPort, tracingPort, digest
                 ))
             } catch (e: Exception) {
                 SocketResponse.Error(type = "node_provisioning_preview", exception = e)
@@ -225,276 +208,76 @@ class NodeController
         fun createNode(input: CreateNodeRequest) {
             try {
                 require(input.type == NODE_TYPE_RELAY) { "Producer creation requires a reviewed pool draft" }
-                if (!walletUtils.isValidSpendingPassword(input.spendingPassword)) {
-                    throw IllegalArgumentException("Invalid spending password!")
-                }
-                if (!input.enableTracingListener) {
-                    throw IllegalArgumentException("Tracing listener must be enabled!")
-                }
-                input.reconfigurationId?.let { reviewedNetworkReconfiguration.consume(it, input) }
-                require(input.bundleId != null || input.expectedResetId == null) { "A reset requires a selected bundle" }
-                val selectedBundle = input.bundleId?.let { bundleId ->
-                    require(input.genesisByronFileId == 0L && input.genesisShelleyFileId == 0L &&
-                        input.genesisAlonzoFileId == 0L && input.genesisConwayFileId == 0L) {
-                        "Individual genesis selections cannot be mixed with a bundle"
-                    }
-                    networkBundleValidator.resolve(bundleId, requireNotNull(input.expectedResetId) { "The expected reset is required" })
-                }
+                require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password!" }
+                require(input.enableTracingListener) { "Tracing listener must be enabled!" }
                 require(input.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*"))) { "Invalid node name" }
-                val request = if (selectedBundle == null) input else {
-                    require(input.type == NODE_TYPE_RELAY) { "Reviewed BLS producer provisioning is unavailable" }
-                    val observer = nodeRepository.findDefault() ?: throw IOException("A matching connected observer is required")
-                    require(observer.configurationResetId == selectedBundle.bundle.resetId) { "Observer is on a different network reset" }
-                    val prefix = "snapshot-${UUID.randomUUID()}"
-                    fun store(name: String): Long = fileRepository.save(com.swiftmako.jormanager.entities.File(
-                        name = "$prefix-$name", content = selectedBundle.assets.getValue(name).toString(Charsets.UTF_8)
-                    )).id!!
-                    val byron = store("byron-genesis.json")
-                    val shelley = store("shelley-genesis.json")
-                    val alonzo = store("alonzo-genesis.json")
-                    val conway = store("conway-genesis.json")
-                    store("dijkstra-genesis.json")
-                    store("config.json")
-                    store("topology.json")
-                    store("peer-snapshot.json")
-                    input.copy(genesisByronFileId = byron, genesisShelleyFileId = shelley,
-                        genesisAlonzoFileId = alonzo, genesisConwayFileId = conway)
+                require(input.processorThreads > 0 && input.port in 1..65535) { "Invalid threads or port" }
+                require(listOfNotNull(input.listen, input.prometheusListen, input.tracingListen).all {
+                    it.matches(Regex("[A-Za-z0-9.:-]+"))
+                }) { "Invalid listen address" }
+                val assets = nodeConfigurationFiles.resolve(input)
+                val topology = nodeConfigurationFiles.renderTopology(assets)
+                val host = hostRepository.findByIdOrNull(input.hostId)
+                    ?: throw IOException("Invalid HostId: ${input.hostId}")
+                fun safePath(path: String) {
+                    require(path.matches(Regex("[A-Za-z0-9_./-]+")) && !path.startsWith("-") &&
+                        !path.split('/').contains("..")) { "Invalid host path" }
                 }
-                if (request.type == NODE_TYPE_CORE || request.type == NODE_TYPE_POOL) {
-                    val observer = nodeRepository.findDefault() ?: throw IOException("No default node!")
-                    if (selectedBundle == null) {
-                        require(observer.configurationResetId == null) { "Select the observer's configuration bundle" }
-                        val requested = listOf(request.genesisByronFileId, request.genesisShelleyFileId,
-                            request.genesisAlonzoFileId, request.genesisConwayFileId)
-                        val observed = listOf(observer.genesisByronFileId, observer.genesisShelleyFileId,
-                            observer.genesisAlonzoFileId, observer.genesisConwayFileId)
-                        requested.zip(observed).forEach { (requestedId, observedId) ->
-                            val requestedFile = fileRepository.findByIdOrNull(requestedId)
-                                ?: throw IOException("Selected genesis file not found")
-                            val observedFile = fileRepository.findByIdOrNull(observedId)
-                                ?: throw IOException("Observer genesis file not found")
-                            require(requestedFile.content == observedFile.content) { "Selected genesis differs from observer network" }
-                        }
-                    }
-                    if (request.type == NODE_TYPE_POOL) {
-                        val parent = request.parentId?.let { nodeRepository.findByIdOrNull(it) }
-                            ?: throw IOException("Parent core node not found")
-                        require(!parent.isDeleted && parent.type == NODE_TYPE_CORE && parent.hostId == request.hostId) {
-                            "Pool parent must be an active core on the selected host"
-                        }
-                        require(cardanoRepository.networkKey(parent) == cardanoRepository.networkKey(observer)) {
-                            "Pool parent and observer are on different networks"
-                        }
-                        require(parent.configurationBundleId == observer.configurationBundleId) {
-                            "Pool parent and observer use different configuration bundles"
-                        }
-                    }
-                }
-                log.debug(request.toString())
-                val host =
-                    hostRepository.findByIdOrNull(request.hostId)
-                        ?: throw IOException("Invalid HostId: ${request.hostId}")
-                val tracingListen = request.tracingListen ?: if (host.isRemote) "0.0.0.0" else "127.0.0.1"
+                safePath(host.nodeHomePath)
+                safePath(host.cardanoNodePath)
+                safePath(host.cardanoCliPath)
+                val nodeFolder = "${host.nodeHomePath}${File.separator}${input.name}"
+                val tracingListen = input.tracingListen ?: if (host.isRemote) "0.0.0.0" else "127.0.0.1"
                 val hostConnection = HostConnection(host)
-                // validate sudo password right away
-                hostConnection.sudoCommand("pwd", request.sudoPassword)
+                hostConnection.sudoCommand("pwd", input.sudoPassword)
+                require(!hostConnection.commandFileExists(nodeFolder)) { "Node directory already exists" }
+                require(!hostConnection.commandFileExists("/etc/systemd/system/${input.name}-node.service")) {
+                    "Node service already exists"
+                }
+                require(!isPortUsed(hostConnection, input.port)) { "The selected node port is unavailable" }
+                val promPort = allocatePrometheusPort(input.hostId, hostConnection)
+                require(promPort in 1..65535 && promPort != input.port) { "Prometheus and node ports conflict" }
+                val tracingPort = allocateTracingPort(promPort) { it == input.port || isPortUsed(hostConnection, it) }
+                require(tracingPort in 1..65535) { "Tracing port is unavailable" }
+                val config = renderManagedConfig(assets.getValue("config.json").toString(Charsets.UTF_8),
+                    input.type, "4", true, input.prometheusListen, promPort)
 
-                when (request.type) {
-                    NODE_TYPE_RELAY -> {
-                        val nodeFolder = "${host.nodeHomePath}${File.separator}${request.name}"
-                        if (selectedBundle != null && hostConnection.commandFileExists(nodeFolder)) {
-                            throw IOException("Node directory already exists; a clean directory and database are required")
-                        }
-                        if (selectedBundle != null) {
-                            require(request.port in 1..65535 && !isPortUsed(hostConnection, request.port)) {
-                                "The selected node port is unavailable"
-                            }
-                        }
-                        val allocatedPromPort = allocatePrometheusPort(request.hostId, hostConnection)
-                        require(allocatedPromPort != request.port) { "Prometheus and node ports conflict" }
-                        val tracingPort = allocateTracingPort(allocatedPromPort) { port ->
-                            port == request.port || isPortUsed(hostConnection, port)
-                        }
-                        if (selectedBundle != null) {
-                            val observer = nodeRepository.findDefault() ?: throw IOException("A matching connected observer is required")
-                            val observerHost = hostRepository.findByIdOrNull(observer.hostId) ?: throw IOException("Observer host not found")
-                            val effectiveConfig = renderManagedConfig(
-                                selectedBundle.assets.getValue("config.json").toString(Charsets.UTF_8),
-                                request.type, "4", true, request.prometheusListen, allocatedPromPort
-                            )
-                            val configHash = MessageDigest.getInstance("SHA-256").digest(effectiveConfig.toByteArray(Charsets.UTF_8))
-                                .joinToString("") { "%02x".format(it.toInt() and 255) }
-                            cardanoCapabilities.requireHostOperation(
-                                host, observerHost, observer, cardanoRepository.networkKey(observer), configHash, "node.create"
-                            )
-                        }
-                        createNodeFolders(hostConnection, nodeFolder)
-                        val genesisByronFile =
-                            createGenesisFile("byron", request.genesisByronFileId, hostConnection, nodeFolder)
-                        createGenesisFile("shelley", request.genesisShelleyFileId, hostConnection, nodeFolder)
-                        createGenesisFile("alonzo", request.genesisAlonzoFileId, hostConnection, nodeFolder)
-                        createGenesisFile("conway", request.genesisConwayFileId, hostConnection, nodeFolder)
-                        val dijkstraFile = if (selectedBundle != null) {
-                            val prefix = genesisByronFile.name.substringBeforeLast("-byron")
-                            val file = fileRepository.findByName("$prefix-dijkstra-genesis.json")
-                                ?: throw IOException("Dijkstra genesis snapshot missing")
-                            createGenesisFile("dijkstra", file.id!!, hostConnection, nodeFolder)
-                        } else null
-                        if (selectedBundle == null) {
-                            createTopologyFile(genesisByronFile.name, hostConnection, nodeFolder)
-                        } else {
-                            val topology = selectedBundle.assets.getValue("topology.json").toString(Charsets.UTF_8)
-                                .replace("${selectedBundle.bundle.catalogPrefix}-peer-snapshot.json", "peer-snapshot.json")
-                                .replace("musashi-peer-snapshot.json", "peer-snapshot.json")
-                            hostConnection.commandWriteFile("$nodeFolder/topology.json", topology)
-                            hostConnection.commandWriteFile("$nodeFolder/peer-snapshot.json",
-                                selectedBundle.assets.getValue("peer-snapshot.json").toString(Charsets.UTF_8))
-                        }
-                        val (configFileId, promPort) =
-                            createConfigFile(
-                                genesisByronFileName = genesisByronFile.name,
-                                nodeType = request.type,
-                                promPort = allocatedPromPort,
-                                prometheusListen = request.prometheusListen,
-                                hostConnection = hostConnection,
-                                nodeFolder = nodeFolder,
-                                maxConcurrencyDeadline = "4",
-                                peerSharing = true,
-                            )
-                        if (selectedBundle != null) {
-                            listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json",
-                                "conway-genesis.json", "dijkstra-genesis.json", "peer-snapshot.json").forEach { name ->
-                                val expected = selectedBundle.assets.getValue(name).toString(Charsets.UTF_8)
-                                require(hostConnection.commandReadFile("$nodeFolder/$name") == expected) {
-                                    "Installed $name does not match its validated snapshot"
-                                }
-                            }
-                            val expectedConfig = renderManagedConfig(
-                                selectedBundle.assets.getValue("config.json").toString(Charsets.UTF_8),
-                                request.type, "4", true, request.prometheusListen, promPort
-                            )
-                            require(hostConnection.commandReadFile("$nodeFolder/config.json") == expectedConfig) {
-                                "Installed config differs from the reviewed configuration"
-                            }
-                            val expectedTopology = selectedBundle.assets.getValue("topology.json").toString(Charsets.UTF_8)
-                                .replace("${selectedBundle.bundle.catalogPrefix}-peer-snapshot.json", "peer-snapshot.json")
-                                .replace("musashi-peer-snapshot.json", "peer-snapshot.json")
-                            require(hostConnection.commandReadFile("$nodeFolder/topology.json") == expectedTopology) {
-                                "Installed topology differs from the reviewed configuration"
-                            }
-                        }
-                        createEnvFile(
-                            hostConnection,
-                            request.type,
-                            request.name,
-                            nodeFolder,
-                            request.listen,
-                            request.port,
-                            tracingListen,
-                            tracingPort,
-                        )
-                        createSystemdFile(
-                            request = request,
-                            startupNodeType = request.type,
-                            host = host,
-                            hostConnection = hostConnection,
-                            name = request.name,
-                            processorThreads = request.processorThreads,
-                            tracingHost = tracingListen,
-                            tracingPort = tracingPort,
-                        )
-                        createManualStartupScripts(
-                            request = request,
-                            startupNodeType = request.type,
-                            host = host,
-                            hostConnection = hostConnection,
-                            tracingHost = tracingListen,
-                            tracingPort = tracingPort,
-                        )
-
-                        if (request.isDefault) {
-                            val oldDefault = nodeRepository.findDefault()
-                            oldDefault?.let {
-                                // Make old default no longer the default
-                                nodeRepository.save(oldDefault.copy(isDefault = false))
-                            }
-                        }
-
-                        val node =
-                            Node(
-                                hostId = host.id!!,
-                                color = request.color,
-                                type = request.type,
-                                processorThreads = request.processorThreads,
-                                name = request.name,
-                                listen = request.listen,
-                                port = request.port,
-                                promPort = promPort,
-                                tracingHost = tracingListen,
-                                genesisByronFileId = request.genesisByronFileId,
-                                genesisShelleyFileId = request.genesisShelleyFileId,
-                                genesisAlonzoFileId = request.genesisAlonzoFileId,
-                                genesisConwayFileId = request.genesisConwayFileId,
-                                configFileId = configFileId,
-                                isDefault = request.isDefault,
-                                tracingPort = tracingPort,
-                                genesisDijkstraFileId = dijkstraFile?.id,
-                                configurationBundleId = selectedBundle?.bundle?.bundleId,
-                                configurationResetId = selectedBundle?.bundle?.resetId,
-                            )
-                        val savedNode = nodeRepository.save(node)
-                        if (selectedBundle != null) {
-                            fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
-                                .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
-                            val effectiveConfig = hostConnection.commandReadFile("$nodeFolder/config.json")
-                            val effectiveTopology = hostConnection.commandReadFile("$nodeFolder/topology.json")
-                            nodeConfigurationSnapshotRepository.save(NodeConfigurationSnapshot(
-                                id = UUID.randomUUID().toString(), nodeId = savedNode.id!!,
-                                bundleId = selectedBundle.bundle.bundleId, role = request.type,
-                                assetsJson = selectedBundle.bundle.assetsJson,
-                                effectiveConfigDigest = digest(effectiveConfig),
-                                effectiveTopologyDigest = digest(effectiveTopology),
-                                approvedOverrides = objectMapper.writeValueAsString(mapOf(
-                                    "prometheusListen" to request.prometheusListen, "prometheusPort" to promPort,
-                                    "peerSharing" to true, "maxConcurrencyDeadline" to 4,
-                                    "listen" to request.listen, "port" to request.port
-                                )), publicFingerprints = objectMapper.writeValueAsString(
-                                    selectedBundle.assets.mapValues { (_, bytes) ->
-                                        MessageDigest.getInstance("SHA-256").digest(bytes)
-                                            .joinToString("") { "%02x".format(it.toInt() and 255) }
-                                    }
-                                ), installationObservation = null
-                            ))
-                        }
-
-                        // send it to the channel for monitoring
-                        nodesChannel.tryEmit(savedNode)
-
-                        // send all to the client for ui updates
-                        val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
-                        webSocketTemplate.convertAndSend(
-                            "/topic/messages",
-                            SocketResponse.Success(type = "nodes", data = nodes)
-                        )
-                    }
-
-
-                    else -> {
-                        throw IOException("Invalid node type: ${request.type}")
+                createNodeFolders(hostConnection, nodeFolder)
+                assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
+                    hostConnection.commandWriteFile("$nodeFolder/$name", bytes.toString(Charsets.UTF_8))
+                }
+                hostConnection.commandWriteFile("$nodeFolder/config.json", config)
+                hostConnection.commandWriteFile("$nodeFolder/topology.json", topology)
+                assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
+                    require(hostConnection.commandReadFile("$nodeFolder/$name") == bytes.toString(Charsets.UTF_8)) {
+                        "Installed $name does not match its validated selection"
                     }
                 }
+                require(hostConnection.commandReadFile("$nodeFolder/config.json") == config) { "Installed config differs from selection" }
+                require(hostConnection.commandReadFile("$nodeFolder/topology.json") == topology) { "Installed topology differs from selection" }
+                createEnvFile(hostConnection, input.type, input.name, nodeFolder, input.listen, input.port, tracingListen, tracingPort)
+                createSystemdFile(input, input.type, host, hostConnection, input.name, input.processorThreads, tracingListen, tracingPort)
+                createManualStartupScripts(input, input.type, host, hostConnection, tracingListen, tracingPort)
 
-                webSocketTemplate.convertAndSend(
-                    "/topic/messages",
-                    SocketResponse.Success("createnode", "${request.name} created successfully!")
-                )
+                if (input.isDefault) {
+                    nodeRepository.findDefault()?.let { nodeRepository.save(it.copy(isDefault = false)) }
+                }
+                val savedNode = nodeRepository.save(Node(
+                    hostId = host.id!!, color = input.color, type = input.type, processorThreads = input.processorThreads,
+                    name = input.name, listen = input.listen, port = input.port, promPort = promPort,
+                    tracingHost = tracingListen, tracingPort = tracingPort, isDefault = input.isDefault,
+                    genesisByronFileId = input.genesisByronFileId, genesisShelleyFileId = input.genesisShelleyFileId,
+                    genesisAlonzoFileId = input.genesisAlonzoFileId, genesisConwayFileId = input.genesisConwayFileId,
+                    genesisDijkstraFileId = input.genesisDijkstraFileId, configFileId = input.configFileId,
+                    topologyFileId = input.topologyFileId, peerSnapshotFileId = input.peerSnapshotFileId,
+                ))
+                nodesChannel.tryEmit(savedNode)
+                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("createnode", "${input.name} created successfully!"))
             } catch (e: Throwable) {
                 log.error("Error Creating Node!", e)
-                webSocketTemplate.convertAndSend(
-                    "/topic/messages",
-                    SocketResponse.Error(type = "createnode", exception = e)
-                )
-                // rethrow so db transaction is rolled back
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "createnode", exception = e))
                 throw RuntimeException(e)
             }
         }
@@ -887,18 +670,18 @@ class NodeController
                         "hashAlgorithm",
                         "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#hashAlgorithm",
                     )
-                    set<ObjectNode>(
+                    set(
                         "authors",
                         objectMapper.createObjectNode().apply {
                             put("@id", "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#authors")
                             put("@container", "@set")
                         },
                     )
-                    set<ObjectNode>(
+                    set(
                         "body",
                         objectMapper.createObjectNode().apply {
                             put("@id", "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#body")
-                            set<ObjectNode>(
+                            set(
                                 "@context",
                                 objectMapper.createObjectNode().apply {
                                     put(
@@ -912,10 +695,10 @@ class NodeController
                 }
             val document =
                 objectMapper.createObjectNode().apply {
-                    set<ObjectNode>("@context", context)
+                    set("@context", context)
                     put("hashAlgorithm", "blake2b-256")
                     putArray("authors")
-                    set<ObjectNode>(
+                    set(
                         "body",
                         objectMapper.createObjectNode().apply {
                             put("comment", rationale)
@@ -1109,21 +892,21 @@ class NodeController
             credentials: MutableList<MutableList<Key>>
         ) {
             val path = "$nodeFolder/credentials.json"
-            val existingBls = mutableMapOf<String, com.fasterxml.jackson.databind.JsonNode>()
+            val existingBls = mutableMapOf<String, JsonNode>()
             if (hostConnection.commandFileExists(path)) {
                 val existing = objectMapper.readTree(hostConnection.commandReadFile(path))
                 require(existing.isArray) { "Invalid existing bulk credentials" }
                 existing.forEach { entry ->
                     require(entry.isArray && entry.size() in 3..4) { "Invalid existing bulk credential entry" }
-                    val vrf = entry[1].path("cborHex").asText()
+                    val vrf = entry[1].path("cborHex").asString()
                     require(vrf.isNotEmpty()) { "Invalid existing VRF envelope" }
                     if (entry.size() == 4 && !entry[3].isNull) {
                         val bls = entry[3]
                         val keys = if (bls.isArray) bls.toList() else listOf(bls)
                         keys.forEach { key ->
                             require(key.isObject &&
-                                key.path("type").asText() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
-                                key.path("cborHex").asText().matches(Regex("5820[0-9a-fA-F]{64}"))) {
+                                key.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
+                                key.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}"))) {
                                 "Invalid BLS envelope in existing bulk credentials"
                             }
                         }
@@ -1135,7 +918,7 @@ class NodeController
             credentials.forEach { triple ->
                 require(triple.size == 3) { "Invalid bulk credential entry" }
                 val entry = objectMapper.createArrayNode()
-                triple.forEach { entry.add(objectMapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(it)) }
+                triple.forEach { entry.add(objectMapper.valueToTree<JsonNode>(it)) }
                 existingBls.remove(triple[1].cborHex)?.let { entry.add(it) }
                 output.add(entry)
             }
@@ -1185,68 +968,6 @@ class NodeController
             return promPort
         }
 
-        private fun createConfigFile(
-            genesisByronFileName: String,
-            nodeType: String,
-            promPort: Int,
-            prometheusListen: String,
-            hostConnection: HostConnection,
-            nodeFolder: String,
-            maxConcurrencyDeadline: String,
-            peerSharing: Boolean,
-        ): Pair<Long, Int> {
-            val configFile = fileRepository.findByName(genesisByronFileName.substringBeforeLast("-byron") + "-config.json")
-            val configFileContent =
-                configFile?.content?.let {
-                    renderManagedConfig(
-                        templateContent = it,
-                        nodeType = nodeType,
-                        maxConcurrencyDeadline = maxConcurrencyDeadline,
-                        peerSharing = peerSharing,
-                        prometheusListen = prometheusListen,
-                        promPort = promPort,
-                    )
-                }
-        /*
-                configFile
-                    ?.content
-                    ?.replace(Regex(""""ConwayGenesisFile": .*,"""), """"ConwayGenesisFile": "conway-genesis.json",""")
-                    ?.replace(Regex(""""AlonzoGenesisFile": .*,"""), """"AlonzoGenesisFile": "alonzo-genesis.json",""")
-                    ?.replace(Regex(""""ByronGenesisFile": .*,"""), """"ByronGenesisFile": "byron-genesis.json",""")
-                    ?.replace(Regex(""""ShelleyGenesisFile": .*,"""), """"ShelleyGenesisFile": "shelley-genesis.json",""")
-                    ?.replace(Regex(""""GenesisFile": .*,"""), """"GenesisFile": "shelley-genesis.json",""")
-                    ?.replace(Regex(""""PeerSharing": .*"""), """"PeerSharing": $peerSharing,""")
-                    ?.replace(
-                        Regex(""""TraceBlockFetchDecisions":.*(true|false),"""),
-                        """"TraceBlockFetchDecisions": true,"""
-                    )?.replace(
-                        Regex(""".*"defaultScribes.*\[\n.*\[\n.*StdoutSK.*\n.*stdout.*\n.*\]\n.*\],"""),
-                        """
-                                                |  "defaultScribes": [
-                                                |    [
-                                                |      "FileSK",
-                                                |      "logs/node.json"
-                                                |    ]
-                                                |  ],
-                        """.trimMargin()
-                    )?.replace(Regex(""""rpLogLimitBytes": .*,"""), """"rpLogLimitBytes": 20000000,""")
-                    ?.replace(Regex(""""scFormat.*,"""), """"scFormat": "ScJson",""")
-                    ?.replace(Regex(""""scKind.*,"""), """"scKind": "FileSK",""")
-                    ?.replace(Regex(""""scName.*,"""), """"scName": "logs/node.json",""")
-                    ?.replace("12798", "$promPort")
-                    ?.replace(
-                        Regex(""""MaxConcurrencyDeadline.*,""""),
-                        """"MaxConcurrencyDeadline": $maxConcurrencyDeadline,"""
-                    )
-         */
-            configFileContent?.let {
-                log.debug("Creating $nodeFolder/config.json from db file ${configFile.name}")
-                hostConnection.commandWriteFile("$nodeFolder/config.json", it)
-                maybeCreateCheckpointsFile(configFile.name, it, hostConnection, nodeFolder)
-            } ?: throw IOException("Config file not found in db!")
-
-            return Pair(configFile.id!!, promPort)
-        }
 
         internal fun renderManagedConfig(
             templateContent: String,
@@ -1256,7 +977,7 @@ class NodeController
             prometheusListen: String,
             promPort: Int,
         ): String {
-            val root = objectMapper.readTree(templateContent).deepCopy<ObjectNode>()
+            val root = (objectMapper.readTree(templateContent) as ObjectNode).deepCopy()
             normalizeManagedConfig(root, nodeType, maxConcurrencyDeadline, peerSharing, prometheusListen, promPort)
             return objectMapper.writeValueAsString(root) + "\n"
         }
@@ -1274,8 +995,8 @@ class NodeController
             root.put("ByronGenesisFile", "byron-genesis.json")
             root.put("ShelleyGenesisFile", "shelley-genesis.json")
             if (root.has("DijkstraGenesisFile")) root.put("DijkstraGenesisFile", "dijkstra-genesis.json")
-            root.put("GenesisFile", "shelley-genesis.json")
-            root.path("CheckpointsFile")?.takeIf { !it.isMissingNode && it.isTextual }?.let {
+            root.remove("GenesisFile")
+            root.path("CheckpointsFile")?.takeIf { !it.isMissingNode && it.isString }?.let {
                 root.put("CheckpointsFile", "checkpoints.json")
             }
             root.put("PeerSharing", peerSharing)
@@ -1292,7 +1013,7 @@ class NodeController
         ) {
             val traceOptions = (root.get("TraceOptions") as? ObjectNode) ?: root.putObject("TraceOptions")
 
-            val rootTraceOptions = traceOptions.get("") as ObjectNode
+            val rootTraceOptions = (traceOptions.get("") as? ObjectNode) ?: traceOptions.putObject("")
             rootTraceOptions.remove("detail")
             if (!rootTraceOptions.has("severity")) {
                 rootTraceOptions.put("severity", MARKUS_ROOT_TRACE_SEVERITY)
@@ -1305,7 +1026,7 @@ class NodeController
                 }
                 add("PrometheusSimple suffix $prometheusListen $promPort")
             }
-            rootTraceOptions.set<ArrayNode>("backends", backends)
+            rootTraceOptions.set("backends", backends)
 
             traceOptions.putObject("Forge.Loop").put("severity", "Silence")
             traceOptions.putObject("Forge.Loop.ForgedBlock").put("severity", "Info")
@@ -1333,15 +1054,14 @@ class NodeController
                     put("disconnQueueSize", TRACE_FORWARDER_DISCONN_QUEUE_SIZE)
                     put("maxReconnectDelay", TRACE_FORWARDER_MAX_RECONNECT_DELAY)
                 }
-                root.set<ObjectNode>("TraceOptionForwarder", forwarderOptions)
+                root.set("TraceOptionForwarder", forwarderOptions)
             } else {
                 root.remove("TraceOptionForwarder")
             }
 
             LEGACY_TRACING_KEYS_TO_REMOVE.forEach(root::remove)
             root
-                .fieldNames()
-                .asSequence()
+                .propertyNames()
                 .toList()
                 .filter {
                     it.startsWith("Trace") &&
@@ -1352,27 +1072,6 @@ class NodeController
                 }.forEach(root::remove)
         }
 
-        private fun maybeCreateCheckpointsFile(
-            configFileName: String,
-            configFileContent: String,
-            hostConnection: HostConnection,
-            nodeFolder: String,
-        ) {
-            val checkpointsFileName =
-                objectMapper
-                    .readTree(configFileContent)
-                    .path("CheckpointsFile")
-                    .takeIf { !it.isMissingNode && it.isTextual }
-                    ?.asText()
-                    ?: return
-
-            val sourceCheckpointsFile =
-                fileRepository.findByName(configFileName.removeSuffix("-config.json") + "-checkpoints.json")
-                    ?: throw IOException("Checkpoints file $checkpointsFileName referenced by $configFileName not found in db!")
-
-            log.debug("Creating $nodeFolder/checkpoints.json from db file ${sourceCheckpointsFile.name}")
-            hostConnection.commandWriteFile("$nodeFolder/checkpoints.json", sourceCheckpointsFile.content)
-        }
 
         private fun isPortUsed(
             hostConnection: HostConnection,
@@ -1576,22 +1275,6 @@ class NodeController
         }
 
 
-        private fun createTopologyFile(
-            byronGenesisFileName: String,
-            hostConnection: HostConnection,
-            nodeFolder: String
-        ) {
-            val topologyFile =
-                fileRepository.findByName(byronGenesisFileName.substringBeforeLast("-byron") + "-topology.json")
-            topologyFile?.let {
-                if (!hostConnection.commandFileExists("$nodeFolder/topology.json")) {
-                    log.debug("Creating $nodeFolder/topology.json from db file ${topologyFile.name}")
-                    hostConnection.commandWriteFile("$nodeFolder/topology.json", topologyFile.content)
-                } else {
-                    log.debug("SKIP Creating $nodeFolder/topology.json from db file ${topologyFile.name}")
-                }
-            } ?: throw IOException("Topology file not found in db!")
-        }
 
         private fun requireSameNetwork(observer: Node, targetId: Long) {
             val target = nodeRepository.findByIdOrNull(targetId) ?: throw IOException("Node $targetId not found")
@@ -1600,26 +1283,14 @@ class NodeController
             }
         }
 
-        private fun createGenesisFile(
-            prefix: String,
-            genesisFileId: Long,
-            hostConnection: HostConnection,
-            nodeFolder: String
-        ): com.swiftmako.jormanager.entities.File {
-            val genesisFile = fileRepository.findByIdOrNull(genesisFileId)
-            genesisFile?.let {
-                log.debug("Creating $nodeFolder/$prefix-genesis.json from db file ${genesisFile.name}")
-                hostConnection.commandWriteFile("$nodeFolder/$prefix-genesis.json", genesisFile.content)
-                return genesisFile
-            } ?: throw IOException("Genesis file not found in db!")
-        }
 
         private fun createNodeFolders(
             hostConnection: HostConnection,
             nodeFolder: String
         ) {
-            hostConnection.command("mkdir -p $nodeFolder/db")
-            hostConnection.command("mkdir -p $nodeFolder/logs")
+            hostConnection.command("mkdir $nodeFolder")
+            hostConnection.command("mkdir $nodeFolder/db")
+            hostConnection.command("mkdir $nodeFolder/logs")
         }
 
         companion object {

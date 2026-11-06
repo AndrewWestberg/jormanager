@@ -190,7 +190,7 @@ You can follow any guide for installing these. I'm linking the one from IOG for 
 
 [cardano-node installation](https://docs.cardano.org/getting-started/installing-the-cardano-node)
 
-For Musashi, use the upstream guide linked above and the complete immutable bundle from the [JorManager catalog](https://bluecheesestakehouse.com/jormanager/index.html). The published stable aliases do not by themselves satisfy the manifest/versioned-publication contract. Selectable bundles, pre-creation observer evidence, host qualification and the separate draft/register/deploy pool flow are described in the [operator guide](dijkstra-upgrade-guide.md). Dijkstra-capable tools connected to a Conway network must continue using Conway operations.
+For Musashi, use the upstream guide and select individual network files from the ordinary catalog or imports. The first relay needs no observer; producer authorization needs a matching connected observer and node-derived era. See the [operator guide](dijkstra-upgrade-guide.md). Conway does not require Dijkstra genesis or BLS.
 
 
 ## Install cardano-node and cardano-cli on remotes

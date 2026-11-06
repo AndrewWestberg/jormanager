@@ -31,9 +31,8 @@ export interface Block {
 }
 
 export interface FileOption {
-  id: number
-  name: string
-  path: string
+  value: number
+  text: string
   [key: string]: unknown
 }
 

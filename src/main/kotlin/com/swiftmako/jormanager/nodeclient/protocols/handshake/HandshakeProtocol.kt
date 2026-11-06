@@ -3,7 +3,8 @@ package com.swiftmako.jormanager.nodeclient.protocols.handshake
 import com.firehose.controllers.nodeclient.protocol.Agency
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborReader
-import com.swiftmako.jormanager.ktx.elementToLong
+import com.google.iot.cbor.CborInteger
+import com.swiftmako.jormanager.ktx.elementToBigInteger
 import com.swiftmako.jormanager.nodeclient.protocols.MiniProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import io.ktor.utils.io.core.*
@@ -61,30 +62,28 @@ class HandshakeProtocol(
     override fun receiveData(payload: ByteBuffer) {
         when (state) {
             State.Confirm -> {
-                state = State.Done
-                ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
-                    CborReader.createFromInputStream(byteStream).apply {
-                        while (byteStream.available() > 0) {
-                            val cborArray = readDataItem() as CborArray
-                            val messageId: Long = cborArray.elementToLong(0)
-                            when (messageId) {
-                                MsgAcceptVersion.MESSAGE_ID -> {
-                                    msgAcceptVersion = MsgAcceptVersion(cborArray)
-                                    if (msgAcceptVersion.networkMagic != networkMagic) {
-                                        throw IOException("Handshake succeeded, but networkMagic did not match!")
-                                    }
-                                    log.info("Handshake Successful: $msgAcceptVersion")
+                try {
+                    ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
+                        val cborArray = CborReader.createFromInputStream(byteStream).readDataItem() as? CborArray
+                            ?: throw IOException("Invalid handshake message")
+                        if (byteStream.available() != 0) throw IOException("Trailing handshake data")
+                        require(cborArray.elementAt(0) is CborInteger) { "Invalid handshake message ID" }
+                        when (cborArray.elementToBigInteger(0).longValueExact()) {
+                            MsgAcceptVersion.MESSAGE_ID -> {
+                                val accepted = MsgAcceptVersion(cborArray)
+                                if (accepted.networkMagic != networkMagic) {
+                                    throw IOException("Handshake succeeded, but networkMagic did not match!")
                                 }
-                                MsgRefuse.MESSAGE_ID -> {
-                                    val msgRefuse = MsgRefuse(cborArray)
-                                    throw IOException("Handshake Failed: $msgRefuse")
-                                }
-                                else -> {
-                                    throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
-                                }
+                                msgAcceptVersion = accepted
+                                state = State.Done
+                                log.info("Handshake Successful: $msgAcceptVersion")
                             }
+                            MsgRefuse.MESSAGE_ID -> throw IOException("Handshake Failed: ${MsgRefuse(cborArray)}")
+                            else -> throw IOException("Unexpected Message: ${cborArray.toJsonString()}")
                         }
                     }
+                } catch (e: RuntimeException) {
+                    throw IOException("Invalid handshake response", e)
                 }
             }
             else -> throw IllegalStateException("We should not call receiveData() when we're in a $state state!")

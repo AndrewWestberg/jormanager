@@ -1,0 +1,14 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="046" author="OpenCode">
+        <addColumn tableName="nodes">
+            <column name="topology_file_id" type="bigint"/>
+            <column name="peer_snapshot_file_id" type="bigint"/>
+        </addColumn>
+        <!-- Preserve the historical serialized network-key slot without exposing reset management. -->
+        <renameColumn tableName="nodes" oldColumnName="configuration_reset_id"
+                      newColumnName="network_key_discriminator" columnDataType="varchar(255)"/>
+    </changeSet>
+</databaseChangeLog>

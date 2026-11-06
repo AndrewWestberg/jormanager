@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.model.StakeFraction
@@ -402,16 +402,16 @@ class LeaderLogCalculatorConcurrencyTest {
         // Committed, public synthetic key and nonce; no operator keys or mocked VRF eligibility.
         val fixture =
             requireNotNull(LeaderLogCalculatorConcurrencyTest::class.java.getResourceAsStream("/leaderlog/node-schedules.json")).use {
-                ObjectMapper().readTree(it)["cases"].first { row -> row["mode"].asText() == "praos" }
+                ObjectMapper().readTree(it)["cases"].first { row -> row["mode"].asString() == "praos" }
             }
-        val nonce: ByteArray = fixture["nonceHex"].asText().hexToByteArray()
+        val nonce: ByteArray = fixture["nonceHex"].asString().hexToByteArray()
         val pool = LeaderLogCalculator.PoolInput(
             threshold = CardanoLeaderElection.prepare(
                 CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal.ONE),
                 StakeFraction(BigInteger.ONE, BigInteger.ONE),
                 32,
             ),
-            vrfSkey = fixture["vrfSkeyHex"].asText().hexToByteArray(),
+            vrfSkey = fixture["vrfSkeyHex"].asString().hexToByteArray(),
         )
     }
 }

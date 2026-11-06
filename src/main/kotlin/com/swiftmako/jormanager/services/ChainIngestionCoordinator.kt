@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Qualifier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
+import org.slf4j.LoggerFactory
 
 /** The only chain-effect writer. Row locks serialize each network, including across application processes. */
 @Service
@@ -29,18 +30,35 @@ class ChainIngestionCoordinator(
     @param:Qualifier("refreshWalletChannel") private val walletRefresh: MutableStateFlow<Long>,
 ) {
     private val lastProgressNotification = ConcurrentHashMap<String, Long>()
+    private val log = LoggerFactory.getLogger(ChainIngestionCoordinator::class.java)
     fun registerNetwork(networkKey: String, genesisHash: String, genesisOutputs: List<DecodedGenesisOutput> = emptyList()) {
         require(networkKey.isNotBlank() && genesisHash.matches(Regex("[0-9a-f]{64}")))
-        transaction {
+        val restored = transaction {
+            lock(networkKey)
             NetworkGenesisTable.insertIgnore { it[network] = networkKey; it[hash] = genesisHash.hexToByteArray(); it[seeded] = false }
             val row = NetworkGenesisTable.selectAll().where { NetworkGenesisTable.network eq networkKey }.forUpdate().single()
             check(row[NetworkGenesisTable.hash].contentEquals(genesisHash.hexToByteArray())) { "Network genesis identity changed" }
             if (!row[NetworkGenesisTable.seeded]) {
                 check(ChainInclusionsTable.selectAll().where { ChainInclusionsTable.network eq networkKey }.empty()) { "Genesis cannot be replaced after ingestion" }
+                check(LedgerUtxosTable.selectAll().where { LedgerUtxosTable.networkKey eq networkKey }.empty()) { "Unseeded network already has indexed outputs" }
                 LedgerRepository.seedGenesis(networkKey, genesisOutputs)
                 NetworkGenesisTable.update({ NetworkGenesisTable.network eq networkKey }) { it[seeded] = true }
-            }
+                0
+            } else if (genesisOutputs.isNotEmpty() &&
+                LedgerUtxosTable.selectAll().where { LedgerUtxosTable.networkKey eq networkKey }.empty()
+            ) {
+                check((TransactionBatchesTable innerJoin ChainInclusionsTable).selectAll()
+                    .where { ChainInclusionsTable.network eq networkKey }.empty()) {
+                    "Genesis outputs are missing after transaction ingestion; controlled index recovery is required"
+                }
+                check(ChainInclusionsTable.selectAll().where {
+                    (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.complete eq false)
+                }.empty()) { "Genesis recovery is unsafe with incomplete block history" }
+                LedgerRepository.seedGenesis(networkKey, genesisOutputs)
+                genesisOutputs.size
+            } else 0
         }
+        if (restored > 0) log.info("Restored {} genesis outputs for network {} before transaction ingestion", restored, networkKey)
     }
 
     private fun lock(network: String): ResultRow {
@@ -257,6 +275,7 @@ class ChainIngestionCoordinator(
 
     private fun inclusion(id: Long): ResultRow = ChainInclusionsTable.selectAll().where { ChainInclusionsTable.id eq id }.single()
     private fun point(row: ResultRow) = ChainPoint(row[ChainInclusionsTable.slot].toPlainString(), row[ChainInclusionsTable.hash].toHexString())
+
     private fun publish(network: String, force: Boolean = false) {
         val state = status(network)
         val now = System.nanoTime()

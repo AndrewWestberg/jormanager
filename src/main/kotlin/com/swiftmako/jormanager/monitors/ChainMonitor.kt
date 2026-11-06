@@ -103,17 +103,18 @@ class ChainMonitor(
                 val byron = requireNotNull(byronGenesisAdapter.fromJson(byronFile.content))
                 val epochSlots = Math.multiplyExact(byron.protocolConsts.k, 10L)
                 require(epochSlots > 0)
+                session = NetworkChainSession(key, coordinator, node.isDefault, coordinator.beginSession(key), epochSlots)
                 val configValues = moshi.adapter(Map::class.java).lenient().fromJson(config.content)
                 val byronGenesisHash = requireNotNull(configValues?.get("ByronGenesisHash") as? String) { "Byron genesis hash missing" }
                 require(GenesisLedgerDecoder.verifyByronGenesisHash(byronFile.content, byronGenesisHash.hexToByteArray())) { "Byron genesis hash mismatch" }
-                val byronMagic = when (configValues?.get("RequiresNetworkMagic")) {
+                val byronMagic = when (configValues.get("RequiresNetworkMagic")) {
                     "RequiresNoMagic" -> null
                     "RequiresMagic" -> requireNotNull(shelley.networkMagic)
                     else -> throw IllegalArgumentException("Byron network magic policy missing or invalid")
                 }
                 val genesisOutputs = GenesisLedgerDecoder.byron(byronFile.content, byronMagic) +
                     if (!shelley.networkId.equals("mainnet", ignoreCase = true) &&
-                        (configValues?.get("TestShelleyHardForkAtEpoch") as? Number)?.toLong() == 0L
+                        (configValues.get("TestShelleyHardForkAtEpoch") as? Number)?.toLong() == 0L
                     ) GenesisLedgerDecoder.shelley(genesis.content) else emptyList()
                 val genesisHash = requireNotNull(configAdapter.fromJson(config.content)).shelleyGenesisHash.hexToByteArray()
                 require(Blake2b.hash256(genesis.content.toByteArray(Charsets.UTF_8)).contentEquals(genesisHash)) { "Shelley genesis hash mismatch" }
@@ -122,12 +123,11 @@ class ChainMonitor(
                     noDelay = true; keepAlive = true; lingerSeconds = 0; typeOfService = TypeOfService.IPTOS_LOWDELAY
                 }.use { socket ->
                     mux = Mux(socket.connection())
-                    mux!!.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
+                    mux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
                     cardanoRepository.reestablishTarget(host, node)
-                    session = NetworkChainSession(key, coordinator, node.isDefault, coordinator.beginSession(key), epochSlots)
                     val active = requireNotNull(session)
                     val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
-                    mux!!.execute(
+                    mux.execute(
                         KeepAliveProtocol(),
                         ChainSyncProtocol(host, genesisHash, emptyList(), chainRepository, false, pooltoolService, "", "",
                             active, node, cardanoRepository, coordinator.intersectionPoints(key)),

@@ -1,8 +1,8 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.AuthorizedOperation
@@ -64,9 +64,9 @@ class ReviewedPoolRetirementController(
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun exact(value: JsonNode): JsonNode = when {
-        value.isObject -> json.createObjectNode().also { out -> value.fields().forEachRemaining { (k, v) -> out.set<JsonNode>(k, exact(v)) } }
+        value.isObject -> json.createObjectNode().also { out -> value.properties().forEach { (k, v) -> out.set(k, exact(v)) } }
         value.isArray -> json.createArrayNode().also { out -> value.forEach { out.add(exact(it)) } }
-        value.isNumber -> json.nodeFactory.textNode(value.asText())
+        value.isNumber -> json.nodeFactory.stringNode(value.asString())
         else -> value
     }
     private fun target(poolId: Long, observerId: Long? = null): Target {
@@ -76,9 +76,9 @@ class ReviewedPoolRetirementController(
         require(eras.networkKey(pool) == eras.networkKey(observer)) { "Pool and observer are on different networks" }
         val host = requireNotNull(hosts.findByIdOrNull(observer.hostId)) { "Observer host not found" }
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(observer.genesisShelleyFileId)).content)
-        val network = when (genesis.path("networkId").asText().lowercase()) {
+        val network = when (genesis.path("networkId").asString().lowercase()) {
             "testnet" -> {
-                val magic = genesis.path("networkMagic").asText()
+                val magic = genesis.path("networkMagic").asString()
                 require(magic.matches(Regex("[0-9]+"))) { "Invalid testnet network magic" }
                 listOf("--testnet-magic", magic)
             }
@@ -116,7 +116,7 @@ class ReviewedPoolRetirementController(
             require(it.prefix == "pool" && it.bytes.size == 28)
             it.bytes.toHexString()
         } else expectedPool.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
-        val entry = poolState.fields().next()
+        val entry = poolState.properties().first()
         require(entry.key.equals(poolHash, true) || entry.key.equals(expectedPool, true)) { "Pool query returned a different target" }
         require(entry.value.isObject && entry.value.path("deposit").isIntegralNumber) {
             "Pool registration or deposit unavailable"
@@ -128,14 +128,14 @@ class ReviewedPoolRetirementController(
         return Observation(parameters, utxo, poolState, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
             digest("${e.networkKey}|${e.era}|${e.generation}|pool.retire|${t.host.id}|${t.observer.id}")))
     }
-    private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asText().hexToByteArray())
+    private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     private fun result(record: AuthorizedOperation, requestId: String): Result {
         val payload = json.readTree(record.requestPayload)
         return Result(requestId, record.previewId, record.txId, record.networkKey, record.era, payload.path("nodeId").asLong(),
             record.nodeId, record.hostId, payload.path("feePayerAccountId").asLong(), record.fee.toString(), record.deposit.toString(),
             record.refund.toString(), record.validFrom?.toString(), record.validUntil?.toString(), record.state,
-            payload.path("poolState"), payload.path("retireEpoch").asText(), record.parameterFingerprint, record.stateFingerprint)
+            payload.path("poolState"), payload.path("retireEpoch").asString(), record.parameterFingerprint, record.stateFingerprint)
     }
     private fun ensureNoPending(t: Target, requestId: String) {
         val pending = jdbc.query("SELECT id,request_payload FROM authorized_operations WHERE network_key=? AND operation IN ('pool.register','pool.update','pool.retire') AND state IN ('signing','submission_uncertain','submitted','rolled_back')",
@@ -143,7 +143,7 @@ class ReviewedPoolRetirementController(
         require(pending.none { (id, raw) ->
             val p = json.readTree(raw)
             id != requestId && (p.path("nodeId").asLong(-1) == t.pool.id ||
-                p.path("poolId").asText().isNotEmpty() && p.path("poolId").asText().equals(t.pool.poolId, true))
+                p.path("poolId").asString().isNotEmpty() && p.path("poolId").asString().equals(t.pool.poolId, true))
         }) { "A pool operation needs reconciliation before another authorization" }
     }
 
@@ -165,8 +165,8 @@ class ReviewedPoolRetirementController(
         val existing = operations.findById(input.requestId).orElse(null)
         if (existing != null) {
             val old = json.readTree(existing.requestPayload)
-            check(old.path("kind").asText() == "pool.retire" && old.path("nodeId").asLong() == input.nodeId &&
-                old.path("feePayerAccountId").asLong() == input.feePayerAccountId && old.path("retireEpoch").asText() == input.retireEpoch) { "Request ID already used" }
+            check(old.path("kind").asString() == "pool.retire" && old.path("nodeId").asLong() == input.nodeId &&
+                old.path("feePayerAccountId").asLong() == input.feePayerAccountId && old.path("retireEpoch").asString() == input.retireEpoch) { "Request ID already used" }
             return result(existing, input.requestId)
         }
         val t = target(input.nodeId)
@@ -215,9 +215,9 @@ class ReviewedPoolRetirementController(
         require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
         val record = operations.findByPreviewId(input.previewId) ?: throw IllegalArgumentException("Unknown preview")
         val payload = json.readTree(record.requestPayload)
-        require(payload.path("kind").asText() == "pool.retire") { "Not a pool retirement review" }
+        require(payload.path("kind").asString() == "pool.retire") { "Not a pool retirement review" }
         val payerId = payload.path("feePayerAccountId").asLong()
-        val epoch = payload.path("retireEpoch").asText().toLong()
+        val epoch = payload.path("retireEpoch").asString().toLong()
         val t = target(payload.path("nodeId").asLong(), record.nodeId)
         ensureNoPending(t, record.id)
         var envelope = ""
@@ -238,13 +238,13 @@ class ReviewedPoolRetirementController(
                     paths.forEach { args += listOf("--signing-key-file", it) }; args += t.network; args += listOf("--out-file", signed)
                     cmd(t, args)
                     envelope = t.connection.commandReadFile(signed)
-                    json.readTree(envelope).path("cborHex").asText().also { require(it.isNotBlank()) }
+                    json.readTree(envelope).path("cborHex").asString().also { require(it.isNotBlank()) }
                 } finally { cmd(t, listOf("rm", "-f", body, signed) + paths) }
             },
             submit = { signedHex ->
                 val path = "/tmp/jormanager-pool-submit-${UUID.randomUUID()}.signed"
                 try {
-                    check(json.readTree(envelope).path("cborHex").asText().equals(signedHex, ignoreCase = true))
+                    check(json.readTree(envelope).path("cborHex").asString().equals(signedHex, ignoreCase = true))
                     t.connection.commandWriteFile(path, envelope)
                     cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", path) + t.network +
                         listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket"))

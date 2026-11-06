@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.entities.AuthorizedOperation
 import com.swiftmako.jormanager.entities.AuthorizedOperationInput
 import com.swiftmako.jormanager.entities.Host
@@ -118,7 +118,7 @@ class ReviewedWalletOperations(
         val signed = try { decode(signedHex, record.era) } catch (_: Exception) {
             return Reconciliation(record, "The persisted signed batch is invalid; outcome remains unresolved")
         }
-        val unsignedHex = json.readTree(record.unsignedBody).path("cborHex").asText()
+        val unsignedHex = json.readTree(record.unsignedBody).path("cborHex").asString()
         val unsigned = try { decode(unsignedHex, record.era) } catch (_: Exception) {
             return Reconciliation(record, "The persisted reviewed body is invalid; outcome remains unresolved")
         }
@@ -254,8 +254,8 @@ class ReviewedWalletOperations(
         require(preview.requestPayload.isNotBlank()) { "Missing secret-free request payload" }
         val era = current(preview.host, preview.node, preview.operation)
         val bodyJson = json.readTree(preview.body.textEnvelope)
-        require(bodyJson.isObject && bodyJson.path("type").isTextual && bodyJson.path("type").asText().isNotBlank()) { "Invalid CLI transaction body envelope" }
-        val bodyHex = bodyJson.path("cborHex").takeIf { it.isTextual }?.asText() ?: throw IllegalArgumentException("Missing CLI body CBOR")
+        require(bodyJson.isObject && bodyJson.path("type").isString && bodyJson.path("type").asString().isNotBlank()) { "Invalid CLI transaction body envelope" }
+        val bodyHex = bodyJson.path("cborHex").takeIf { it.isString }?.asString() ?: throw IllegalArgumentException("Missing CLI body CBOR")
         require(bodyHex.isNotEmpty() && bodyHex.length % 2 == 0 && bodyHex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) { "Invalid CLI body CBOR" }
         val targetEra = requireNotNull(era.era) { "Target era unavailable" }
         val unsigned = decode(bodyHex, targetEra)

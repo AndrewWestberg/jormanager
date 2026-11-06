@@ -1,8 +1,8 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.AuthorizedOperation
@@ -68,9 +68,9 @@ class ReviewedPoolRegistrationController(
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun exact(value: JsonNode): JsonNode = when {
-        value.isObject -> json.createObjectNode().also { out -> value.fields().forEachRemaining { (k, v) -> out.set<JsonNode>(k, exact(v)) } }
+        value.isObject -> json.createObjectNode().also { out -> value.properties().forEach { (k, v) -> out.set(k, exact(v)) } }
         value.isArray -> json.createArrayNode().also { out -> value.forEach { out.add(exact(it)) } }
-        value.isNumber -> json.nodeFactory.textNode(value.asText())
+        value.isNumber -> json.nodeFactory.stringNode(value.asString())
         else -> value
     }
     private fun target(poolId: Long, observerId: Long? = null): Target {
@@ -80,9 +80,9 @@ class ReviewedPoolRegistrationController(
         require(eras.networkKey(pool) == eras.networkKey(observer)) { "Pool and observer are on different networks" }
         val host = requireNotNull(hosts.findByIdOrNull(observer.hostId)) { "Observer host not found" }
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(observer.genesisShelleyFileId)).content)
-        val network = when (genesis.path("networkId").asText().lowercase()) {
+        val network = when (genesis.path("networkId").asString().lowercase()) {
             "mainnet" -> listOf("--mainnet")
-            "testnet" -> listOf("--testnet-magic", genesis.path("networkMagic").asText().also { require(it.matches(Regex("[0-9]+"))) })
+            "testnet" -> listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
             else -> throw IllegalArgumentException("Network ID unavailable")
         }
         val magic = network.joinToString(" ")
@@ -112,19 +112,19 @@ class ReviewedPoolRegistrationController(
             require(it.prefix == "pool" && it.bytes.size == 28)
             it.bytes.toHexString()
         } else poolId.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
-        if (poolState.size() == 1) require(poolState.fieldNames().next().equals(poolHash, true)) { "Pool query returned a different target" }
+        if (poolState.size() == 1) require(poolState.propertyNames().first().equals(poolHash, true)) { "Pool query returned a different target" }
         if (t.pool.isDraft) require(poolState.isEmpty && action == "register") { "Draft pool is already registered or action is invalid" }
-        if (action != "register") require(poolState.size() == 1 && poolState.elements().next().path("deposit").isIntegralNumber) {
+        if (action != "register") require(poolState.size() == 1 && poolState.values().first().path("deposit").isIntegralNumber) {
             "Registered pool state unavailable"
         }
-        if (action == "register" && !t.pool.isDraft) require(poolState.size() == 1 && poolState.elements().next().path("deposit").isIntegralNumber) {
+        if (action == "register" && !t.pool.isDraft) require(poolState.size() == 1 && poolState.values().first().path("deposit").isIntegralNumber) {
             "Existing pool registration unavailable"
         }
         val currentEpoch = json.readTree(query(t, "tip")).path("epoch")
             .takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong()
             ?: throw IllegalStateException("Current epoch unavailable")
         if (action == "cancel") {
-            val retirement = poolState.elements().next().path("retiring")
+            val retirement = poolState.values().first().path("retiring")
             require(retirement.isIntegralNumber && retirement.canConvertToLong() && retirement.asLong() > currentEpoch) {
                 "Pool has no future scheduled retirement"
             }
@@ -153,15 +153,15 @@ class ReviewedPoolRegistrationController(
         return Observation(parameters, utxo, poolState, stakeStates, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
             digest("${e.networkKey}|${e.era}|${e.generation}|$op|${t.host.id}|${t.observer.id}")))
     }
-    private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asText().hexToByteArray())
+    private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     private fun result(record: AuthorizedOperation, requestId: String): Result {
         val p = json.readTree(record.requestPayload)
         return Result(requestId, record.previewId, record.txId, record.networkKey, record.era, p.path("nodeId").asLong(),
             record.nodeId, record.hostId, p.path("feePayerAccountId").asLong(), record.fee.toString(), record.deposit.toString(),
             record.refund.toString(), record.validFrom?.toString(), record.validUntil?.toString(), record.state,
-            p.path("poolState"), p.path("action").asText(), p.path("keyId").takeIf { it.isIntegralNumber }?.asLong(),
-            p.path("targetPublicKey").takeIf { it.isTextual }?.asText(), p.path("changes"), p.path("effects"),
+            p.path("poolState"), p.path("action").asString(), p.path("keyId").takeIf { it.isIntegralNumber }?.asLong(),
+            p.path("targetPublicKey").takeIf { it.isString }?.asString(), p.path("changes"), p.path("effects"),
             record.parameterFingerprint, record.stateFingerprint)
     }
     private fun ensureNoPending(t: Target, requestId: String) {
@@ -170,7 +170,7 @@ class ReviewedPoolRegistrationController(
         require(pending.none { (id, payload) ->
             val p = json.readTree(payload)
             id != requestId && (p.path("nodeId").asLong(-1) == t.pool.id ||
-                p.path("poolId").asText().isNotEmpty() && p.path("poolId").asText().equals(t.pool.poolId, true))
+                p.path("poolId").asString().isNotEmpty() && p.path("poolId").asString().equals(t.pool.poolId, true))
         }) {
             "A pool operation needs reconciliation before another authorization"
         }
@@ -191,7 +191,7 @@ class ReviewedPoolRegistrationController(
         if (existing != null) {
             val p = json.readTree(existing.requestPayload)
             check(p.path("nodeId").asLong() == input.nodeId && p.path("feePayerAccountId").asLong() == input.feePayerAccountId &&
-                p.path("action").asText() == input.action && p.path("keyId").takeIf { it.isIntegralNumber }?.asLong() == input.keyId &&
+                p.path("action").asString() == input.action && p.path("keyId").takeIf { it.isIntegralNumber }?.asLong() == input.keyId &&
                 p.path("changes") == (input.changes ?: json.nodeFactory.nullNode())) { "Request ID already used" }
             return result(existing, input.requestId)
         }
@@ -219,7 +219,7 @@ class ReviewedPoolRegistrationController(
             val registrationCerts = mutableListOf<String>()
             val delegationCerts = mutableListOf<String>()
             var stakeDeposit = BigInteger.ZERO
-            val stakeDepositPerAccount = json.readTree(beforeStake.parameters).path("stakeAddressDeposit").asText().toBigInteger()
+            val stakeDepositPerAccount = json.readTree(beforeStake.parameters).path("stakeAddressDeposit").asString().toBigInteger()
             stakeIds.forEach { accountId ->
                 val account = requireNotNull(wallets.findByIdOrNull(accountId))
                 if (requireNotNull(beforeStake.stakeStates[accountId]).isEmpty) {
@@ -286,16 +286,16 @@ class ReviewedPoolRegistrationController(
         require(input.approved && walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Approval and valid spending password required" }
         val record = operations.findByPreviewId(input.previewId) ?: throw IllegalArgumentException("Unknown preview")
         val p = json.readTree(record.requestPayload)
-        require(p.path("kind").asText() in setOf("pool.register", "pool.update")) { "Not a pool registration review" }
-        val payerId = p.path("feePayerAccountId").asLong(); val action = p.path("action").asText()
+        require(p.path("kind").asString() in setOf("pool.register", "pool.update")) { "Not a pool registration review" }
+        val payerId = p.path("feePayerAccountId").asLong(); val action = p.path("action").asString()
         val t = target(p.path("nodeId").asLong(), record.nodeId)
         ensureNoPending(t, record.id)
         var envelope = ""
         val saved = reviewed.submit(input.previewId, t.host, t.observer,
-            evidence = { observe(t, payerId, action, record.requestPayload, p.path("stakeAccountIds").map { it.asLong() }).evidence },
+            evidence = { observe(t, payerId, action, record.requestPayload, p.path("stakeAccountIds").values().map { it.asLong() }).evidence },
             sign = { operation ->
                 val payer = requireNotNull(wallets.findByIdOrNull(payerId))
-                val signingFiles = listOf(requireNotNull(payer.paymentSkey)) + p.path("signingFileIds").map {
+                val signingFiles = listOf(requireNotNull(payer.paymentSkey)) + p.path("signingFileIds").values().map {
                     requireNotNull(files.findByIdOrNull(it.asLong()))
                 }
                 val prefix = "/tmp/jormanager-pool-sign-${UUID.randomUUID()}"
@@ -309,13 +309,13 @@ class ReviewedPoolRegistrationController(
                     val args = mutableListOf(t.host.cardanoCliPath, t.era, "transaction", "sign", "--tx-body-file", body)
                     paths.forEach { args += listOf("--signing-key-file", it) }; args += t.network; args += listOf("--out-file", signed)
                     cmd(t, args); envelope = t.connection.commandReadFile(signed)
-                    json.readTree(envelope).path("cborHex").asText().also { require(it.isNotBlank()) }
+                    json.readTree(envelope).path("cborHex").asString().also { require(it.isNotBlank()) }
                 } finally { cmd(t, listOf("rm", "-f", body, signed) + paths) }
             },
             submit = { signedHex ->
                 val path = "/tmp/jormanager-pool-submit-${UUID.randomUUID()}.signed"
                 try {
-                    check(json.readTree(envelope).path("cborHex").asText().equals(signedHex, ignoreCase = true))
+                    check(json.readTree(envelope).path("cborHex").asString().equals(signedHex, ignoreCase = true))
                     t.connection.commandWriteFile(path, envelope)
                     cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", path) + t.network +
                         listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket"))

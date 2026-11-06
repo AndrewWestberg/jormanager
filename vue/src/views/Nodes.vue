@@ -9,9 +9,6 @@
         >
           +&nbsp;Node
         </BButton>
-        <BButton variant="outline-secondary" class="ms-2" @click="showConfigurationRestore = true">
-          Restore configuration backup
-        </BButton>
         <BButton
           v-if="hasCoreNodes"
           variant="outline-success"
@@ -22,10 +19,6 @@
           🗳️ Vote
         </BButton>
       </div>
-      <p v-if="nodes.some(node => (node as any).configurationBundleId)" class="small text-warning mt-2">
-        Bundle selections below identify the stored configuration, not the remote upgrade, synchronization or voting state.
-        Use the new-node wizard to review a replacement on a different bundle; the original node remains unchanged. A new reset requires a clean database and replay; catalog refresh does not reconfigure nodes.
-      </p>
       <hr />
       <div>
         <BTable
@@ -64,10 +57,6 @@
             <div v-if="isDraftNode((item as any).id)" class="small text-warning">
               Draft: deployment and startup are not established. Registration is tracked separately.
             </div>
-            <div v-if="nodeBundle((item as any).id)" class="small text-muted">
-              Bundle: {{ nodeBundle((item as any).id)?.configurationBundleId }}<br />
-              Reset: {{ nodeBundle((item as any).id)?.configurationResetId }}
-            </div>
           </template>
           <template #cell(type)="{ value }">
             <div
@@ -90,26 +79,6 @@
               v-b-tooltip.hover.right="{ title: 'Pool Node', variant: 'primary' }"
             >
               <font-awesome-icon :icon="['fas', 'dice-d20']" />
-            </div>
-          </template>
-          <template #cell(networkIndex)="{ item }">
-            <div class="small">
-              <strong>JorManager network index</strong>
-              <div v-if="isDraftNode((item as any).id)">Draft network only; not a running-process observation.</div>
-              <template v-if="store.nodeIndexStatus[(item as any).id]?.readState">
-                <div>Network: {{ store.nodeIndexStatus[(item as any).id]?.readState?.networkKey }}</div>
-                <div>Status: {{ store.nodeIndexStatus[(item as any).id]?.readState?.status }}</div>
-                <div>Reason: {{ store.nodeIndexStatus[(item as any).id]?.readState?.reason ?? 'not reported' }}</div>
-                <div>Observed tip: {{ indexPoint(store.nodeIndexStatus[(item as any).id]?.readState?.observedTip) }}</div>
-                <div>Last complete: {{ indexPoint(store.nodeIndexStatus[(item as any).id]?.readState?.lastCompletePoint) }}</div>
-                <div v-if="store.nodeIndexStatus[(item as any).id]?.replay">
-                  Recovery at last inspection: {{ store.nodeIndexStatus[(item as any).id]?.replay?.recovery }}
-                </div>
-              </template>
-              <div v-else-if="store.nodeIndexStatus[(item as any).id]?.error" class="text-warning">
-                Unavailable: {{ store.nodeIndexStatus[(item as any).id]?.error }}
-              </div>
-              <div v-else class="text-warning">{{ store.connected ? 'Awaiting index status' : 'Index status unavailable while disconnected' }}</div>
             </div>
           </template>
           <template #cell(kesExpireTimeSec)="{ item, value }">
@@ -232,21 +201,6 @@
       <BButton class="mt-2" variant="secondary" :disabled="deploymentBusy" @click="showDraftDeployment = false">Close</BButton>
     </BModal>
 
-    <BModal v-model="showConfigurationRestore" title="Restore configuration backup" hide-footer
-      :no-close-on-backdrop="true" :no-close-on-esc="configurationRestoreBusy"
-      :hide-header-close="configurationRestoreBusy" @hidden="clearConfigurationRestore">
-      <p>Restores validated configuration bundles and snapshots only for matching existing nodes. It does not create nodes, change their remote files, start services, or restore wallet keys.</p>
-      <label for="configuration-backup">Backup ZIP</label>
-      <input id="configuration-backup" ref="configurationBackupInput" type="file" accept=".zip,application/zip"
-        class="form-control mb-2" :disabled="configurationRestoreBusy" @change="selectConfigurationBackup">
-      <BFormGroup label="Spending password">
-        <BFormInput v-model="configurationRestorePassword" type="password" autocomplete="current-password" :disabled="configurationRestoreBusy" />
-      </BFormGroup>
-      <p v-if="configurationRestoreError" class="text-danger">{{ configurationRestoreError }}</p>
-      <p v-if="configurationRestoreResult">Restored {{ configurationRestoreResult.bundles }} bundles and {{ configurationRestoreResult.snapshots }} snapshots. Node operation and synchronization are not implied.</p>
-      <BButton variant="primary" :disabled="configurationRestoreBusy || !store.connected || !configurationBackup || !configurationRestorePassword" @click="restoreConfiguration">Restore matching configuration records</BButton>
-      <BButton class="ms-2" variant="secondary" :disabled="configurationRestoreBusy" @click="showConfigurationRestore = false">Close</BButton>
-    </BModal>
 
 
     
@@ -829,80 +783,6 @@ async function installDraftDeployment() {
   }
 }
 
-const showConfigurationRestore = ref(false)
-const configurationBackup = ref<File | null>(null)
-const configurationBackupInput = ref<HTMLInputElement | null>(null)
-const configurationRestorePassword = ref('')
-const configurationRestoreBusy = ref(false)
-const configurationRestoreError = ref('')
-const configurationRestoreResult = ref<{ bundles: number; snapshots: number } | null>(null)
-
-function selectConfigurationBackup(event: Event) {
-  configurationBackup.value = (event.target as HTMLInputElement).files?.[0] ?? null
-  configurationRestoreResult.value = null
-  configurationRestoreError.value = ''
-}
-
-function clearConfigurationRestore() {
-  configurationBackup.value = null
-  configurationRestorePassword.value = ''
-  configurationRestoreResult.value = null
-  configurationRestoreError.value = ''
-  if (configurationBackupInput.value) configurationBackupInput.value.value = ''
-}
-
-async function restoreConfiguration() {
-  const file = configurationBackup.value
-  if (!file || !configurationRestorePassword.value || configurationRestoreBusy.value || !store.connected) return
-  if (file.size === 0 || file.size > 64 * 1024 * 1024) {
-    configurationRestoreError.value = 'The backup must be a nonempty ZIP no larger than 64 MiB.'
-    return
-  }
-  configurationRestoreBusy.value = true
-  configurationRestoreError.value = ''
-  configurationRestoreResult.value = null
-  try {
-    const encoded = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result.split(',', 2)[1] || '') : reject(new Error('Unable to read backup'))
-      reader.onerror = () => reject(new Error('Unable to read backup'))
-      reader.readAsDataURL(file)
-    })
-    if (!encoded || !store.connected || !configurationRestoreBusy.value || !configurationRestorePassword.value) throw new Error('Backup could not be sent; reconnect and retry.')
-    const password = configurationRestorePassword.value
-    configurationRestorePassword.value = ''
-    store.leiosResponses = { ...store.leiosResponses, network_configuration_restore: {} }
-    store.sendMessage('/jormanager/network_configuration_restore', { backupBase64: encoded, spendingPassword: password })
-  } catch (error) {
-    configurationRestorePassword.value = ''
-    configurationRestoreError.value = error instanceof Error ? error.message : String(error)
-    configurationRestoreBusy.value = false
-  }
-}
-
-watch(() => store.leiosResponses.network_configuration_restore, response => {
-  if (!configurationRestoreBusy.value || !response) return
-  const result = response.data as { bundles?: number; snapshots?: number } | undefined
-  if (result && typeof result.bundles === 'number' && typeof result.snapshots === 'number') {
-    configurationRestoreResult.value = { bundles: result.bundles, snapshots: result.snapshots }
-    configurationBackup.value = null
-    if (configurationBackupInput.value) configurationBackupInput.value.value = ''
-    configurationRestoreBusy.value = false
-    store.requestNetworkBundleOptions()
-    store.requestNodes()
-  } else if (response.exception) {
-    configurationRestoreError.value = response.exception.message
-    configurationRestoreBusy.value = false
-  }
-})
-
-watch(() => store.connected, connected => {
-  if (!connected && configurationRestoreBusy.value) {
-    configurationRestorePassword.value = ''
-    configurationRestoreBusy.value = false
-    configurationRestoreError.value = 'Connection lost; restore outcome is unknown. Refresh configuration records before retrying.'
-  }
-})
 
 
 // Select options
@@ -923,14 +803,9 @@ const fields = [
   { key: 'name', sortable: true },
   { key: 'type', label: '', sortable: true },
   { key: 'host', sortable: true },
-  { key: 'networkIndex', label: 'Network index' },
   { key: 'kesExpireTimeSec', label: 'KES Expiry' },
   { key: 'edit', label: '' }
 ]
-
-function indexPoint(point: { slot: string; hash: string } | null | undefined): string {
-  return point ? `slot ${point.slot}, hash ${point.hash}` : 'unavailable'
-}
 
 function formatKesExpiry(timestamp: number): string {
   const date = moment.unix(timestamp)
@@ -941,12 +816,6 @@ function isDraftNode(nodeId: number) {
   return !!(nodes.value.find(node => node.id === nodeId) as { isDraft?: boolean } | undefined)?.isDraft
 }
 
-function nodeBundle(nodeId: number) {
-  const node = nodes.value.find(node => node.id === nodeId) as
-    | (typeof nodes.value[number] & { configurationBundleId?: string | null; configurationResetId?: string | null })
-    | undefined
-  return node?.configurationBundleId ? node : null
-}
 
 function openColorModal(nodeId: number, currentColor: string) {
   editColorForm.value = { nodeId, color: currentColor }

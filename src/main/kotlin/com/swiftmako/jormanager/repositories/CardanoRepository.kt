@@ -1,6 +1,5 @@
 package com.swiftmako.jormanager.repositories
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.Host
@@ -23,8 +22,6 @@ class CardanoRepository(
     private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
     private val configAdapter: JsonAdapter<Config>,
     private val fileRepository: FileRepository,
-    private val bundles: NetworkConfigurationBundleRepository,
-    private val json: ObjectMapper,
     private val jdbc: JdbcTemplate,
     private val transactions: TransactionTemplate,
 ) {
@@ -70,24 +67,11 @@ class CardanoRepository(
             genesis.systemStart.isNotBlank() && genesis.networkMagic != null) { "Incomplete network identity" }
         val hashes = listOf(byronHash, parsed.shelleyGenesisHash, parsed.alonzoGenesisHash, parsed.conwayGenesisHash, parsed.dijkstraGenesisHash)
         require(hashes.filterNotNull().all { it.matches(Regex("[0-9a-fA-F]{64}")) }) { "Invalid genesis identity" }
-        val reset = node.configurationResetId
-        val bundleId = node.configurationBundleId
-        if (bundleId != null) {
-            require(reset != null && node.genesisDijkstraFileId != null && hashes.all { it != null }) { "Incomplete selected network reset" }
-            val bundle = requireNotNull(bundles.findByIdOrNull(bundleId)) { "Selected configuration bundle unavailable" }
-            require(bundle.validationState == "validated" && bundle.resetId == reset &&
-                bundle.networkMagic == genesis.networkMagic.toLong()) { "Selected configuration reset mismatch" }
-            val manifestHashes = json.readTree(bundle.manifest).path("payload").path("identity").path("genesisHashes")
-            val names = listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "dijkstra-genesis.json")
-            require(names.zip(hashes).all { (name, hash) -> manifestHashes.path(name).asText().equals(hash, ignoreCase = true) }) {
-                "Selected genesis identities do not match configuration reset"
-            }
-        } else {
-            require(reset == null) { "Configuration reset has no selected bundle" }
-        }
         val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        return listOf(genesis.networkMagic.toString(), genesis.systemStart, digest, parsed.requiresNetworkMagic!!, reset ?: "-", *hashes.map { it?.lowercase() ?: "-" }.toTypedArray()).joinToString(":")
+        // Preserve existing persisted network keys; new networks use the reserved empty slot.
+        return listOf(genesis.networkMagic.toString(), genesis.systemStart, digest, parsed.requiresNetworkMagic!!,
+            node.networkKeyDiscriminator ?: "-", *hashes.map { it?.lowercase() ?: "-" }.toTypedArray()).joinToString(":")
     }
 
     private fun context(host: Host, node: Node): String {

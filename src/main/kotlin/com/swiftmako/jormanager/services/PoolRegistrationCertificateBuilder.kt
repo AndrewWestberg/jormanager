@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
@@ -52,7 +52,7 @@ class PoolRegistrationCertificateBuilder(
         require(walletUtils.isValidSpendingPassword(password))
         require(host.id == observer.hostId && eras.networkKey(pool) == eras.networkKey(observer))
         if (changes != null && !changes.isNull) {
-            require(changes.isObject && changes.fieldNames().asSequence().all { it in setOf("pledge", "cost", "margin", "relays", "metadata", "ownerAccountIds", "rewardAccountId") })
+            require(changes.isObject && changes.propertyNames().all { it in setOf("pledge", "cost", "margin", "relays", "metadata", "ownerAccountIds", "rewardAccountId") })
         }
         val connection = HostConnection(host, observer)
         val cleanup = mutableListOf<String>()
@@ -63,12 +63,12 @@ class PoolRegistrationCertificateBuilder(
             return path
         }
         fun command(vararg args: String) = connection.commandArgs(listOf(host.cardanoCliPath, era) + args).trim()
-        fun number(value: JsonNode): String = value.asText().also { require(it.matches(decimal)) { "Invalid pool amount" } }
+        fun number(value: JsonNode): String = value.asString().also { require(it.matches(decimal)) { "Invalid pool amount" } }
         fun value(name: String, fallback: JsonNode): JsonNode = changes?.get(name) ?: fallback
         try {
             require(poolState.isObject && poolState.size() <= 1)
             val registered = poolState.size() == 1
-            val entry = if (registered) poolState.elements().next() else null
+            val entry = if (registered) poolState.values().first() else null
             val futureValue = entry?.path("futureStakePoolParams")
             require(futureValue == null || futureValue.isNull || futureValue.isObject) { "Invalid future pool parameters" }
             val future = futureValue?.takeIf { it.isObject }
@@ -83,7 +83,7 @@ class PoolRegistrationCertificateBuilder(
             val ownerChanges = changes?.get("ownerAccountIds")
             val ownerIds = if (ownerChanges != null) {
                 require(ownerChanges.isArray && ownerChanges.size() > 0 && ownerChanges.all { it.isIntegralNumber && it.canConvertToLong() && it.asLong() > 0 })
-                ownerChanges.map { it.asLong() }.also { require(it.distinct().size == it.size) }
+                ownerChanges.values().map { it.asLong() }.also { require(it.distinct().size == it.size) }
             } else listOf(pool.ownerStakingAccountId)
             val rewardChange = changes?.get("rewardAccountId")
             val rewardId = if (rewardChange != null) {
@@ -99,7 +99,7 @@ class PoolRegistrationCertificateBuilder(
             val expectedPool = requireNotNull(pool.poolId).let { if (it.startsWith("pool1")) Bech32.decode(it).bytes.toHexString() else it.lowercase() }
             val actualPool = command("stake-pool", "id", "--cold-verification-key-file", cold, "--output-hex")
             require(actualPool.equals(expectedPool, true)) { "Cold key does not match the target pool" }
-            if (future != null) require(future.path("poolId").asText().equals(expectedPool, true)) {
+            if (future != null) require(future.path("poolId").asString().equals(expectedPool, true)) {
                 "Scheduled parameters belong to a different pool"
             }
             val ownerHash = command("stake-address", "key-hash", "--stake-verification-key-file", ownerV)
@@ -115,11 +115,11 @@ class PoolRegistrationCertificateBuilder(
                 ownerSigningIds.add(requireNotNull(account.stakingSkey?.id))
             }
             if (registered) {
-                require(field("vrf").asText().equals(vrfHash, true)) { "Scheduled VRF key differs from local key" }
+                require(field("vrf").asString().equals(vrfHash, true)) { "Scheduled VRF key differs from local key" }
                 if (ownerChanges == null) {
                     val owners = field("owners")
                     require(owners.isArray && owners.size() > 0)
-                    val needed = owners.map { it.asText().lowercase() }.toMutableSet()
+                    val needed = owners.values().map { it.asString().lowercase() }.toMutableSet()
                     require(needed.all { it.matches(hex28) } && needed.remove(ownerHash.lowercase())) { "Scheduled owners differ from local pool owner" }
                     wallets.findAllNotDeleted().filter { it.id != owner.id && it.stakingVkey != null && it.stakingSkey != null }.forEach { candidate ->
                         if (needed.isNotEmpty()) {
@@ -137,7 +137,7 @@ class PoolRegistrationCertificateBuilder(
                 val rewardState = field(if (future != null) "accountAddress" else "accountId")
                 val rewardCredential = if (rewardState.has("credential")) rewardState.path("credential") else rewardState
                 val rewardKeyHash = rewardCredential.path("keyHash").takeUnless { it.isMissingNode } ?: rewardCredential.path("key hash")
-                if (rewardChange == null) require(rewardKeyHash.asText().equals(rewardHash, true)) { "Scheduled reward credential differs" }
+                if (rewardChange == null) require(rewardKeyHash.asString().equals(rewardHash, true)) { "Scheduled reward credential differs" }
             }
             val pledge = number(value("pledge", if (registered) field("pledge") else draft!!.path("poolPledge")))
             val cost = number(value("cost", if (registered) field("cost") else draft!!.path("poolCost")))
@@ -147,7 +147,7 @@ class PoolRegistrationCertificateBuilder(
             val margin = when {
                 marginNode.isObject -> "${number(marginNode.path("numerator"))}/${number(marginNode.path("denominator"))}"
                 marginNode.isNumber -> marginNode.decimalValue().toPlainString()
-                else -> marginNode.asText()
+                else -> marginNode.asString()
             }
             require(margin.matches(Regex("(?:0|1|0\\.[0-9]+|1\\.0+|[0-9]+/[1-9][0-9]*)"))) { "Invalid pool margin" }
             val command = mutableListOf(host.cardanoCliPath, era, "stake-pool", "registration-certificate", "--cold-verification-key-file", cold,
@@ -161,7 +161,7 @@ class PoolRegistrationCertificateBuilder(
                 val key = requireNotNull(keys.findByIdOrNull(keyId))
                 require(key.networkKey == eras.networkKey(pool) && key.poolId == pool.poolId && key.signingFileId != null)
                 key.publicKey.toHexString()
-            } else blsState?.path("blsPubKey")?.takeIf { it.isTextual }?.asText()
+            } else blsState?.path("blsPubKey")?.takeIf { it.isString }?.asString()
             var expectedProof: String? = null
             if (era == "dijkstra") {
                 require(!desiredPublic.isNullOrBlank()) { "Scheduled voting key unavailable" }
@@ -170,7 +170,7 @@ class PoolRegistrationCertificateBuilder(
                         ?: throw IllegalStateException("Signing material for the scheduled voting key is unavailable")
                 val secret = walletUtils.getSKeyContent(requireNotNull(files.findByIdOrNull(requireNotNull(key.signingFileId))), password)
                 expectedProof = key.proof.toHexString()
-                if (keyId == null) require(blsState?.path("blsPossessionProof")?.asText()?.equals(expectedProof, true) == true) { "Scheduled voting proof differs" }
+                if (keyId == null) require(blsState?.path("blsPossessionProof")?.asString()?.equals(expectedProof, true) == true) { "Scheduled voting proof differs" }
                 command += listOf("--bls-signing-key-file", file("bls.skey", secret, true))
             }
             val relays = value("relays", if (registered) field("relays") else draft!!.path("relays"))
@@ -181,14 +181,14 @@ class PoolRegistrationCertificateBuilder(
                 val multi = relay.path("multi host name")
                 when {
                     address.isObject -> {
-                        if (address.path("IPv4").isTextual) command += listOf("--pool-relay-ipv4", address.path("IPv4").asText())
-                        if (address.path("IPv6").isTextual) command += listOf("--pool-relay-ipv6", address.path("IPv6").asText())
+                        if (address.path("IPv4").isString) command += listOf("--pool-relay-ipv4", address.path("IPv4").asString())
+                        if (address.path("IPv6").isString) command += listOf("--pool-relay-ipv6", address.path("IPv6").asString())
                         command += listOf("--pool-relay-port", number(address.path("port")))
                     }
-                    single.isObject -> command += listOf("--single-host-pool-relay", single.path("dnsName").asText(), "--pool-relay-port", number(single.path("port")))
-                    multi.isObject -> command += listOf("--multi-host-pool-relay", multi.path("dnsName").asText())
-                    !registered && relay.path("addr").isTextual -> {
-                        val addr = relay.path("addr").asText()
+                    single.isObject -> command += listOf("--single-host-pool-relay", single.path("dnsName").asString(), "--pool-relay-port", number(single.path("port")))
+                    multi.isObject -> command += listOf("--multi-host-pool-relay", multi.path("dnsName").asString())
+                    !registered && relay.path("addr").isString -> {
+                        val addr = relay.path("addr").asString()
                         command += listOf(if (addr.matches(Regex("[0-9.]+"))) "--pool-relay-ipv4" else "--single-host-pool-relay", addr, "--pool-relay-port", number(relay.path("port")))
                     }
                     else -> throw IllegalArgumentException("Unsupported pool relay")
@@ -197,9 +197,9 @@ class PoolRegistrationCertificateBuilder(
             val metadata = value("metadata", if (registered) field("metadata") else json.nodeFactory.nullNode())
             if (!registered && draft!!.path("metadata").isObject) require(!metadata.isNull && !metadata.isMissingNode) { "Published draft metadata is required" }
             if (!metadata.isNull && !metadata.isMissingNode) {
-                require(metadata.isObject && metadata.fieldNames().asSequence().toSet() == setOf("url", "hash"))
-                val url = metadata.path("url").asText()
-                val hash = metadata.path("hash").asText().lowercase()
+                require(metadata.isObject && metadata.propertyNames().toSet() == setOf("url", "hash"))
+                val url = metadata.path("url").asString()
+                val hash = metadata.path("hash").asString().lowercase()
                 require(hash.matches(Regex("[0-9a-f]{64}")))
                 val uri = URI(url)
                 if (!registered || changes?.has("metadata") == true) {
@@ -222,7 +222,7 @@ class PoolRegistrationCertificateBuilder(
             cleanup.add(cert)
             connection.commandArgs(command + networkArgs + listOf("--out-file", cert))
             if (era == "dijkstra") {
-                val certHex = json.readTree(connection.commandArgs(listOf("cat", cert))).path("cborHex").asText()
+                val certHex = json.readTree(connection.commandArgs(listOf("cat", cert))).path("cborHex").asString()
                 require(certHex.matches(Regex("[0-9a-fA-F]+")) && certHex.length % 2 == 0)
                 val parts = CborSpans.parse(certHex.hexToByteArray()).array()
                 require(parts.size == 11 && parts[0].integer() == BigInteger.valueOf(3))

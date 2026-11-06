@@ -23,6 +23,8 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
+import java.util.Locale
+import kotlin.math.floor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -58,6 +60,7 @@ class ChainSyncProtocol(
 ) : MiniProtocol(protocolId = 0x0002.toShort()),
     CoroutineScope {
     private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
+    private var nextLogTime = Long.MIN_VALUE
 
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext =
@@ -216,6 +219,7 @@ class ChainSyncProtocol(
                                                 eras.trySend(era)
                                             }
                                             active.coordinator.observeTip(active.networkKey, ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash), active.generation)
+                                            active.tipBlockNumber = msgRollForward.chainTip.block
                                             if (active.defaultNetwork && era != 0) saveHeader(msgRollForward)
                                             active.enqueue(ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash))
                                         }
@@ -231,6 +235,7 @@ class ChainSyncProtocol(
                                         active.release()
                                         if (active.defaultNetwork) rollbackHeaders(point)
                                         val tip = cborArray.elementAt(2) as CborArray
+                                        active.tipBlockNumber = tip.elementToLong(1)
                                         parsePoint(tip.elementAt(0) as CborArray)?.let {
                                             active.coordinator.observeTip(active.networkKey, it, active.generation)
                                         }
@@ -264,6 +269,7 @@ class ChainSyncProtocol(
                                             if (active.defaultNetwork) rollbackHeaders(point)
                                         }
                                         val tip = cborArray.elementAt(2) as CborArray
+                                        active.tipBlockNumber = tip.elementToLong(1)
                                         parsePoint(tip.elementAt(0) as CborArray)?.let {
                                             active.coordinator.observeTip(active.networkKey, it, active.generation)
                                         }
@@ -304,6 +310,7 @@ class ChainSyncProtocol(
     }
 
     private fun saveHeader(msg: MsgRollForward) {
+        val producer = nodeVKeyToPoolId(msg.nodeVKey)
         transaction {
             chainRepository.deleteByBlockNumberAndAbove(msg.blockNumber)
             val previous = chainRepository.findByBlockNumber(msg.blockNumber - 1)?.etaV?.hexToByteArray() ?: shelleyGenesisHash
@@ -311,9 +318,21 @@ class ChainSyncProtocol(
             chainRepository.save(ChainBlock(
                 blockNumber = msg.blockNumber, slotNumber = msg.slotNumber, hash = msg.hash,
                 prevHash = msg.prevHash, etaV = SodiumLibrary.cryptoBlake2bHash(previous + eta, null).toHexString(),
-                poolId = nodeVKeyToPoolId(msg.nodeVKey), leaderVrf = msg.leaderVrf,
+                poolId = producer, leaderVrf = msg.leaderVrf,
             ))
         }
+        logSavedBlock(msg, producer)
+    }
+
+    internal fun logSavedBlock(msg: MsgRollForward, producer: String, now: Long = System.nanoTime()) {
+        if (!log.isInfoEnabled) return
+        val periodic = now >= nextLogTime
+        val isTip = msg.hash == msg.chainTip.hash || msg.blockNumber >= msg.chainTip.block
+        if (!periodic && !isTip) return
+        if (periodic) nextLogTime = now + 10_000_000_000L
+        val tip = maxOf(msg.blockNumber, msg.chainTip.block)
+        val percent = if (tip == 0L) 100.0 else floor(msg.blockNumber.toDouble() / tip * 10000.0) / 100.0
+        log.info("ChainSync: Saved block: ${msg.blockNumber} of $tip, %.2f%% synced, poolId: ${producer.take(9)}...".format(Locale.ROOT, percent))
     }
 
     private fun initBlockReceiveHandler() {

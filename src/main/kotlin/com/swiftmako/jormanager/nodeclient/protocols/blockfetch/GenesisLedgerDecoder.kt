@@ -1,9 +1,9 @@
 package com.swiftmako.jormanager.nodeclient.protocols.blockfetch
 
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.core.StreamReadFeature
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.json.JsonMapper
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.utils.Blake2b
@@ -18,7 +18,7 @@ data class DecodedGenesisOutput(val txId: ByteArray, val address: ByteArray, val
 
 /** Pure derivation; caller decides whether Shelley test-network injection actually applies. */
 object GenesisLedgerDecoder {
-    private val mapper = ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+    private val mapper = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build()
     private val maxCoin = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
 
     /** Byron genesis identity hashes canonical JSON rather than the original file bytes. */
@@ -45,11 +45,11 @@ object GenesisLedgerDecoder {
         Blake2b.hash256(byronCanonical(root).toByteArray(Charsets.UTF_8))
 
     private fun byronCanonical(node: JsonNode): String = when {
-        node.isObject -> node.fieldNames().asSequence().toList().sorted().joinToString(",", "{", "}") { key -> byronString(key) + ":" + byronCanonical(node[key]) }
-        node.isArray -> node.elements().asSequence().joinToString(",", "[", "]") { byronCanonical(it) }
-        node.isTextual -> byronString(node.asText())
+        node.isObject -> node.propertyNames().sorted().joinToString(",", "{", "}") { key -> byronString(key) + ":" + byronCanonical(node[key]) }
+        node.isArray -> node.values().joinToString(",", "[", "]") { byronCanonical(it) }
+        node.isString -> byronString(node.asString())
         node.isIntegralNumber -> node.bigIntegerValue().toString()
-        node.isBoolean -> node.asText()
+        node.isBoolean -> node.asString()
         node.isNull -> "null"
         else -> throw IllegalArgumentException("Unsupported Byron canonical JSON value")
     }
@@ -60,8 +60,22 @@ object GenesisLedgerDecoder {
 
     fun shelley(json: String): List<DecodedGenesisOutput> {
         val root = mapper.readTree(json)
-        val funds = root.path("initialFunds"); require(funds.isObject)
-        return collect(funds) { key ->
+        val legacy = root.path("initialFunds"); require(legacy.isObject) { "Invalid Shelley initialFunds" }
+        val extra = root.path("extraConfig")
+        require(extra.isMissingNode || extra.isNull || extra.isObject) { "Invalid Shelley extraConfig" }
+        val injection = extra.path("initialFunds")
+        require(injection.isMissingNode || injection.isNull || injection.isObject) { "Invalid Shelley initialFunds injection" }
+        val file = injection.path("file")
+        val data = injection.path("data")
+        val hasFile = !file.isMissingNode && !file.isNull
+        val hasData = !data.isMissingNode && !data.isNull
+        require(!(hasFile && hasData)) { "Shelley initialFunds injection specifies both file and data" }
+        require(!hasFile) { "Shelley initialFunds file injection is unsupported" }
+        if (hasData) {
+            require(data.isObject) { "Invalid Shelley initialFunds injection data" }
+            require(legacy.isEmpty) { "Conflicting Shelley initialFunds sources" }
+        }
+        return collect(if (hasData) data else legacy) { key ->
             require(key.isNotEmpty() && key.length % 2 == 0 && key.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
             key.hexToByteArray()
         }
@@ -100,9 +114,9 @@ object GenesisLedgerDecoder {
     }
 
     private fun collect(node: JsonNode, decode: (String) -> ByteArray): List<DecodedGenesisOutput> =
-        node.fields().asSequence().map { (key, value) ->
-            require(value.isTextual || value.isIntegralNumber)
-            val amount = value.asText().toBigInteger(); require(amount.signum() >= 0 && amount <= maxCoin)
+        node.properties().asSequence().map { (key, value) ->
+            require(value.isString || value.isIntegralNumber)
+            val amount = value.asString().toBigInteger(); require(amount.signum() >= 0 && amount <= maxCoin)
             val address = decode(key)
             DecodedGenesisOutput(Blake2b.hash256(address), address, amount)
         }.toList()
