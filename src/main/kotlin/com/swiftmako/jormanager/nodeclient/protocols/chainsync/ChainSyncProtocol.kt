@@ -32,6 +32,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -73,11 +75,16 @@ class ChainSyncProtocol(
 
     override val rxBufferSize: Int = 64 * 1024
 
+    @Volatile
     private var state = State.Idle
         set(value) {
             field = value
             _agencyFlow.tryEmit(agency)
         }
+
+    @Volatile private var pendingUpdate: (() -> Unit)? = null
+    private var lastPersistedTip: Pair<Long, ChainPoint>? = null
+    private val stateLock = Any()
 
     private val _agencyFlow = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = _agencyFlow
@@ -137,15 +144,30 @@ class ChainSyncProtocol(
     }
 
     override fun shutdown() {
-        state = State.Done
+        synchronized(stateLock) {
+            state = State.Done
+            pendingUpdate = null
+        }
         eras.close()
         job.cancelChildren()
     }
 
-    override suspend fun sendData(): ByteBuffer =
-        when (state) {
-            State.Idle -> {
-                if (isIntersectFound) session?.reserve()
+    override suspend fun sendData(): ByteBuffer {
+        currentCoroutineContext().ensureActive()
+        val update = synchronized(stateLock) {
+            check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+            pendingUpdate.also { pendingUpdate = null }
+        }
+        update?.invoke()
+        currentCoroutineContext().ensureActive()
+        check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+
+        val reserved = isIntersectFound && session != null
+        if (reserved) session!!.reserve()
+        try {
+            currentCoroutineContext().ensureActive()
+            synchronized(stateLock) {
+                check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
                 val payload = muxByteBufferPool.borrow()
                 state =
                     if (isIntersectFound) {
@@ -164,11 +186,13 @@ class ChainSyncProtocol(
                         _tipToIntersect = null
                         State.Intersect
                     }
-                payload.flip()
+                return payload.flip()
             }
-
-            else -> throw IllegalStateException("We should not call sendData() when we're in a $state state!")
+        } catch (e: Throwable) {
+            if (reserved) session!!.release()
+            throw e
         }
+    }
 
     override fun receiveData(payload: ByteBuffer) {
         when (state) {
@@ -214,39 +238,51 @@ class ChainSyncProtocol(
                                             }
                                         } else {
                                             val active = requireNotNull(session)
-                                            if (lastObservedEra != era) {
-                                                lastObservedEra = era
-                                                eras.trySend(era)
+                                            val tip = ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash)
+                                            val point = ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash)
+                                            publishUpdate {
+                                                if (lastObservedEra != era) {
+                                                    lastObservedEra = era
+                                                    eras.trySend(era)
+                                                }
+                                                observeTip(active, tip, force = false)
+                                                active.tipBlockNumber = msgRollForward.chainTip.block
+                                                if (active.defaultNetwork && era != 0) saveHeader(msgRollForward)
+                                                active.enqueue(point)
                                             }
-                                            active.coordinator.observeTip(active.networkKey, ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash), active.generation)
-                                            active.tipBlockNumber = msgRollForward.chainTip.block
-                                            if (active.defaultNetwork && era != 0) saveHeader(msgRollForward)
-                                            active.enqueue(ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash))
                                         }
                                     }
-                                    state = State.Idle
+                                    if (isPooltool) state = State.Idle
                                 }
 
                                 MsgRollBackward.MESSAGE_ID -> {
                                     log.info("MsgRollBackward: ${cborArray.toCborByteArray().toHexString()}")
-                                    session?.let { active ->
+                                    if (session != null) {
+                                        val active = session
                                         val point = parsePoint(cborArray.elementAt(1) as CborArray)
-                                        active.rollback(point)
-                                        active.release()
-                                        if (active.defaultNetwork) rollbackHeaders(point)
                                         val tip = cborArray.elementAt(2) as CborArray
-                                        active.tipBlockNumber = tip.elementToLong(1)
-                                        parsePoint(tip.elementAt(0) as CborArray)?.let {
-                                            active.coordinator.observeTip(active.networkKey, it, active.generation)
+                                        val tipHeight = tip.elementToLong(1)
+                                        val tipPoint = parsePoint(tip.elementAt(0) as CborArray)
+                                        publishUpdate {
+                                            active.rollback(point)
+                                            active.release()
+                                            if (active.defaultNetwork) rollbackHeaders(point)
+                                            active.tipBlockNumber = tipHeight
+                                            observeTip(active, tipPoint, force = true)
                                         }
+                                    } else {
+                                        state = State.Idle
                                     }
-                                    state = State.Idle
                                 }
 
                                 MsgAwaitReply.MESSAGE_ID -> {
                                     log.trace("MsgAwaitReply: ${cborArray.toCborByteArray().toHexString()}")
-                                    state = State.MustReply
+                                    synchronized(stateLock) {
+                                        check(state == State.CanAwait) { "Unexpected MsgAwaitReply in $state" }
+                                        state = State.MustReply
+                                    }
                                 }
+                                else -> throw IllegalStateException("Unexpected chain sync message $messageId in $state")
                             }
                         }
                     }
@@ -262,20 +298,25 @@ class ChainSyncProtocol(
                             when (messageId) {
                                 MsgIntersectFound.MESSAGE_ID -> {
                                     log.info("MsgIntersectFound: ${cborArray.toCborByteArray().toHexString()}")
-                                    session?.let { active ->
+                                    if (session != null) {
+                                        val active = session
                                         val point = parsePoint(cborArray.elementAt(1) as CborArray)
-                                        if (point != intersectionPoints.firstOrNull()) {
-                                            active.rollback(point)
-                                            if (active.defaultNetwork) rollbackHeaders(point)
-                                        }
                                         val tip = cborArray.elementAt(2) as CborArray
-                                        active.tipBlockNumber = tip.elementToLong(1)
-                                        parsePoint(tip.elementAt(0) as CborArray)?.let {
-                                            active.coordinator.observeTip(active.networkKey, it, active.generation)
+                                        val tipHeight = tip.elementToLong(1)
+                                        val tipPoint = parsePoint(tip.elementAt(0) as CborArray)
+                                        publishUpdate {
+                                            if (point != intersectionPoints.firstOrNull()) {
+                                                active.rollback(point)
+                                                if (active.defaultNetwork) rollbackHeaders(point)
+                                            }
+                                            active.tipBlockNumber = tipHeight
+                                            observeTip(active, tipPoint, force = true)
+                                            isIntersectFound = true
                                         }
+                                    } else {
+                                        isIntersectFound = true
+                                        state = State.Idle
                                     }
-                                    isIntersectFound = true
-                                    state = State.Idle
                                 }
 
                                 MsgIntersectNotFound.MESSAGE_ID -> {
@@ -284,6 +325,7 @@ class ChainSyncProtocol(
                                     isIntersectFound = tipToIntersect.isEmpty()
                                     state = State.Idle
                                 }
+                                else -> throw IllegalStateException("Unexpected chain sync message $messageId in $state")
                             }
                         }
                     }
@@ -291,6 +333,29 @@ class ChainSyncProtocol(
             }
 
             else -> throw IllegalStateException("We should not call receiveData() when we're not in a $state state!")
+        }
+    }
+
+    private fun publishUpdate(update: () -> Unit) {
+        synchronized(stateLock) {
+            check(state == State.CanAwait || state == State.MustReply || state == State.Intersect) {
+                "Unexpected chain sync response in $state"
+            }
+            check(pendingUpdate == null) { "Chain sync already has a pending response" }
+            pendingUpdate = update
+            state = State.Idle
+        }
+    }
+
+    private fun observeTip(active: NetworkChainSession, point: ChainPoint?, force: Boolean) {
+        if (point == null) {
+            lastPersistedTip = null
+            return
+        }
+        val key = active.generation to point
+        if (force || lastPersistedTip != key) {
+            active.coordinator.observeTip(active.networkKey, point, key.first)
+            lastPersistedTip = key
         }
     }
 
