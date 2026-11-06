@@ -120,7 +120,7 @@ class GenesisRecoveryIntegrationTest {
         transaction {
             assertThat(ChainInclusionsTable.selectAll().where { ChainInclusionsTable.network eq network }
                 .map { it[ChainInclusionsTable.id].value }).containsExactly(first, second)
-            LedgerRepository.spend(network, second, funds[0].txId, 0)
+            assertThat(LedgerRepository.spend(LedgerRepository.ProjectionContext(network, second, 59.toBigDecimal(), 59.toBigDecimal(), isNewInclusion = false), funds[0].txId, 0)).isNull()
         }
         coordinator.registerNetwork(network, genesisHash, funds)
         transaction {
