@@ -50,6 +50,63 @@ Sync progress retains the pre-Dijkstra INFO messages: `ChainSync: Saved block: N
 
 For the Musashi disconnect reporting `ExnLeiosUnknownTxsRequested` on mini-protocol 19 at endorser-block slot 185565, affected JorManager builds encoded transaction-selection bits in reverse order. The corrected client uses the node's MSB-first bitmap contract; a 354-transaction request now selects exactly positions 0–353. This correction requires only deploying the updated JorManager JAR and restarting JorManager, not resetting either database or changing node configuration. Verify that the repeated rejection stops and `BlckFetch` progress advances past the previous stopping point. Local wire-format checks cover partial groups and split requests; live Musashi verification remains operator-owned.
 
+### Bounded catch-up and measured local replay
+
+Adoption still holds one network row lock and commits one block atomically. Transaction-local address/asset caches and block coordinates replace repeated identity/inclusion reads; independent input, data, asset-link and Leios-reference inserts use multi-row SQL in chunks of at most 256. ID-producing parent inserts remain individual. Explicit sequence expressions on ID-bearing batches avoid Exposed 1.6.1's named-sequence/multi-row SQL defect without changing the schema or assuming generated-key order.
+
+Indexed ChainSync persistence runs in its existing transmit coroutine, not the shared Mux reader. Repeated tips are skipped only after a successful write for that generation and point; intersection/rollback force tip persistence. BlockFetch retains singleton requests and sequential adoption while prefetching at most one additional encoded block. Only one Leios closure is resolved at a time. Its worker belongs to the observer scope, so failures cancel the connection and replacement waits for owned work. Header capacity, receive/Leios limits, configuration, durability, earlier-era decoding and INFO progress wording/cadence are unchanged.
+
+Local qualification on 2026-11-06 used Java `21.0.12.1+1-1-26.04.4-Ubuntu`, PostgreSQL 18.6, production Hikari settings, and a private loopback cluster with `fsync` and `synchronous_commit` enabled. Each workload had one warm-up and five measured replays in fresh UUID sibling databases using all 46 real migrations. Timing covers decoding, Leios resolution and committed adoption, not migration/genesis setup. Baseline and optimized fixture and normalized semantic digests matched. Fixture SHA-256: `d8cfc890cb8eca96fceee24d7ab3ab16cc510ebd0f457366b3438c9e2df02a93`.
+
+| Workload | Build | Milliseconds, samples 1–5 | Transactions/s, samples 1–5 | JDBC executions/run |
+|---|---|---|---|---:|
+| 1,035 endorsed transactions, two Dijkstra blocks | Baseline | 3056.75, 2901.03, 3115.56, 2975.22, 3090.74 | 338.60, 356.77, 332.20, 347.87, 334.87 | 22794 |
+| Same endorsed workload | Optimized | 2140.65, 1956.29, 1980.10, 1982.58, 1986.97 | 483.50, 529.06, 522.70, 522.05, 520.89 | 14521 |
+| 100 Conway blocks, ten transactions each | Baseline | 2669.11, 2619.77, 2676.07, 2527.00, 2514.64 | 374.66, 381.71, 373.68, 395.73, 397.67 | 20000 |
+| Same Conway workload | Optimized | 1952.99, 1996.38, 1933.16, 1952.76, 1861.66 | 512.03, 500.91, 517.29, 512.10, 537.15 | 15100 |
+| 100 empty Conway blocks | Baseline | 121.96, 109.92, 102.60, 102.25, 122.66 | 0, 0, 0, 0, 0 | 900 |
+| Same empty workload | Optimized | 101.42, 114.80, 120.80, 112.26, 105.40 | 0, 0, 0, 0, 0 | 900 |
+
+The endorsed workload reduced median elapsed time by 35.1% and JDBC executions by 36.3%, passing the predeclared 20%/25% reduction gates. Conway median time improved 25.5%; empty-block median time increased 2.1%, below the 10% slowdown limit. Every sample spread remained below 20% of its median. A separate real ChainSync measurement reduced JDBC executions for 100 repeated tips from 400 to zero after initial tip persistence. JDBC batch calls/rows were zero in both reports: multi-row `VALUES` uses ordinary execution calls, not `executeBatch`.
+
+The focused regression/build command passed 43 tests with no skips. It covers PostgreSQL rollback/re-adoption, retained identities, late missing-input atomicity, stale generations, assets, collateral, child ordering, deposits, readiness and eras 1–5; protocol checks cover reader responsiveness, real Leios exchange, bounded prefetch, shutdown ownership and worker-failure propagation. A separate CLI smoke ran actual Mux/BlockFetch/LeiosFetch against a scripted loopback peer and a fresh PostgreSQL sibling: Dijkstra committed 1,035 outputs totaling 10,143,000,000 lovelace at its certified successor; a separate three-block Conway stream committed six outputs totaling 58,800,000. Requests, exact current outputs and post-commit progress logs matched, with owned workers/sockets/pools/databases released.
+
+To repeat the current harness, use Java 21, the existing libsodium setup and a disposable localhost `jormanager_test_*` administrative database with create/drop permission. Set `JORMANAGER_TEST_DATABASE_URL` privately. Capture baseline before production edits, then run optimized mode after them. The per-transaction SQL qualification below uses new report paths and stricter JDBC gates:
+
+```sh
+JORMANAGER_CATCHUP_BENCHMARK=baseline ./gradlew test --rerun \
+  --tests '*ChainCatchupIntegrationTest.replayBenchmark' -x testVue -x buildVue --console=plain
+
+JORMANAGER_CATCHUP_BENCHMARK=optimized ./gradlew test --rerun \
+  --tests '*ChainCatchupIntegrationTest' --tests '*GenesisRecoveryIntegrationTest' \
+  --tests '*ChainSyncResponsivenessTest' --tests '*BlockFetchPipelineTest' \
+  --tests '*SyncLoggingTest' --tests '*LeiosFetchProtocolTest' \
+  --tests '*GenesisLedgerDecoderTest' --tests '*HandshakeProtocolTest' \
+  bootJar -x testVue -x buildVue --console=plain
+```
+
+The earlier qualification reports remain at `/tmp/jormanager-catchup-baseline.json` and `/tmp/jormanager-catchup-optimized.json`; the current harness writes the separate transaction-SQL reports below. Reports include individual samples, base source revision, runtime versions, JDBC counters and semantic digests. Missing/mismatched baselines or failed/inconclusive thresholds fail the benchmark. These synthetic, local results are not a production throughput promise: real-node latency, transaction distribution and hardware/cache variation remain unmeasured. Musashi JorManager was not started, restarted or redeployed; live elapsed-time verification remains operator-owned.
+
+### Per-transaction SQL qualification
+
+Only an inclusion inserted by the current locked adoption transaction permits skipping the five historical batch/member/input/output/data existence reads. Existing or retained inclusions keep their lookup/reuse path. Effective inputs use one network-qualified, unspent-only `UPDATE ... RETURNING output_occurrence_id`, consumed once; a returned null linkage is a valid genesis spend, while no row aborts adoption. Live-output duplicate checks, same-block visibility, atomicity, retained IDs, sequence allocation, schema and durability are unchanged.
+
+The controlled comparison froze the actual pre-change checkout, including uncommitted sources and Git metadata, in private directory `/tmp/jormanager-transaction-sql-baseline-544a23b8-f53e-4fa3-b907-d95db45c21de`. Reports are `/tmp/jormanager-transaction-sql-baseline.json` and `/tmp/jormanager-transaction-sql-optimized.json`; earlier reports were not overwritten. Java, PostgreSQL, pool settings and fixture/semantic digests matched. The owned loopback PostgreSQL cluster used `fsync=on` and `synchronous_commit=on`, with one warm-up and five measured replays per workload.
+
+| Workload/build | Milliseconds, samples 1–5 | Median ms | Transactions/s, samples 1–5 | Median transactions/s | JDBC executions, samples 1–5 |
+|---|---|---:|---|---:|---|
+| Leios baseline (1,035 transactions) | 1963.22, 1959.64, 1895.89, 1870.54, 1866.22 | 1895.89 | 527.20, 528.16, 545.92, 553.32, 554.60 | 545.92 | 14521, 14521, 14521, 14521, 14521 |
+| Leios optimized | 1558.33, 1448.46, 1518.08, 1406.73, 1415.17 | 1448.46 | 664.17, 714.55, 681.78, 735.75, 731.36 | 714.55 | 8311, 8311, 8311, 8311, 8311 |
+| Conway baseline (1,000 transactions) | 1880.44, 1849.72, 1901.83, 1860.00, 1848.63 | 1860.00 | 531.79, 540.62, 525.81, 537.63, 540.94 | 537.63 | 15100, 15100, 15100, 15100, 15100 |
+| Conway optimized | 1579.36, 1473.43, 1400.44, 1406.68, 1474.68 | 1473.43 | 633.17, 678.69, 714.06, 710.89, 678.11 | 678.69 | 9100, 9100, 9100, 9100, 9100 |
+| Empty baseline (100 blocks) | 120.53, 106.28, 120.34, 109.71, 106.57 | 109.71 | 0, 0, 0, 0, 0 | 0 | 900, 900, 900, 900, 900 |
+| Empty optimized | 102.47, 106.34, 114.44, 111.10, 106.16 | 106.34 | 0, 0, 0, 0, 0 | 0 | 900, 900, 900, 900, 900 |
+
+JDBC medians equal each row's repeated execution count: six calls removed per fresh transaction. Leios median time fell 23.6% and calls 42.8%; Conway time fell 20.8% and calls 39.7%; empty time fell 3.1% with unchanged calls. All gates passed: at least 35% fewer calls for both nonempty workloads, at least 20% lower Leios median time, and no more than 10% Conway/empty slowdown. Baseline/optimized timing spreads were 5.1%/10.5% for Leios, 2.9%/12.1% for Conway and 13.0%/11.3% for empty, below the 20% limit; no paired retry was needed. Repeated-tip executions remained zero. JDBC batch calls/rows remained zero because multi-row SQL uses ordinary executions.
+
+The targeted `ChainCatchupIntegrationTest` and `GenesisRecoveryIntegrationTest` run passed 21 tests with no skips, and `bootJar` succeeded. Regressions include whole-block rollback on a cross-batch double spend, network isolation, nullable genesis linkage, non-null same-block linkage, duplicate delivery, retained history, collateral, deposits, earlier eras and asset attribution. A standalone `JavaExec` smoke outside JUnit committed two dependent Dijkstra blocks, checked exact live output/linkage, rolled back, and re-adopted with unchanged historical batch/member/input/output/data IDs and the correct complete point. Only messaging was mocked. Temporary smoke sources were removed and the owned cluster stopped; no production service or database was modified.
+
+
 ### Musashi handshake and initial funding
 
 JorManager offers node-to-node versions 13–16. The Musashi build's pinned [network version contract](https://github.com/IntersectMBO/ouroboros-network/blob/2f1c154f248659b89523d5679ca532f442e7ed2a/cardano-diffusion/api/lib/Cardano/Network/NodeToNode/Version.hs) defines v15 (SRV support) and experimental v16 (a Peras-support field). Versions 13–15 use four version-data fields; v16 uses five. JorManager remains initiator-only, with peer sharing, query mode and Peras disabled. Invalid, unoffered and wrong-network acceptance messages fail negotiation. This does not activate Dijkstra on a Conway network.

@@ -31,6 +31,7 @@ class ChainIngestionCoordinator(
 ) {
     private val lastProgressNotification = ConcurrentHashMap<String, Long>()
     private val log = LoggerFactory.getLogger(ChainIngestionCoordinator::class.java)
+    private val nextReferenceId = org.jetbrains.exposed.v1.core.Sequence("hibernate_sequence").nextLongVal()
     fun registerNetwork(networkKey: String, genesisHash: String, genesisOutputs: List<DecodedGenesisOutput> = emptyList()) {
         require(networkKey.isNotBlank() && genesisHash.matches(Regex("[0-9a-f]{64}")))
         val restored = transaction {
@@ -151,24 +152,30 @@ class ChainIngestionCoordinator(
                 }
             }
             var ordinal = 0
-            val journal = BatchEffectProjector.Journal()
+            val context = LedgerRepository.ProjectionContext(networkKey, id, height.toBigDecimal(), slot.toBigDecimal(), isNewInclusion = existing == null)
             // Musashi applies the predecessor's endorsed closure before this block's direct sequence.
             resolvedLeios?.let { closure ->
-                val certification = LeiosCertificationsTable.selectAll().where { LeiosCertificationsTable.inclusion eq id }.singleOrNull()?.get(LeiosCertificationsTable.id)?.value
+                val certification = LeiosCertificationsTable.select(LeiosCertificationsTable.id).where { LeiosCertificationsTable.inclusion eq id }.singleOrNull()?.get(LeiosCertificationsTable.id)?.value
                     ?: LeiosCertificationsTable.insert {
                         it[LeiosCertificationsTable.inclusion] = id; it[announcementHash] = closure.ebHash
                         it[raw] = requireNotNull(decoded.leiosCertificate).bytes(); it[complete] = true
                     }[LeiosCertificationsTable.id].value
-                closure.entries.forEachIndexed { position, entry ->
-                    projector.apply(networkKey, id, entry.batch, position, "endorsed", ordinal++, journal, entry.fullTransactionHash)
-                    val batch = TransactionBatchesTable.selectAll().where { (TransactionBatchesTable.inclusion eq id) and (TransactionBatchesTable.sourceKind eq "endorsed") and (TransactionBatchesTable.position eq position) }.single()[TransactionBatchesTable.id].value
-                    if (LeiosContentReferencesTable.selectAll().where { (LeiosContentReferencesTable.certification eq certification) and (LeiosContentReferencesTable.position eq position) }.empty()) LeiosContentReferencesTable.insert {
-                        it[LeiosContentReferencesTable.certification] = certification; it[LeiosContentReferencesTable.position] = position
-                        it[fullHash] = entry.fullTransactionHash; it[size] = entry.size.toBigDecimal(); it[LeiosContentReferencesTable.batch] = batch
+                val existingPositions = LeiosContentReferencesTable.select(LeiosContentReferencesTable.position)
+                    .where { LeiosContentReferencesTable.certification eq certification }
+                    .map { it[LeiosContentReferencesTable.position] }.toSet()
+                val missing = closure.entries.mapIndexedNotNull { position, entry ->
+                    val batch = projector.apply(context, entry.batch, position, "endorsed", ordinal++, entry.fullTransactionHash)
+                    if (position in existingPositions) null else Triple(position, entry, batch)
+                }
+                missing.chunked(256).forEach { rows ->
+                    LeiosContentReferencesTable.batchInsert(rows, useMultiRowValues = true, shouldReturnGeneratedValues = false) { (position, entry, batch) ->
+                        this[LeiosContentReferencesTable.id] = nextReferenceId
+                        this[LeiosContentReferencesTable.certification] = certification; this[LeiosContentReferencesTable.position] = position
+                        this[LeiosContentReferencesTable.fullHash] = entry.fullTransactionHash; this[LeiosContentReferencesTable.size] = entry.size.toBigDecimal(); this[LeiosContentReferencesTable.batch] = batch
                     }
                 }
             }
-            decoded.transactions.forEachIndexed { position, batch -> projector.apply(networkKey, id, batch, position, "direct", ordinal++, journal) }
+            decoded.transactions.forEachIndexed { position, batch -> projector.apply(context, batch, position, "direct", ordinal++) }
             val batches = HashMap<String, DecodedTransactionBatch>(decoded.transactions.size + (resolvedLeios?.entries?.size ?: 0))
             decoded.transactions.forEach { batches[it.parent.bodyId.toHexString()] = it }
             resolvedLeios?.entries?.forEach { batches[it.batch.parent.bodyId.toHexString()] = it.batch }
@@ -253,7 +260,7 @@ class ChainIngestionCoordinator(
     data class AnnouncedClosure(val slot: Long, val hash: ByteArray, val size: Long)
 
     fun announcedClosure(networkKey: String, previousHash: String): AnnouncedClosure? = transaction {
-        (LeiosAnnouncementsTable innerJoin ChainInclusionsTable).selectAll().where {
+        (LeiosAnnouncementsTable innerJoin ChainInclusionsTable).select(ChainInclusionsTable.slot, LeiosAnnouncementsTable.hash, LeiosAnnouncementsTable.size).where {
             (ChainInclusionsTable.network eq networkKey) and
                 (ChainInclusionsTable.hash eq previousHash.hexToByteArray()) and ChainInclusionsTable.adopted
         }.singleOrNull()?.let {
@@ -262,7 +269,7 @@ class ChainIngestionCoordinator(
     }
 
     fun intersectionPoints(networkKey: String): List<ChainPoint> = transaction {
-        ChainInclusionsTable.selectAll().where { (ChainInclusionsTable.network eq networkKey) and ChainInclusionsTable.adopted and ChainInclusionsTable.complete }
+        ChainInclusionsTable.select(ChainInclusionsTable.slot, ChainInclusionsTable.hash).where { (ChainInclusionsTable.network eq networkKey) and ChainInclusionsTable.adopted and ChainInclusionsTable.complete }
             .orderBy(ChainInclusionsTable.slot to SortOrder.DESC, ChainInclusionsTable.id to SortOrder.DESC).limit(64).map { point(it) }
     }
 
@@ -273,7 +280,7 @@ class ChainIngestionCoordinator(
         ChainReadState(networkKey, state[SyncStatesTable.status], state[SyncStatesTable.reason], observed, state[SyncStatesTable.completeInclusion]?.let { point(inclusion(it)) })
     }
 
-    private fun inclusion(id: Long): ResultRow = ChainInclusionsTable.selectAll().where { ChainInclusionsTable.id eq id }.single()
+    private fun inclusion(id: Long): ResultRow = ChainInclusionsTable.select(ChainInclusionsTable.id, ChainInclusionsTable.hash, ChainInclusionsTable.slot, ChainInclusionsTable.previousHash).where { ChainInclusionsTable.id eq id }.single()
     private fun point(row: ResultRow) = ChainPoint(row[ChainInclusionsTable.slot].toPlainString(), row[ChainInclusionsTable.hash].toHexString())
 
     private fun publish(network: String, force: Boolean = false) {

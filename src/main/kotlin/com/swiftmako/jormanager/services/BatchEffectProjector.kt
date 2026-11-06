@@ -14,11 +14,14 @@ import java.math.BigInteger
 /** Applies node-adopted outcomes, not a second consensus or script validator. All calls share the chain transaction. */
 @Component
 class BatchEffectProjector(private val json: ObjectMapper) {
-    class Journal(var nextSequence: Int = 0)
+    // Exposed 1.6.1 otherwise appends the named sequence only to the final multi-row VALUES tuple.
+    private val nextOccurrenceId = org.jetbrains.exposed.v1.core.Sequence("hibernate_sequence").nextLongVal()
 
-    fun apply(network: String, inclusion: Long, batch: DecodedTransactionBatch, position: Int, source: String, applicationOrdinal: Int, journal: Journal, fullHash: ByteArray? = null) {
+    fun apply(context: LedgerRepository.ProjectionContext, batch: DecodedTransactionBatch, position: Int, source: String, applicationOrdinal: Int, fullHash: ByteArray? = null): Long {
+        val network = context.network
+        val inclusion = context.inclusion
         val valid = requireNotNull(batch.isValid) { "A submission is not an adopted batch" }
-        val existing = TransactionBatchesTable.selectAll().where {
+        val existing = if (context.isNewInclusion) null else TransactionBatchesTable.select(TransactionBatchesTable.id).where {
             (TransactionBatchesTable.inclusion eq inclusion) and (TransactionBatchesTable.sourceKind eq source) and (TransactionBatchesTable.position eq position)
         }.singleOrNull()
         val batchId = existing?.get(TransactionBatchesTable.id)?.value ?: TransactionBatchesTable.insert {
@@ -26,20 +29,18 @@ class BatchEffectProjector(private val json: ObjectMapper) {
             it[TransactionBatchesTable.position] = position; it[TransactionBatchesTable.applicationOrdinal] = applicationOrdinal
             it[TransactionBatchesTable.valid] = valid; it[raw] = batch.raw.bytes(); it[TransactionBatchesTable.fullHash] = fullHash
         }[TransactionBatchesTable.id].value
-        val parentId = member(batchId, batch.parent, null, null, batch.children.size, valid)
-        val childIds = batch.children.mapIndexed { index, child -> member(batchId, child, parentId, index, index, valid) }
+        val parentId = member(context, batchId, batch.parent, null, null, batch.children.size, valid)
+        val childIds = batch.children.mapIndexed { index, child -> member(context, batchId, child, parentId, index, index, valid) }
         val ordered = batch.children.zip(childIds) + (batch.parent to parentId)
         val batchIds = ordered.map { it.first.bodyId.toHexString() }.toSet()
         // A member cannot spend an output created in this same batch, even if it was processed earlier.
         ordered.forEach { (tx, _) -> require(tx.inputs.none { it.transactionId.toHexString() in batchIds }) { "Same-batch spending reference" } }
         val checkpoints = BatchAccountCheckpoints(batch)
         for ((tx, memberId) in ordered) {
-            inputs(network, inclusion, memberId, tx.inputs, "spending", valid)
-            inputs(network, inclusion, memberId, tx.referenceInputs, "reference", false)
-            inputs(network, inclusion, memberId, tx.collateralInputs, "collateral", !valid)
-            tx.outputs.forEachIndexed { index, output -> LedgerRepository.createOutput(network, inclusion, memberId, tx.bodyId, index, output, false, valid) }
-            tx.collateralReturn?.let { LedgerRepository.createOutput(network, inclusion, memberId, tx.bodyId, tx.outputs.size, it, true, !valid) }
-            data(memberId, tx, valid)
+            inputs(context, memberId, tx, valid)
+            tx.outputs.forEachIndexed { index, output -> LedgerRepository.createOutput(context, memberId, tx.bodyId, index, output, false, valid) }
+            tx.collateralReturn?.let { LedgerRepository.createOutput(context, memberId, tx.bodyId, tx.outputs.size, it, true, !valid) }
+            data(context, memberId, tx, valid)
             var effectPosition = 0
             fun effect(kind: String, address: ByteArray, amount: BigInteger?, lower: BigInteger? = null, upper: BigInteger? = null) {
                 val index = effectPosition++
@@ -53,7 +54,7 @@ class BatchEffectProjector(private val json: ObjectMapper) {
                 if (valid && amount != null && kind in setOf("WITHDRAWAL", "DIRECT_DEPOSIT", "DONATION")) {
                     // These are category totals, not a fabricated reward balance: epochs also change account balances.
                     val previous = state(network, kind, address)?.get(DerivedAccountGovernanceStatesTable.value)?.toBigInteger() ?: BigInteger.ZERO
-                    project(network, inclusion, memberId, kind, address, (previous + amount).toString(), journal.nextSequence++)
+                    project(network, inclusion, memberId, kind, address, (previous + amount).toString(), context.nextSequence++)
                 }
             }
             tx.startingAccountIntervals.forEach {
@@ -69,7 +70,7 @@ class BatchEffectProjector(private val json: ObjectMapper) {
                 effect("WITHDRAWAL", it.address, it.amount)
             }
             tx.certificates.forEachIndexed { index, certificate ->
-                certificate(network, inclusion, memberId, index, certificate, valid, journal)
+                certificate(context, memberId, index, certificate, valid)
                 certificate.credential?.let { credential ->
                     val key = byteArrayOf(credential.kind.toByte()) + credential.hash
                     val kind = when (certificate.kind) { 7, 11, 12, 13, 16 -> "REGISTRATION_DEPOSIT"; 8, 17 -> "REGISTRATION_REFUND"; else -> null }
@@ -85,20 +86,21 @@ class BatchEffectProjector(private val json: ObjectMapper) {
                 val key = byteArrayOf(vote.voterKind.toByte()) + vote.voterHash + vote.actionTransactionId + byteArrayOf((vote.actionIndex ushr 8).toByte(), vote.actionIndex.toByte())
                 val typed = mapOf("voterKind" to vote.voterKind, "voterHash" to vote.voterHash.toHexString(), "actionTxId" to vote.actionTransactionId.toHexString(), "actionIndex" to vote.actionIndex, "vote" to vote.vote, "anchor" to vote.anchor?.let(::cborValue))
                 governance(memberId, index, "VOTE", key, null, requireNotNull(tx.fields[19]), typed, valid)
-                if (valid) project(network, inclusion, memberId, "VOTE", key, json.writeValueAsString(typed), journal.nextSequence++)
+                if (valid) project(network, inclusion, memberId, "VOTE", key, json.writeValueAsString(typed), context.nextSequence++)
             }
             tx.proposals.forEachIndexed { index, proposal ->
                 val key = tx.bodyId + byteArrayOf((index ushr 8).toByte(), index.toByte())
                 val typed = mapOf("actionKind" to proposal.actionKind, "deposit" to proposal.deposit.toString(), "rewardAccount" to proposal.rewardAccount.toHexString(), "action" to cborValue(proposal.action), "anchor" to cborValue(proposal.anchor))
                 governance(memberId, index, "PROPOSAL", key, proposal.deposit, proposal.raw, typed, valid)
-                if (valid) project(network, inclusion, memberId, "PROPOSAL", key, json.writeValueAsString(typed), journal.nextSequence++)
+                if (valid) project(network, inclusion, memberId, "PROPOSAL", key, json.writeValueAsString(typed), context.nextSequence++)
             }
         }
+        return batchId
     }
 
-    private fun member(batch: Long, tx: DecodedTransactionMember, parent: Long?, childPosition: Int?, ordinal: Int, valid: Boolean): Long =
-        TransactionMembersTable.selectAll().where { (TransactionMembersTable.batch eq batch) and (TransactionMembersTable.txId eq tx.bodyId) }
-            .singleOrNull()?.get(TransactionMembersTable.id)?.value ?: TransactionMembersTable.insert {
+    private fun member(context: LedgerRepository.ProjectionContext, batch: Long, tx: DecodedTransactionMember, parent: Long?, childPosition: Int?, ordinal: Int, valid: Boolean): Long =
+        (if (context.isNewInclusion) null else TransactionMembersTable.select(TransactionMembersTable.id).where { (TransactionMembersTable.batch eq batch) and (TransactionMembersTable.txId eq tx.bodyId) }
+            .singleOrNull()?.get(TransactionMembersTable.id)?.value) ?: TransactionMembersTable.insert {
             it[TransactionMembersTable.batch] = batch; it[txId] = tx.bodyId; it[TransactionMembersTable.parent] = parent
             it[TransactionMembersTable.childPosition] = childPosition; it[processingOrdinal] = ordinal
             it[rawBody] = tx.body.bytes(); it[rawWitnesses] = tx.witnesses.bytes(); it[rawAuxiliary] = tx.auxiliaryData?.bytes()
@@ -106,24 +108,40 @@ class BatchEffectProjector(private val json: ObjectMapper) {
             it[fee] = tx.fee?.toBigDecimal(); it[effective] = valid
         }[TransactionMembersTable.id].value
 
-    private fun inputs(network: String, inclusion: Long, member: Long, inputs: List<DecodedInput>, role: String, effective: Boolean) {
-        inputs.forEachIndexed { position, input ->
-            val resolved = if (effective) LedgerRepository.spend(network, inclusion, input.transactionId, input.index)
-                else LedgerRepository.currentOutput(network, input.transactionId, input.index)?.get(LedgerUtxosTable.outputOccurrenceId)
-            val existing = InputOccurrencesTable.selectAll().where { (InputOccurrencesTable.member eq member) and (InputOccurrencesTable.role eq role) and (InputOccurrencesTable.position eq position) }.singleOrNull()
-            if (existing == null) InputOccurrencesTable.insert {
-                it[InputOccurrencesTable.member] = member; it[InputOccurrencesTable.role] = role; it[InputOccurrencesTable.position] = position
-                it[txId] = input.transactionId; it[index] = input.index; it[resolvedOutput] = resolved; it[InputOccurrencesTable.effective] = effective
-            } else InputOccurrencesTable.update({ InputOccurrencesTable.id eq existing[InputOccurrencesTable.id] }) { it[resolvedOutput] = resolved }
+    private fun inputs(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, valid: Boolean) {
+        if (tx.inputs.isEmpty() && tx.referenceInputs.isEmpty() && tx.collateralInputs.isEmpty()) return
+        val existing = if (context.isNewInclusion) emptyMap() else InputOccurrencesTable.select(InputOccurrencesTable.id, InputOccurrencesTable.role, InputOccurrencesTable.position)
+            .where { InputOccurrencesTable.member eq member }
+            .associate { (it[InputOccurrencesTable.role] to it[InputOccurrencesTable.position]) to it[InputOccurrencesTable.id] }
+        data class Pending(val input: DecodedInput, val role: String, val position: Int, val effective: Boolean, val resolved: Long?)
+        val missing = mutableListOf<Pending>()
+        fun process(inputs: List<DecodedInput>, role: String, effective: Boolean) {
+            inputs.forEachIndexed { position, input ->
+                val resolved = if (effective) LedgerRepository.spend(context, input.transactionId, input.index)
+                    else LedgerRepository.currentOutput(context.network, input.transactionId, input.index)?.get(LedgerUtxosTable.outputOccurrenceId)
+                val id = existing[role to position]
+                if (id == null) missing.add(Pending(input, role, position, effective, resolved))
+                else InputOccurrencesTable.update({ InputOccurrencesTable.id eq id }) { it[resolvedOutput] = resolved }
+            }
+        }
+        process(tx.inputs, "spending", valid)
+        process(tx.referenceInputs, "reference", false)
+        process(tx.collateralInputs, "collateral", !valid)
+        missing.chunked(256).forEach { rows ->
+            InputOccurrencesTable.batchInsert(rows, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
+                this[InputOccurrencesTable.id] = nextOccurrenceId
+                this[InputOccurrencesTable.member] = member; this[InputOccurrencesTable.role] = row.role
+                this[InputOccurrencesTable.position] = row.position; this[InputOccurrencesTable.txId] = row.input.transactionId
+                this[InputOccurrencesTable.index] = row.input.index; this[InputOccurrencesTable.resolvedOutput] = row.resolved; this[InputOccurrencesTable.effective] = row.effective
+            }
         }
     }
 
-    private fun data(member: Long, tx: DecodedTransactionMember, effective: Boolean) {
+    private fun data(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, effective: Boolean) {
+        data class Pending(val family: String, val position: Int, val raw: CborSpan, val typed: Any?)
+        val rows = mutableListOf<Pending>()
         fun save(family: String, index: Int, raw: CborSpan, typed: Any?) {
-            if (MemberDataTable.selectAll().where { (MemberDataTable.member eq member) and (MemberDataTable.family eq family) and (MemberDataTable.position eq index) }.empty()) MemberDataTable.insert {
-                it[MemberDataTable.member] = member; it[MemberDataTable.family] = family; it[position] = index
-                it[MemberDataTable.raw] = raw.bytes(); it[MemberDataTable.typed] = json.writeValueAsString(typed); it[MemberDataTable.effective] = effective
-            }
+            rows.add(Pending(family, index, raw, typed))
         }
         val families = mapOf(3 to "validityEnd", 4 to "certificates", 5 to "withdrawals", 7 to "auxiliaryHash", 8 to "validityStart", 9 to "mint", 11 to "scriptIntegrityHash", 14 to "guards", 15 to "network", 17 to "totalCollateral", 19 to "votes", 20 to "proposals", 21 to "treasury", 22 to "donation", 24 to "requiredGuards", 25 to "directDeposits", 26 to "accountIntervals", 27 to "startingAccountIntervals")
         tx.fields.forEach { (key, value) -> families[key]?.let { save(it, 0, value, cborValue(value)) } }
@@ -132,9 +150,21 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         tx.witnessData.redeemers.forEachIndexed { index, redeemer -> save("redeemer", index, redeemer.data, mapOf("purpose" to redeemer.purpose, "index" to redeemer.index.toString(), "memory" to redeemer.memory.toString(), "steps" to redeemer.steps.toString(), "data" to cborValue(redeemer.data))) }
         tx.auxiliary?.metadata?.let { save("metadata", 0, it, cborValue(it)) }
         tx.auxiliary?.scripts?.forEachIndexed { index, script -> save("auxiliaryScript", index, script.raw, mapOf("language" to script.language, "value" to cborValue(script.raw))) }
+        if (rows.isEmpty()) return
+        val existing = if (context.isNewInclusion) emptySet() else MemberDataTable.select(MemberDataTable.family, MemberDataTable.position)
+            .where { MemberDataTable.member eq member }
+            .map { it[MemberDataTable.family] to it[MemberDataTable.position] }.toSet()
+        rows.filter { (it.family to it.position) !in existing }.chunked(256).forEach { chunk ->
+            MemberDataTable.batchInsert(chunk, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
+                this[MemberDataTable.id] = nextOccurrenceId
+                this[MemberDataTable.member] = member; this[MemberDataTable.family] = row.family; this[MemberDataTable.position] = row.position
+                this[MemberDataTable.raw] = row.raw.bytes(); this[MemberDataTable.typed] = json.writeValueAsString(row.typed)
+                this[MemberDataTable.effective] = effective
+            }
+        }
     }
 
-    private fun certificate(network: String, inclusion: Long, member: Long, position: Int, cert: DecodedCertificate, effective: Boolean, journal: Journal) {
+    private fun certificate(context: LedgerRepository.ProjectionContext, member: Long, position: Int, cert: DecodedCertificate, effective: Boolean) {
         val credential = cert.credential?.let { byteArrayOf(it.kind.toByte()) + it.hash }
         val key = cert.pool ?: credential ?: cert.raw.hash256()
         val typed = linkedMapOf<String, Any?>("tag" to cert.kind, "credential" to credential?.toHexString(), "pool" to cert.pool?.toHexString(), "amount" to cert.amount?.toString(), "epoch" to cert.epoch?.toString(), "payload" to cborValue(cert.raw))
@@ -143,8 +173,8 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         if (!effective) return
         // Registration intent and scheduled retirement are distinct from epoch-bound activation/refund.
         val family = when (cert.kind) { 3 -> "POOL_REGISTRATION"; 4 -> "POOL_RETIREMENT"; 0, 7, 11, 12, 13 -> "STAKE_REGISTRATION"; 1, 8 -> "STAKE_DEREGISTRATION"; 2, 9, 10 -> "STAKE_DELEGATION"; 14, 15 -> "COMMITTEE"; 16, 17, 18 -> "DREP"; else -> "CERTIFICATE_${cert.kind}" }
-        project(network, inclusion, member, family, key, json.writeValueAsString(typed), journal.nextSequence++)
-        if (cert.kind == 3) project(network, inclusion, member, "POOL_RETIREMENT", key, "null", journal.nextSequence++)
+        project(context.network, context.inclusion, member, family, key, json.writeValueAsString(typed), context.nextSequence++)
+        if (cert.kind == 3) project(context.network, context.inclusion, member, "POOL_RETIREMENT", key, "null", context.nextSequence++)
     }
 
     private fun governance(member: Long, position: Int, kind: String, target: ByteArray?, amount: BigInteger?, raw: CborSpan, typed: Any, effective: Boolean) {

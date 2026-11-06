@@ -122,18 +122,25 @@ class ChainMonitor(
                 aSocket(selector).tcp().connect(InetSocketAddress(host.hostname, node.port)) {
                     noDelay = true; keepAlive = true; lingerSeconds = 0; typeOfService = TypeOfService.IPTOS_LOWDELAY
                 }.use { socket ->
-                    mux = Mux(socket.connection())
-                    mux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
-                    cardanoRepository.reestablishTarget(host, node)
-                    val active = requireNotNull(session)
-                    val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
-                    mux.execute(
-                        KeepAliveProtocol(),
-                        ChainSyncProtocol(host, genesisHash, emptyList(), chainRepository, false, pooltoolService, "", "",
-                            active, node, cardanoRepository, coordinator.intersectionPoints(key)),
-                        BlockFetchProtocol(active, leios),
-                        leios,
-                    )
+                    val connectionMux = Mux(socket.connection())
+                    mux = connectionMux
+                    connectionMux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
+                    coroutineScope {
+                        try {
+                            cardanoRepository.reestablishTarget(host, node)
+                            val active = requireNotNull(session)
+                            val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
+                            connectionMux.execute(
+                                KeepAliveProtocol(),
+                                ChainSyncProtocol(host, genesisHash, emptyList(), chainRepository, false, pooltoolService, "", "",
+                                    active, node, cardanoRepository, coordinator.intersectionPoints(key)),
+                                BlockFetchProtocol(active, leios, this),
+                                leios,
+                            )
+                        } finally {
+                            connectionMux.shutdownGracefully()
+                        }
+                    }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {

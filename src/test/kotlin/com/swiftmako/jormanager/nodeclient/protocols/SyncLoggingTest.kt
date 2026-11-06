@@ -14,6 +14,10 @@ import com.swiftmako.jormanager.nodeclient.protocols.chainsync.MsgRollForward
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import com.swiftmako.jormanager.services.PooltoolService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -24,7 +28,8 @@ class SyncLoggingTest {
     private val coordinator = mock(ChainIngestionCoordinator::class.java)
     private val session = NetworkChainSession("network-a", coordinator, true, 1, 21600)
     private val leios = LeiosFetchProtocol({ true })
-    private val fetch = BlockFetchProtocol(session, leios)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val fetch = BlockFetchProtocol(session, leios, scope)
     private val sync = ChainSyncProtocol(mock(Host::class.java), ByteArray(32), emptyList(), mock(ChainRepository::class.java), false, mock(PooltoolService::class.java), "", "")
     private val loggers = listOf("ChainSyncProtocol", "LedgerDao").map { LoggerFactory.getLogger(it) as Logger }
     private val levels = loggers.map { it.level }
@@ -38,7 +43,7 @@ class SyncLoggingTest {
 
     @AfterEach
     fun closeProtocols() {
-        sync.shutdown(); fetch.shutdown(); leios.shutdown(); session.close()
+        sync.shutdown(); fetch.shutdown(); leios.shutdown(); session.close(); scope.cancel()
         loggers.forEachIndexed { index, logger -> logger.detachAppender(events); logger.level = levels[index] }
         events.stop()
     }
@@ -73,7 +78,7 @@ class SyncLoggingTest {
         session.tipBlockNumber = 100
         fetch.logSavedBlock(10, 0)
         val otherSession = NetworkChainSession("network-b", coordinator, false, 1, 21600).apply { tipBlockNumber = 200 }
-        val other = BlockFetchProtocol(otherSession, leios)
+        val other = BlockFetchProtocol(otherSession, leios, scope)
         try {
             other.logSavedBlock(20, 1)
             fetch.logSavedBlock(11, 2)
