@@ -96,7 +96,7 @@ class LeiosFetchProtocol(private val isCurrent: (Long) -> Boolean, private val m
                 for ((group, members) in groups) {
                     number(message, 0, group.toULong())
                     var bits = 0UL
-                    for (offset in members) bits = bits or (1UL shl (offset % 64))
+                    for (offset in members) bits = bits or (1UL shl (63 - (offset % 64)))
                     number(message, 0, bits)
                 }
                 val txResponse = CborSpans.parse(exchange(message.toByteArray())).array()
