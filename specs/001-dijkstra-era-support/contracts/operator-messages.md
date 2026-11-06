@@ -1,6 +1,6 @@
 # Operator and query message contracts
 
-**Status:** implemented wire surface with manual qualification pending. Musashi Dōjō qualifies Dijkstra only; existing supported networks and eras retain their own configuration and operation paths. B1/B2 still require delivery/tool/producer evidence; B3 still requires immutable publication and clean provisioning evidence. Source-limited observations remain explicitly unavailable.
+**Status:** manual qualification remains pending. Musashi qualifies Dijkstra only; B1/B2/B3 require actual delivery, tooling and selected-file provisioning evidence.
 
 ## Existing transport and cutover
 
@@ -12,7 +12,7 @@ The operational surface retains SockJS/STOMP, but unsafe direct transaction send
 
 ## Common types
 
-- `NetworkKey`: opaque network identity string carried as `networkKey`; it is derived from verified magic, system start and the applicable genesis set (including the selected Musashi reset), not magic 164 or a mutable testnet label alone. Descriptive network metadata is not a replacement for this identity.
+- `NetworkKey`: network identity derived from verified magic, system start and applicable genesis, not magic or a mutable label alone.
 - `ChainPoint`: `{slot: DecimalString, hash: Hex32}`; origin is explicit null only in fields documented as allowing origin.
 - `Target`: Leios requests/responses use `{hostId, nodeId, poolId?, networkKey?}`; other reviewed requests resolve their target from persisted node/account/preview IDs. Validate associations server-side. A caller cannot redirect an installation with an arbitrary filesystem path.
 - `DecimalString`: canonical integer string, no exponent or floating point. Coin/fee/deposit/refund values are nonnegative lovelace; mint/burn quantities may be signed. Browser code uses exact arithmetic and display-only ADA formatting.
@@ -35,7 +35,7 @@ All destinations below use the `/jormanager` prefix. Each response uses the corr
 | `/leios/status` / `leios_status` | `requestId`, `target` | Public key views and point/time-scoped observations; nullable registration/snapshot/loaded facts remain independent of installed files |
 | `/account/history` / `account_history` | `requestId`, `networkKey`, `accountAddressHex` | Member-attributed account effects plus exact balance only when a node snapshot matches the complete index point; otherwise null balance and `balanceReason` |
 
-Before creating a managed node, obtain current-era evidence from an already connected, verified observer/reference node for the selected network, with matching chain identity and recorded source/point/time. Do not require the not-yet-created node to supply that prerequisite, and do not substitute binary/configuration metadata for the observation. Missing evidence leaves dependent operations unavailable with a reason.
+A first relay requires no observer. Producer and other current-era-dependent authorization require an already connected verified matching-network observer; configuration and binaries do not establish current era.
 
 Wallet and node responses gain the same completeness metadata. Confirmed balance and pending authorized effects are separate fields. The transaction query returns a discovered child under its own identity even when it creates no payment output. A rolled-back occurrence remains identifiable and never appears as currently confirmed. Address-filtered wallet views may filter results; the underlying member/effect index must not silently omit non-wallet transaction content required by the specification.
 
@@ -94,7 +94,7 @@ A repeated preview submission returns its durable operation state, not a fresh s
 
 ## Failure codes and UI obligations
 
-`UNSUPPORTED_CAPABILITY`, `UNVERIFIED_BASELINE`, `WRONG_TARGET`, `STALE_PREVIEW`, `INVALID_KEY_PROOF`, `INDEX_INCOMPLETE`, `SUBMISSION_UNCERTAIN`, `REMOTE_INSTALL_FAILED`, `NODE_LOAD_UNVERIFIED`, `BASELINE_DISABLED`, `INVALID_TRANSACTION_REPRESENTATION`, `CONFIG_BUNDLE_INCOMPLETE`, `CONFIG_INTEGRITY_FAILED`, and `NETWORK_RESET_MISMATCH` carry sanitized resource context and a concrete next action. An exception must not be followed by success for the same failed effect.
+Failures carry sanitized resource context and a concrete next action. An exception must not be followed by success for the same failed effect.
 
 Nodes/Wallet views and their existing creation/update/send/staking modals must expose the affected target, amount consequences and failure state before approval. Add a Leios key panel to the producer workflow, not a separate application. Disable actions dependent on stale funds/capabilities; preserve viewable historical state with its point/time. After a rollback notification, invalidate displayed confirmation and dependent eligibility immediately, even without a replacement block. Reconnection re-queries durable status rather than trusting missed topic events.
 
@@ -102,12 +102,12 @@ Validation: actual Vue/SockJS/backend/PostgreSQL/CLI/SSH boundaries in the isola
 
 ## New Musashi node and pool creation
 
-Extend existing `/jormanager/file_options`, `/jormanager/createnode` and `/jormanager/nodes` contracts and all callers rather than creating a separate provisioning service. File options expose validated complete Musashi bundles with `bundleId`, `resetId`, network identity, source and compatibility state. Public file entries may still be browsed, but individual genesis selectors cannot mix Musashi bundles.
+Existing `/jormanager/file_options`, `/jormanager/createnode` and `/jormanager/nodes` use individual file selections; no bundle/reset selection or manifest API.
 
-Relay `createnode` carries selected `bundleId` and expected reset identity alongside host/local-settings/authorization fields; the backend resolves immutable assets and Dijkstra genesis from that bundle, never arbitrary caller-supplied download URLs. Producers/pool children use the draft → reviewed registration → confirmed registration → reviewed deployment sequence above, binding fee payer, pool parameters and BLS preparation/import to the persisted target. Validate a pool child's parent network/bundle, and require separate consent to remote file/service writes. Drafts do not start node/chain monitoring.
+Relay requests carry genesis, config, topology and optional Dijkstra/peer file IDs. Validate files before side effects. Producer/pool children use reviewed draft, registration and deployment, with matching observer and genesis; children inherit parent files.
 
 Existing supported Conway node and pool creation continue through their existing configuration path without Musashi assets, Dijkstra genesis or BLS material. A selected Dijkstra-capable binary alone must not change that path.
 
-Creation result separates `configurationInstalled`, `processStarted`, `chainSynchronized`, `registrationSubmitted`, `registrationConfirmed`, `keyEligible` and `keyLoaded`, with their point/time/error evidence. A successful download or node process start does not imply synchronized funds, registration or voting readiness. Return the node's selected bundle/reset and generated configuration fingerprint in public node status, not private material.
+Creation distinguishes installed, started, synchronized, submitted, confirmed, eligible and loaded observations; no private material appears in status.
 
-Catalog refresh discovers new immutable selections; it does not edit existing nodes or resubmit pending authorizations on a reset. Explicit reset migration requires a new reviewed target/network selection and the documented recovery path. Missing/corrupt/mixed assets block activation. Required publication assets, role-specific overrides and current caller gaps are in [network-configuration.md](network-configuration.md); actual clean-node/clean-pool validation is quickstart Q0.
+Catalog refresh does not mutate existing nodes. Operators own reset and resynchronization. Missing/corrupt/mismatched files block activation. See [network-configuration.md](network-configuration.md); actual clean provisioning is quickstart Q0.

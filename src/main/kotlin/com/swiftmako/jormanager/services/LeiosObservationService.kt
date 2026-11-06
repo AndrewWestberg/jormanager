@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
@@ -47,8 +47,8 @@ class LeiosObservationService(
         val socket = "${queryHost.nodeHomePath}/${observer.name}/db/socket"
         require(listOf(queryHost.cardanoCliPath, socket).all { it.matches(Regex("[A-Za-z0-9_./-]+")) && !it.startsWith("-") })
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(node.genesisShelleyFileId)).content)
-        val network = if (genesis.path("networkId").asText().equals("Mainnet", true)) listOf("--mainnet") else {
-            val magic = genesis.path("networkMagic").asText()
+        val network = if (genesis.path("networkId").asString().equals("Mainnet", true)) listOf("--mainnet") else {
+            val magic = genesis.path("networkMagic").asString()
             require(magic.matches(Regex("[0-9]+")))
             listOf("--testnet-magic", magic)
         }
@@ -60,7 +60,7 @@ class LeiosObservationService(
             val slot = tip.path("slot")
             require(slot.isIntegralNumber && slot.bigIntegerValue().signum() >= 0 &&
                 slot.bigIntegerValue() <= BigInteger("18446744073709551615")) { "Node tip slot unavailable" }
-            val hash = tip.path("hash").asText()
+            val hash = tip.path("hash").asString()
             require(hash.matches(Regex("[0-9a-fA-F]{64}"))) { "Node tip hash unavailable" }
             return BigDecimal(slot.bigIntegerValue()) to hash.hexToByteArray()
         }
@@ -74,7 +74,7 @@ class LeiosObservationService(
         }
         val poolState = query("pool-state", listOf("--stake-pool-id", pool))
         require(poolState.isObject)
-        val entries = poolState.fields().asSequence().toList()
+        val entries = poolState.properties().toList()
         require(entries.all { it.key.equals(poolHash, true) || it.key.equals(pool, true) }) { "Pool query returned a different target" }
         require(entries.size <= 1)
         val state = entries.singleOrNull()?.value
@@ -83,7 +83,7 @@ class LeiosObservationService(
         fun publicKey(value: JsonNode?): ByteArray? {
             if (value == null || value.isMissingNode || value.isNull) return null
             val key = if (value.has("blsPubKey")) value else value.path("bksKey")
-            val hex = key.path("blsPubKey").asText()
+            val hex = key.path("blsPubKey").asString()
             require(hex.matches(Regex("[0-9a-fA-F]{192}")))
             return hex.hexToByteArray()
         }

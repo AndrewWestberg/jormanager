@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ObjectNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ObjectNode
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
@@ -20,8 +20,7 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.CardanoCapabilities
-import com.swiftmako.jormanager.services.ReviewedNetworkReconfiguration
-import com.swiftmako.jormanager.services.NetworkBundleValidator
+import com.swiftmako.jormanager.services.NodeConfigurationFiles
 import com.swiftmako.jormanager.utils.CborSpans
 import java.security.MessageDigest
 import java.util.UUID
@@ -71,12 +70,11 @@ class PoolDraftService(
     private val relays: RelayRepository,
     private val snapshots: NodeConfigurationSnapshotRepository,
     private val walletUtils: WalletUtils,
-    private val bundles: NetworkBundleValidator,
+    private val configurationFiles: NodeConfigurationFiles,
     private val eras: CardanoRepository,
     private val capabilities: CardanoCapabilities,
     private val nodeController: NodeController,
     private val json: ObjectMapper,
-    private val reconfiguration: ReviewedNetworkReconfiguration,
     private val jdbc: JdbcTemplate,
 ) {
     private fun digest(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value).toHexString()
@@ -86,7 +84,7 @@ class PoolDraftService(
         val node = requireNotNull(nodes.findByIdOrNull(request.nodeId))
         require(node.isDraft && !node.isDeleted)
         val observer = requireNotNull(nodes.findDefault())
-        require(!observer.isDeleted && !observer.isDraft && observer.configurationResetId == node.configurationResetId)
+        require(!observer.isDeleted && !observer.isDraft)
         val network = eras.networkKey(node)
         require(eras.networkKey(observer) == network)
         val evidence = eras.evidence(observer)
@@ -100,7 +98,6 @@ class PoolDraftService(
     @Transactional
     fun create(request: CreateNodeRequest): Node {
         require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Authorization required" }
-        request.reconfigurationId?.let { reconfiguration.consume(it, request) }
         require(request.type in setOf("core", "pool") && !request.isDefault && request.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*")))
         require(request.poolPledge != null && request.poolPledge.signum() >= 0 && request.poolCost != null && request.poolCost.signum() >= 0)
         require(request.metadata?.extended?.itn?.privateKey.isNullOrBlank()) { "Draft metadata must not contain an ITN private key" }
@@ -112,47 +109,46 @@ class PoolDraftService(
         val reward = requireNotNull(wallets.findByIdOrNull(requireNotNull(request.rewardsStakingAccount)))
         val payer = requireNotNull(wallets.findByIdOrNull(requireNotNull(request.registrationFeesAccount)))
         require(!owner.deleted && !reward.deleted && !payer.deleted && owner.stakingVkey != null && reward.stakingVkey != null && payer.paymentVkey != null)
-        val bundle = request.bundleId?.let {
-            require(request.genesisByronFileId == 0L && request.genesisShelleyFileId == 0L &&
-                request.genesisAlonzoFileId == 0L && request.genesisConwayFileId == 0L)
-            bundles.resolve(it, requireNotNull(request.expectedResetId))
-        }
-        if (bundle == null) require(request.expectedResetId == null)
         val host = requireNotNull(hosts.findByIdOrNull(request.hostId))
         val observer = requireNotNull(nodes.findDefault())
-        require(!observer.isDeleted && !observer.isDraft && observer.configurationResetId == bundle?.bundle?.resetId)
+        require(!observer.isDeleted && !observer.isDraft)
         val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
         val network = eras.networkKey(observer)
         val evidence = eras.evidence(observer)
-        val selectedEra = if (bundle == null) "conway" else "dijkstra"
-        require(evidence.freshness == "current" && evidence.era == selectedEra && evidence.networkKey == network && evidence.source == "host:${observerHost.id}/node:${observer.id}")
-        val assets = if (bundle != null) bundle.assets else {
-            val names = listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json")
-            val requested = listOf(request.genesisByronFileId, request.genesisShelleyFileId, request.genesisAlonzoFileId, request.genesisConwayFileId)
-            val observed = listOf(observer.genesisByronFileId, observer.genesisShelleyFileId, observer.genesisAlonzoFileId, observer.genesisConwayFileId)
-            val selected = requested.zip(observed).map { (selectedId, observedId) ->
-                val selectedFile = requireNotNull(files.findByIdOrNull(selectedId))
-                require(selectedFile.content == requireNotNull(files.findByIdOrNull(observedId)).content) { "Genesis differs from observer" }
-                selectedFile
-            }
-            val byronPrefix = selected.first().name.substringBeforeLast("-byron")
-            val topology = requireNotNull(files.findByName("$byronPrefix-topology.json"))
-            names.zip(selected.map { it.content.toByteArray(Charsets.UTF_8) }).toMap() +
-                mapOf("config.json" to requireNotNull(files.findByIdOrNull(observer.configFileId)).content.toByteArray(Charsets.UTF_8),
-                    "topology.json" to topology.content.toByteArray(Charsets.UTF_8))
-        }
-        require(requireNotNull(files.findByIdOrNull(observer.genesisShelleyFileId)).content.toByteArray(Charsets.UTF_8)
-            .contentEquals(assets.getValue("shelley-genesis.json")))
+        val selectedEra = requireNotNull(evidence.era)
+        require(evidence.freshness == "current" && selectedEra in setOf("conway", "dijkstra") &&
+            evidence.networkKey == network && evidence.source == "host:${observerHost.id}/node:${observer.id}")
         val connection = HostConnection(host)
         val parent = if (request.type == "pool") {
             val node = requireNotNull(request.parentId?.let { nodes.findByIdOrNull(it) })
             require(!node.isDraft && !node.isDeleted && node.type == "core" && node.hostId == host.id &&
-                node.configurationBundleId == bundle?.bundle?.bundleId && node.configurationResetId == bundle?.bundle?.resetId &&
                 eras.networkKey(node) == network)
             node
         } else {
             require(request.parentId == null)
             null
+        }
+        val assets = if (parent == null) configurationFiles.resolve(request) else {
+            val folder = "${host.nodeHomePath}/${parent.name}"
+            val ids = mapOf("byron-genesis.json" to parent.genesisByronFileId, "shelley-genesis.json" to parent.genesisShelleyFileId,
+                "alonzo-genesis.json" to parent.genesisAlonzoFileId, "conway-genesis.json" to parent.genesisConwayFileId) +
+                listOfNotNull(parent.genesisDijkstraFileId?.let { "dijkstra-genesis.json" to it }).toMap()
+            val inherited = ids.mapValues { requireNotNull(files.findByIdOrNull(it.value)).content.toByteArray(Charsets.UTF_8) }
+            val remote = listOf("config.json", "topology.json", "peer-snapshot.json", "checkpoints.json")
+                .filter { it in setOf("config.json", "topology.json") || connection.commandFileExists("$folder/$it") }
+                .associateWith { connection.commandReadFile("$folder/$it").toByteArray(Charsets.UTF_8) }
+            inherited + remote
+        }
+        configurationFiles.validate(assets)
+        val observedGenesis = mapOf("byron-genesis.json" to observer.genesisByronFileId,
+            "shelley-genesis.json" to observer.genesisShelleyFileId, "alonzo-genesis.json" to observer.genesisAlonzoFileId,
+            "conway-genesis.json" to observer.genesisConwayFileId) +
+            listOfNotNull(observer.genesisDijkstraFileId?.let { "dijkstra-genesis.json" to it }).toMap()
+        require(assets.keys.filter { it.endsWith("-genesis.json") }.toSet() == observedGenesis.keys)
+        observedGenesis.forEach { (name, id) ->
+            require(assets.getValue(name).contentEquals(requireNotNull(files.findByIdOrNull(id)).content.toByteArray(Charsets.UTF_8))) {
+                "Genesis differs from observer"
+            }
         }
         fun portUsed(port: Int) = connection.command("ss -tulw").trim().contains(":$port")
         if (parent == null) require(!portUsed(request.port))
@@ -163,7 +159,7 @@ class PoolDraftService(
             else nodeController.renderManagedConfig(assets.getValue("config.json").toString(Charsets.UTF_8), request.type, "2", false, request.prometheusListen, promPort)
         val configHash = digest(config.toByteArray(Charsets.UTF_8))
         fun requireQualified() {
-            if (bundle != null) capabilities.requireHostOperation(host, observerHost, observer, network, configHash, "node.create")
+            if (selectedEra == "dijkstra") capabilities.requireHostOperation(host, observerHost, observer, network, configHash, "node.create")
             else capabilities.requireOperation(observerHost, observer, "node.create")
         }
         requireQualified()
@@ -174,7 +170,7 @@ class PoolDraftService(
             fun run(vararg args: String) = connection.commandArgs(listOf(host.cardanoCliPath, selectedEra) + args)
             fun envelope(path: String): String = connection.commandArgs(listOf("cat", path))
             fun keyBytes(content: String): ByteArray {
-                val hex = json.readTree(content).path("cborHex").asText()
+                val hex = json.readTree(content).path("cborHex").asString()
                 require(hex.isNotEmpty() && hex.length % 2 == 0 && hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
                 return CborSpans.parse(hex.hexToByteArray()).payload()
             }
@@ -210,7 +206,7 @@ class PoolDraftService(
                 connection.commandWriteFile("$directory/cold.counter", supplied)
             }
             val counter = envelope("$directory/cold.counter")
-            val counterHex = json.readTree(counter).path("cborHex").asText()
+            val counterHex = json.readTree(counter).path("cborHex").asString()
             require(counterHex.isNotEmpty() && counterHex.length % 2 == 0 && counterHex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
             val counterItems = CborSpans.parse(counterHex.hexToByteArray()).array()
             require(counterItems.size == 2 && counterItems[0].integer().signum() >= 0 && counterItems[1].payload().contentEquals(keyBytes(cold.second)))
@@ -229,20 +225,17 @@ class PoolDraftService(
             val shelley = asset("shelley-genesis.json")
             val alonzo = asset("alonzo-genesis.json")
             val conway = asset("conway-genesis.json")
-            val dijkstra = if (bundle != null) asset("dijkstra-genesis.json") else null
+            val dijkstra = if ("dijkstra-genesis.json" in assets) asset("dijkstra-genesis.json") else null
             val configId = save("config.json", config)
-            val rawTopology = assets.getValue("topology.json").toString(Charsets.UTF_8)
-            val topology = if (bundle != null) rawTopology
-                .replace("${bundle.bundle.catalogPrefix}-peer-snapshot.json", "peer-snapshot.json")
-                .replace("musashi-peer-snapshot.json", "peer-snapshot.json") else rawTopology
-            asset("topology.json")
-            if ("peer-snapshot.json" in assets) asset("peer-snapshot.json")
+            val topology = configurationFiles.renderTopology(assets)
+            val topologyId = asset("topology.json")
+            val peerSnapshotId = if ("peer-snapshot.json" in assets) asset("peer-snapshot.json") else null
             val node = nodes.save(Node(hostId = request.hostId, parentId = parent?.id, color = request.color, type = request.type,
                 processorThreads = request.processorThreads, name = request.name, listen = request.listen, port = request.port,
                 promPort = promPort, tracingHost = request.tracingListen, tracingPort = tracingPort,
                 genesisByronFileId = byron, genesisShelleyFileId = shelley, genesisAlonzoFileId = alonzo,
                 genesisConwayFileId = conway, genesisDijkstraFileId = dijkstra, configFileId = configId,
-                configurationBundleId = bundle?.bundle?.bundleId, configurationResetId = bundle?.bundle?.resetId,
+                topologyFileId = topologyId, peerSnapshotFileId = peerSnapshotId, networkKeyDiscriminator = observer.networkKeyDiscriminator,
                 isDefault = false, isDraft = true, poolId = poolId, poolPledge = request.poolPledge, poolCost = request.poolCost,
                 poolMargin = request.poolMargin, ownerStakingAccountId = requireNotNull(owner.id), rewardsStakingAccountId = requireNotNull(reward.id),
                 coreSKeyId = saveSecret("node.skey", cold.first), coreVKeyId = save("node.vkey", cold.second), coreCounterId = save("node.counter", counter),
@@ -251,8 +244,8 @@ class PoolDraftService(
             require(eras.networkKey(node) == network) { "Draft configuration does not match observer network" }
             val id = requireNotNull(node.id)
             relays.saveAll(request.relays.orEmpty().map { Relay(nodeId = id, addr = it.addr, port = it.port) })
-            snapshots.save(NodeConfigurationSnapshot(id = UUID.randomUUID().toString(), nodeId = id, bundleId = bundle?.bundle?.bundleId,
-                role = request.type, assetsJson = bundle?.bundle?.assetsJson ?: json.writeValueAsString(
+            snapshots.save(NodeConfigurationSnapshot(id = UUID.randomUUID().toString(), nodeId = id,
+                role = request.type, assetsJson = json.writeValueAsString(
                     assets.mapValues { java.util.Base64.getEncoder().encodeToString(it.value) }), effectiveConfigDigest = configHash,
                 effectiveTopologyDigest = digest(topology.toByteArray(Charsets.UTF_8)),
                 approvedOverrides = json.writeValueAsString(mapOf("prometheusListen" to request.prometheusListen, "prometheusPort" to promPort,
@@ -263,7 +256,10 @@ class PoolDraftService(
                 "color" to request.color, "processorThreads" to request.processorThreads, "listen" to request.listen,
                 "port" to request.port, "prometheusListen" to request.prometheusListen,
                 "enableTracingListener" to request.enableTracingListener, "tracingListen" to request.tracingListen,
-                "bundleId" to request.bundleId, "expectedResetId" to request.expectedResetId,
+                "genesisByron" to request.genesisByronFileId, "genesisShelley" to request.genesisShelleyFileId,
+                "genesisAlonzo" to request.genesisAlonzoFileId, "genesisConway" to request.genesisConwayFileId,
+                "genesisDijkstra" to request.genesisDijkstraFileId, "config" to request.configFileId,
+                "topology" to request.topologyFileId, "peerSnapshot" to request.peerSnapshotFileId,
                 "registrationFeesAccount" to request.registrationFeesAccount, "ownerStakingAccount" to request.ownerStakingAccount,
                 "rewardsStakingAccount" to request.rewardsStakingAccount, "poolPledge" to request.poolPledge,
                 "poolCost" to request.poolCost, "poolMargin" to request.poolMargin, "relays" to request.relays,

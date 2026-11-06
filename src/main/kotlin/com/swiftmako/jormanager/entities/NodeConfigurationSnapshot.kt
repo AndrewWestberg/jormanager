@@ -10,7 +10,6 @@ import jakarta.persistence.Table
 data class NodeConfigurationSnapshot(
     @Id val id: String,
     @Column(name = "node_id", nullable = false) val nodeId: Long,
-    @Column(name = "bundle_id") val bundleId: String?,
     @Column(nullable = false) val role: String,
     @Column(name = "assets_json", nullable = false) val assetsJson: String,
     @Column(name = "effective_config_digest") val effectiveConfigDigest: String?,

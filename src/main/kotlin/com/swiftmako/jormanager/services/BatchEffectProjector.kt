@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.repositories.LedgerRepository

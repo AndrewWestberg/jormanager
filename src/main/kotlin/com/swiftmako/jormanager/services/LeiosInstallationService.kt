@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ArrayNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ArrayNode
 import com.swiftmako.jormanager.controllers.LeiosController
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -122,8 +122,8 @@ class LeiosInstallationService(
             reviewed[3] == c.fingerprint && reviewed[4] == digest(c.key.publicKey) && reviewed[5] == "previewed") { "Installation preview is stale" }
         val secret = walletUtils.getSKeyContent(requireNotNull(files.findByIdOrNull(requireNotNull(c.key.signingFileId))), request.spendingPassword)
         val envelope = json.readTree(secret)
-        require(envelope.path("type").asText() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
-            envelope.path("cborHex").asText().matches(Regex("5820[0-9a-fA-F]{64}")))
+        require(envelope.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
+            envelope.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}")))
         require(jdbc.update("UPDATE leios_install_previews SET state='installing' WHERE id=? AND state='previewed'", request.previewId) == 1)
         try {
             require(context(request.target, request.keyId).fingerprint == c.fingerprint) { "Installation preview is stale" }
@@ -132,7 +132,7 @@ class LeiosInstallationService(
             try {
                 c.connection.commandWriteSecret(verifyKey, secret)
                 c.connection.command(listOf(c.host.cardanoCliPath, "dijkstra", "key", "verification-key", "--signing-key-file", verifyKey, "--verification-key-file", verifyPublic))
-                val hex = json.readTree(c.connection.command(listOf("cat", verifyPublic))).path("cborHex").asText()
+                val hex = json.readTree(c.connection.command(listOf("cat", verifyPublic))).path("cborHex").asString()
                 require(hex.matches(Regex("[0-9a-fA-F]+")) && hex.length % 2 == 0)
                 require(CborSpans.parse(hex.hexToByteArray()).payload().contentEquals(c.key.publicKey)) { "Signing key no longer matches the reviewed public key" }
             } finally {
@@ -144,26 +144,26 @@ class LeiosInstallationService(
                 val existing = json.readTree(oldContent)
                 require(existing is ArrayNode)
                 existing.forEach { item ->
-                    require(item.isArray && item.size() in 3..4 && item[1].path("cborHex").asText().isNotBlank())
+                    require(item.isArray && item.size() in 3..4 && item[1].path("cborHex").asString().isNotBlank())
                     if (item.size() == 4 && !item[3].isNull) {
                         val values = if (item[3].isArray) item[3].toList() else listOf(item[3])
                         values.forEach { value ->
-                            require(value.isObject && value.path("type").asText() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
-                                value.path("cborHex").asText().matches(Regex("5820[0-9a-fA-F]{64}")))
+                            require(value.isObject && value.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
+                                value.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}")))
                         }
                     }
                 }
                 val vrfSecret = walletUtils.getSKeyContent(requireNotNull(files.findByIdOrNull(c.node.vrfSKeyId)), request.spendingPassword)
-                val vrfHex = json.readTree(vrfSecret).path("cborHex").asText()
+                val vrfHex = json.readTree(vrfSecret).path("cborHex").asString()
                 require(vrfHex.isNotBlank())
-                val matches = existing.filter { it.isArray && it.size() in 3..4 && it[1].path("cborHex").asText() == vrfHex }
+                val matches = existing.filter { it.isArray && it.size() in 3..4 && it[1].path("cborHex").asString() == vrfHex }
                 require(matches.size == 1) { "Cannot identify the target pool in bulk credentials" }
                 val entry = matches.single() as ArrayNode
                 if (entry.size() == 3) entry.add(envelope)
                 else if (entry[3].isNull) entry.set(3, envelope)
                 else {
                     val old = entry[3]
-                    val array = if (old.isArray) old.deepCopy<ArrayNode>() else json.createArrayNode().add(old)
+                    val array = if (old.isArray) (old as ArrayNode).deepCopy() else json.createArrayNode().add(old)
                     if (array.none { it == envelope }) array.add(envelope)
                     entry.set(3, array)
                 }

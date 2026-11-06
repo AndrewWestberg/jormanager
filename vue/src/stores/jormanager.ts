@@ -77,7 +77,6 @@ interface JorManagerState {
   blocks: Block[]
   files: FileOption[]
   walletItems: WalletItem[]
-  networkBundleOptions: { bundles: Array<{ bundleId: string; resetId: string; catalogPrefix: string; networkMagic: number; systemStart: string }>; status: string }
   leiosStatus: unknown | null
   leiosStatusError: string | null
   leiosStatusRequest: { requestId: string; nodeId: number; hostId: number; networkKey: string | null } | null
@@ -135,7 +134,6 @@ export const useJorManagerStore = defineStore('jormanager', {
     blocks: [],
     files: [],
     walletItems: [],
-    networkBundleOptions: { bundles: [], status: 'Not requested' },
     leiosStatus: null,
     leiosStatusError: null,
     leiosStatusRequest: null,
@@ -439,7 +437,7 @@ export const useJorManagerStore = defineStore('jormanager', {
               const [oldIdentity, newIdentity] = [before, after].map(node => node ? JSON.stringify([
                 node.id, node.hostId, node.genesisByronFileId, node.genesisShelleyFileId,
                 node.genesisAlonzoFileId, node.genesisConwayFileId, node.genesisDijkstraFileId,
-                node.configFileId, node.configurationBundleId, node.configurationResetId
+                node.configFileId, node.topologyFileId, node.peerSnapshotFileId
               ]) : null)
               if (oldIdentity !== newIdentity) {
                 const oldNetwork = this.leiosStatusRequest?.networkKey ?? leios?.target?.networkKey
@@ -484,10 +482,6 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'file_options':
           this.files = message.data as FileOption[]
           break
-        case 'network_bundle_options':
-          if (message.data) this.networkBundleOptions = message.data as JorManagerState['networkBundleOptions']
-          else this.networkBundleOptions = { bundles: [], status: message.exception?.message || 'Unavailable' }
-          break
         case 'leios_status': {
           const data = message.data as LeiosStatusValue | undefined
           const pending = this.leiosStatusRequest
@@ -513,9 +507,6 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'leios_key_imported':
         case 'leios_key_install_preview':
         case 'leios_key_installation':
-        case 'network_reconfiguration_preview':
-        case 'network_reconfiguration_authorize':
-        case 'network_configuration_restore':
         case 'node_provisioning_preview':
         case 'node_pool_draft':
         case 'node_pool_draft_context':
@@ -964,9 +955,6 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.sendMessage('/jormanager/file_options')
     },
 
-    requestNetworkBundleOptions() {
-      this.sendMessage('/jormanager/network_bundle_options')
-    },
 
     createNode(formNode: unknown) {
       this.sendMessage('/jormanager/createnode', formNode)
