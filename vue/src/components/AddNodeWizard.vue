@@ -126,32 +126,6 @@
           </BFormRadioGroup>
         </BFormGroup>
         
-        <BFormGroup label="Network configuration" label-cols-md="2">
-          <BFormSelect v-model="formNode.bundleId" :disabled="parentId != null">
-            <BFormSelectOption :value="null">Legacy configuration (including Conway)</BFormSelectOption>
-            <BFormSelectOption v-for="bundle in store.networkBundleOptions.bundles" :key="bundle.bundleId" :value="bundle.bundleId">
-              {{ bundle.catalogPrefix }} — reset {{ bundle.resetId }} — bundle {{ bundle.bundleId }}
-            </BFormSelectOption>
-          </BFormSelect>
-          <small>{{ store.networkBundleOptions.status }}</small>
-        </BFormGroup>
-        <div v-if="selectedBundle" class="alert alert-info">
-          Network magic: {{ selectedBundle.networkMagic }}; system start: {{ selectedBundle.systemStart }}.
-          Selection does not establish host compatibility or current-era evidence; provisioning requires backend preflight.
-        </div>
-        <div v-if="formNode.bundleId && !selectedBundle" class="alert alert-warning">
-          The selected bundle is not currently available as a verified bundle. Select a verified bundle before continuing.
-        </div>
-        <BFormGroup v-if="formNode.bundleId && parentId == null" label="Replace existing node" label-cols-md="2">
-          <BFormSelect v-model="reconfigurationSource">
-            <BFormSelectOption :value="null">No replacement (new node)</BFormSelectOption>
-            <BFormSelectOption v-for="node in replacementSources" :key="node.id" :value="node.id">
-              {{ node.name }} — {{ node.type }} — reset {{ node.configurationResetId }}
-            </BFormSelectOption>
-          </BFormSelect>
-          <small>Replacement preserves the existing node and requires a separate clean directory and database.</small>
-        </BFormGroup>
-        <template v-if="!formNode.bundleId">
         <BFormGroup label="Genesis Byron" label-cols-md="2">
           <BFormSelect
             v-model="formNode.genesisByron"
@@ -203,7 +177,27 @@
             </template>
           </BFormSelect>
         </BFormGroup>
-        </template>
+        <BFormGroup label="Genesis Dijkstra (optional)" label-cols-md="2">
+          <BFormSelect v-model="formNode.genesisDijkstra" :options="jsonFileOptions" :disabled="parentId != null">
+            <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+          </BFormSelect>
+        </BFormGroup>
+        <BFormGroup label="Config" label-cols-md="2">
+          <BFormSelect v-model="formNode.config" :state="formNode.config != null" :options="jsonFileOptions" :disabled="parentId != null">
+            <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+          </BFormSelect>
+        </BFormGroup>
+        <BFormGroup label="Topology" label-cols-md="2">
+          <BFormSelect v-model="formNode.topology" :state="parentId != null ? null : formNode.topology != null" :options="jsonFileOptions" :disabled="parentId != null">
+            <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+          </BFormSelect>
+        </BFormGroup>
+        <BFormGroup label="Peer snapshot (optional)" label-cols-md="2">
+          <BFormSelect v-model="formNode.peerSnapshot" :options="jsonFileOptions" :disabled="parentId != null">
+            <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+          </BFormSelect>
+        </BFormGroup>
+        <small>Files referenced by the selected config or topology must also be selected. The server validates their contents and network identity.</small>
       </TabContent>
       
       <!-- Step 2: Pool Keys (Core/Pool only) -->
@@ -667,13 +661,9 @@
                 <th>Host</th>
                 <td>{{ selectedHost?.hostname }}</td>
               </tr>
-              <tr v-if="formNode.bundleId">
-                <th>Bundle / reset</th>
-                <td>{{ formNode.bundleId }} / {{ formNode.expectedResetId }}</td>
-              </tr>
-              <tr v-if="selectedBundle">
-                <th>Network</th>
-                <td>{{ selectedBundle.catalogPrefix }}; magic {{ selectedBundle.networkMagic }}; system start {{ selectedBundle.systemStart }}</td>
+              <tr v-for="file in selectedFiles" :key="file.label">
+                <th>{{ file.label }}</th>
+                <td>{{ file.name }}</td>
               </tr>
               <tr v-if="formNode.listen">
                 <th>Listen Address</th>
@@ -686,9 +676,9 @@
             </tbody>
           </table>
         </div>
-        <div v-if="formNode.bundleId" class="border rounded p-3 mb-3">
+        <div v-if="formNode.type !== 'relay'" class="border rounded p-3 mb-3">
           <h5>Host and network preflight</h5>
-          <p>The selected bundle is not current-era or host-capability evidence. Preview the effective role configuration and use a matching connected observer.</p>
+          <p>File selections are not current-era or host-capability evidence. Preview the effective role configuration using a matching connected observer.</p>
           <BButton variant="outline-info" :disabled="!!provisioningPending || !store.connected" @click="previewProvisioning">Preview host preflight</BButton>
           <div v-if="provisioningPreview && provisioningCurrent" class="mt-2">
             <p>Host {{ provisioningPreview.hostId }}; observer node {{ provisioningPreview.observerNodeId }}; network {{ provisioningPreview.networkKey }}.</p>
@@ -699,7 +689,7 @@
             </p>
             <details>
               <summary>Record independent host qualification evidence</summary>
-              <p>Record only evidence actually verified for this host, network and effective configuration. A binary version or selected bundle alone is not qualification.</p>
+              <p>Record only evidence actually verified for this host, network and effective configuration. A binary version or file selection alone is not qualification.</p>
               <p>Reviewed observer evidence: era {{ provisioningCapability?.eraEvidence?.era ?? 'unavailable' }}, generation {{ provisioningCapability?.eraEvidence?.generation ?? 'unavailable' }}, source {{ provisioningCapability?.eraEvidence?.source ?? 'unavailable' }}, point {{ provisioningCapability?.eraEvidence?.observedPoint ?? 'unavailable' }}, observed {{ provisioningCapability?.eraEvidence?.observedAt ?? 'unavailable' }}.</p>
               <BFormGroup label="Operation">
                 <BFormSelect v-model="qualification.operation">
@@ -720,18 +710,12 @@
           <p v-else-if="provisioningPreview" class="text-warning">Target settings changed; preview the host again.</p>
           <p v-if="provisioningError" class="text-danger">{{ provisioningError }}</p>
         </div>
-        <div v-if="!formNode.bundleId && formNode.type !== 'relay'" class="border rounded p-3 mb-3">
-          <p>Conway draft preparation requires a current matching observer. The backend checks the selected genesis files against that observer; observer capability does not prove target host compatibility.</p>
-          <BButton variant="outline-info" :disabled="!!provisioningPending || !store.connected" @click="checkLegacyObserver">Check Conway observer</BButton>
-          <p v-if="legacyObserverCurrent && provisioningCapability">Observer era {{ provisioningCapability.eraEvidence?.era ?? 'unavailable' }} ({{ provisioningCapability.eraEvidence?.freshness ?? 'unavailable' }}): {{ provisioningOperation?.reason ?? provisioningCapability.reason }}</p>
-          <p v-if="provisioningError" class="text-danger">{{ provisioningError }}</p>
-        </div>
         <p v-if="formNode.type !== 'relay'" class="text-warning">Preparing a draft does not register or deploy a pool. Registration and deployment each require separate review and authorization.</p>
         <div v-if="formNode.type !== 'relay'" class="border rounded p-3 mb-3">
           <p>A pool draft persists protected keys and configuration only. It does not register a pool, install files, start a node or establish eligibility.</p>
           <p v-if="fileContents.itnPrivateKey" class="text-warning">Draft preparation cannot accept an ITN private key. Remove it in the metadata step; metadata must be published independently.</p>
           <BFormCheckbox v-model="draftConfirmed">I approve preparing a draft for the displayed host, role, network, accounts and pool settings.</BFormCheckbox>
-          <BButton class="mt-2" variant="outline-info" :disabled="!draftConfirmed || !draftPreflightReady || !!draftPending || !replacementAuthorized || !!fileContents.itnPrivateKey"
+          <BButton class="mt-2" variant="outline-info" :disabled="!draftConfirmed || !draftPreflightReady || !!draftPending || !!fileContents.itnPrivateKey"
             @click="requestDraft">Prepare pool draft</BButton>
           <p v-if="draftPending" class="text-warning">Awaiting the draft result. If disconnected, check the Nodes list before retrying; the outcome may be unknown.</p>
           <p v-if="draftError" class="text-danger">{{ draftError }}</p>
@@ -773,28 +757,6 @@
             </tbody>
           </table>
           <p v-else>No relays configured.</p>
-        </div>
-        <div v-if="reconfigurationSource != null" class="border rounded p-3 mb-3">
-          <h5>Reviewed network reconfiguration</h5>
-          <p>Review the replacement before authorizing a clean database and replay. The original node, its keys and prior authorizations remain unchanged.</p>
-          <BButton variant="outline-info" :disabled="!!reconfigurationPending || !store.connected" @click="previewReconfiguration">Review replacement</BButton>
-          <div v-if="reconfigurationReview && reconfigurationCurrent" class="mt-2">
-            <p>Original node {{ reconfigurationReview.sourceNodeId }} on host {{ reconfigurationReview.sourceHostId }} → target host {{ reconfigurationReview.targetHostId }}.</p>
-            <p class="text-break">Prior bundle {{ reconfigurationReview.priorBundleId }} / reset {{ reconfigurationReview.priorResetId }}<br>Target bundle {{ reconfigurationReview.targetBundleId }} / reset {{ reconfigurationReview.targetResetId }}</p>
-            <p>{{ reconfigurationReview.consequences }}</p>
-            <pre class="text-wrap text-break">{{ reconfigurationReview.reviewedRequest }}</pre>
-            <p>Review state: {{ reconfigurationReview.state }}. Authorization does not imply installation, startup or synchronization.</p>
-            <template v-if="reconfigurationReview.state === 'previewed'">
-              <BFormGroup label="Spending password">
-                <BFormInput v-model="reconfigurationPassword" type="password" autocomplete="current-password" />
-              </BFormGroup>
-              <BFormCheckbox v-model="acknowledgeCleanDatabase">I approve this target and a clean database with full replay or supported recovery.</BFormCheckbox>
-              <BButton class="mt-2" variant="success" :disabled="!acknowledgeCleanDatabase || !reconfigurationPassword || !!reconfigurationPending"
-                @click="authorizeReconfiguration">Authorize replacement</BButton>
-            </template>
-          </div>
-          <p v-else-if="reconfigurationReview" class="text-warning">The form or uploaded files changed; review the replacement again.</p>
-          <p v-if="reconfigurationError" class="text-danger">{{ reconfigurationError }}</p>
         </div>
 
 
@@ -842,6 +804,7 @@ import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { isCustomTracingListen, syncTracingListenForHost } from '@/utils/tracing'
 import { generateUUID } from '@/utils/filters'
+import { matchingNetworkFiles } from '@/utils/nodeFiles'
 
 interface Relay {
   addr: string | null
@@ -923,12 +886,14 @@ const formNode = ref({
   prometheusListen: '127.0.0.1',
   enableTracingListener: true,
   tracingListen: '0.0.0.0',
-  bundleId: null as string | null,
-  expectedResetId: null as string | null,
   genesisByron: null as number | null,
   genesisShelley: null as number | null,
   genesisAlonzo: null as number | null,
   genesisConway: null as number | null,
+  genesisDijkstra: null as number | null,
+  config: null as number | null,
+  topology: null as number | null,
+  peerSnapshot: null as number | null,
   generateColdKeys: false,
   coldSKey: null as string | null,
   coldVKey: null as string | null,
@@ -975,28 +940,11 @@ const formNode = ref({
 
 const nodeColors = computed(() => nodes.value.map(n => n.color))
 const selectedHost = computed(() => store.hosts.find(host => host.id === formNode.value.host) ?? null)
-type ReconfigurationReview = {
-  id: string; sourceNodeId: number; sourceHostId: number; targetHostId: number
-  priorBundleId: string; priorResetId: string; targetBundleId: string; targetResetId: string
-  reviewedRequest: string; consequences: string; state: string
-}
-type ReplacementNode = { id: number; name: string; type: string; isDraft?: boolean; configurationBundleId?: string | null; configurationResetId?: string | null }
-const replacementSources = computed(() => (nodes.value as unknown as ReplacementNode[])
-  .filter(node => !node.isDraft && node.configurationBundleId && node.configurationResetId && node.type === formNode.value.type && node.type !== 'pool'))
-const reconfigurationSource = ref<number | null>(null)
-const reconfigurationReview = ref<ReconfigurationReview | null>(null)
-const reconfigurationRequest = ref<Record<string, unknown> | null>(null)
-const reconfigurationSignature = ref('')
-const reconfigurationPending = ref<'network_reconfiguration_preview' | 'network_reconfiguration_authorize' | null>(null)
-const reconfigurationError = ref('')
-const reconfigurationPassword = ref('')
-const acknowledgeCleanDatabase = ref(false)
 const fileRevision = ref(0)
 const currentSignature = computed(() => {
   const { spendingPassword: _spendingPassword, sudoPassword: _sudoPassword, ...details } = formNode.value
-  return JSON.stringify([details, reconfigurationSource.value, fileRevision.value])
+  return JSON.stringify([details, fileRevision.value])
 })
-const reconfigurationCurrent = computed(() => !!reconfigurationRequest.value && reconfigurationSignature.value === currentSignature.value)
 
 async function buildCreateRequest(): Promise<Record<string, unknown>> {
   const request = JSON.parse(JSON.stringify(formNode.value)) as Record<string, any>
@@ -1007,69 +955,13 @@ async function buildCreateRequest(): Promise<Record<string, unknown>> {
   }
   if (fileContents.value.itnPrivateKey) request.metadata.extended.itn.privateKey = await fileContents.value.itnPrivateKey.text()
   if (fileContents.value.itnPublicKey) request.metadata.extended.itn.publicKey = await fileContents.value.itnPublicKey.text()
-  if (formNode.value.bundleId) {
-    delete request.genesisByron
-    delete request.genesisShelley
-    delete request.genesisAlonzo
-    delete request.genesisConway
-  }
   return request
 }
 
-async function previewReconfiguration() {
-  if (reconfigurationSource.value == null || reconfigurationPending.value || !validateStep1()) return
-  const signature = currentSignature.value
-  const request = await buildCreateRequest()
-  if (signature !== currentSignature.value) {
-    reconfigurationError.value = 'The form changed while preparing the review; review it again.'
-    return
-  }
-  reconfigurationSignature.value = signature
-  reconfigurationRequest.value = request
-  reconfigurationReview.value = null
-  reconfigurationError.value = ''
-  acknowledgeCleanDatabase.value = false
-  store.leiosResponses = { ...store.leiosResponses, network_reconfiguration_preview: {} }
-  reconfigurationPending.value = 'network_reconfiguration_preview'
-  const publicRequest = JSON.parse(JSON.stringify(request)) as Record<string, any>
-  publicRequest.coldSKey = null
-  publicRequest.vrfSKey = null
-  publicRequest.kesSKey = null
-  publicRequest.metadata.extended.itn.privateKey = null
-  store.sendMessage('/jormanager/network_reconfiguration_preview', { sourceNodeId: reconfigurationSource.value, request: publicRequest })
-}
-
-function authorizeReconfiguration() {
-  if (!reconfigurationReview.value || !reconfigurationCurrent.value || !reconfigurationPassword.value ||
-      !acknowledgeCleanDatabase.value || reconfigurationPending.value) return
-  const password = reconfigurationPassword.value
-  reconfigurationPassword.value = ''
-  store.leiosResponses = { ...store.leiosResponses, network_reconfiguration_authorize: {} }
-  reconfigurationPending.value = 'network_reconfiguration_authorize'
-  store.sendMessage('/jormanager/network_reconfiguration_authorize', {
-    id: reconfigurationReview.value.id, spendingPassword: password, acknowledgeCleanDatabase: true
-  })
-}
-
-watch(() => store.leiosResponses, responses => {
-  const type = reconfigurationPending.value
-  if (!type) return
-  const response = responses[type]
-  const review = response?.data as ReconfigurationReview | undefined
-  if (review && review.sourceNodeId === reconfigurationSource.value &&
-      (type === 'network_reconfiguration_preview' || review.id === reconfigurationReview.value?.id)) {
-    reconfigurationReview.value = review
-    reconfigurationPending.value = null
-  } else if (response?.exception) {
-    reconfigurationError.value = response.exception.message
-    reconfigurationPending.value = null
-  }
-})
 watch(() => formNode.value.type, type => { if (type !== 'relay') formNode.value.isDefault = false })
 
-watch(() => formNode.value.bundleId, bundle => { if (!bundle) reconfigurationSource.value = null })
 
-type ProvisioningPreview = { hostId: number; observerNodeId: number; networkKey: string; bundleId: string; resetId: string; prometheusPort: number; tracingPort: number; configSha256: string }
+type ProvisioningPreview = { hostId: number; observerNodeId: number; networkKey: string; prometheusPort: number; tracingPort: number; configSha256: string }
 type ProvisioningCapability = { requestId: string; eraEvidence?: { era?: string | null; freshness?: string; generation?: number | string; source?: string | null; observedPoint?: unknown; observedAt?: string | null }; operations?: Array<{ operation: string; status: string; reason: string }>; reason?: string }
 const provisioningPreview = ref<ProvisioningPreview | null>(null)
 const provisioningSignature = ref('')
@@ -1088,45 +980,25 @@ watch(qualificationConfirmed, confirmed => {
     : null
 })
 const qualificationReady = computed(() => qualificationConfirmed.value && qualificationReview.value?.signature === qualificationSignature.value)
-const provisioningCurrentSignature = computed(() => JSON.stringify([formNode.value.host, formNode.value.parentId, formNode.value.bundleId, formNode.value.expectedResetId, formNode.value.type, formNode.value.port, formNode.value.prometheusListen, formNode.value.genesisByron, formNode.value.genesisShelley, formNode.value.genesisAlonzo, formNode.value.genesisConway]))
+const provisioningCurrentSignature = computed(() => JSON.stringify([formNode.value.host, formNode.value.parentId, formNode.value.type, formNode.value.port, formNode.value.prometheusListen, formNode.value.genesisByron, formNode.value.genesisShelley, formNode.value.genesisAlonzo, formNode.value.genesisConway, formNode.value.genesisDijkstra, formNode.value.config, formNode.value.topology, formNode.value.peerSnapshot]))
 const provisioningCurrent = computed(() => !!provisioningPreview.value && provisioningSignature.value === provisioningCurrentSignature.value)
 const provisioningOperation = computed(() => provisioningCapability.value?.operations?.find(item => item.operation === 'node.create'))
-const provisioningVerified = computed(() => provisioningCurrent.value &&
-  provisioningCapability.value?.eraEvidence?.freshness === 'current' && provisioningOperation.value?.status === 'verified')
-const legacyObserverCurrent = computed(() => !formNode.value.bundleId && provisioningSignature.value === provisioningCurrentSignature.value)
-const draftPreflightReady = computed(() => formNode.value.bundleId
-  ? provisioningVerified.value && provisioningCapability.value?.eraEvidence?.era === 'dijkstra'
-  : legacyObserverCurrent.value && provisioningCapability.value?.eraEvidence?.era === 'conway' &&
-    provisioningCapability.value.eraEvidence.freshness === 'current' &&
-    ['verified', 'unverified'].includes(provisioningOperation.value?.status ?? ''))
+const draftPreflightReady = computed(() => provisioningCurrent.value &&
+  provisioningCapability.value?.eraEvidence?.freshness === 'current' &&
+  (provisioningCapability.value.eraEvidence.era === 'dijkstra'
+    ? provisioningOperation.value?.status === 'verified'
+    : provisioningCapability.value.eraEvidence.era === 'conway' &&
+      ['verified', 'unverified'].includes(provisioningOperation.value?.status ?? '')))
 
-function checkLegacyObserver() {
-  if (!validateStep1() || provisioningPending.value || !store.connected) return
-  const observer = nodes.value.find(node => (node as any).isDefault && !(node as any).isDraft) as
-    | (typeof nodes.value[number] & { hostId: number }) | undefined
-  if (!observer?.id) {
-    provisioningError.value = 'A connected default observer is required.'
-    return
-  }
-  provisioningSignature.value = provisioningCurrentSignature.value
-  provisioningCapability.value = null
-  provisioningError.value = ''
-  provisioningRequestId.value = generateUUID()
-  store.leiosResponses = { ...store.leiosResponses, capabilities: {} }
-  provisioningPending.value = 'capabilities'
-  store.sendMessage('/jormanager/capabilities', { requestId: provisioningRequestId.value, hostId: observer.hostId, nodeId: observer.id })
-}
 
 const draftConfirmed = ref(false)
 const draftPending = ref(false)
 const draftError = ref('')
 const draftSignature = ref('')
-const replacementAuthorized = computed(() => reconfigurationSource.value == null ||
-  (reconfigurationCurrent.value && reconfigurationReview.value?.state === 'authorized'))
 
 function requestDraft() {
   if (!draftConfirmed.value || !draftPreflightReady.value || fileContents.value.itnPrivateKey ||
-      !replacementAuthorized.value || draftPending.value || !validateStep1() || !validateStep3() || !validateStep4() || !validateStep5()) return
+      draftPending.value || !validateStep1() || !validateStep3() || !validateStep4() || !validateStep5()) return
   draftSignature.value = currentSignature.value
   emitter.emit('show-spending-password-modal', { action: 'create-pool-draft' })
 }
@@ -1147,7 +1019,7 @@ watch(() => store.leiosResponses.node_pool_draft, response => {
 
 
 function previewProvisioning() {
-  if (!validateStep1() || !formNode.value.host || !formNode.value.bundleId || !formNode.value.expectedResetId || provisioningPending.value) return
+  if (!validateStep1() || !formNode.value.host || !formNode.value.config || provisioningPending.value) return
   provisioningSignature.value = provisioningCurrentSignature.value
   provisioningPreview.value = null
   provisioningCapability.value = null
@@ -1156,7 +1028,7 @@ function previewProvisioning() {
   store.leiosResponses = { ...store.leiosResponses, node_provisioning_preview: {} }
   provisioningPending.value = 'node_provisioning_preview'
   store.sendMessage('/jormanager/node/provisioning-preview', {
-    hostId: formNode.value.host, bundleId: formNode.value.bundleId, expectedResetId: formNode.value.expectedResetId,
+    hostId: formNode.value.host, config: formNode.value.config,
     type: formNode.value.type, parentId: formNode.value.parentId, port: Number(formNode.value.port), prometheusListen: formNode.value.prometheusListen
   })
 }
@@ -1201,8 +1073,7 @@ watch(() => store.leiosResponses, responses => {
     const preview = response.data as ProvisioningPreview
     provisioningPending.value = null
     if (provisioningSignature.value !== provisioningCurrentSignature.value ||
-        preview.hostId !== formNode.value.host || preview.bundleId !== formNode.value.bundleId ||
-        preview.resetId !== formNode.value.expectedResetId) {
+        preview.hostId !== formNode.value.host) {
       provisioningError.value = 'Preflight response does not match the current target; preview again.'
     } else {
       provisioningPreview.value = preview
@@ -1231,15 +1102,23 @@ const wizardKey = computed(() => `wizard-${formNode.value.type || 'none'}`)
 const feeAccountOptions = computed(() => store.registrationFeesSelectOptions())
 const stakingAccountOptions = computed(() => store.stakingSelectOptions())
 const rewardsAccountOptions = computed(() => store.rewardsSelectOptions())
-const selectedBundle = computed(() =>
-  store.networkBundleOptions.bundles.find(bundle => bundle.bundleId === formNode.value.bundleId) ?? null
-)
-
-watch(selectedBundle, bundle => {
-  if (props.parentId == null) formNode.value.expectedResetId = bundle?.resetId ?? null
+const jsonFileOptions = computed(() => store.files.filter(file => /\.json$/i.test(String(file.text))))
+const genesisFileOptions = jsonFileOptions
+watch(() => formNode.value.genesisByron, id => {
+  if (props.parentId != null) return
+  const matches = matchingNetworkFiles(id, store.files)
+  for (const key of Object.keys(matches) as Array<keyof typeof matches>) {
+    if (formNode.value[key] == null) formNode.value[key] = matches[key] ?? null
+  }
 })
-
-const genesisFileOptions = computed(() => store.genesisFiles || [])
+const selectedFiles = computed(() => [
+  ['Genesis Byron', formNode.value.genesisByron], ['Genesis Shelley', formNode.value.genesisShelley],
+  ['Genesis Alonzo', formNode.value.genesisAlonzo], ['Genesis Conway', formNode.value.genesisConway],
+  ['Genesis Dijkstra', formNode.value.genesisDijkstra], ['Config', formNode.value.config],
+  ['Topology', formNode.value.topology], ['Peer snapshot', formNode.value.peerSnapshot]
+].map(([label, id]) => ({
+  label: String(label), name: store.files.find(file => file.value === id)?.text ?? (id == null ? 'None' : `File ${id}`)
+})))
 
 const nameError = ref('Name must be 1-6 characters, letters and numbers only')
 
@@ -1343,11 +1222,10 @@ function addRelay() {
 // Validation functions for beforeChange
 function validateStep1(): boolean {
   if (!hostState.value || !nameState.value || !typeState.value ||
-      !processorThreadsState.value ||
-      (formNode.value.bundleId
-        ? !selectedBundle.value || selectedBundle.value.resetId !== formNode.value.expectedResetId
-        : !genesisByronState.value || !genesisShelleyState.value ||
-          !genesisAlonzoState.value || !genesisConwayState.value)) {
+      !processorThreadsState.value || !listenState.value || !portState.value ||
+      !genesisByronState.value || !genesisShelleyState.value ||
+      !genesisAlonzoState.value || !genesisConwayState.value ||
+      formNode.value.config == null || (props.parentId == null && formNode.value.topology == null)) {
     store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
     return false
   }
@@ -1400,15 +1278,6 @@ async function onComplete() {
     store.toastError = { title: 'Creation unavailable', message: 'Producer and pool creation require a durable registration review.' }
     return
   }
-  if (formNode.value.bundleId && formNode.value.type === 'relay' && !provisioningVerified.value) {
-    provisioningError.value = 'A current, verified host preflight is required before creation.'
-    return
-  }
-  if (reconfigurationSource.value != null &&
-      (!reconfigurationCurrent.value || reconfigurationReview.value?.state !== 'authorized')) {
-    reconfigurationError.value = 'Review and authorize the current replacement before creating it.'
-    return
-  }
   pendingAction.value = 'create-node'
   emitter.emit('show-spending-password-modal', { action: 'create-node' })
 }
@@ -1416,10 +1285,8 @@ async function onComplete() {
 async function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   if (data.action === 'create-pool-draft') {
     if (!draftConfirmed.value || !draftPreflightReady.value || fileContents.value.itnPrivateKey ||
-        !replacementAuthorized.value || draftPending.value || draftSignature.value !== currentSignature.value) return
-    const request = reconfigurationSource.value != null
-      ? { ...reconfigurationRequest.value!, reconfigurationId: reconfigurationReview.value!.id }
-      : await buildCreateRequest()
+        draftPending.value || draftSignature.value !== currentSignature.value) return
+    const request = await buildCreateRequest()
     if (draftSignature.value !== currentSignature.value) {
       draftError.value = 'The form changed; review the draft again.'
       return
@@ -1437,24 +1304,11 @@ async function onSpendingPasswordConfirmed(data: { action: string; password: str
   if (data.action !== 'create-node') return
   if (!validateStep1()) return
   if (formNode.value.type !== 'relay') return
-  if (formNode.value.bundleId && formNode.value.type === 'relay' && !provisioningVerified.value) {
-    provisioningError.value = 'Host preflight is no longer current.'
-    return
-  }
-  if (reconfigurationSource.value != null &&
-      (!reconfigurationCurrent.value || reconfigurationReview.value?.state !== 'authorized')) {
-    reconfigurationError.value = 'The replacement review is no longer current.'
-    return
-  }
-  const request = reconfigurationSource.value != null
-    ? { ...reconfigurationRequest.value!, reconfigurationId: reconfigurationReview.value!.id }
-    : await buildCreateRequest()
+  const request = await buildCreateRequest()
   request.spendingPassword = data.password
   request.sudoPassword = formNode.value.sudoPassword || ''
   store.createNode(request)
   formNode.value.sudoPassword = null
-  reconfigurationRequest.value = null
-  reconfigurationPassword.value = ''
   fileContents.value = {}
   emit('hide-add-node-wizard')
 }
@@ -1462,7 +1316,6 @@ async function onSpendingPasswordConfirmed(data: { action: string; password: str
 onMounted(() => {
   store.requestHosts()
   store.requestFileOptions()
-  store.requestNetworkBundleOptions()
   
   if (props.parentId) {
     store.requestMetadata(props.parentId)
@@ -1479,8 +1332,10 @@ onMounted(() => {
       formNode.value.genesisShelley = (parent as any).genesisShelleyFileId
       formNode.value.genesisAlonzo = (parent as any).genesisAlonzoFileId
       formNode.value.genesisConway = (parent as any).genesisConwayFileId
-      formNode.value.bundleId = (parent as any).configurationBundleId ?? null
-      formNode.value.expectedResetId = (parent as any).configurationResetId ?? null
+      formNode.value.genesisDijkstra = (parent.genesisDijkstraFileId as number | null) ?? null
+      formNode.value.config = (parent.configFileId as number | null) ?? null
+      formNode.value.topology = (parent.topologyFileId as number | null) ?? null
+      formNode.value.peerSnapshot = (parent.peerSnapshotFileId as number | null) ?? null
       formNode.value.poolPledge = (parent as any).poolPledge || 0
       formNode.value.poolCost = (parent as any).poolCost || 340
       formNode.value.poolMargin = (parent as any).poolMargin || 0.03
@@ -1492,8 +1347,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
-  reconfigurationPassword.value = ''
-  reconfigurationRequest.value = null
 })
 </script>
 

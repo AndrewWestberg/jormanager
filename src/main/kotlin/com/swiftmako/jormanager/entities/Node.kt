@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.entities
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -95,10 +96,13 @@ data class Node(
     val tracingPort: Int? = null,
     @Column(name = "genesis_dijkstra_file_id")
     val genesisDijkstraFileId: Long? = null,
-    @Column(name = "configuration_bundle_id")
-    val configurationBundleId: String? = null,
-    @Column(name = "configuration_reset_id")
-    val configurationResetId: String? = null,
+    @Column(name = "topology_file_id")
+    val topologyFileId: Long? = null,
+    @Column(name = "peer_snapshot_file_id")
+    val peerSnapshotFileId: Long? = null,
+    @Column(name = "network_key_discriminator")
+    @get:JsonIgnore
+    val networkKeyDiscriminator: String? = null,
     @Column(name = "is_draft", nullable = false)
     @get:JsonProperty("isDraft")
     val isDraft: Boolean = false,

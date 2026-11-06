@@ -21,6 +21,10 @@ data class CreateNodeRequest(
     @param:JsonProperty("genesisShelley") val genesisShelleyFileId: Long = 0,
     @param:JsonProperty("genesisAlonzo") val genesisAlonzoFileId: Long = 0,
     @param:JsonProperty("genesisConway") val genesisConwayFileId: Long = 0,
+    @param:JsonProperty("genesisDijkstra") val genesisDijkstraFileId: Long? = null,
+    @param:JsonProperty("config") val configFileId: Long = 0,
+    @param:JsonProperty("topology") val topologyFileId: Long = 0,
+    @param:JsonProperty("peerSnapshot") val peerSnapshotFileId: Long? = null,
     @param:JsonProperty("generateColdKeys") val generateColdKeys: Boolean,
     @param:JsonProperty("coldSKey") val coldSKey: String?,
     @param:JsonProperty("coldVKey") val coldVKey: String?,
@@ -40,9 +44,6 @@ data class CreateNodeRequest(
     @param:JsonProperty("relays") val relays: List<Relay>?,
     @param:JsonProperty("metadata") val metadata: Metadata?,
     @param:JsonProperty("sudoPassword") val sudoPassword: String,
-    @param:JsonProperty("bundleId") val bundleId: String? = null,
-    @param:JsonProperty("expectedResetId") val expectedResetId: String? = null,
-    @param:JsonProperty("reconfigurationId") val reconfigurationId: String? = null
 ) {
     override fun toString(): String = "CreateNodeRequest(hostId=$hostId, parentId=$parentId, name=$name, type=$type, credentials=[REDACTED], metadata=[REDACTED])"
 }

@@ -34,7 +34,7 @@ Head over to our Wiki site for how to install and configure JorManager.
 
 The current implementation preserves supported Conway/earlier-era operation and enables Dijkstra-dependent workflows only from verified, node-observed current-era evidence. Musashi Dōjō is the Dijkstra integration baseline, not a replacement configuration for existing networks.
 
-See the [Dijkstra upgrade and operator guide](docs/dijkstra-upgrade-guide.md) for immutable catalog bundles, reviewed wallet/pool operations, parent/child `directDeposits`, replay and explicit observation limits. **Manual network, migration/restore and producer qualification remains pending; local builds are not a release qualification.**
+See the [Dijkstra upgrade and operator guide](docs/dijkstra-upgrade-guide.md) for individual network file selection, reviewed wallet/pool operations, parent/child `directDeposits`, replay and observation limits. **Manual network, migration/restore and producer qualification remains pending; local builds are not release qualification.**
 
 ## Support
 

@@ -1,6 +1,6 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.SSHClientPool
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -63,7 +63,7 @@ class LeiosKeyService(
     }
 
     private fun bytesFromEnvelope(value: String): ByteArray {
-        val hex = json.readTree(value).path("cborHex").asText()
+        val hex = json.readTree(value).path("cborHex").asString()
         require(hex.isNotEmpty() && hex.length % 2 == 0 && hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
         return CborSpans.parse(hex.hexToByteArray()).payload()
     }
@@ -129,8 +129,8 @@ class LeiosKeyService(
             val vrf = requireNotNull(files.findByIdOrNull(node.vrfVKeyId)?.content)
             listOf("owner" to owner, "reward" to reward, "cold" to cold, "vrf" to vrf).forEach { (name, content) -> connection.commandWriteFile("$directory/$name.vkey", content) }
             val genesis = json.readTree(requireNotNull(files.findByIdOrNull(node.genesisShelleyFileId)).content)
-            val networkArgs = if (genesis.path("networkId").asText().equals("Mainnet", true)) listOf("--mainnet") else {
-                val magic = genesis.path("networkMagic").asText()
+            val networkArgs = if (genesis.path("networkId").asString().equals("Mainnet", true)) listOf("--mainnet") else {
+                val magic = genesis.path("networkMagic").asString()
                 require(magic.matches(Regex("[0-9]+")))
                 listOf("--testnet-magic", magic)
             }
@@ -138,7 +138,7 @@ class LeiosKeyService(
                 "--cold-verification-key-file", "$directory/cold.vkey", "--vrf-verification-key-file", "$directory/vrf.vkey",
                 "--bls-signing-key-file", skey, "--pool-pledge", "0", "--pool-cost", "0", "--pool-margin", "0",
                 "--pool-reward-account-verification-key-file", "$directory/reward.vkey", "--pool-owner-stake-verification-key-file", "$directory/owner.vkey") + networkArgs + listOf("--out-file", "$directory/pool.cert"))
-            val certHex = json.readTree(connection.command(listOf("cat", "$directory/pool.cert"))).path("cborHex").asText()
+            val certHex = json.readTree(connection.command(listOf("cat", "$directory/pool.cert"))).path("cborHex").asString()
             require(certHex.isNotEmpty() && certHex.length % 2 == 0 && certHex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
             val certificate = CborSpans.parse(certHex.hexToByteArray()).array()
             require(certificate.size == 11 && certificate[0].integer().toInt() == 3)

@@ -1,7 +1,7 @@
 package com.swiftmako.jormanager.services
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ArrayNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ArrayNode
 import com.swiftmako.jormanager.controllers.NodeController
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
@@ -66,7 +66,7 @@ class PoolDeploymentService(
     private val nodes: NodeRepository, private val hosts: HostRepository, private val files: FileRepository,
     private val keys: LeiosKeyRepository, private val installations: KeyInstallationRepository,
     private val eras: CardanoRepository, private val capabilities: CardanoCapabilities,
-    private val bundles: NetworkBundleValidator, private val walletUtils: WalletUtils,
+    private val configurationFiles: NodeConfigurationFiles, private val walletUtils: WalletUtils,
     private val snapshots: NodeConfigurationSnapshotRepository,
     private val nodeController: NodeController, private val jdbc: JdbcTemplate, private val json: ObjectMapper,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
@@ -79,7 +79,7 @@ class PoolDeploymentService(
     private data class Context(val node: Node, val host: Host, val observer: Node, val observerHost: Host,
         val key: LeiosVotingKey?, val parent: Node?, val connection: HostConnection, val network: String,
         val folder: String, val startup: String, val systemd: Boolean, val assets: Map<String, ByteArray>,
-        val catalogPrefix: String?, val era: String, val config: String, val fingerprint: String, val tipSlot: Long)
+        val era: String, val config: String, val fingerprint: String, val tipSlot: Long)
     private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).toHexString()
     private fun publicHash(key: LeiosVotingKey) = MessageDigest.getInstance("SHA-256").digest(key.publicKey).toHexString()
     private fun safe(value: String) = value.also { require(it.matches(Regex("[A-Za-z0-9_./-]+")) && !it.startsWith("-") && !it.split('/').contains("..")) }
@@ -96,48 +96,44 @@ class PoolDeploymentService(
         val evidence = eras.evidence(observer)
         val era = requireNotNull(evidence.era)
         require(evidence.freshness == "current" && era in setOf("dijkstra", "conway") && evidence.networkKey == network && evidence.source == "host:${observerHost.id}/node:${observer.id}")
-        val bundle = n.configurationBundleId?.let { bundles.resolve(it, requireNotNull(n.configurationResetId)) }
-        require((era == "dijkstra") == (bundle != null))
-        val assets = if (bundle != null) bundle.assets else {
-            require(n.configurationResetId == null && n.genesisDijkstraFileId == null)
-            val snapshot = snapshots.findByNodeId(nodeId).single()
-            val encoded = json.readTree(snapshot.assetsJson)
-            val decoded = encoded.fields().asSequence().associate { it.key to Base64.getDecoder().decode(it.value.asText()) }
-            val fingerprints = json.readTree(snapshot.publicFingerprints)
-            require(decoded.keys == setOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "config.json", "topology.json"))
-            decoded.forEach { (name, content) ->
-                require(MessageDigest.getInstance("SHA-256").digest(content).toHexString() == fingerprints.path(name).asText())
-            }
-            require(snapshot.effectiveConfigDigest == hash(file(n.configFileId).content))
-            decoded
+        val snapshot = snapshots.findByNodeId(nodeId).single()
+        val encoded = json.readTree(snapshot.assetsJson)
+        val assets = encoded.properties().associate { it.key to Base64.getDecoder().decode(it.value.asString()) }
+        val fingerprints = json.readTree(snapshot.publicFingerprints)
+        require(fingerprints.properties().map { it.key }.toSet() == assets.keys)
+        assets.forEach { (name, content) ->
+            require(MessageDigest.getInstance("SHA-256").digest(content).toHexString() == fingerprints.path(name).asString())
         }
+        configurationFiles.validate(assets)
+        require(snapshot.effectiveConfigDigest == hash(file(n.configFileId).content))
+        require(snapshot.effectiveTopologyDigest == hash(configurationFiles.renderTopology(assets)))
         val key = if (era == "dijkstra") requireNotNull(keyId?.let(keys::findByIdOrNull)) else null
         require(era != "conway" || keyId == null)
         val pool = requireNotNull(n.poolId)
         if (key != null) require(key.networkKey == network && key.poolId == pool && key.signingFileId != null && key.validationProvenance.isNotBlank() && key.publicKey.size == 96 && key.proof.size == 48)
         val config = file(n.configFileId).content
-        if (bundle != null) capabilities.requireHostOperation(host, observerHost, observer, network, hash(config), "node.create")
+        if (era == "dijkstra") capabilities.requireHostOperation(host, observerHost, observer, network, hash(config), "node.create")
         else capabilities.requireOperation(observerHost, observer, "node.create")
         val confirmed = jdbc.query("SELECT request_payload FROM authorized_operations WHERE network_key=? AND operation='pool.register' AND state='confirmed'", { rs, _ -> rs.getString(1) }, network)
-            .any { payload -> json.readTree(payload).let { it.path("nodeId").asLong(-1) == nodeId && (if (keyId == null) it.path("keyId").isNull else it.path("keyId").asLong(-1) == keyId) && it.path("poolId").asText() == pool } }
+            .any { payload -> json.readTree(payload).let { it.path("nodeId").asLong(-1) == nodeId && (if (keyId == null) it.path("keyId").isNull else it.path("keyId").asLong(-1) == keyId) && it.path("poolId").asString() == pool } }
         require(confirmed) { "Confirmed reviewed registration required" }
         val genesis = json.readTree(file(observer.genesisShelleyFileId).content)
-        val flags = if (genesis.path("networkId").asText().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asText().also { require(it.matches(Regex("[0-9]+"))) })
+        val flags = if (genesis.path("networkId").asString().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
         val socket = safe("${observerHost.nodeHomePath}/${observer.name}/db/socket")
         val oc = HostConnection(observerHost, observer)
         fun query(vararg args: String) = json.readTree(oc.commandArgs(listOf(safe(observerHost.cardanoCliPath), era, "query") + args + flags + listOf("--socket-path", socket, "--output-json")))
         val state = query("pool-state", "--stake-pool-id", pool)
         require(state.isObject && state.size() == 1)
-        val entry = state.fields().next(); require(entry.key.equals(pool, true))
+        val entry = state.properties().first(); require(entry.key.equals(pool, true))
         require(entry.value.isObject && entry.value.path("deposit").isIntegralNumber) { "Registered pool state unavailable" }
         if (key != null) require(listOf(
-            entry.value.path("blsKey").path("bksKey").path("blsPubKey").asText(),
-            entry.value.path("futureStakePoolParams").path("blsKey").path("blsPubKey").asText()
+            entry.value.path("blsKey").path("bksKey").path("blsPubKey").asString(),
+            entry.value.path("futureStakePoolParams").path("blsKey").path("blsPubKey").asString()
         ).any { it.equals(key.publicKey.toHexString(), true) }) { "Registered pool key does not match the selected key" }
         val tip = query("tip").path("slot").takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong() ?: error("Tip slot unavailable")
         require(eras.evidence(observer) == evidence) { "Era evidence changed" }
         val parent = if (n.type == "pool") requireNotNull(n.parentId?.let(nodes::findByIdOrNull)).also {
-            require(!it.isDeleted && !it.isDraft && it.type == "core" && it.hostId == n.hostId && it.configurationBundleId == n.configurationBundleId && it.configurationResetId == n.configurationResetId && eras.networkKey(it) == network)
+            require(!it.isDeleted && !it.isDraft && it.type == "core" && it.hostId == n.hostId && eras.networkKey(it) == network)
         } else null
         val connection = HostConnection(host, parent); val folder = safe("${host.nodeHomePath}/${parent?.name ?: n.name}")
         safe(host.cardanoNodePath); safe(host.cardanoCliPath); require(n.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*")))
@@ -152,9 +148,10 @@ class PoolDeploymentService(
         }
         else {
             require(connection.commandReadFile("$folder/config.json") == config) { "Parent configuration changed" }
-            listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "dijkstra-genesis.json", "peer-snapshot.json").filter { it in assets }.forEach { name ->
-                require(remoteHash(connection, "$folder/$name") == hash(assets.getValue(name).toString(Charsets.UTF_8))) { "Parent bundle differs from selected snapshot" }
+            assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, content) ->
+                require(remoteHash(connection, "$folder/$name") == hash(content.toString(Charsets.UTF_8))) { "Parent files differ from selected snapshot" }
             }
+            require(remoteHash(connection, "$folder/topology.json") == hash(assets.getValue("topology.json").toString(Charsets.UTF_8))) { "Parent topology changed" }
             require(connection.commandFileExists(requireNotNull(startup)))
         }
         if (systemd) {
@@ -164,14 +161,17 @@ class PoolDeploymentService(
         }
         val assetIds = listOf(n.genesisByronFileId, n.genesisShelleyFileId, n.genesisAlonzoFileId, n.genesisConwayFileId) + listOfNotNull(n.genesisDijkstraFileId)
         listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "dijkstra-genesis.json").take(assetIds.size).zip(assetIds).forEach { (name, id) -> require(file(id).content.toByteArray().contentEquals(assets.getValue(name))) }
-        val ids = assetIds + listOf(n.configFileId, n.coreSKeyId, n.coreVKeyId, n.coreCounterId, n.vrfSKeyId, n.vrfVKeyId, n.kesSKeyId, n.kesVKeyId) + listOfNotNull(key?.signingFileId)
+        listOfNotNull(n.topologyFileId?.let { "topology.json" to it }, n.peerSnapshotFileId?.let { "peer-snapshot.json" to it })
+            .forEach { (name, id) -> require(file(id).content.toByteArray(Charsets.UTF_8).contentEquals(assets.getValue(name))) }
+        val ids = assetIds + listOfNotNull(n.topologyFileId, n.peerSnapshotFileId) +
+            listOf(n.configFileId, n.coreSKeyId, n.coreVKeyId, n.coreCounterId, n.vrfSKeyId, n.vrfVKeyId, n.kesSKeyId, n.kesVKeyId) + listOfNotNull(key?.signingFileId)
         val relevant = ids.joinToString("|") { "$it:${hash(file(it).content)}" }
         val existing = if (parent == null) "absent" else listOf(startup, "$folder/env", "$folder/credentials.json",
             "$folder/${parent.name}.kes.skey", "$folder/${parent.name}.vrf.skey", "$folder/${parent.name}.node.opcert")
             .joinToString("|") { "$it:${remoteHash(connection, it)}" } + "|" +
             listOf(parent.kesSKeyId, parent.vrfSKeyId, parent.opcertId).joinToString("|") { "$it:${hash(file(it).content)}" }
         val fingerprint = hash(json.writeValueAsString(n) + "|" + (key?.let(::publicHash) ?: "no-bls") + "|" + relevant + "|" + existing + "|" + evidence.generation + "|" + assets.entries.sortedBy { it.key }.joinToString("|") { it.key + ":" + MessageDigest.getInstance("SHA-256").digest(it.value).toHexString() })
-        return Context(n, host, observer, observerHost, key, parent, connection, network, folder, startup, systemd, assets, bundle?.bundle?.catalogPrefix, era, config, fingerprint, tip)
+        return Context(n, host, observer, observerHost, key, parent, connection, network, folder, startup, systemd, assets, era, config, fingerprint, tip)
     }
 
     fun preview(request: PoolDeploymentPreviewRequest): Preview {
@@ -197,7 +197,7 @@ class PoolDeploymentService(
         val vrf = walletUtils.getSKeyContent(file(n.vrfSKeyId), request.spendingPassword)
         val cold = walletUtils.getSKeyContent(file(n.coreSKeyId), request.spendingPassword)
         val bls = c.key?.let { walletUtils.getSKeyContent(file(requireNotNull(it.signingFileId)), request.spendingPassword) }
-        val blsJson = bls?.let { json.readTree(it).also { value -> require(value.path("type").asText() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" && value.path("cborHex").asText().matches(Regex("5820[0-9a-fA-F]{64}"))) } }
+        val blsJson = bls?.let { json.readTree(it).also { value -> require(value.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" && value.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}"))) } }
         require(jdbc.update("UPDATE pool_deployment_previews SET state='installing' WHERE id=? AND state='previewed'", request.previewId) == 1)
         val prefix = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
         val temporary = listOf("$prefix.cold", "$prefix.counter", "$prefix.kes.vkey", "$prefix.opcert", "$prefix.bls", "$prefix.bls.vkey")
@@ -207,7 +207,7 @@ class PoolDeploymentService(
             if (bls != null) {
                 connection.commandWriteSecret("$prefix.bls", bls)
                 connection.commandArgs(listOf(safe(c.host.cardanoCliPath), c.era, "key", "verification-key", "--signing-key-file", "$prefix.bls", "--verification-key-file", "$prefix.bls.vkey"))
-                val derived = json.readTree(connection.commandReadFile("$prefix.bls.vkey")).path("cborHex").asText().hexToByteArray()
+                val derived = json.readTree(connection.commandReadFile("$prefix.bls.vkey")).path("cborHex").asString().hexToByteArray()
                 require(CborSpans.parse(derived).payload().contentEquals(requireNotNull(c.key).publicKey))
             }
             connection.commandWriteFile("$prefix.counter", file(n.coreCounterId).content)
@@ -231,10 +231,12 @@ class PoolDeploymentService(
             if (c.parent == null) {
                 connection.commandArgs(listOf("mkdir", c.folder))
                 connection.commandArgs(listOf("mkdir", "${c.folder}/db"))
-                val assets = listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "dijkstra-genesis.json", "peer-snapshot.json").filter { it in c.assets }
-                assets.forEach { name -> val content = c.assets.getValue(name).toString(Charsets.UTF_8); connection.commandWriteFile("${c.folder}/$name", content); require(remoteHash(connection, "${c.folder}/$name") == hash(content)) }
-                val rawTopology = c.assets.getValue("topology.json").toString(Charsets.UTF_8)
-                val topology = c.catalogPrefix?.let { rawTopology.replace("$it-peer-snapshot.json", "peer-snapshot.json").replace("musashi-peer-snapshot.json", "peer-snapshot.json") } ?: rawTopology
+                c.assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
+                    val content = bytes.toString(Charsets.UTF_8)
+                    connection.commandWriteFile("${c.folder}/$name", content)
+                    require(remoteHash(connection, "${c.folder}/$name") == hash(content))
+                }
+                val topology = configurationFiles.renderTopology(c.assets)
                 listOf("topology.json" to topology, "config.json" to c.config).forEach { (name, content) -> connection.commandWriteFile("${c.folder}/$name", content); require(remoteHash(connection, "${c.folder}/$name") == hash(content)) }
                 writePrivate("${c.folder}/${n.name}.kes.skey", kes); writePrivate("${c.folder}/${n.name}.vrf.skey", vrf)
                 writePrivate("${c.folder}/${n.name}.node.opcert", cert)
@@ -280,7 +282,7 @@ class PoolDeploymentService(
                     json.createArrayNode().add(parentEntry)
                 }
                 require(credentials.all { it.isArray && it.size() in 3..4 })
-                val vrfHex = json.readTree(vrf).path("cborHex").asText(); require(vrfHex.isNotBlank() && credentials.none { it[1].path("cborHex").asText() == vrfHex })
+                val vrfHex = json.readTree(vrf).path("cborHex").asString(); require(vrfHex.isNotBlank() && credentials.none { it[1].path("cborHex").asString() == vrfHex })
                 val entry = json.createArrayNode().add(json.readTree(cert)).add(json.readTree(vrf)).add(json.readTree(kes))
                 if (blsJson != null) entry.add(blsJson)
                 credentials.add(entry)

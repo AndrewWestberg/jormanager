@@ -13,6 +13,9 @@ import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.utils.CborSpans
 import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
+import java.util.Locale
+import kotlin.math.floor
+import org.slf4j.LoggerFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +29,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** Fetches exactly the headers delivered on this connection, never from a global tip. */
 class BlockFetchProtocol(private val session: NetworkChainSession, private val leios: LeiosFetchProtocol) : MiniProtocol(protocolId = 0x0003.toShort()) {
+    private val log = LoggerFactory.getLogger("LedgerDao")
+    private var nextLogTime = Long.MIN_VALUE
     override val rxBufferSize = 8_388_608
     private enum class State { Idle, Busy, Streaming, Saving, Done }
     @Volatile private var state = State.Idle
@@ -136,8 +141,10 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
                 commitment = announced.hash.toHexString()
                 leios.acquire(announced.slot, announced.hash, announced.size, request.generation)
             } else null
-            if (request.generation == session.generation)
+            if (request.generation == session.generation) {
                 session.coordinator.adopt(session.networkKey, request.generation, era, decoded, request.point, closure)
+                logSavedBlock((decoded.byronHeader?.blockNumber ?: requireNotNull(decoded.headerDetails).blockNumber).longValueExact())
+            }
         } catch (e: CancellationException) {
             if (currentCoroutineContext().isActive && fetchingLeios) {
                 recordFailure(e)
@@ -147,6 +154,15 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
         } finally {
             if (state != State.Done) finish()
         }
+    }
+    internal fun logSavedBlock(blockNumber: Long, now: Long = System.nanoTime()) {
+        if (!log.isInfoEnabled) return
+        val periodic = now >= nextLogTime
+        val tip = maxOf(blockNumber, session.tipBlockNumber)
+        if (!periodic && blockNumber < tip) return
+        if (periodic) nextLogTime = now + 10_000_000_000L
+        val percent = if (tip == 0L) 100.0 else floor(blockNumber.toDouble() / tip * 10000.0) / 100.0
+        log.info("BlckFetch: Saved block: $blockNumber of $tip, %.2f%% synced".format(Locale.ROOT, percent))
     }
     private fun finish() { current = null; pending = null; session.release(); state = State.Idle }
     override fun shutdown() { state = State.Done; scope.cancel() }
