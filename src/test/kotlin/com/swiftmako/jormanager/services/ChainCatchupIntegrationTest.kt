@@ -12,6 +12,7 @@ import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.nodeclient.protocols.fixtures.CatchupFixtures
 import com.swiftmako.jormanager.utils.Blake2b
+import com.swiftmako.jormanager.spring.config.Configuration
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import java.lang.reflect.InvocationTargetException
@@ -27,7 +28,6 @@ import java.sql.Statement
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import javax.sql.DataSource
-import kotlinx.coroutines.flow.MutableStateFlow
 import liquibase.command.CommandScope
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
@@ -79,7 +79,7 @@ class ChainCatchupIntegrationTest {
             val counts = Counters()
             val source = counts.wrap(pool)
             db = Database.connect(source)
-            val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), MutableStateFlow(0L))
+            val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
             return body(source, coordinator, counts)
         } finally {
             db?.let { TransactionManager.closeAndUnregister(it) }
@@ -450,7 +450,9 @@ class ChainCatchupIntegrationTest {
     }
 
     @Test
-    fun readinessRequiresObservedCompleteTip() = database { _, coordinator, _ ->
+    fun readinessRequiresObservedCompleteTip() = database { _, _, _ ->
+        val refresh = Configuration().getRefreshWalletChannel()
+        val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), refresh)
         val fixture = CatchupFixtures.leios(2)
         val generation = prepare(coordinator, fixture)
         val first = LedgerBlockDecoder.decode(7, fixture.blocks.first())
@@ -458,12 +460,16 @@ class ChainCatchupIntegrationTest {
         coordinator.observeTip(fixture.network, point(second), generation)
         coordinator.adopt(fixture.network, generation, 7, first, point(first))
         assertEquals("syncing", coordinator.status(fixture.network).status)
+        assertNull(refresh.value, "Catching up must not trigger wallet reads")
         coordinator.adopt(fixture.network, generation, 7, second, point(second), closure(fixture))
         assertEquals("complete", coordinator.status(fixture.network).status)
+        val firstRefresh = requireNotNull(refresh.value) { "Reaching the observed tip must refresh wallets" }
         val next = coordinator.rollback(fixture.network, point(first), generation)
         assertEquals("syncing", coordinator.status(fixture.network).status)
+        assertEquals(firstRefresh, refresh.value, "Rollback must not request wallet reads before readiness")
         coordinator.observeTip(fixture.network, point(first), next)
         assertEquals("complete", coordinator.status(fixture.network).status)
+        assertEquals(firstRefresh + 1L, refresh.value, "Later complete notifications must remain observable")
     }
 
     @Test
