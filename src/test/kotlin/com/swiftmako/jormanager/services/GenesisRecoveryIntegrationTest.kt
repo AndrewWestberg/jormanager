@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DecodedGenesisOutput
 import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.tables.*
+import com.swiftmako.jormanager.spring.config.Configuration
 import java.math.BigInteger
 import java.net.URI
 import java.sql.DriverManager
@@ -15,7 +16,6 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.flow.MutableStateFlow
 import liquibase.command.CommandScope
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
@@ -39,7 +39,7 @@ class GenesisRecoveryIntegrationTest {
     private val databaseName = "jormanager_test_genesis_" + UUID.randomUUID().toString().replace("-", "")
     private var isolatedUrl: String? = null
     private var database: Database? = null
-    private val coordinator = ChainIngestionCoordinator(mock(BatchEffectProjector::class.java), mock(SimpMessagingTemplate::class.java), MutableStateFlow(0L))
+    private val coordinator = ChainIngestionCoordinator(mock(BatchEffectProjector::class.java), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
     private val genesisHash = "11".repeat(32)
     private val funds = listOf(
         DecodedGenesisOutput(ByteArray(32) { 1 }, byteArrayOf(0x60) + ByteArray(28) { 2 }, BigInteger.valueOf(900)),
