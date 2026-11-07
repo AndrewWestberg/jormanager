@@ -356,6 +356,55 @@ class ChainCatchupIntegrationTest {
     }
 
     @Test
+    fun bufferedHistoryPreservesValuesAndIdentitiesAcrossRollback() = database { source, coordinator, _ ->
+        val seed = CatchupFixtures.seed(1)
+        val transactions = mutableListOf<ByteArray>()
+        var input = seed.txId
+        repeat(259) {
+            val tx = CatchupFixtures.transaction(listOf(CatchupFixtures.input(input)),
+                outputs = listOf(CatchupFixtures.output(coin = 10_000_000)), fee = 0)
+            transactions += tx
+            input = CatchupFixtures.transactionId(tx)
+        }
+        val first = CatchupFixtures.block(7, 1)
+        val second = CatchupFixtures.block(7, 2, previous = CatchupFixtures.blockHash(first), transactions = transactions)
+        val fixture = CatchupFixtures.Replay("buffered-history", 7, listOf(first, second), listOf(seed))
+        val generation = prepare(coordinator, fixture)
+        replay(coordinator, fixture, generation)
+        val members = LedgerBlockDecoder.decode(7, second).transactions.map { it.parent }
+        fun inputs() = query(source, "SELECT b.source_position::text,encode(m.tx_id,'hex'),i.role,i.position::text,encode(i.tx_id,'hex'),i.output_index::text,encode(rm.tx_id,'hex'),r.output_index::text,i.effective::text FROM input_occurrences i JOIN transaction_members m ON m.id=i.member_id JOIN transaction_batches b ON b.id=m.batch_id JOIN chain_inclusions c ON c.id=b.inclusion_id LEFT JOIN output_occurrences r ON r.id=i.resolved_output_id LEFT JOIN transaction_members rm ON rm.id=r.member_id WHERE c.network_key=? ORDER BY b.source_position", fixture.network)
+        val expectedInputs = members.mapIndexed { index, member ->
+            val previous = if (index == 0) null else members[index - 1].bodyId.toHexString()
+            listOf(index.toString(), member.bodyId.toHexString(), "spending", "0",
+                member.inputs.single().transactionId.toHexString(), "0", previous, if (previous == null) null else "0", "true")
+        }
+        fun data() = query(source, "SELECT b.source_position::text,encode(m.tx_id,'hex'),d.family,d.position::text,encode(d.raw_data,'hex'),d.typed_data,d.effective::text FROM member_data d JOIN transaction_members m ON m.id=d.member_id JOIN transaction_batches b ON b.id=m.batch_id JOIN chain_inclusions c ON c.id=b.inclusion_id WHERE c.network_key=? ORDER BY b.source_position,d.family", fixture.network)
+        val projector = BatchEffectProjector(json)
+        val expectedData = members.flatMapIndexed { index, member ->
+            listOf(3 to "validityEnd", 8 to "validityStart").map { (key, family) ->
+                val raw = member.fields.getValue(key)
+                listOf(index.toString(), member.bodyId.toHexString(), family, "0",
+                    raw.bytes().toHexString(), json.writeValueAsString(projector.cborValue(raw)), "true")
+            }
+        }
+        fun identities() = query(source, "SELECT b.id::text,m.id::text,i.id::text,o.id::text,d.id::text FROM transaction_batches b JOIN chain_inclusions c ON c.id=b.inclusion_id JOIN transaction_members m ON m.batch_id=b.id JOIN input_occurrences i ON i.member_id=m.id JOIN output_occurrences o ON o.member_id=m.id JOIN member_data d ON d.member_id=m.id WHERE c.network_key=? ORDER BY b.source_position,d.family", fixture.network)
+        assertEquals(expectedInputs, inputs())
+        assertEquals(expectedData, data())
+        assertEquals(listOf(listOf(members.last().bodyId.toHexString(), "0", "10000000")),
+            query(source, "SELECT tx_id,tx_ix::text,lovelace FROM ledger_utxos WHERE network_key=? AND block_spent IS NULL", fixture.network))
+        val original = semantic(source, fixture.network)
+        val ids = identities()
+        val next = coordinator.rollback(fixture.network, point(LedgerBlockDecoder.decode(7, first)), generation)
+        assertEquals(ids, identities())
+        val decoded = LedgerBlockDecoder.decode(7, second)
+        coordinator.adopt(fixture.network, next, 7, decoded, point(decoded))
+        assertEquals(expectedInputs, inputs())
+        assertEquals(expectedData, data())
+        assertEquals(original, semantic(source, fixture.network))
+        assertEquals(ids, identities())
+    }
+
+    @Test
     fun missingLateEndorsedInputRollsBackEntireBlock() = database { source, coordinator, _ ->
         val fixture = CatchupFixtures.leios()
         val resolved = requireNotNull(closure(fixture))
@@ -372,6 +421,32 @@ class ChainCatchupIntegrationTest {
         assertEquals(before, semantic(source, fixture.network))
         assertEquals(point(first), coordinator.status(fixture.network).lastCompletePoint)
         assertEquals(0L, query(source, "SELECT count(*)::text FROM leios_certifications cert JOIN chain_inclusions c ON c.id=cert.inclusion_id WHERE c.network_key=?", fixture.network).single().single()!!.toLong())
+        val retryTx = CatchupFixtures.transaction(listOf(CatchupFixtures.input(incomplete.seeds.first().txId)))
+        val retryBytes = CatchupFixtures.block(7, 2, previous = CatchupFixtures.blockHash(fixture.blocks.first()), transactions = listOf(retryTx))
+        val retry = LedgerBlockDecoder.decode(7, retryBytes)
+        coordinator.adopt(fixture.network, generation, 7, retry, point(retry))
+        val nextTx = CatchupFixtures.transaction(listOf(CatchupFixtures.input(CatchupFixtures.transactionId(retryTx))),
+            outputs = listOf(CatchupFixtures.output(coin = 9_600_000)))
+        val next = LedgerBlockDecoder.decode(7, CatchupFixtures.block(7, 3,
+            previous = CatchupFixtures.blockHash(retryBytes), transactions = listOf(nextTx)))
+        coordinator.adopt(fixture.network, generation, 7, next, point(next))
+        val retryId = CatchupFixtures.transactionId(retryTx).toHexString()
+        val nextId = CatchupFixtures.transactionId(nextTx).toHexString()
+        assertEquals(listOf(
+            listOf("2", retryId, "spending", "0", incomplete.seeds.first().txId.toHexString(), "0", null, "true"),
+            listOf("3", nextId, "spending", "0", retryId, "0", retryId, "true")),
+            query(source, "SELECT c.height::text,encode(m.tx_id,'hex'),i.role,i.position::text,encode(i.tx_id,'hex'),i.output_index::text,encode(rm.tx_id,'hex'),i.effective::text FROM input_occurrences i JOIN transaction_members m ON m.id=i.member_id JOIN transaction_batches b ON b.id=m.batch_id JOIN chain_inclusions c ON c.id=b.inclusion_id LEFT JOIN output_occurrences r ON r.id=i.resolved_output_id LEFT JOIN transaction_members rm ON rm.id=r.member_id WHERE c.network_key=? ORDER BY c.height", fixture.network))
+        val projector = BatchEffectProjector(json)
+        val expectedData = listOf(retry, next).flatMap { block ->
+            val member = block.transactions.single().parent
+            listOf(3 to "validityEnd", 8 to "validityStart").map { (key, family) ->
+                val raw = member.fields.getValue(key)
+                listOf(member.bodyId.toHexString(), family, "0", raw.bytes().toHexString(),
+                    json.writeValueAsString(projector.cborValue(raw)), "true")
+            }
+        }
+        assertEquals(expectedData, query(source, "SELECT encode(m.tx_id,'hex'),d.family,d.position::text,encode(d.raw_data,'hex'),d.typed_data,d.effective::text FROM member_data d JOIN transaction_members m ON m.id=d.member_id JOIN transaction_batches b ON b.id=m.batch_id JOIN chain_inclusions c ON c.id=b.inclusion_id WHERE c.network_key=? ORDER BY c.height,d.family", fixture.network))
+        assertEquals(point(next), coordinator.status(fixture.network).lastCompletePoint)
     }
 
     @Test
