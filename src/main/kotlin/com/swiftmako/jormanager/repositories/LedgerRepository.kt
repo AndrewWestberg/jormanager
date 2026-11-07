@@ -1,11 +1,13 @@
 package com.swiftmako.jormanager.repositories
 
 import com.swiftmako.jormanager.ktx.toHexString
+import com.swiftmako.jormanager.model.DecodedInput
 import com.swiftmako.jormanager.model.DecodedOutput
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.tables.*
 import com.swiftmako.jormanager.utils.Bech32
+import com.swiftmako.jormanager.utils.CborSpan
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.jdbc.*
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
@@ -26,6 +28,10 @@ object LedgerRepository {
         var nextSequence: Int = 0
         val addressIds = HashMap<String, Long>()
         val assetIds = HashMap<Pair<String, String>, Long>()
+        internal class PendingInput(val member: Long, val input: DecodedInput, val role: String, val position: Int, val effective: Boolean, val resolved: Long?)
+        internal class PendingData(val member: Long, val family: String, val position: Int, val raw: CborSpan, val typed: String, val effective: Boolean)
+        internal val pendingInputs = ArrayList<PendingInput>()
+        internal val pendingData = ArrayList<PendingData>()
     }
 
     fun queryUtxos(network: String, address: String): List<Utxo> = transaction {
@@ -62,7 +68,7 @@ object LedgerRepository {
         val existing = if (context.isNewInclusion) null else OutputOccurrencesTable.select(OutputOccurrencesTable.id).where {
             (OutputOccurrencesTable.member eq member) and (OutputOccurrencesTable.index eq index)
         }.singleOrNull()
-        val outputId = existing?.get(OutputOccurrencesTable.id)?.value ?: OutputOccurrencesTable.insert {
+        val outputId = existing?.get(OutputOccurrencesTable.id)?.value ?: OutputOccurrencesTable.insertReturning(returning = listOf(OutputOccurrencesTable.id)) {
             it[OutputOccurrencesTable.member] = member
             it[OutputOccurrencesTable.index] = index
             it[raw] = output.raw.bytes()
@@ -72,7 +78,7 @@ object LedgerRepository {
             it[referenceScript] = output.referenceScript?.bytes()
             it[collateralReturn] = collateral
             it[OutputOccurrencesTable.effective] = effective
-        }[OutputOccurrencesTable.id].value
+        }.single()[OutputOccurrencesTable.id].value
         if (existing == null) output.assets.chunked(256).forEach { assets ->
             OutputAssetsTable.batchInsert(assets, useMultiRowValues = true, shouldReturnGeneratedValues = false) { asset ->
                 this[OutputAssetsTable.output] = outputId
@@ -85,7 +91,7 @@ object LedgerRepository {
         check(currentOutput(context.network, txId, index) == null) { "Duplicate adopted output reference" }
         val address = addressText(output.address)
         val ledgerId = context.addressIds.getOrPut(address) { addressId(output.address, address) }
-        val projectionId = LedgerUtxosTable.insert {
+        val projectionId = LedgerUtxosTable.insertReturning(returning = listOf(LedgerUtxosTable.id)) {
             it[LedgerUtxosTable.ledgerId] = ledgerId
             it[networkKey] = context.network
             it[outputOccurrenceId] = outputId
@@ -95,7 +101,7 @@ object LedgerRepository {
             it[blockCreated] = context.height
             it[slotCreated] = context.slot
             it[blockSpent] = null; it[slotSpent] = null; it[spendingInclusionId] = null
-        }[LedgerUtxosTable.id].value
+        }.single()[LedgerUtxosTable.id].value
         val assets = output.assets.map { asset ->
             val policy = asset.policy.toHexString(); val name = asset.name.toHexString()
             val assetId = context.assetIds.getOrPut(policy to name) {

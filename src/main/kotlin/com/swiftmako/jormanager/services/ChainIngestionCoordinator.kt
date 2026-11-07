@@ -176,6 +176,7 @@ class ChainIngestionCoordinator(
                 }
             }
             decoded.transactions.forEachIndexed { position, batch -> projector.apply(context, batch, position, "direct", ordinal++) }
+            projector.flushHistory(context)
             val batches = HashMap<String, DecodedTransactionBatch>(decoded.transactions.size + (resolvedLeios?.entries?.size ?: 0))
             decoded.transactions.forEach { batches[it.parent.bodyId.toHexString()] = it }
             resolvedLeios?.entries?.forEach { batches[it.batch.parent.bodyId.toHexString()] = it.batch }

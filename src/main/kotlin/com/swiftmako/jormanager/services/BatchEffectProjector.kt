@@ -4,6 +4,8 @@ import tools.jackson.databind.ObjectMapper
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.repositories.LedgerRepository
+import com.swiftmako.jormanager.repositories.LedgerRepository.ProjectionContext.PendingInput
+import com.swiftmako.jormanager.repositories.LedgerRepository.ProjectionContext.PendingData
 import com.swiftmako.jormanager.tables.*
 import com.swiftmako.jormanager.utils.CborSpan
 import org.jetbrains.exposed.v1.core.*
@@ -24,11 +26,11 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         val existing = if (context.isNewInclusion) null else TransactionBatchesTable.select(TransactionBatchesTable.id).where {
             (TransactionBatchesTable.inclusion eq inclusion) and (TransactionBatchesTable.sourceKind eq source) and (TransactionBatchesTable.position eq position)
         }.singleOrNull()
-        val batchId = existing?.get(TransactionBatchesTable.id)?.value ?: TransactionBatchesTable.insert {
+        val batchId = existing?.get(TransactionBatchesTable.id)?.value ?: TransactionBatchesTable.insertReturning(returning = listOf(TransactionBatchesTable.id)) {
             it[TransactionBatchesTable.inclusion] = inclusion; it[TransactionBatchesTable.sourceKind] = source
             it[TransactionBatchesTable.position] = position; it[TransactionBatchesTable.applicationOrdinal] = applicationOrdinal
             it[TransactionBatchesTable.valid] = valid; it[raw] = batch.raw.bytes(); it[TransactionBatchesTable.fullHash] = fullHash
-        }[TransactionBatchesTable.id].value
+        }.single()[TransactionBatchesTable.id].value
         val parentId = member(context, batchId, batch.parent, null, null, batch.children.size, valid)
         val childIds = batch.children.mapIndexed { index, child -> member(context, batchId, child, parentId, index, index, valid) }
         val ordered = batch.children.zip(childIds) + (batch.parent to parentId)
@@ -100,41 +102,34 @@ class BatchEffectProjector(private val json: ObjectMapper) {
 
     private fun member(context: LedgerRepository.ProjectionContext, batch: Long, tx: DecodedTransactionMember, parent: Long?, childPosition: Int?, ordinal: Int, valid: Boolean): Long =
         (if (context.isNewInclusion) null else TransactionMembersTable.select(TransactionMembersTable.id).where { (TransactionMembersTable.batch eq batch) and (TransactionMembersTable.txId eq tx.bodyId) }
-            .singleOrNull()?.get(TransactionMembersTable.id)?.value) ?: TransactionMembersTable.insert {
+            .singleOrNull()?.get(TransactionMembersTable.id)?.value) ?: TransactionMembersTable.insertReturning(returning = listOf(TransactionMembersTable.id)) {
             it[TransactionMembersTable.batch] = batch; it[txId] = tx.bodyId; it[TransactionMembersTable.parent] = parent
             it[TransactionMembersTable.childPosition] = childPosition; it[processingOrdinal] = ordinal
             it[rawBody] = tx.body.bytes(); it[rawWitnesses] = tx.witnesses.bytes(); it[rawAuxiliary] = tx.auxiliaryData?.bytes()
             it[auxiliaryPresence] = if (tx.auxiliaryData == null) "absent" else if (tx.auxiliaryData.isNull()) "null" else "present"
             it[fee] = tx.fee?.toBigDecimal(); it[effective] = valid
-        }[TransactionMembersTable.id].value
+        }.single()[TransactionMembersTable.id].value
 
     private fun inputs(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, valid: Boolean) {
         if (tx.inputs.isEmpty() && tx.referenceInputs.isEmpty() && tx.collateralInputs.isEmpty()) return
         val existing = if (context.isNewInclusion) emptyMap() else InputOccurrencesTable.select(InputOccurrencesTable.id, InputOccurrencesTable.role, InputOccurrencesTable.position)
             .where { InputOccurrencesTable.member eq member }
             .associate { (it[InputOccurrencesTable.role] to it[InputOccurrencesTable.position]) to it[InputOccurrencesTable.id] }
-        data class Pending(val input: DecodedInput, val role: String, val position: Int, val effective: Boolean, val resolved: Long?)
-        val missing = mutableListOf<Pending>()
         fun process(inputs: List<DecodedInput>, role: String, effective: Boolean) {
             inputs.forEachIndexed { position, input ->
                 val resolved = if (effective) LedgerRepository.spend(context, input.transactionId, input.index)
                     else LedgerRepository.currentOutput(context.network, input.transactionId, input.index)?.get(LedgerUtxosTable.outputOccurrenceId)
                 val id = existing[role to position]
-                if (id == null) missing.add(Pending(input, role, position, effective, resolved))
-                else InputOccurrencesTable.update({ InputOccurrencesTable.id eq id }) { it[resolvedOutput] = resolved }
+                if (id == null) {
+                    context.pendingInputs.add(PendingInput(member, input, role, position, effective, resolved))
+                    if (context.pendingInputs.size == 256) flushInputs(context)
+                } else InputOccurrencesTable.update({ InputOccurrencesTable.id eq id }) { it[resolvedOutput] = resolved }
             }
         }
         process(tx.inputs, "spending", valid)
         process(tx.referenceInputs, "reference", false)
         process(tx.collateralInputs, "collateral", !valid)
-        missing.chunked(256).forEach { rows ->
-            InputOccurrencesTable.batchInsert(rows, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
-                this[InputOccurrencesTable.id] = nextOccurrenceId
-                this[InputOccurrencesTable.member] = member; this[InputOccurrencesTable.role] = row.role
-                this[InputOccurrencesTable.position] = row.position; this[InputOccurrencesTable.txId] = row.input.transactionId
-                this[InputOccurrencesTable.index] = row.input.index; this[InputOccurrencesTable.resolvedOutput] = row.resolved; this[InputOccurrencesTable.effective] = row.effective
-            }
-        }
+        if (!context.isNewInclusion) flushInputs(context)
     }
 
     private fun data(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, effective: Boolean) {
@@ -154,14 +149,41 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         val existing = if (context.isNewInclusion) emptySet() else MemberDataTable.select(MemberDataTable.family, MemberDataTable.position)
             .where { MemberDataTable.member eq member }
             .map { it[MemberDataTable.family] to it[MemberDataTable.position] }.toSet()
-        rows.filter { (it.family to it.position) !in existing }.chunked(256).forEach { chunk ->
-            MemberDataTable.batchInsert(chunk, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
-                this[MemberDataTable.id] = nextOccurrenceId
-                this[MemberDataTable.member] = member; this[MemberDataTable.family] = row.family; this[MemberDataTable.position] = row.position
-                this[MemberDataTable.raw] = row.raw.bytes(); this[MemberDataTable.typed] = json.writeValueAsString(row.typed)
-                this[MemberDataTable.effective] = effective
+        rows.forEach { row ->
+            if ((row.family to row.position) !in existing) {
+                context.pendingData.add(PendingData(member, row.family, row.position, row.raw, json.writeValueAsString(row.typed), effective))
+                if (context.pendingData.size == 256) flushData(context)
             }
         }
+        if (!context.isNewInclusion) flushData(context)
+    }
+
+    // Only append-only history is deferred; live spends and output creation remain ordered.
+    internal fun flushHistory(context: LedgerRepository.ProjectionContext) {
+        flushInputs(context)
+        flushData(context)
+    }
+
+    private fun flushInputs(context: LedgerRepository.ProjectionContext) {
+        if (context.pendingInputs.isEmpty()) return
+        InputOccurrencesTable.batchInsert(context.pendingInputs, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
+            this[InputOccurrencesTable.id] = nextOccurrenceId
+            this[InputOccurrencesTable.member] = row.member; this[InputOccurrencesTable.role] = row.role
+            this[InputOccurrencesTable.position] = row.position; this[InputOccurrencesTable.txId] = row.input.transactionId
+            this[InputOccurrencesTable.index] = row.input.index; this[InputOccurrencesTable.resolvedOutput] = row.resolved; this[InputOccurrencesTable.effective] = row.effective
+        }
+        context.pendingInputs.clear()
+    }
+
+    private fun flushData(context: LedgerRepository.ProjectionContext) {
+        if (context.pendingData.isEmpty()) return
+        MemberDataTable.batchInsert(context.pendingData, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
+            this[MemberDataTable.id] = nextOccurrenceId
+            this[MemberDataTable.member] = row.member; this[MemberDataTable.family] = row.family; this[MemberDataTable.position] = row.position
+            this[MemberDataTable.raw] = row.raw.bytes(); this[MemberDataTable.typed] = row.typed
+            this[MemberDataTable.effective] = row.effective
+        }
+        context.pendingData.clear()
     }
 
     private fun certificate(context: LedgerRepository.ProjectionContext, member: Long, position: Int, cert: DecodedCertificate, effective: Boolean) {
