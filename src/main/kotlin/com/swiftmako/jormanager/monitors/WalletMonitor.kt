@@ -46,7 +46,7 @@ class WalletMonitor
         private val fileRepository: FileRepository,
         private val walletUtils: WalletUtils,
         private val webSocketTemplate: SimpMessagingTemplate,
-        @param:Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long>,
+        @param:Qualifier("refreshWalletChannel") private val refreshWalletChannel: MutableStateFlow<Long?>,
         private val shelleyGenesisAdapter: JsonAdapter<GenesisShelley>,
         private val hostRepository: HostRepository,
         private val cardanoRepository: CardanoRepository,

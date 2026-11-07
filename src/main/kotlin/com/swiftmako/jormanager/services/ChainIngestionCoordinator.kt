@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory
 class ChainIngestionCoordinator(
     private val projector: BatchEffectProjector,
     private val messages: SimpMessagingTemplate,
-    @param:Qualifier("refreshWalletChannel") private val walletRefresh: MutableStateFlow<Long>,
+    @param:Qualifier("refreshWalletChannel") private val walletRefresh: MutableStateFlow<Long?>,
 ) {
     private val lastProgressNotification = ConcurrentHashMap<String, Long>()
     private val log = LoggerFactory.getLogger(ChainIngestionCoordinator::class.java)
@@ -291,6 +291,6 @@ class ChainIngestionCoordinator(
         if (!force && state.status == "syncing" && last != null && now - last < 500_000_000L) return
         lastProgressNotification[network] = now
         messages.convertAndSend("/topic/messages", SocketResponse.Success("chainstatus", state))
-        if (state.status == "complete") walletRefresh.update { it + 1L }
+        if (state.status == "complete") walletRefresh.update { (it ?: 0L) + 1L }
     }
 }
