@@ -10,13 +10,13 @@ data class WalletItem(
     val type: String, // payment, stake, address
     val paymentAddr: String,
     val hasPaymentKeys: Boolean,
-    val paymentAddrUtxoCount: Long,
+    val paymentAddrUtxoCount: Long?,
     @get:JsonSerialize(using = ToStringSerializer::class)
-    val paymentAddrLovelace: BigInteger,
+    val paymentAddrLovelace: BigInteger?,
     val stakingAddr: String?,
-    val stakingAddrRegistered: Boolean,
+    val stakingAddrRegistered: Boolean?,
     @get:JsonSerialize(using = ToStringSerializer::class)
     val stakingAddrLovelace: BigInteger?,
     @get:JsonSerialize(contentUsing = ToStringSerializer::class)
-    val nativeAssetMap: Map<String, BigInteger>,
+    val nativeAssetMap: Map<String, BigInteger>?,
 )

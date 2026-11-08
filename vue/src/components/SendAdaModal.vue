@@ -273,9 +273,9 @@ interface ToAccount {
 interface WalletItemRef {
   id: number
   name: string
-  paymentAddrLovelace: string
+  paymentAddrLovelace: string | null
   stakingAddrLovelace: string | null
-  nativeAssetMap: Record<string, string>
+  nativeAssetMap: Record<string, string> | null
 }
 
 const store = useJorManagerStore()
@@ -387,7 +387,8 @@ function integer(value: string | number | bigint | null | undefined): bigint {
   return BigInt(text)
 }
 
-function formatAda(value: bigint | string | number): string {
+function formatAda(value: bigint | string | number | null): string {
+  if (value === null) return 'Unavailable'
   const amount = integer(value)
   const sign = amount < 0n ? '-' : ''
   const absolute = amount < 0n ? -amount : amount

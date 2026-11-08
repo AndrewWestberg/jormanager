@@ -31,7 +31,7 @@ export function hex2ascii(hexx: string): string {
 /**
  * Format lovelace to ADA with currency symbol
  */
-export function lovelaceToAda(lovelace: string | number | bigint, decimals: number = 6): string {
+export function lovelaceToAda(lovelace: string | number | bigint | null, decimals: number = 6): string {
   if (typeof lovelace === 'number' && !Number.isSafeInteger(lovelace)) return 'Unavailable'
   const text = String(lovelace)
   if (!/^-?\d+$/.test(text) || !Number.isInteger(decimals) || decimals < 0 || decimals > 6) return 'Unavailable'
