@@ -23,8 +23,15 @@ class JsonMessageContractTest {
         assertDecimalString(json["stakingAddrLovelace"], maximumCoin)
         assertDecimalString(json["nativeAssetMap"]["asset"], maximumCoin)
 
-        val unavailable = requireNotNull(converter.toMessage(wallet.copy(stakingAddrLovelace = null), null))
-        assertThat(mapper.readTree(unavailable.payload as ByteArray)["stakingAddrLovelace"].isNull).isTrue()
+        val unavailableWallet = wallet.copy(paymentAddrUtxoCount = null, paymentAddrLovelace = null,
+            stakingAddrRegistered = null, stakingAddrLovelace = null, nativeAssetMap = null)
+        val unavailable = requireNotNull(converter.toMessage(WalletResult(listOf(unavailableWallet), "network"), null))
+        val item = mapper.readTree(unavailable.payload as ByteArray)["items"][0]
+        listOf("paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddrRegistered", "stakingAddrLovelace", "nativeAssetMap")
+            .forEach { assertThat(item[it].isNull).isTrue() }
+        assertThat(item.propertyNames()).containsExactly("id", "name", "type", "paymentAddr", "hasPaymentKeys",
+            "paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddr", "stakingAddrRegistered",
+            "stakingAddrLovelace", "nativeAssetMap")
     }
 
     @Test
