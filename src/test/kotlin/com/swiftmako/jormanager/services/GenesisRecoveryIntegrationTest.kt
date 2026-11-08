@@ -201,8 +201,9 @@ class GenesisRecoveryIntegrationTest {
                 .single { it[LedgerUtxosTable.txId] == funds[0].txId.toHexString() }[LedgerTable.address]
         }
         val wallet = LedgerDao()
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos("missing-wallet-network", address) }
         val generation = coordinator.beginSession(network)
-        assertThrows(IllegalStateException::class.java) { wallet.queryUtxos(network, address) }
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos(network, address) }
         val complete = block(network, 59)
         transaction {
             SyncStatesTable.update({ SyncStatesTable.network eq network }) { it[completeInclusion] = complete }
@@ -210,6 +211,6 @@ class GenesisRecoveryIntegrationTest {
         coordinator.observeTip(network, ChainPoint("59", ByteArray(32) { 59 }.toHexString()), generation)
         assertThat(wallet.queryUtxos(network, address).single().lovelace).isEqualTo(funds[0].coin)
         coordinator.boundaryFailure(network, "Requested block unavailable", generation)
-        assertThrows(IllegalStateException::class.java) { wallet.queryUtxos(network, address) }
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos(network, address) }
     }
 }

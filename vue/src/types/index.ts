@@ -40,10 +40,10 @@ export interface WalletItem {
   id: number
   name: string
   paymentAddress: string
-  paymentAddrLovelace: string
+  paymentAddrLovelace: string | null
   stakingAddress?: string
   stakingAddrLovelace: string | null
-  nativeAssetMap: Record<string, string>
+  nativeAssetMap: Record<string, string> | null
   [key: string]: unknown
 }
 

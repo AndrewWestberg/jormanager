@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useJorManagerStore } from '@/stores/jormanager'
 
@@ -355,5 +355,100 @@ describe('store/jormanager - getters', () => {
       expect(store.txsProcessedSeries[0]).not.toBe(previousTxSeriesEntry)
       expect(store.blockHeightSeries[0].data).toEqual([[1000, 10], [2000, 11]])
     })
+  })
+})
+
+describe('wallet coverage availability', () => {
+  const identity = {
+    id: 101, name: 'Imported payment', type: 'payment', paymentAddr: 'addr_test_payment',
+    hasPaymentKeys: true, stakingAddr: null
+  }
+  const unknown = {
+    paymentAddrUtxoCount: null, paymentAddrLovelace: null, stakingAddrRegistered: null,
+    stakingAddrLovelace: null, nativeAssetMap: null
+  }
+  const available = {
+    paymentAddrUtxoCount: 1, paymentAddrLovelace: '9007199254740993', stakingAddrRegistered: false,
+    stakingAddrLovelace: '0', nativeAssetMap: { asset: '18446744073709551615' }
+  }
+  function setup() {
+    setActivePinia(createPinia())
+    const store = useJorManagerStore()
+    vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+    function status(state: string, networkKey = 'network') {
+      store.handleMessage({ type: 'chainstatus', data: {
+        networkKey, status: state, reason: 'Coverage prerequisite', observedTip: null, lastCompletePoint: null
+      } })
+    }
+    function wallet() {
+      store.handleMessage({ type: 'wallet', data: {
+        networkKey: 'network', items: [{ ...identity, ...available }]
+      } })
+    }
+    return { store, status, wallet }
+  }
+
+  it('keeps successful saves and metadata visible while coverage is unavailable', () => {
+    const { store, status } = setup()
+    store.handleMessage({ type: 'createwalletentry', data: 'Saved imported entry' })
+    const success = store.toastSuccess
+    store.handleMessage({ type: 'wallet', data: { networkKey: 'network', items: [{ ...identity, ...unknown }] } })
+    status('syncing')
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    expect(store.walletNetworkKey).toBe('network')
+    expect(store.toastSuccess).toEqual(success)
+    expect(store.toastSuccess).not.toBeNull()
+    expect(store.toastError).toBeNull()
+    expect(store.paymentSelectOptions()).toEqual([{ value: 101, text: 'Imported payment - Unavailable' }])
+    expect(store.feeAccountOptions(0n)).toEqual([])
+  })
+
+  it('preserves exact amounts and known zero from successful reads', () => {
+    const { store } = setup()
+    store.handleMessage({ type: 'wallet', data: { networkKey: 'network', items: [
+      { ...identity, ...available },
+      { ...identity, id: 102, ...available, paymentAddrLovelace: '0', nativeAssetMap: {} }
+    ] } })
+    expect(store.walletItems[0].paymentAddrLovelace).toBe('9007199254740993')
+    expect(store.walletItems[0].nativeAssetMap).toEqual({ asset: '18446744073709551615' })
+    expect(store.walletItems[1].paymentAddrLovelace).toBe('0')
+    expect(store.walletItems[1].nativeAssetMap).toEqual({})
+  })
+
+  it('revokes only matching balances and requires a fresh wallet payload to restore them', () => {
+    const { store, status, wallet } = setup()
+    wallet()
+    status('complete')
+    status('incomplete', 'other-network')
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    status('incomplete')
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    status('complete')
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    wallet()
+    status('complete')
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    store.invalidateAllNetworkObservations()
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+  })
+
+  it('revokes balances on a matching failed status request', () => {
+    const { store, wallet } = setup()
+    wallet()
+    store.handleMessage({ type: 'chainstatus', exception: {
+      message: 'Status failed', requestId: store.chainStatusRequestId!, target: 'network'
+    } })
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    expect(store.chainReadState).toBeNull()
+  })
+
+  it('retains genuine save and unrelated refresh errors', () => {
+    const { store, wallet } = setup()
+    store.handleMessage({ type: 'createwalletentry', exception: { message: 'Save rejected' } })
+    expect(store.toastError?.message).toBe('Save rejected')
+    wallet()
+    store.handleMessage({ type: 'wallet', exception: { message: 'Database failed' } })
+    expect(store.walletItems).toEqual([])
+    expect(store.toastError?.message).toBe('Database failed')
   })
 })

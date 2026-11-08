@@ -315,7 +315,8 @@ export const useJorManagerStore = defineStore('jormanager', {
     feeAccountOptions(minimum: bigint): SelectOption[] {
       return sortBy(this.walletItems.filter(item =>
         item.type !== 'address' && item.hasPaymentKeys &&
-        /^\d+$/.test(String(item.paymentAddrLovelace)) && BigInt(item.paymentAddrLovelace) > minimum
+        typeof item.paymentAddrLovelace === 'string' &&
+        /^\d+$/.test(item.paymentAddrLovelace) && BigInt(item.paymentAddrLovelace) > minimum
       ).map(item => ({ value: item.id, text: `${item.name} - ${lovelaceToAda(item.paymentAddrLovelace)}` })), ['text'])
     },
 
@@ -531,9 +532,9 @@ export const useJorManagerStore = defineStore('jormanager', {
           this.walletNetworkKey = data.networkKey
           this.walletItems = data.items.map(item => ({
             ...item,
-            paymentAddrLovelace: String(item.paymentAddrLovelace),
+            paymentAddrLovelace: item.paymentAddrLovelace == null ? null : String(item.paymentAddrLovelace),
             stakingAddrLovelace: item.stakingAddrLovelace == null ? null : String(item.stakingAddrLovelace),
-            nativeAssetMap: Object.fromEntries(Object.entries(item.nativeAssetMap || {}).map(([key, value]) => [key, String(value)]))
+            nativeAssetMap: item.nativeAssetMap == null ? null : Object.fromEntries(Object.entries(item.nativeAssetMap).map(([key, value]) => [key, String(value)]))
           }))
           this.requestChainStatus(data.networkKey)
           break
@@ -824,6 +825,14 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.networkInvalidations[networkKey] = (this.networkInvalidations[networkKey] ?? 0) + 1
       if (this.walletNetworkKey === networkKey) {
         this.chainStatusRequestId = null
+        this.walletItems = this.walletItems.map(item => ({
+          ...item,
+          paymentAddrUtxoCount: null,
+          paymentAddrLovelace: null,
+          stakingAddrRegistered: null,
+          stakingAddrLovelace: null,
+          nativeAssetMap: null
+        }))
       }
       const leios = this.leiosStatus as LeiosStatusValue | null
       if (leios?.target?.networkKey === networkKey && leios.readState) this.leiosStatus = staleLeios(leios)

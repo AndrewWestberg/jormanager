@@ -77,11 +77,29 @@ class WalletUtils
                     val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
                     val walletEntries = walletRepository.findAllNotDeleted()
                     val total = walletEntries.size
-                    walletEntries.forEachIndexed { index, walletEntry ->
-                        walletItems.add(
-                            getWalletItem(host, hostConnection, magicString, socketPath, era, walletEntry, index + 1, total)
-                        )
-                        delay(1L) // check to see if we're interrupted
+                    try {
+                        walletEntries.forEachIndexed { index, walletEntry ->
+                            walletItems.add(
+                                getWalletItem(host, hostConnection, magicString, socketPath, era, walletEntry, index + 1, total)
+                            )
+                            delay(1L) // check to see if we're interrupted
+                        }
+                    } catch (_: LedgerDao.WalletIndexUnavailableException) {
+                        return walletEntries.map { entry ->
+                            WalletItem(
+                                id = entry.id!!,
+                                name = entry.name,
+                                type = entry.type,
+                                paymentAddr = entry.paymentAddr,
+                                hasPaymentKeys = entry.paymentSkey != null,
+                                paymentAddrUtxoCount = null,
+                                paymentAddrLovelace = null,
+                                stakingAddr = entry.stakingAddr,
+                                stakingAddrRegistered = null,
+                                stakingAddrLovelace = null,
+                                nativeAssetMap = null,
+                            )
+                        }
                     }
                 } ?: log.error("Host for default node not found!")
             } ?: log.warn("No default node set! Cannot check wallet for updates!")

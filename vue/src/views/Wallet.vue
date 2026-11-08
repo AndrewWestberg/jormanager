@@ -26,6 +26,10 @@
         </BButton>
       </div>
       <hr />
+      <div v-if="balancesUnavailable" class="alert alert-warning" role="status">
+        Wallet entries are saved. Balances and spending are unavailable until wallet index coverage is complete.
+        <span v-if="store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.reason">{{ store.chainReadState.reason }}</span>
+      </div>
       <BContainer fluid>
         <BRow>
           <BCol lg="6" class="my-1">
@@ -77,7 +81,7 @@
             <div class="text-right">
               {{ formatAda(value) }}
               <span
-                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && positive(value)"
+                v-if="canSend(item as WalletItem)"
                 class="clickable text-success d-inline-block"
                 v-b-tooltip.hover.bottom="{ title: 'Send', variant: 'success' }"
                 @click="sendAdaClick((item as any).name)"
@@ -104,7 +108,7 @@
             <div v-if="value && String(value).length > 0">
               {{ String(value).substring(0, 15) }}... &nbsp;
               <span
-                v-if="(item as any).stakingAddrRegistered"
+                v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === true"
                 class="clickable text-success d-inline-block"
                 v-b-tooltip.hover.bottom="{ title: 'Registered on chain. Click to de-register.', variant: 'success' }"
                 @click="deregisterStakingAddress((item as any).name)"
@@ -112,14 +116,14 @@
                 <font-awesome-icon :icon="['fas', 'link']" />
               </span>
               <span
-                v-if="!(item as any).stakingAddrRegistered"
+                v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === false"
                 class="clickable text-warning d-inline-block"
                 v-b-tooltip.hover.bottom="{ title: 'Not registered on chain. Click to register.', variant: 'warning' }"
                 @click="registerStakingAddress((item as any).name)"
               >
                 <font-awesome-icon :icon="['fas', 'unlink']" />
               </span>
-              <BButton v-if="(item as any).stakingAddrRegistered && (item as any).type === 'stake'" size="sm" variant="outline-primary" class="ms-2" @click="delegateStakingAddress((item as any).name)">Delegate</BButton>
+              <BButton v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === true && (item as any).type === 'stake'" size="sm" variant="outline-primary" class="ms-2" @click="delegateStakingAddress((item as any).name)">Delegate</BButton>
             </div>
             <div v-else class="text-center">---</div>
           </template>
@@ -127,7 +131,7 @@
             <div class="text-right d-flex align-items-center justify-content-end gap-2" v-if="(item as any).type === 'stake'">
               <span>{{ formatAda(value) }}</span>
               <span
-                v-if="positive(value)"
+                v-if="canClaim(item as WalletItem)"
                 class="clickable text-success flex-shrink-0"
                 v-b-tooltip.hover.bottom="{ title: 'Claim Rewards', variant: 'success' }"
                 @click="claimAdaClick((item as any).name)"
@@ -135,7 +139,7 @@
                 <font-awesome-icon :icon="['fas', 'cash-register']" />
               </span>
               <BFormCheckbox
-                v-if="positive(value)"
+                v-if="canClaim(item as WalletItem)"
                 :model-value="selectedClaimIds.has((item as any).id)"
                 @update:model-value="toggleClaimSelection((item as any).id)"
                 class="rewards-checkbox"
@@ -234,6 +238,10 @@ import type { WalletItem } from '@/types'
 
 const store = useJorManagerStore()
 const { walletItems } = storeToRefs(store)
+const chainReady = computed(() => store.chainReadState?.networkKey === store.walletNetworkKey &&
+  store.chainReadState?.status === 'complete')
+const balancesUnavailable = computed(() => walletItems.value.length > 0 &&
+  (!chainReady.value || walletItems.value.some(item => item.paymentAddrLovelace === null)))
 const emitter = useEventBus()
 
 const showAddWalletEntryWizard = ref(false)
@@ -257,7 +265,7 @@ function resetStakingReview() {
 }
 
 async function reviewStaking() {
-  if (stakingBusy.value || stakingAddressForm.value.stakingFeesAccount == null) return
+  if (stakingBusy.value || !chainReady.value || !stakingFeesAccountState.value) return
   const generation = ++stakingGeneration
   stakingBusy.value = true
   stakingError.value = ''
@@ -306,6 +314,18 @@ function positive(value: unknown): boolean {
   return amount !== null && amount > 0n
 }
 
+function balanceReady(item: WalletItem): boolean {
+  return chainReady.value && item.paymentAddrLovelace !== null
+}
+
+function canSend(item: WalletItem): boolean {
+  return balanceReady(item) && item.type !== 'address' && item.type !== 'pledge' && positive(item.paymentAddrLovelace)
+}
+
+function canClaim(item: WalletItem): boolean {
+  return balanceReady(item) && item.type === 'stake' && positive(item.stakingAddrLovelace)
+}
+
 function formatAda(value: unknown): string {
   const amount = exactInteger(value)
   if (amount === null) return 'Unavailable'
@@ -314,9 +334,9 @@ function formatAda(value: unknown): string {
   return `${sign}₳${absolute / 1000000n}.${(absolute % 1000000n).toString().padStart(6, '0')}`
 }
 
-const stakingFeesAccountState = computed(() => stakingAddressForm.value.stakingFeesAccount != null)
+const stakingFeesAccountState = computed(() => stakingFeesOptions.value.some(option => option.value === stakingAddressForm.value.stakingFeesAccount))
 const stakingFeesOptions = computed(() => walletItems.value
-  .filter(item => item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
+  .filter(item => chainReady.value && item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
   .map(item => ({ value: item.id, text: `${item.name} - ${formatAda(item.paymentAddrLovelace)}` }))
   .sort((a, b) => a.text.localeCompare(b.text)))
 
@@ -336,9 +356,7 @@ const filteredWalletItems = computed(() => {
 // Count only visible selected items for button label
 const visibleSelectedCount = computed(() => {
   return filteredWalletItems.value.filter(item =>
-    selectedClaimIds.value.has(item.id) &&
-    (item as any).type === 'stake' &&
-    positive(item.stakingAddrLovelace)
+    selectedClaimIds.value.has(item.id) && canClaim(item)
   ).length
 })
 
@@ -347,6 +365,10 @@ const hasSelectedClaims = computed(() => visibleSelectedCount.value > 0)
 // Clear selections when filter changes
 watch(filter, () => {
   selectedClaimIds.value = new Set()
+})
+
+watch(chainReady, ready => {
+  if (!ready) selectedClaimIds.value = new Set()
 })
 
 watch(() => store.connected, connected => {
@@ -385,19 +407,21 @@ function copyToClipboard(value: string) {
 
 function sendAdaClick(name: string) {
   const item = findWalletItemByName(name)
-  if (item) {
+  if (item && canSend(item)) {
     emitter.emit('show-send-ada-modal', { walletItem: item, isClaim: false })
   }
 }
 
 function claimAdaClick(name: string) {
   const item = findWalletItemByName(name)
-  if (item) {
+  if (item && canClaim(item)) {
     emitter.emit('show-send-ada-modal', { walletItem: item, isClaim: true })
   }
 }
 
 function toggleClaimSelection(id: number) {
+  const item = walletItems.value.find(item => item.id === id)
+  if (!item || !canClaim(item)) return
   const newSet = new Set(selectedClaimIds.value)
   if (newSet.has(id)) {
     newSet.delete(id)
@@ -409,9 +433,7 @@ function toggleClaimSelection(id: number) {
 
 function claimMultipleClick() {
   const items = filteredWalletItems.value.filter(item =>
-    selectedClaimIds.value.has(item.id) &&
-    (item as any).type === 'stake' &&
-    positive(item.stakingAddrLovelace)
+    selectedClaimIds.value.has(item.id) && canClaim(item)
   )
   if (items.length > 0) {
     emitter.emit('show-send-ada-modal', { walletItems: items, isClaim: true, isMultiClaim: true })
@@ -432,7 +454,7 @@ function backupClicked() {
 
 function registerStakingAddress(name: string) {
   const item = findWalletItemByName(name)
-  if (!item) return
+  if (!item || !balanceReady(item) || item.stakingAddrRegistered !== false) return
   stakingAddressForm.value.id = item.id
   stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = true
@@ -442,7 +464,7 @@ function registerStakingAddress(name: string) {
 
 function deregisterStakingAddress(name: string) {
   const item = findWalletItemByName(name)
-  if (!item) return
+  if (!item || !balanceReady(item) || item.stakingAddrRegistered !== true) return
   stakingAddressForm.value.id = item.id
   stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = false
@@ -452,7 +474,7 @@ function deregisterStakingAddress(name: string) {
 
 function delegateStakingAddress(name: string) {
   const item = findWalletItemByName(name)
-  if (!item) return
+  if (!item || !balanceReady(item) || item.stakingAddrRegistered !== true || item.type !== 'stake') return
   stakingAddressForm.value.id = item.id
   stakingAddressForm.value.isDelegation = true
   stakingAddressForm.value.poolId = ''
