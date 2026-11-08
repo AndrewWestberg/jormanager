@@ -70,13 +70,13 @@ The UI is not the durable authority for submission. Reloading a component cannot
 
 ### State representation
 
-The [Pinia store](../../vue/src/stores/jormanager.ts#L355) owns `connected`, the STOMP client, per-network read states, request identities, and `networkInvalidations`. Transaction details and Leios observations can remain visible while being marked historical/stale.
+The [Pinia store](../../vue/src/stores/jormanager.ts#L350) owns `connected`, the STOMP client, per-network read states, request identities, and `networkInvalidations`. Leios observations can remain visible while being marked historical/stale.
 
 ### Events and guards
 
 Connection errors clear `connected`, invalidate network observations, and clear node-index request/status maps. Subscription establishment also invalidates old observations before marking the connection available and requesting nodes. Transport connectivity does not restore prior observations to current status.
 
-[Network invalidation](../../vue/src/stores/jormanager.ts#L839) increments a network generation, marks retained transaction/Leios observations stale, and invalidates applicable outstanding request IDs. A fresh status/detail response is accepted only through its relevant routing and identity checks. Server-pushed chain status without a request ID is also handled; it is not an ordinary request-response completion.
+[Network invalidation](../../vue/src/stores/jormanager.ts#L823) increments a network generation, marks retained Leios observations stale, and invalidates applicable outstanding request IDs. A fresh status response is accepted only through its relevant routing and identity checks. Server-pushed chain status without a request ID is also handled; it is not an ordinary request-response completion.
 
 ### Boundary to preserve
 

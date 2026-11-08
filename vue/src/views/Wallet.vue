@@ -26,19 +26,6 @@
         </BButton>
       </div>
       <hr />
-      <div :class="['alert', store.chainReadState?.status === 'complete' ? 'alert-info' : 'alert-warning']" role="status">
-        <strong>Wallet index:</strong> {{ store.chainReadState?.status || 'unavailable' }}
-        <span v-if="store.chainReadState?.reason"> — {{ store.chainReadState.reason }}</span>
-        <div>Network: {{ store.walletNetworkKey || 'unavailable' }}</div>
-        <div>Observed tip: {{ pointLabel(store.chainReadState?.observedTip) }}; last complete: {{ pointLabel(store.chainReadState?.lastCompletePoint) }}</div>
-        <div v-if="store.chainReadState?.status !== 'complete'">Balances may be stale and must not be treated as available to spend.</div>
-        <BButton size="sm" variant="outline-secondary" :disabled="!store.walletNetworkKey" @click="store.walletNetworkKey && store.requestChainStatus(store.walletNetworkKey)">Refresh chain status</BButton>
-      </div>
-      <BFormGroup label="Transaction ID" label-for="wallet-transaction-id" class="mb-3">
-        <BFormInput id="wallet-transaction-id" v-model="transactionId" placeholder="Transaction ID (hex)" />
-        <BButton class="mt-2" :disabled="!store.walletNetworkKey || !/^[0-9a-fA-F]{64}$/.test(transactionId)" @click="store.requestTransaction(transactionId)">Find transaction</BButton>
-        <WalletTransactionDetail v-if="store.transactionDetail" :detail="store.transactionDetail" @navigate="navigateTransaction" />
-      </BFormGroup>
       <BContainer fluid>
         <BRow>
           <BCol lg="6" class="my-1">
@@ -242,8 +229,7 @@ import { hex2ascii } from '@/utils/filters'
 import AddWalletEntryWizard from '@/components/AddWalletEntryWizard.vue'
 import SendAdaModal from '@/components/SendAdaModal.vue'
 import WalletReviewPanel from '@/components/WalletReviewPanel.vue'
-import WalletTransactionDetail from '@/components/WalletTransactionDetail.vue'
-import type { ChainPoint, WalletReview } from '@/types'
+import type { WalletReview } from '@/types'
 import type { WalletItem } from '@/types'
 
 const store = useJorManagerStore()
@@ -257,20 +243,10 @@ const filter = ref<string>('')
 const filterOn = ref<string[]>(['name', 'type', 'paymentAddr', 'stakingAddr'])
 const selectedClaimIds = ref<Set<number>>(new Set())
 const pendingAction = ref<string | null>(null)
-const transactionId = ref('')
 const stakingReview = ref<WalletReview | null>(null)
 const stakingError = ref('')
 const stakingBusy = ref(false)
 let stakingGeneration = 0
-
-function navigateTransaction(txId: string) {
-  transactionId.value = txId
-  store.requestTransaction(txId)
-}
-
-function pointLabel(point: ChainPoint | null | undefined): string {
-  return point ? `${point.slot} / ${point.hash}` : 'unavailable'
-}
 
 function resetStakingReview() {
   stakingGeneration++

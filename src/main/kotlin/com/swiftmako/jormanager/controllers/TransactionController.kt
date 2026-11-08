@@ -4,7 +4,6 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.TransactionMemberRepository
-import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.utils.Bech32
@@ -17,13 +16,12 @@ import org.springframework.data.repository.findByIdOrNull
 @Controller
 class TransactionController(
     private val members: TransactionMemberRepository,
-    private val coordinator: ChainIngestionCoordinator,
     private val nodes: NodeRepository,
     private val cardano: CardanoRepository,
     private val walletUtils: WalletUtils,
     private val replay: LedgerReplayService,
 ) {
-    data class Query(val requestId: String, val networkKey: String, val txId: String? = null, val accountAddressHex: String? = null)
+    data class Query(val requestId: String, val networkKey: String, val accountAddressHex: String? = null)
     data class NodeQuery(val requestId: String, val nodeId: Long)
 
     private fun checkTarget(request: Query) {
@@ -55,12 +53,6 @@ class TransactionController(
             "NODE_INDEX_UNAVAILABLE", "Network identity or index unavailable; check configured genesis files and synchronization.",
             "node_chainstatus", "refresh", request.requestId, "node:${request.nodeId}",
         ))
-    }
-
-    @MessageMapping("/transaction")
-    @SendTo("/topic/messages")
-    fun transaction(request: Query): SocketResponse<Any> = respond("transaction", request) {
-        members.find(request.requestId, request.networkKey, requireNotNull(request.txId))
     }
 
     @MessageMapping("/account/history")

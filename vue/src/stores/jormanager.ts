@@ -19,7 +19,6 @@ import type {
   NodeIndexStatus,
   LedgerReplayCoverage,
   WalletReview,
-  TransactionDetail,
   WalletReconciliation
 } from '@/types'
 
@@ -88,8 +87,6 @@ interface JorManagerState {
   nodeIndexRequests: Record<number, string>
   networkInvalidations: Record<string, number>
   networkReadStates: Record<string, ChainReadState>
-  transactionDetail: TransactionDetail | { error: string } | null
-  transactionRequestId: string | null
 
 
   // Chart data
@@ -145,8 +142,6 @@ export const useJorManagerStore = defineStore('jormanager', {
     nodeIndexRequests: {},
     networkInvalidations: {},
     networkReadStates: {},
-    transactionDetail: null,
-    transactionRequestId: null,
 
 
     // Chart data
@@ -563,17 +558,6 @@ export const useJorManagerStore = defineStore('jormanager', {
           }
           break
         }
-        case 'transaction': {
-          const data = message.data as TransactionDetail | undefined
-          if (data && data.requestId === this.transactionRequestId && data.networkKey === this.walletNetworkKey) {
-            const networkState = this.networkReadStates[data.networkKey]
-            this.transactionDetail = data.readState.status !== 'complete' || (networkState && networkState.status !== 'complete')
-              ? { ...data, readState: { ...data.readState, status: 'stale', reason: 'Chain index is incomplete; inclusion labels are historical until a complete refresh.' } }
-              : data
-          }
-          else if (!data && message.exception?.requestId === this.transactionRequestId && message.exception.target === this.walletNetworkKey) this.transactionDetail = { error: message.exception.message || 'Transaction unavailable' }
-          break
-        }
         case 'createwalletentry':
           if (message.data) {
             this.toastSuccess = { title: 'Success', message: message.data as string }
@@ -838,15 +822,7 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     invalidateNetworkObservations(networkKey: string) {
       this.networkInvalidations[networkKey] = (this.networkInvalidations[networkKey] ?? 0) + 1
-      const detail = this.transactionDetail
-      if (detail && !('error' in detail) && detail.networkKey === networkKey) {
-        this.transactionDetail = {
-          ...detail,
-          readState: { ...detail.readState, status: 'stale', reason: 'Chain index changed; refresh the transaction before relying on its inclusion.' }
-        }
-      }
       if (this.walletNetworkKey === networkKey) {
-        this.transactionRequestId = null
         this.chainStatusRequestId = null
       }
       const leios = this.leiosStatus as LeiosStatusValue | null
@@ -857,15 +833,12 @@ export const useJorManagerStore = defineStore('jormanager', {
     invalidateAllNetworkObservations() {
       const networks = new Set(Object.keys(this.networkReadStates))
       if (this.walletNetworkKey) networks.add(this.walletNetworkKey)
-      const detail = this.transactionDetail
-      if (detail && !('error' in detail)) networks.add(detail.networkKey)
       const leios = this.leiosStatus as LeiosStatusValue | null
       if (leios?.target?.networkKey) networks.add(leios.target.networkKey)
       networks.forEach(network => this.invalidateNetworkObservations(network))
       this.networkReadStates = {}
       this.chainReadState = null
       this.chainStatusRequestId = null
-      this.transactionRequestId = null
       this.leiosStatusRequest = null
     },
 
@@ -886,13 +859,6 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.chainReadState = null
       this.chainStatusRequestId = generateUUID()
       this.sendMessage('/jormanager/chainstatus', { requestId: this.chainStatusRequestId, networkKey })
-    },
-
-    requestTransaction(txId: string) {
-      if (!this.walletNetworkKey) return
-      this.transactionDetail = null
-      this.transactionRequestId = generateUUID()
-      this.sendMessage('/jormanager/transaction', { requestId: this.transactionRequestId, networkKey: this.walletNetworkKey, txId })
     },
 
     socketRequest<T>(destination: string, responseType: string, payload: Record<string, unknown>): Promise<T> {
