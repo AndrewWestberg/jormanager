@@ -15,3 +15,4 @@ There are places where we intentionally trade a bit lower security for more ease
 - [JorManager 7.0.3 Upgrade Guide](jormanager_7.0.3_upgrade_guide.md)
 - [JorManager 11.1.x Upgrade Guide](jormanager_11.1.x_upgrade_guide.md)
 - [Dijkstra-aware Upgrade and Operator Workflow](dijkstra-upgrade-guide.md) — individual network file selection and operator guidance; qualification pending
+- [State Machine Inventory and Design Notes](state-machines/README.md) — deferred frontend inventory and backend explicit-state proposals; no implementation changes
