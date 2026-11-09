@@ -4,7 +4,7 @@
       <div>
         <BButton
           variant="outline-primary"
-          @click="poolParentId = null; showAddNodeWizard = true"
+          @click="poolParentId = null; setupContext = null; showAddNodeWizard = true"
           v-b-tooltip.hover.bottom="'Add a new cardano-node.'"
         >
           +&nbsp;Node
@@ -53,9 +53,6 @@
               >
                 <font-awesome-icon :icon="['fas', 'copy']" />
               </div>
-            </div>
-            <div v-if="isDraftNode((item as any).id)" class="small text-warning">
-              Draft: deployment and startup are not established. Registration is tracked separately.
             </div>
           </template>
           <template #cell(type)="{ value }">
@@ -137,8 +134,8 @@
             <div
               v-if="isDraftNode((item as any).id)"
               class="text-info clickable d-inline-block"
-              v-b-tooltip.hover.right="{ title: 'Review draft deployment', variant: 'info' }"
-              @click="openDraftDeployment((item as any).id)"
+              v-b-tooltip.hover.right="{ title: 'Resume setup', variant: 'info' }"
+              @click="openSetup((item as any).id)"
             >
               <font-awesome-icon :icon="['fas', 'check-circle']" />
             </div>&nbsp;
@@ -166,39 +163,12 @@
     <AddNodeWizard
       v-if="showAddNodeWizard"
       :parent-id="poolParentId"
+      :setup-context="setupContext"
       @hide-add-node-wizard="showAddNodeWizard = false"
     />
     <BModal :model-value="leiosNodeId !== null" title="Leios key lifecycle" size="xl" hide-footer
       @update:model-value="value => { if (!value) leiosNodeId = null }">
       <LeiosKeyPanel v-if="leiosNodeId !== null" :node-id="leiosNodeId" />
-    </BModal>
-    <BModal v-model="showDraftDeployment" title="Review draft deployment" size="xl" hide-footer
-      :no-close-on-backdrop="true" :no-close-on-esc="deploymentBusy" :hide-header-close="deploymentBusy"
-      @hidden="deploymentPassword = ''; deploymentSudoPassword = ''">
-      <p>Target draft node {{ deploymentNodeId }}. Deployment requires a registered pool with the selected key, a current matching observer and verified host capability.</p>
-      <div v-if="!deploymentPreview">
-        <label class="d-block mb-2"><input v-model="deploymentWithoutLeios" type="checkbox"> Conway deployment without a Leios key</label>
-        <BFormGroup label="Registered Leios key ID">
-          <BFormInput v-model="deploymentKeyId" type="number" min="1" step="1" :disabled="deploymentWithoutLeios" />
-        </BFormGroup>
-        <BButton variant="outline-info" :disabled="deploymentBusy || !store.connected || (!deploymentWithoutLeios && !deploymentKeyId)" @click="previewDraftDeployment">Review deployment</BButton>
-      </div>
-      <div v-else>
-        <p>Node {{ deploymentPreview.nodeId }}; host {{ deploymentPreview.hostId }}; parent {{ deploymentPreview.parentId ?? 'none' }}; network {{ deploymentPreview.networkKey }}; pool {{ deploymentPreview.poolId }}; key {{ deploymentPreview.keyId ?? 'none (Conway)' }}.</p>
-        <p class="text-break">Public fingerprint: {{ deploymentPreview.publicFingerprint ?? 'not applicable' }}<br>Configuration fingerprint: {{ deploymentPreview.configurationFingerprint }}</p>
-        <p>Mode: {{ deploymentPreview.mode }}. {{ deploymentPreview.consequences }}</p>
-        <pre class="text-wrap text-break">{{ JSON.stringify(deploymentPreview.paths, null, 2) }}</pre>
-        <p>Installation does not prove startup, synchronization, loaded key or voting eligibility.</p>
-        <template v-if="!deploymentResult && !deploymentUncertain">
-          <BFormGroup label="Spending password"><BFormInput v-model="deploymentPassword" type="password" autocomplete="current-password" /></BFormGroup>
-          <BFormGroup label="Sudo password (if needed)"><BFormInput v-model="deploymentSudoPassword" type="password" autocomplete="off" /></BFormGroup>
-          <BButton variant="success" :disabled="deploymentBusy || !deploymentPassword" @click="installDraftDeployment">Approve reviewed deployment</BButton>
-          <BButton class="ms-2" variant="outline-secondary" :disabled="deploymentBusy" @click="deploymentPreview = null; deploymentPassword = ''; deploymentSudoPassword = ''">Change key</BButton>
-        </template>
-        <p v-if="deploymentResult">State: {{ deploymentResult.state }}; installed fingerprint: {{ deploymentResult.installedFingerprint ?? 'unavailable' }}; loaded fingerprint: {{ deploymentResult.loadedFingerprint ?? 'not observed' }}. {{ deploymentResult.reason }}</p>
-      </div>
-      <p v-if="deploymentError" class="text-danger mt-2">{{ deploymentError }}</p>
-      <BButton class="mt-2" variant="secondary" :disabled="deploymentBusy" @click="showDraftDeployment = false">Close</BButton>
     </BModal>
 
 
@@ -223,12 +193,12 @@
       size="xl"
       :no-close-on-backdrop="true"
       @ok.prevent="handleSavePoolConfig"
-      :ok-title="poolConfigStep === 1 ? 'Review' : 'Preview transaction'"
+      :ok-title="poolConfigStep === 1 ? 'Review' : 'Submit'"
       :ok-disabled="poolConfigStep !== 1 && nodeChainUnavailable(editPoolConfigForm.nodeId)"
       :cancel-title="poolConfigStep === 1 ? 'Cancel' : 'Back'"
       @cancel.prevent="handleCancelPoolConfig"
     >
-      <p class="text-warning">Changing the owner set replaces all current owners. Review any required account registrations, delegations and deposits in the transaction effects before authorization.</p>
+      <p class="text-warning">Changing the owner set replaces all current owners.</p>
       <div v-if="poolConfigStep === 1">
         <h5>Account Config</h5>
         <BFormGroup label="Fees Account" label-cols-md="2">
@@ -287,7 +257,6 @@
       </div>
       <div v-else>
         <p>Target pool: {{ nodes.find(node => node.id === editPoolConfigForm.nodeId)?.name }} ({{ editPoolConfigForm.nodeId }}).</p>
-        <p>Leios keys are managed separately; preservation of a scheduled Leios key requires a verified pool-update workflow. KES rotation does not rotate a Leios key.</p>
         <h5>Please Review Your Changes</h5>
         <p>Owner set: {{ replacePoolOwners ? selectedPoolOwners.join(', ') : 'preserve current owners' }}. Reward account: {{ changePoolReward ? editPoolConfigForm.rewardsStakingAccount : 'preserve current reward account' }}.</p>
         <table class="table table-dark table-sm">
@@ -316,14 +285,10 @@
       size="xl"
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveMetadata"
-      ok-title="Preview transaction"
+      ok-title="Submit"
       :ok-disabled="nodeChainUnavailable(editMetadataForm.nodeId)"
     >
-      <p>Supply an already published metadata URL and its verified 32-byte hash. Existing content fields below are informational and are not uploaded by this review.</p>
       <BFormGroup label="Fees Account"><BFormSelect v-model="poolChangeFeeAccount" :options="feeAccountOptions" /></BFormGroup>
-      <BFormGroup label="Metadata URL"><BFormInput v-model="metadataReference.url" /></BFormGroup>
-      <BFormGroup label="Metadata hash (hex)"><BFormInput v-model="metadataReference.hash" /></BFormGroup>
-      <fieldset disabled>
       <h5>Primary (Required)</h5>
       <BFormGroup label="Ticker" label-cols-md="2">
         <BFormInput v-model="editMetadataForm.ticker" placeholder="e.g. TICKR" maxlength="5" />
@@ -345,7 +310,6 @@
       <BFormGroup label="Twitter" label-cols-md="2">
         <BFormInput v-model="editMetadataForm.twitter" placeholder="e.g. mypool" />
       </BFormGroup>
-      </fieldset>
     </BModal>
     
     <!-- Edit Relays Modal -->
@@ -355,12 +319,11 @@
       size="lg"
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveRelays"
-      :ok-title="relaysStep === 1 ? 'Review' : 'Preview transaction'"
+      :ok-title="relaysStep === 1 ? 'Review' : 'Submit'"
       :ok-disabled="relaysStep !== 1 && nodeChainUnavailable(editRelaysForm.nodeId)"
       :cancel-title="relaysStep === 1 ? 'Cancel' : 'Back'"
       @cancel.prevent="handleCancelRelays"
     >
-      <p>Relay changes are submitted only after a durable transaction review.</p>
       <BFormGroup label="Fees Account"><BFormSelect v-model="poolChangeFeeAccount" :options="feeAccountOptions" /></BFormGroup>
       <div v-if="relaysStep === 1">
         <div v-for="(relay, index) in editRelaysForm.relays" :key="index" class="mb-3">
@@ -400,32 +363,6 @@
         <p v-else>No relays configured.</p>
       </div>
     </BModal>
-    <BModal v-model="showPoolChangeReview" title="Review pool transaction" size="xl" hide-footer
-      :no-close-on-backdrop="true" :no-close-on-esc="poolChangeBusy" :hide-header-close="poolChangeBusy"
-      @hidden="poolChangePassword = ''">
-      <template v-if="poolChangeReview">
-        <p>Pool node {{ poolChangeReview.nodeId }}; observer {{ poolChangeReview.observerNodeId }}; host {{ poolChangeReview.hostId }}; fee payer {{ poolChangeReview.feePayerAccountId }}.</p>
-        <p>Network {{ poolChangeReview.networkKey }}; era {{ poolChangeReview.era }}; state {{ poolChangeReview.state }}<span v-if="poolChangeStale"> (historical; needs reconciliation)</span>.</p>
-        <p class="text-break">Preview {{ poolChangeReview.previewId }}<br>Transaction {{ poolChangeReview.txId }}</p>
-        <p>Fee {{ poolChangeReview.fee }} lovelace; deposit {{ poolChangeReview.deposit }} lovelace; refund {{ poolChangeReview.refund }} lovelace. Validity {{ poolChangeReview.validFrom ?? 'unspecified' }} – {{ poolChangeReview.validUntil ?? 'unspecified' }}.</p>
-        <p>Reviewed changes, transaction effects and observed pool state:</p>
-        <pre class="text-wrap text-break">{{ JSON.stringify({ changes: poolChangeReview.changes, effects: poolChangeReview.effects, poolState: poolChangeReview.poolState }, null, 2) }}</pre>
-        <p v-if="poolChangeReview.reason">{{ poolChangeReview.reason }}</p>
-        <p v-if="poolChangeStale" class="alert alert-warning" role="alert">Chain status changed or became unavailable for this network. The displayed state and effects are historical; reconcile before relying on them. If not submitted, review the change again.</p>
-        <p v-if="poolChangeReview.state === 'phase2_failed'" class="text-danger">The transaction was included but failed phase 2; its ordinary effects were not applied.</p>
-        <BFormGroup v-if="(poolChangeReview.state === 'previewed' && !poolChangeUncertain && !poolChangeStale) || canReconcilePoolChange" label="Spending password">
-          <BFormInput v-model="poolChangePassword" type="password" autocomplete="current-password" />
-        </BFormGroup>
-        <BButton v-if="poolChangeReview.state === 'previewed' && !poolChangeUncertain && !poolChangeStale" variant="success" :disabled="poolChangeBusy || !poolChangePassword || chainUnavailable(poolChangeReview.networkKey)" @click="submitPoolChange">Approve and submit reviewed transaction</BButton>
-        <div v-if="canReconcilePoolChange" class="mt-2">
-          <p>Reconciliation checks chain and mempool status; it does not resubmit the transaction.</p>
-          <BButton variant="warning" :disabled="poolChangeBusy || !poolChangePassword || !chainComplete(poolChangeReview.networkKey)" @click="reconcilePoolChange">Authorize reconciliation</BButton>
-        </div>
-      </template>
-      <p v-if="poolChangeError" class="text-danger">{{ poolChangeError }}</p>
-      <p>Submission is not confirmation. Configuration is not changed locally until chain effects are observed.</p>
-      <BButton class="mt-2" variant="secondary" :disabled="poolChangeBusy" @click="showPoolChangeReview = false">Close</BButton>
-    </BModal>
 
     
     <!-- Retire Pool Modal -->
@@ -436,11 +373,8 @@
       hide-footer
       :no-close-on-esc="retirementBusy"
       :hide-header-close="retirementBusy"
-      @hidden="retirementPassword = ''"
     >
       <p>Target pool: {{ nodes.find(node => node.id === retirePoolForm.id)?.name }} ({{ retirePoolForm.id }}).</p>
-      <p class="text-warning">Reviewed retirement requires current pool state and qualified capabilities. Cancellation is not available. Submission does not mean confirmation.</p>
-      <template v-if="!retirementReview">
       <BFormGroup label="Fees Account" label-cols-md="4">
         <BFormSelect
           v-model="retirePoolForm.retireFeesAccount"
@@ -461,38 +395,12 @@
           v-model="retirePoolForm.retireEpoch"
           type="number"
           placeholder="e.g. Current epoch + 2"
-          :state="retirePoolForm.retireEpoch > 0"
+          :state="/^[1-9]\d*$/.test(String(retirePoolForm.retireEpoch))"
         />
       </BFormGroup>
-      <p class="text-muted">The refund, if any, occurs at retirement and is not an immediate balance increase.</p>
-      <BButton variant="outline-info" :disabled="retirementBusy || nodeChainUnavailable(retirePoolForm.id)" @click="reviewRetirement">Review retirement</BButton>
-      </template>
-      <div v-else>
-        <h5>Review retirement consequences</h5>
-        <p>Network: {{ retirementReview.networkKey }}; era: {{ retirementReview.era }}; state: {{ retirementReview.state }}<span v-if="retirementStale"> (historical; needs reconciliation)</span></p>
-        <p>Pool node: {{ retirementReview.nodeId }}; observer node: {{ retirementReview.observerNodeId }}; host: {{ retirementReview.hostId }}; fee payer account: {{ retirementReview.feePayerAccountId }}.</p>
-        <p class="text-break">Preview: {{ retirementReview.previewId }}<br>Transaction: {{ retirementReview.txId }}</p>
-        <p>Fee: {{ retirementReview.fee }} lovelace; transaction deposit: {{ retirementReview.deposit }} lovelace; immediate refund: {{ retirementReview.refund }} lovelace. The held pool deposit is shown in the observed state below; any later refund and destination are contingent, not a confirmed reward.</p>
-        <p>Retirement epoch: {{ retirementReview.retireEpoch }}; validity: {{ retirementReview.validFrom ?? 'not specified' }} – {{ retirementReview.validUntil ?? 'not specified' }}</p>
-        <p>Observed pool state and current/future keys:</p>
-        <pre class="text-wrap text-break">{{ JSON.stringify(retirementReview.poolState, null, 2) }}</pre>
-        <p v-if="retirementReview.reason">{{ retirementReview.reason }}</p>
-        <p v-if="retirementStale" class="alert alert-warning" role="alert">Chain status changed or became unavailable for this network. The displayed state and effects are historical; reconcile before relying on them. If not submitted, review the retirement again.</p>
-        <p v-if="retirementReview.state === 'phase2_failed'" class="text-danger">The transaction was included but failed phase 2; retirement was not applied.</p>
-        <BFormGroup v-if="(retirementReview.state === 'previewed' && !retirementUncertain && !retirementStale) || canReconcileRetirement" label="Spending password">
-          <BFormInput v-model="retirementPassword" type="password" autocomplete="current-password" />
-        </BFormGroup>
-        <BButton v-if="retirementReview.state === 'previewed' && !retirementUncertain && !retirementStale" variant="success"
-          :disabled="retirementBusy || !retirementPassword || chainUnavailable(retirementReview.networkKey)" @click="submitRetirement">Approve and submit reviewed retirement</BButton>
-        <div v-if="canReconcileRetirement" class="mt-2">
-          <p>Reconciliation checks chain and mempool status; it does not resubmit the transaction.</p>
-          <BButton variant="warning" :disabled="retirementBusy || !retirementPassword || !chainComplete(retirementReview.networkKey)" @click="reconcileRetirement">Authorize reconciliation</BButton>
-        </div>
-        <BButton v-if="!retirementUncertain && retirementReview.state === 'previewed'" class="ms-2" variant="outline-secondary"
-          :disabled="retirementBusy" @click="retirementReview = null; retirementPassword = ''">Change details</BButton>
-      </div>
+      <BButton variant="success" :disabled="retirementBusy || nodeChainUnavailable(retirePoolForm.id)" @click="requestRetirement">Retire pool</BButton>
       <p v-if="retirementError" class="text-danger mt-2">{{ retirementError }}</p>
-      <BButton class="mt-2" variant="secondary" :disabled="retirementBusy" @click="showRetireModal = false; retirementPassword = ''">Close</BButton>
+      <BButton class="mt-2 ms-2" variant="secondary" :disabled="retirementBusy" @click="showRetireModal = false">Close</BButton>
     </BModal>
     
     <!-- Governance Vote Modal -->
@@ -517,6 +425,8 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
+import { generateUUID } from '@/utils/filters'
+import type { PoolRegistrationResult, PoolRetirementResult } from '@/types'
 import LeiosKeyPanel from '@/components/LeiosKeyPanel.vue'
 import AddNodeWizard from '@/components/AddNodeWizard.vue'
 import GovernanceVoteModal from '@/components/GovernanceVoteModal.vue'
@@ -565,136 +475,77 @@ const editMetadataForm = ref({
   location: '',
   twitter: ''
 })
+type LoadedMetadata = {
+  nodeId: number
+  metadata: { ticker?: string; name?: string; description?: string; homepage?: string }
+  extendedMetadata?: {
+    telegramAdminHandle?: string[]; adapoolsVerify?: string
+    info?: {
+      urlPngIcon64x64?: string; urlPngLogo?: string; location?: string; rss?: string
+      social?: { twitterHandle?: string; telegramHandle?: string; facebookHandle?: string; youtubeHandle?: string; twitchHandle?: string; discordHandle?: string; githubHandle?: string }
+      company?: { name?: string; addr?: string; city?: string; country?: string; companyId?: string; vatId?: string }
+      about?: { me?: string; server?: string; company?: string }
+    }
+  }
+}
+let loadedMetadata: LoadedMetadata | null = null
 const editRelaysForm = ref({
   nodeId: 0,
   relays: [] as Relay[]
 })
-type PoolChangeReview = {
-  previewId: string; txId: string; networkKey: string; era: string; state: string
-  nodeId: number; observerNodeId: number; hostId: number; feePayerAccountId: number
-  fee: string; deposit: string; refund: string; validFrom: string | null; validUntil: string | null
-  changes: unknown; effects: unknown; poolState: unknown
-  reason?: string | null
-}
-type PoolChangeRequest = { nodeId: number; feePayerAccountId: number; changes: Record<string, unknown> }
+type PoolChangeRequest = { requestId: string; nodeId: number; feePayerAccountId: number; action: 'update'; keyId: null; changes: Record<string, unknown>; metadata?: unknown; networkKey: string; generation: number }
 const replacePoolOwners = ref(false)
 const selectedPoolOwners = ref<number[]>([])
 const changePoolReward = ref(false)
 const poolChangeFeeAccount = ref<number | null>(null)
-const metadataReference = ref({ url: '', hash: '' })
-const showPoolChangeReview = ref(false)
-const poolChangeReview = ref<PoolChangeReview | null>(null)
-const poolChangePassword = ref('')
 const poolChangeBusy = ref(false)
-const poolChangeUncertain = ref(false)
-const poolChangeError = ref('')
-const poolChangeStale = ref(false)
-watch(() => poolChangeReview.value ? store.networkInvalidations[poolChangeReview.value.networkKey] ?? 0 : 0, (value, oldValue) => {
-  if (poolChangeReview.value && value !== oldValue) poolChangeStale.value = true
-}, { flush: 'sync' })
-const reconciliationStates = ['signing', 'submission_uncertain', 'submitted', 'rolled_back', 'confirmed', 'phase2_failed']
+const retirementBusy = ref(false)
+const retirementError = ref('')
+let poolRequestId = generateUUID()
+let retirementRequestId = generateUUID()
+watch([editPoolConfigForm, editMetadataForm, editRelaysForm, replacePoolOwners, selectedPoolOwners, changePoolReward, poolChangeFeeAccount],
+  () => { poolRequestId = generateUUID() }, { deep: true, flush: 'sync' })
 function chainUnavailable(networkKey: string) {
   const state = store.networkReadStates[networkKey]
   return !store.connected || state?.networkKey !== networkKey || state.walletReady !== true
-}
-function chainComplete(networkKey: string) {
-  const state = store.networkReadStates[networkKey]
-  return store.connected && state?.networkKey === networkKey && state.status === 'complete'
 }
 function nodeChainUnavailable(nodeId: number) {
   const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
   return !networkKey || chainUnavailable(networkKey)
 }
-watch(() => poolChangeReview.value && chainUnavailable(poolChangeReview.value.networkKey), unavailable => {
-  if (unavailable) poolChangeStale.value = true
-}, { flush: 'sync' })
-const canReconcilePoolChange = computed(() => !!poolChangeReview.value &&
-  (poolChangeUncertain.value || (poolChangeStale.value && poolChangeReview.value.state !== 'previewed') || reconciliationStates.includes(poolChangeReview.value.state)))
-
-function requestPoolChange(nodeId: number, feePayerAccountId: number | null, changes: Record<string, unknown>) {
+function requestPoolChange(nodeId: number, feePayerAccountId: number | null, changes: Record<string, unknown>, metadata?: unknown) {
   if (feePayerAccountId == null || poolChangeBusy.value) {
-    store.toastError = { title: 'Pool review', message: 'Select a fee payer account.' }
+    store.toastError = { title: 'Pool update', message: 'Select a fee payer account.' }
     return
   }
-  if (nodeChainUnavailable(nodeId)) {
-    store.toastError = { title: 'Pool review', message: 'Wallet coverage is unavailable for this node network.' }
+  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
+  if (!networkKey || nodeChainUnavailable(nodeId)) {
+    store.toastError = { title: 'Pool update', message: 'Wallet coverage is unavailable for this node network.' }
     return
   }
-  emitter.emit('show-spending-password-modal', {
-    action: 'preview-pool-change', data: { nodeId, feePayerAccountId, changes }
-  })
+  const data: PoolChangeRequest = JSON.parse(JSON.stringify({ requestId: poolRequestId, nodeId, feePayerAccountId, action: 'update', keyId: null, changes, metadata, networkKey, generation: store.networkInvalidations[networkKey] ?? 0 }))
+  emitter.emit('show-spending-password-modal', { action: 'submit-pool-change', data })
 }
 
-async function previewPoolChange(request: PoolChangeRequest, password: string) {
-  if (poolChangeBusy.value || nodeChainUnavailable(request.nodeId)) return
+async function submitPoolChange(request: PoolChangeRequest, password: string) {
+  if (poolChangeBusy.value || !(showPoolConfigModal.value || showRelaysModal.value || showMetadataModal.value) || request.requestId !== poolRequestId || nodeChainUnavailable(request.nodeId) ||
+      store.nodeIndexStatus[request.nodeId]?.readState?.networkKey !== request.networkKey ||
+      (store.networkInvalidations[request.networkKey] ?? 0) !== request.generation) return
   poolChangeBusy.value = true
-  poolChangeError.value = ''
-  poolChangeReview.value = null
-  poolChangeUncertain.value = false
-  poolChangeStale.value = false
-  const invalidations = { ...store.networkInvalidations }
   try {
-    const result = await store.socketRequest<PoolChangeReview>('/jormanager/leios/registration/preview', 'leios_registration_preview', {
-      ...request, keyId: null, action: 'update', spendingPassword: password
-    })
-    if (result.nodeId !== request.nodeId || result.feePayerAccountId !== request.feePayerAccountId ||
-        result.networkKey !== store.nodeIndexStatus[request.nodeId]?.readState?.networkKey) throw new Error('Preview target does not match')
-    poolChangeReview.value = result
-    poolChangeStale.value = (store.networkInvalidations[result.networkKey] ?? 0) !== (invalidations[result.networkKey] ?? 0) || chainUnavailable(result.networkKey)
-    showPoolConfigModal.value = false
-    showRelaysModal.value = false
-    showMetadataModal.value = false
-    showPoolChangeReview.value = true
-  } catch (error) {
-    store.toastError = { title: 'Pool review unavailable', message: error instanceof Error ? error.message : String(error) }
-  } finally {
-    poolChangeBusy.value = false
-  }
-}
-
-async function submitPoolChange() {
-  const review = poolChangeReview.value
-  if (!review || !poolChangePassword.value || poolChangeBusy.value || poolChangeUncertain.value || poolChangeStale.value || chainUnavailable(review.networkKey)) return
-  const password = poolChangePassword.value
-  poolChangePassword.value = ''
-  poolChangeBusy.value = true
-  poolChangeError.value = ''
-  const invalidation = store.networkInvalidations[review.networkKey] ?? 0
-  try {
-    const result = await store.socketRequest<PoolChangeReview>('/jormanager/leios/registration/submit', 'leios_registration_submitted', {
-      previewId: review.previewId, spendingPassword: password, approved: true
-    })
-    if (result.previewId !== review.previewId || result.nodeId !== review.nodeId ||
-        result.txId !== review.txId || result.networkKey !== review.networkKey) throw new Error('Submission does not match the reviewed target')
-    poolChangeReview.value = result
-    if ((store.networkInvalidations[review.networkKey] ?? 0) !== invalidation || chainUnavailable(review.networkKey)) poolChangeStale.value = true
-  } catch (error) {
-    poolChangeError.value = `${error instanceof Error ? error.message : String(error)}. The outcome may be uncertain; check transaction status before retrying.`
-    poolChangeUncertain.value = true
-  } finally {
-    poolChangeBusy.value = false
-  }
-}
-
-async function reconcilePoolChange() {
-  const review = poolChangeReview.value
-  if (!review || !canReconcilePoolChange.value || !poolChangePassword.value || poolChangeBusy.value || !chainComplete(review.networkKey)) return
-  const password = poolChangePassword.value
-  poolChangePassword.value = ''
-  poolChangeBusy.value = true
-  poolChangeError.value = ''
-  const invalidation = store.networkInvalidations[review.networkKey] ?? 0
-  try {
-    const result = await store.reconcileWallet(review.previewId, password)
-    if (result.previewId !== review.previewId || result.txId !== review.txId || result.networkKey !== review.networkKey) {
-      throw new Error('Reconciliation response did not match the reviewed transaction')
+    const { networkKey, generation: _generation, ...payload } = request
+    const result = await store.socketRequest<PoolRegistrationResult>('/jormanager/leios/registration/submit', 'leios_registration_submitted', { ...payload, spendingPassword: password })
+    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId || result.networkKey !== networkKey || result.action !== 'update') throw new Error('Submission target does not match')
+    if (!['submitted', 'confirmed'].includes(result.state)) throw new Error(`Transaction outcome: ${result.state}`)
+    if (poolRequestId === request.requestId) {
+      showPoolConfigModal.value = false
+      showRelaysModal.value = false
+      showMetadataModal.value = false
+      poolRequestId = generateUUID()
     }
-    poolChangeReview.value = { ...review, state: result.state, reason: result.reason }
-    poolChangeUncertain.value = result.state === 'previewed' || result.state === 'signing'
-    poolChangeStale.value = (store.networkInvalidations[review.networkKey] ?? 0) !== invalidation || chainUnavailable(review.networkKey)
+    store.toastSuccess = { title: 'Pool update submitted', message: result.txId }
   } catch (error) {
-    poolChangeError.value = `${error instanceof Error ? error.message : String(error)}. Reconciliation outcome may be uncertain; inspect the transaction before retrying.`
-    poolChangeUncertain.value = true
+    store.toastError = { title: 'Pool update failed', message: error instanceof Error ? error.message : String(error) }
   } finally {
     poolChangeBusy.value = false
   }
@@ -705,97 +556,32 @@ const retirePoolForm = ref({
   retireFeesAccount: null as number | null,
   retireEpoch: 0
 })
-type RetirementReview = {
-  previewId: string; txId: string; networkKey: string; era: string; state: string
-  nodeId: number; observerNodeId: number; hostId: number; feePayerAccountId: number
-  fee: string; deposit: string; refund: string; validFrom: string | null; validUntil: string | null
-  retireEpoch: string; poolState: unknown
-  reason?: string | null
+watch(retirePoolForm, () => { retirementRequestId = generateUUID() }, { deep: true, flush: 'sync' })
+type PoolSetupContext = {
+  requestId: string; nodeId: number; hostId: number; observerNodeId: number
+  networkKey: string; configSha256: string; request: Record<string, unknown>
+  keyId: number | null; registrationRequestId: string | null
+  keys: { keyId: number; publicKeyHex: string }[]; setupRequestId: string | null
 }
-const retirementReview = ref<RetirementReview | null>(null)
-const retirementPassword = ref('')
-const retirementBusy = ref(false)
-const retirementUncertain = ref(false)
-const retirementError = ref('')
-const retirementStale = ref(false)
-watch(() => retirementReview.value ? store.networkInvalidations[retirementReview.value.networkKey] ?? 0 : 0, (value, oldValue) => {
-  if (retirementReview.value && value !== oldValue) retirementStale.value = true
-}, { flush: 'sync' })
-watch(() => retirementReview.value && chainUnavailable(retirementReview.value.networkKey), unavailable => {
-  if (unavailable) retirementStale.value = true
-}, { flush: 'sync' })
-const canReconcileRetirement = computed(() => !!retirementReview.value &&
-  (retirementUncertain.value || (retirementStale.value && retirementReview.value.state !== 'previewed') || reconciliationStates.includes(retirementReview.value.state)))
-type DeploymentPreview = {
-  previewId: string; nodeId: number; hostId: number; parentId: number | null; networkKey: string; poolId: string
-  keyId: number | null; publicFingerprint: string | null; configurationFingerprint: string; paths: unknown; mode: string; consequences: string
-}
-type DeploymentResult = { previewId: string; nodeId: number; state: string; installedFingerprint: string | null; loadedFingerprint: string | null; reason: string }
-const showDraftDeployment = ref(false)
-const deploymentNodeId = ref(0)
-const deploymentKeyId = ref<number | null>(null)
-const deploymentWithoutLeios = ref(false)
-const deploymentPreview = ref<DeploymentPreview | null>(null)
-const deploymentResult = ref<DeploymentResult | null>(null)
-const deploymentPassword = ref('')
-const deploymentSudoPassword = ref('')
-const deploymentBusy = ref(false)
-const deploymentUncertain = ref(false)
-const deploymentError = ref('')
+const setupContext = ref<PoolSetupContext | null>(null)
+const setupLoading = ref(false)
 
-function openDraftDeployment(nodeId: number) {
-  deploymentNodeId.value = nodeId
-  deploymentKeyId.value = null
-  deploymentWithoutLeios.value = false
-  deploymentPreview.value = null
-  deploymentResult.value = null
-  deploymentPassword.value = ''
-  deploymentSudoPassword.value = ''
-  deploymentUncertain.value = false
-  deploymentError.value = ''
-  showDraftDeployment.value = true
-}
-
-async function previewDraftDeployment() {
-  const keyId = deploymentWithoutLeios.value ? null : Number(deploymentKeyId.value)
-  if ((keyId !== null && (!Number.isSafeInteger(keyId) || keyId <= 0)) || deploymentBusy.value || !isDraftNode(deploymentNodeId.value)) return
-  deploymentBusy.value = true
-  deploymentError.value = ''
+async function openSetup(nodeId: number) {
+  if (setupLoading.value || !store.connected || !isDraftNode(nodeId)) return
+  setupLoading.value = true
   try {
-    const result = await store.socketRequest<DeploymentPreview>('/jormanager/node/pool-deployment-preview', 'node_pool_deployment_preview', {
-      nodeId: deploymentNodeId.value, keyId
-    })
-    if (result.nodeId !== deploymentNodeId.value || result.keyId !== keyId) throw new Error('Deployment preview target does not match')
-    deploymentPreview.value = result
+    const context = await store.socketRequest<PoolSetupContext>('/jormanager/node/setup-context', 'node_setup_context', { nodeId })
+    const node = nodes.value.find(item => item.id === nodeId)
+    if (!node || !isDraftNode(nodeId) || context.nodeId !== nodeId || context.hostId !== node.hostId) {
+      throw new Error('Setup target does not match')
+    }
+    setupContext.value = context
+    poolParentId.value = null
+    showAddNodeWizard.value = true
   } catch (error) {
-    deploymentError.value = error instanceof Error ? error.message : String(error)
+    store.toastError = { title: 'Setup unavailable', message: error instanceof Error ? error.message : String(error) }
   } finally {
-    deploymentBusy.value = false
-  }
-}
-
-async function installDraftDeployment() {
-  const preview = deploymentPreview.value
-  if (!preview || !deploymentPassword.value || deploymentBusy.value || deploymentUncertain.value) return
-  const password = deploymentPassword.value
-  const sudo = deploymentSudoPassword.value
-  deploymentPassword.value = ''
-  deploymentSudoPassword.value = ''
-  deploymentBusy.value = true
-  deploymentError.value = ''
-  try {
-    const result = await store.socketRequest<DeploymentResult>('/jormanager/node/pool-deployment-install', 'node_pool_deployment_install', {
-      previewId: preview.previewId, nodeId: preview.nodeId, keyId: preview.keyId,
-      approved: true, spendingPassword: password, sudoPassword: sudo || undefined
-    })
-    if (result.previewId !== preview.previewId || result.nodeId !== preview.nodeId) throw new Error('Deployment response does not match the reviewed target')
-    deploymentResult.value = result
-    store.requestNodes()
-  } catch (error) {
-    deploymentError.value = `${error instanceof Error ? error.message : String(error)}. The outcome may be uncertain; inspect the target before retrying.`
-    deploymentUncertain.value = true
-  } finally {
-    deploymentBusy.value = false
+    setupLoading.value = false
   }
 }
 
@@ -901,29 +687,46 @@ function handleCancelPoolConfig() {
   }
 }
 
+watch(() => store.editorMetadata, value => {
+  if (!showMetadataModal.value || !value || typeof value !== 'object' || !('nodeId' in value) || value.nodeId !== editMetadataForm.value.nodeId || !('metadata' in value)) return
+  const response = value as LoadedMetadata
+  if (!response.metadata || typeof response.metadata !== 'object') return
+  loadedMetadata = response
+  const metadata = response.metadata
+  const info = response.extendedMetadata?.info
+  if (editMetadataForm.value.ticker || editMetadataForm.value.name || editMetadataForm.value.description || editMetadataForm.value.homepage || editMetadataForm.value.location || editMetadataForm.value.twitter) return
+  editMetadataForm.value = {
+    nodeId: editMetadataForm.value.nodeId,
+    ticker: metadata.ticker || '', name: metadata.name || '', description: metadata.description || '',
+    homepage: metadata.homepage || '', location: info?.location || '', twitter: info?.social?.twitterHandle || ''
+  }
+})
+
 function openMetadataModal(nodeId: number) {
   poolChangeFeeAccount.value = null
-  metadataReference.value = { url: '', hash: '' }
-  store.requestMetadata(nodeId)
-  const metadata = store.editorMetadata as any
-  editMetadataForm.value = {
-    nodeId,
-    ticker: metadata?.ticker || '',
-    name: metadata?.name || '',
-    description: metadata?.description || '',
-    homepage: metadata?.homepage || '',
-    location: metadata?.extended?.info?.location || '',
-    twitter: metadata?.extended?.info?.social?.twitter || ''
-  }
+  loadedMetadata = null
+  store.editorMetadata = null
+  editMetadataForm.value = { nodeId, ticker: '', name: '', description: '', homepage: '', location: '', twitter: '' }
   showMetadataModal.value = true
+  store.requestMetadata(nodeId)
 }
 function handleSaveMetadata() {
-  const { url, hash } = metadataReference.value
-  if (!url.startsWith('https://') || !/^[0-9a-f]{64}$/.test(hash)) {
-    store.toastError = { title: 'Pool review', message: 'Provide an HTTPS metadata URL and its lowercase 32-byte hash.' }
+  const { nodeId, ticker, name, description, homepage, location, twitter } = editMetadataForm.value
+  if (!ticker.trim() || !name.trim() || !description.trim() || !homepage.trim()) {
+    store.toastError = { title: 'Pool update', message: 'Complete the required metadata fields.' }
     return
   }
-  requestPoolChange(editMetadataForm.value.nodeId, poolChangeFeeAccount.value, { metadata: { url, hash } })
+  const current = loadedMetadata?.extendedMetadata
+  const info = current?.info
+  const social = info?.social
+  const extended = { itn: null, telegramAdminHandle: current?.telegramAdminHandle?.[0] ?? null, adapoolsVerify: current?.adapoolsVerify ?? null,
+    info: { icon64: info?.urlPngIcon64x64 ?? null, logo: info?.urlPngLogo ?? null, location,
+      social: { twitter, telegram: social?.telegramHandle ?? null, facebook: social?.facebookHandle ?? null,
+        youtube: social?.youtubeHandle ?? null, twitch: social?.twitchHandle ?? null,
+        discord: social?.discordHandle ?? null, github: social?.githubHandle ?? null },
+      company: info?.company ? { name: info.company.name, addr: info.company.addr, city: info.company.city, country: info.company.country, company_id: info.company.companyId, vat_id: info.company.vatId } : null,
+      about: info?.about ?? null, rss: info?.rss ?? null } }
+  requestPoolChange(nodeId, poolChangeFeeAccount.value, {}, { ticker, name, description, homepage, extended })
 }
 
 
@@ -978,10 +781,6 @@ function handleCancelRelays() {
 }
 
 function openRetireModal(nodeId: number) {
-  retirementReview.value = null
-  retirementPassword.value = ''
-  retirementUncertain.value = false
-  retirementStale.value = false
   retirementError.value = ''
   retirePoolForm.value = {
     id: nodeId,
@@ -991,76 +790,38 @@ function openRetireModal(nodeId: number) {
   showRetireModal.value = true
 }
 
-async function reviewRetirement() {
-  if (nodeChainUnavailable(retirePoolForm.value.id)) return
-  if (retirementBusy.value || retirePoolForm.value.retireFeesAccount === null ||
-      !Number.isSafeInteger(Number(retirePoolForm.value.retireEpoch)) || Number(retirePoolForm.value.retireEpoch) <= 0) {
+function requestRetirement() {
+  const { id: nodeId, retireFeesAccount: feePayerAccountId, retireEpoch } = retirePoolForm.value
+  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
+  if (retirementBusy.value || !networkKey || nodeChainUnavailable(nodeId)) return
+  if (feePayerAccountId === null || !/^[1-9]\d*$/.test(String(retireEpoch))) {
     retirementError.value = 'Select a fee account and a valid retirement epoch.'
     return
   }
+  emitter.emit('show-spending-password-modal', { action: 'submit-pool-retirement', data: {
+    requestId: retirementRequestId, nodeId, feePayerAccountId, retireEpoch: String(retireEpoch),
+    networkKey, generation: store.networkInvalidations[networkKey] ?? 0
+  } })
+}
+
+async function submitRetirement(request: { requestId: string; nodeId: number; feePayerAccountId: number; retireEpoch: string; networkKey: string; generation: number }, password: string) {
+  if (retirementBusy.value || !showRetireModal.value || request.requestId !== retirementRequestId || nodeChainUnavailable(request.nodeId) ||
+      store.nodeIndexStatus[request.nodeId]?.readState?.networkKey !== request.networkKey ||
+      (store.networkInvalidations[request.networkKey] ?? 0) !== request.generation) return
   retirementBusy.value = true
   retirementError.value = ''
-  const invalidations = { ...store.networkInvalidations }
   try {
-    const result = await store.socketRequest<RetirementReview>(
-      '/jormanager/pool/retirement/review', 'pool_retirement_review', {
-        nodeId: retirePoolForm.value.id, feePayerAccountId: retirePoolForm.value.retireFeesAccount,
-        retireEpoch: String(retirePoolForm.value.retireEpoch)
-      })
-    if (result.nodeId !== retirePoolForm.value.id || result.feePayerAccountId !== retirePoolForm.value.retireFeesAccount ||
-        result.networkKey !== store.nodeIndexStatus[retirePoolForm.value.id]?.readState?.networkKey) throw new Error('Review target does not match')
-    retirementReview.value = result
-    retirementStale.value = (store.networkInvalidations[result.networkKey] ?? 0) !== (invalidations[result.networkKey] ?? 0) || chainUnavailable(result.networkKey)
+    const { networkKey, generation: _generation, ...payload } = request
+    const result = await store.socketRequest<PoolRetirementResult>('/jormanager/pool/retirement/submit', 'pool_retirement_submit', { ...payload, spendingPassword: password })
+    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId || result.networkKey !== networkKey) throw new Error('Submission target does not match')
+    if (!['submitted', 'confirmed'].includes(result.state)) throw new Error(`Transaction outcome: ${result.state}`)
+    if (retirementRequestId === request.requestId) {
+      showRetireModal.value = false
+      retirementRequestId = generateUUID()
+    }
+    store.toastSuccess = { title: 'Pool retirement submitted', message: result.txId }
   } catch (error) {
     retirementError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    retirementBusy.value = false
-  }
-}
-
-async function submitRetirement() {
-  const review = retirementReview.value
-  if (!review || !retirementPassword.value || retirementBusy.value || retirementUncertain.value || retirementStale.value || chainUnavailable(review.networkKey)) return
-  const password = retirementPassword.value
-  retirementPassword.value = ''
-  retirementBusy.value = true
-  retirementError.value = ''
-  const invalidation = store.networkInvalidations[review.networkKey] ?? 0
-  try {
-    const result = await store.socketRequest<RetirementReview>(
-      '/jormanager/pool/retirement/submit', 'pool_retirement_submit', { previewId: review.previewId, spendingPassword: password, approved: true })
-    if (result.previewId !== review.previewId || result.txId !== review.txId || result.networkKey !== review.networkKey || result.nodeId !== review.nodeId) {
-      throw new Error('Submission response did not match the reviewed transaction')
-    }
-    retirementReview.value = result
-    if ((store.networkInvalidations[review.networkKey] ?? 0) !== invalidation || chainUnavailable(review.networkKey)) retirementStale.value = true
-  } catch (error) {
-    retirementError.value = `${error instanceof Error ? error.message : String(error)}. The outcome may be uncertain; check transaction status before retrying.`
-    retirementUncertain.value = true
-  } finally {
-    retirementBusy.value = false
-  }
-}
-
-async function reconcileRetirement() {
-  const review = retirementReview.value
-  if (!review || !canReconcileRetirement.value || !retirementPassword.value || retirementBusy.value || !chainComplete(review.networkKey)) return
-  const password = retirementPassword.value
-  retirementPassword.value = ''
-  retirementBusy.value = true
-  retirementError.value = ''
-  const invalidation = store.networkInvalidations[review.networkKey] ?? 0
-  try {
-    const result = await store.reconcileWallet(review.previewId, password)
-    if (result.previewId !== review.previewId || result.txId !== review.txId || result.networkKey !== review.networkKey) {
-      throw new Error('Reconciliation response did not match the reviewed transaction')
-    }
-    retirementReview.value = { ...review, state: result.state, reason: result.reason }
-    retirementUncertain.value = result.state === 'previewed' || result.state === 'signing'
-    retirementStale.value = (store.networkInvalidations[review.networkKey] ?? 0) !== invalidation || chainUnavailable(review.networkKey)
-  } catch (error) {
-    retirementError.value = `${error instanceof Error ? error.message : String(error)}. Reconciliation outcome may be uncertain; inspect the transaction before retrying.`
-    retirementUncertain.value = true
   } finally {
     retirementBusy.value = false
   }
@@ -1084,6 +845,7 @@ function restartNode(nodeName: string) {
 }
 
 function addPool(parentId: number) {
+  setupContext.value = null
   poolParentId.value = parentId
   showAddNodeWizard.value = true
 }
@@ -1094,8 +856,11 @@ function onSpendingPasswordConfirmed(data: { action: string; password: string; o
       store.updateNodeColor({ ...data.originalData, spendingPassword: data.password })
       showColorModal.value = false
       break
-    case 'preview-pool-change':
-      void previewPoolChange(data.originalData as PoolChangeRequest, data.password)
+    case 'submit-pool-change':
+      void submitPoolChange(data.originalData as PoolChangeRequest, data.password)
+      break
+    case 'submit-pool-retirement':
+      void submitRetirement(data.originalData, data.password)
       break
     case 'rotate-kes':
       store.rotateKesByName({ name: data.originalData as string, spendingPassword: data.password })
@@ -1111,8 +876,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  poolChangePassword.value = ''
-  retirementPassword.value = ''
   emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>

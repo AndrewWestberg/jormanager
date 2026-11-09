@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import java.math.BigInteger
 
 data class CreateNodeRequest(
+    @param:JsonProperty("requestId") val requestId: String,
+    @param:JsonProperty("resumeNodeId") val resumeNodeId: Long? = null,
+    @param:JsonProperty("keyId") val keyId: Long? = null,
     @param:JsonProperty("spendingPassword") val spendingPassword: String,
     @param:JsonProperty("color") val color: String,
     @param:JsonProperty("host") val hostId: Long,
@@ -47,3 +50,5 @@ data class CreateNodeRequest(
 ) {
     override fun toString(): String = "CreateNodeRequest(hostId=$hostId, parentId=$parentId, name=$name, type=$type, credentials=[REDACTED], metadata=[REDACTED])"
 }
+
+data class CreateNodeResult(val requestId: String, val nodeId: Long, val message: String)

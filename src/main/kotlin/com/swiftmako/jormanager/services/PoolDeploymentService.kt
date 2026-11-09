@@ -28,54 +28,21 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.messaging.handler.annotation.MessageMapping
-import org.springframework.messaging.handler.annotation.SendTo
-import org.springframework.stereotype.Controller
 import org.springframework.stereotype.Service
-import com.swiftmako.jormanager.entities.SocketResponse
-
-data class PoolDeploymentPreviewRequest(val requestId: String, val nodeId: Long, val keyId: Long? = null)
-data class PoolDeploymentInstallRequest(val requestId: String, val previewId: String, val nodeId: Long, val keyId: Long? = null,
-    val approved: Boolean, val spendingPassword: String, val sudoPassword: String = "") {
-    override fun toString() = "PoolDeploymentInstallRequest(requestId=$requestId, previewId=$previewId, nodeId=$nodeId, keyId=$keyId, approved=$approved, passwords='********')"
-}
-
-@Controller
-class PoolDeploymentController(private val service: PoolDeploymentService) {
-    @MessageMapping("/node/pool-deployment-preview")
-    @SendTo("/topic/messages")
-    fun preview(request: PoolDeploymentPreviewRequest): SocketResponse<PoolDeploymentService.Preview> = try {
-        SocketResponse.Success("node_pool_deployment_preview", service.preview(request))
-    } catch (e: Exception) {
-        SocketResponse.Error("node_pool_deployment_preview", SocketResponse.PublicFailure(e.javaClass.simpleName,
-            "Deployment review unavailable; inspect protected diagnostics and registration status.", "node_pool_deployment_preview", "review", request.requestId))
-    }
-
-    @MessageMapping("/node/pool-deployment-install")
-    @SendTo("/topic/messages")
-    fun install(request: PoolDeploymentInstallRequest): SocketResponse<PoolDeploymentService.Result> = try {
-        SocketResponse.Success("node_pool_deployment_install", service.install(request))
-    } catch (e: Exception) {
-        SocketResponse.Error("node_pool_deployment_install", SocketResponse.PublicFailure(e.javaClass.simpleName,
-            "Deployment failed or its outcome is uncertain; inspect the host before retrying.", "node_pool_deployment_install", "reconcile", request.requestId))
-    }
-}
 
 @Service
 class PoolDeploymentService(
     private val nodes: NodeRepository, private val hosts: HostRepository, private val files: FileRepository,
     private val keys: LeiosKeyRepository, private val installations: KeyInstallationRepository,
-    private val eras: CardanoRepository, private val capabilities: CardanoCapabilities,
+    private val eras: CardanoRepository,
     private val configurationFiles: NodeConfigurationFiles, private val walletUtils: WalletUtils,
     private val snapshots: NodeConfigurationSnapshotRepository,
     private val nodeController: NodeController, private val jdbc: JdbcTemplate, private val json: ObjectMapper,
     @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
 ) {
-    data class Preview(val requestId: String, val previewId: String, val nodeId: Long, val hostId: Long,
-        val parentId: Long?, val networkKey: String, val poolId: String, val keyId: Long?, val publicFingerprint: String?,
-        val configurationFingerprint: String, val paths: List<String>, val mode: String, val consequences: String)
-    data class Result(val requestId: String, val previewId: String, val nodeId: Long, val state: String,
-        val installedFingerprint: String?, val loadedFingerprint: String?, val reason: String)
+    data class Result(val nodeId: Long, val state: String,
+        val installedFingerprint: String?, val loadedFingerprint: String?, val reason: String,
+        val operationId: String)
     private data class Context(val node: Node, val host: Host, val observer: Node, val observerHost: Host,
         val key: LeiosVotingKey?, val parent: Node?, val connection: HostConnection, val network: String,
         val folder: String, val startup: String, val systemd: Boolean, val assets: Map<String, ByteArray>,
@@ -88,7 +55,7 @@ class PoolDeploymentService(
         c.commandArgs(listOf("sha256sum", path)).trim().substringBefore(' ').also { require(it.matches(Regex("[0-9a-f]{64}"))) }
     } else "absent"
 
-    private fun context(nodeId: Long, keyId: Long?): Context {
+    private fun context(nodeId: Long, keyId: Long?, registrationRequestId: String?): Context {
         val n = requireNotNull(nodes.findByIdOrNull(nodeId)); require(n.isDraft && !n.isDeleted && n.type in setOf("core", "pool"))
         val host = requireNotNull(hosts.findByIdOrNull(n.hostId)); val observer = requireNotNull(nodes.findDefault())
         val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
@@ -112,24 +79,23 @@ class PoolDeploymentService(
         val pool = requireNotNull(n.poolId)
         if (key != null) require(key.networkKey == network && key.poolId == pool && key.signingFileId != null && key.validationProvenance.isNotBlank() && key.publicKey.size == 96 && key.proof.size == 48)
         val config = file(n.configFileId).content
-        if (era == "dijkstra") capabilities.requireHostOperation(host, observerHost, observer, network, hash(config), "node.create")
-        else capabilities.requireOperation(observerHost, observer, "node.create")
-        val confirmed = jdbc.query("SELECT request_payload FROM authorized_operations WHERE network_key=? AND operation='pool.register' AND state='confirmed'", { rs, _ -> rs.getString(1) }, network)
-            .any { payload -> json.readTree(payload).let { it.path("nodeId").asLong(-1) == nodeId && (if (keyId == null) it.path("keyId").isNull else it.path("keyId").asLong(-1) == keyId) && it.path("poolId").asString() == pool } }
-        require(confirmed) { "Confirmed reviewed registration required" }
+        val registrations = if (registrationRequestId != null) {
+            jdbc.query("SELECT request_payload FROM authorized_operations WHERE id=? AND network_key=? AND operation='pool.register' AND state IN ('submitted','confirmed')",
+                { rs, _ -> rs.getString(1) }, registrationRequestId, network)
+        } else {
+            jdbc.query("SELECT request_payload FROM authorized_operations WHERE network_key=? AND operation='pool.register' AND state='confirmed'",
+                { rs, _ -> rs.getString(1) }, network)
+        }
+        require(registrations.any { payload -> json.readTree(payload).let {
+            it.path("nodeId").asLong(-1) == nodeId &&
+                (if (keyId == null) it.path("keyId").isNull else it.path("keyId").asLong(-1) == keyId) &&
+                it.path("poolId").asString() == pool
+        } }) { "Matching acknowledged registration required" }
         val genesis = json.readTree(file(observer.genesisShelleyFileId).content)
         val flags = if (genesis.path("networkId").asString().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
         val socket = safe("${observerHost.nodeHomePath}/${observer.name}/db/socket")
         val oc = HostConnection(observerHost, observer)
         fun query(vararg args: String) = json.readTree(oc.commandArgs(listOf(safe(observerHost.cardanoCliPath), era, "query") + args + flags + listOf("--socket-path", socket, "--output-json")))
-        val state = query("pool-state", "--stake-pool-id", pool)
-        require(state.isObject && state.size() == 1)
-        val entry = state.properties().first(); require(entry.key.equals(pool, true))
-        require(entry.value.isObject && entry.value.path("deposit").isIntegralNumber) { "Registered pool state unavailable" }
-        if (key != null) require(listOf(
-            entry.value.path("blsKey").path("bksKey").path("blsPubKey").asString(),
-            entry.value.path("futureStakePoolParams").path("blsKey").path("blsPubKey").asString()
-        ).any { it.equals(key.publicKey.toHexString(), true) }) { "Registered pool key does not match the selected key" }
         val tip = query("tip").path("slot").takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong() ?: error("Tip slot unavailable")
         require(eras.evidence(observer) == evidence) { "Era evidence changed" }
         val parent = if (n.type == "pool") requireNotNull(n.parentId?.let(nodes::findByIdOrNull)).also {
@@ -174,35 +140,42 @@ class PoolDeploymentService(
         return Context(n, host, observer, observerHost, key, parent, connection, network, folder, startup, systemd, assets, era, config, fingerprint, tip)
     }
 
-    fun preview(request: PoolDeploymentPreviewRequest): Preview {
-        UUID.fromString(request.requestId)
-        val c = context(request.nodeId, request.keyId)
-        val id = UUID.randomUUID().toString()
-        val paths = if (c.parent == null) listOf(c.folder, c.startup) + (if (c.key != null) listOf("${c.folder}/${c.node.name}.bls.skey") else emptyList()) else listOf(c.folder, c.startup, "${c.folder}/env", "${c.folder}/credentials.json")
-        val details = json.writeValueAsString(mapOf("nodeId" to request.nodeId, "keyId" to request.keyId, "paths" to paths))
-        jdbc.update("INSERT INTO pool_deployment_previews(id,request_id,node_id,host_id,fingerprint,details,state,created_at) VALUES (?,?,?,?,?,?,?,?)", id, request.requestId, request.nodeId, c.host.id, c.fingerprint, details, "previewed", java.sql.Timestamp.from(Instant.now()))
-        return Preview(request.requestId, id, request.nodeId, c.node.hostId, c.node.parentId, c.network, requireNotNull(c.node.poolId), request.keyId,
-            c.key?.let(::publicHash), c.fingerprint, paths, if (c.parent == null) (if (c.systemd) "systemd-singleton" else "manual-singleton") else "bulk",
-            "Issues an operational certificate and installs producer configuration and credentials. No transaction is signed or submitted; the producer is not restarted. Loaded key remains unobserved.")
-    }
-
-    fun install(request: PoolDeploymentInstallRequest): Result {
-        UUID.fromString(request.requestId); require(request.approved && walletUtils.isValidSpendingPassword(request.spendingPassword))
-        val c = context(request.nodeId, request.keyId)
-        val row = jdbc.query("SELECT node_id,host_id,fingerprint,details,state FROM pool_deployment_previews WHERE id=?", { rs, _ -> (1..5).map { rs.getString(it) } }, request.previewId).singleOrNull() ?: error("Preview not found")
-        val reviewedKey = json.readTree(row[3]).path("keyId")
-        require(row[0] == request.nodeId.toString() && row[1] == c.node.hostId.toString() && row[2] == c.fingerprint && row[4] == "previewed" && (if (request.keyId == null) reviewedKey.isNull else reviewedKey.asLong(-1) == request.keyId))
+    fun install(nodeId: Long, keyId: Long?, operationId: String, spendingPassword: String, sudoPassword: String): Result {
+        UUID.fromString(operationId)
+        require(walletUtils.isValidSpendingPassword(spendingPassword))
+        val row = jdbc.query("SELECT node_id,host_id,details,state FROM pool_deployment_previews WHERE id=?",
+            { rs, _ -> (1..4).map { rs.getString(it) } }, operationId).singleOrNull() ?: error("Setup operation not found")
+        val details = json.readTree(row[2]) as tools.jackson.databind.node.ObjectNode
+        val savedKey = details.path("keyId")
+        require(row[0] == nodeId.toString() &&
+            (if (keyId == null) savedKey.isNull || savedKey.isMissingNode else savedKey.asLong(-1) == keyId))
+        if (row[3] in setOf("installed", "installed_startup_failed")) {
+            return Result(nodeId, row[3], details.path("installedFingerprint").takeIf { it.isString }?.asString(),
+                details.path("loadedFingerprint").takeIf { it.isString }?.asString(),
+                details.path("reason").asString(), operationId)
+        }
+        check(row[3] in setOf("prepared", "registered")) {
+            "Installation outcome requires host and operational certificate counter inspection before retrying"
+        }
+        val registrationRequestId = details.path("registrationRequestId").takeIf { it.isString }?.asString()
+        val c = context(nodeId, keyId, registrationRequestId)
+        require(row[1] == c.node.hostId.toString())
         val n = c.node; val connection = c.connection
-        val kes = walletUtils.getSKeyContent(file(n.kesSKeyId), request.spendingPassword)
-        val vrf = walletUtils.getSKeyContent(file(n.vrfSKeyId), request.spendingPassword)
-        val cold = walletUtils.getSKeyContent(file(n.coreSKeyId), request.spendingPassword)
-        val bls = c.key?.let { walletUtils.getSKeyContent(file(requireNotNull(it.signingFileId)), request.spendingPassword) }
+        val kes = walletUtils.getSKeyContent(file(n.kesSKeyId), spendingPassword)
+        val vrf = walletUtils.getSKeyContent(file(n.vrfSKeyId), spendingPassword)
+        val cold = walletUtils.getSKeyContent(file(n.coreSKeyId), spendingPassword)
+        val bls = c.key?.let { walletUtils.getSKeyContent(file(requireNotNull(it.signingFileId)), spendingPassword) }
         val blsJson = bls?.let { json.readTree(it).also { value -> require(value.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" && value.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}"))) } }
-        require(jdbc.update("UPDATE pool_deployment_previews SET state='installing' WHERE id=? AND state='previewed'", request.previewId) == 1)
+        details.put("installationFingerprint", c.fingerprint)
+        require(jdbc.update("UPDATE pool_deployment_previews SET state='installing',details=? WHERE id=? AND state=? AND details=?",
+            json.writeValueAsString(details), operationId, row[3], row[2]) == 1) { "Setup operation changed or installation is already in progress" }
         val prefix = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
         val temporary = listOf("$prefix.cold", "$prefix.counter", "$prefix.kes.vkey", "$prefix.opcert", "$prefix.bls", "$prefix.bls.vkey")
+        var installed = false
+        var counterPersisted = false
+        var certificatePersisted = false
         try {
-            require(context(request.nodeId, request.keyId).fingerprint == c.fingerprint)
+            require(context(nodeId, keyId, registrationRequestId).fingerprint == c.fingerprint)
             connection.commandWriteSecret("$prefix.cold", cold)
             if (bls != null) {
                 connection.commandWriteSecret("$prefix.bls", bls)
@@ -217,8 +190,10 @@ class PoolDeploymentService(
             connection.commandArgs(listOf(safe(c.host.cardanoCliPath), c.era, "node", "issue-op-cert", "--hot-kes-verification-key-file", "$prefix.kes.vkey", "--cold-signing-key-file", "$prefix.cold", "--operational-certificate-issue-counter", "$prefix.counter", "--kes-period", (c.tipSlot / periods).toString(), "--out-file", "$prefix.opcert"))
             val counter = connection.commandReadFile("$prefix.counter")
             files.save(file(n.coreCounterId).copy(content = counter))
+            counterPersisted = true
             val cert = connection.commandReadFile("$prefix.opcert")
             val certId = requireNotNull(files.save(File(name = "${n.name}.node.opcert", content = cert)).id)
+            certificatePersisted = true
             fun writePrivate(path: String, content: String) {
                 val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
                 try {
@@ -249,8 +224,7 @@ class PoolDeploymentService(
                     val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
                     try {
                         connection.commandWriteSecret(temp, startup)
-                        connection.sudoCommand(listOf("install", "-m", "644", temp, requireNotNull(c.startup)), request.sudoPassword)
-                        connection.sudoCommand(listOf("systemctl", "daemon-reload"), request.sudoPassword)
+                        connection.sudoCommand(listOf("install", "-m", "644", temp, requireNotNull(c.startup)), sudoPassword)
                         require(remoteHash(connection, c.startup) == hash(startup))
                     } finally { connection.commandArgs(listOf("rm", "-f", temp)) }
                 } else {
@@ -267,8 +241,8 @@ class PoolDeploymentService(
                 } else {
                     require(original.contains("--shelley-kes-key") && original.contains("--shelley-vrf-key") && original.contains("--shelley-operational-certificate"))
                     val p = c.parent
-                    val parentKes = walletUtils.getSKeyContent(file(p.kesSKeyId), request.spendingPassword)
-                    val parentVrf = walletUtils.getSKeyContent(file(p.vrfSKeyId), request.spendingPassword)
+                    val parentKes = walletUtils.getSKeyContent(file(p.kesSKeyId), spendingPassword)
+                    val parentVrf = walletUtils.getSKeyContent(file(p.vrfSKeyId), spendingPassword)
                     require(remoteHash(connection, "${c.folder}/${p.name}.kes.skey") == hash(parentKes) &&
                         remoteHash(connection, "${c.folder}/${p.name}.vrf.skey") == hash(parentVrf) &&
                         remoteHash(connection, "${c.folder}/${p.name}.node.opcert") == hash(file(p.opcertId).content)) {
@@ -286,9 +260,14 @@ class PoolDeploymentService(
                 val entry = json.createArrayNode().add(json.readTree(cert)).add(json.readTree(vrf)).add(json.readTree(kes))
                 if (blsJson != null) entry.add(blsJson)
                 credentials.add(entry)
+                if (connection.commandFileExists(credentialPath)) {
+                    require(original.contains("--bulk-credentials-file")) { "Unexpected existing credentials require inspection" }
+                    connection.commandArgs(listOf("cp", "-p", credentialPath, "$credentialPath.jormanager-backup-$operationId"))
+                }
                 writePrivate(credentialPath, json.writeValueAsString(credentials))
                 if (!original.contains("--bulk-credentials-file")) {
                     val envPath = "${c.folder}/env"; val env = connection.commandReadFile(envPath) + "\nBULK_CREDENTIALS=$credentialPath\n"
+                    connection.commandArgs(listOf("cp", "-p", envPath, "$envPath.jormanager-backup-$operationId"))
                     connection.commandArgs(listOf("chmod", "600", envPath)); connection.commandWriteFile(envPath, env); require(remoteHash(connection, envPath) == hash(env))
                     val replaced = original.replace(Regex("--shelley-(?:kes-key|vrf-key|operational-certificate|bls-key)[ \\t]+[^\\s\\\\]+[ \\t]*\\\\?"), "")
                         .replace("--config \${CONFIG}", "--config \${CONFIG} \\\n  --bulk-credentials-file \${BULK_CREDENTIALS}")
@@ -297,11 +276,10 @@ class PoolDeploymentService(
                     try {
                         connection.commandWriteSecret(temp, replaced)
                         if (c.systemd) {
-                            connection.sudoCommand(listOf("cp", startupPath, "$startupPath.jormanager-backup-${request.previewId}"), request.sudoPassword)
-                            connection.sudoCommand(listOf("install", "-m", "644", temp, startupPath), request.sudoPassword)
-                            connection.sudoCommand(listOf("systemctl", "daemon-reload"), request.sudoPassword)
+                            connection.sudoCommand(listOf("cp", startupPath, "$startupPath.jormanager-backup-$operationId"), sudoPassword)
+                            connection.sudoCommand(listOf("install", "-m", "644", temp, startupPath), sudoPassword)
                         } else {
-                            connection.commandArgs(listOf("cp", startupPath, "$startupPath.jormanager-backup-${request.previewId}"))
+                            connection.commandArgs(listOf("cp", startupPath, "$startupPath.jormanager-backup-$operationId"))
                             connection.commandArgs(listOf("install", "-m", "500", temp, startupPath))
                         }
                         require(remoteHash(connection, startupPath) == hash(replaced))
@@ -310,14 +288,42 @@ class PoolDeploymentService(
             }
             val savedNode = nodes.save(n.copy(isDraft = false, opcertId = certId))
             val fingerprint = c.key?.let(::publicHash)
-            if (c.key != null) installations.save(KeyInstallation(keyId = requireNotNull(request.keyId), nodeId = request.nodeId, hostId = n.hostId,
+            if (c.key != null) installations.save(KeyInstallation(keyId = requireNotNull(keyId), nodeId = nodeId, hostId = n.hostId,
                 configurationFingerprint = c.fingerprint, installedFingerprint = fingerprint, permissionResult = "owner:600", state = "installed", observedAt = Instant.now()))
-            jdbc.update("UPDATE pool_deployment_previews SET state='installed' WHERE id=?", request.previewId)
+            if (fingerprint != null) details.put("installedFingerprint", fingerprint) else details.putNull("installedFingerprint")
+            details.putNull("loadedFingerprint")
+            details.put("reason", if (c.systemd) "Installation completed; service startup has not been confirmed." else "Installation verified.")
+            val initialState = if (c.systemd) "installed_startup_failed" else "installed"
+            check(jdbc.update("UPDATE pool_deployment_previews SET state=?,details=? WHERE id=? AND state='installing'",
+                initialState, json.writeValueAsString(details), operationId) == 1)
+            installed = true
             nodesChannel.tryEmit(savedNode)
-            return Result(request.requestId, request.previewId, request.nodeId, "installed", fingerprint, null, "Installation verified; producer has not been restarted and loaded key is unobserved.")
+            if (c.systemd) {
+                val service = "${c.parent?.name ?: n.name}-node.service"
+                connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword)
+                connection.sudoCommand(listOf("systemctl", "restart", service), sudoPassword)
+                connection.sudoCommand(listOf("systemctl", "enable", service), sudoPassword)
+                details.put("reason", "Installation verified.")
+                check(jdbc.update("UPDATE pool_deployment_previews SET state='installed',details=? WHERE id=? AND state='installed_startup_failed'",
+                    json.writeValueAsString(details), operationId) == 1)
+            }
+            return Result(nodeId, "installed", fingerprint, null, "Installation verified.", operationId)
         } catch (e: Exception) {
-            jdbc.update("UPDATE pool_deployment_previews SET state='failed' WHERE id=?", request.previewId)
-            throw IllegalStateException("Deployment failed; inspect host and operational certificate counter before retrying", e)
-        } finally { connection.commandArgs(listOf("rm", "-f") + temporary) }
+            if (installed) {
+                details.put("reason", "Installation completed, but service startup failed; inspect the host.")
+                jdbc.update("UPDATE pool_deployment_previews SET state='installed_startup_failed',details=? WHERE id=? AND state='installed_startup_failed'",
+                    json.writeValueAsString(details), operationId)
+                return Result(nodeId, "installed_startup_failed", details.path("installedFingerprint").takeIf { it.isString }?.asString(),
+                    null, details.path("reason").asString(), operationId)
+            }
+            details.put("reason", "Installation failed; inspect the host and operational certificate counter before retrying.")
+            jdbc.update("UPDATE pool_deployment_previews SET state='failed',details=? WHERE id=? AND state='installing'",
+                json.writeValueAsString(details), operationId)
+            throw IllegalStateException("Installation failed; inspect the host and operational certificate counter before retrying", e)
+        } finally {
+            connection.commandArgs(listOf("rm", "-f") + temporary.filterNot {
+                (!counterPersisted && it == "$prefix.counter") || (!certificatePersisted && it == "$prefix.opcert")
+            })
+        }
     }
 }

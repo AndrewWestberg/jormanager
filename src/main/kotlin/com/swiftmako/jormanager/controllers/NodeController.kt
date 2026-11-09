@@ -19,6 +19,11 @@ import com.swiftmako.jormanager.model.UpdateColorRequest
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.metadata.pool.ExtendedMetadata
 import com.swiftmako.jormanager.model.metadata.pool.Metadata
+import com.swiftmako.jormanager.model.metadata.pool.About
+import com.swiftmako.jormanager.model.metadata.pool.Company
+import com.swiftmako.jormanager.model.metadata.pool.Info
+import com.swiftmako.jormanager.model.metadata.pool.Itn
+import com.swiftmako.jormanager.model.metadata.pool.Social
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -29,7 +34,6 @@ import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.Blake2b
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
@@ -95,54 +99,6 @@ class NodeController
             val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
             return SocketResponse.Success(type = "nodes", data = nodes)
         }
-        data class ProvisioningPreviewRequest(
-            val hostId: Long, val type: String, val port: Int, val prometheusListen: String,
-            val parentId: Long? = null,
-            @param:com.fasterxml.jackson.annotation.JsonProperty("config") val configFileId: Long = 0,
-        )
-
-        data class ProvisioningPreview(
-            val hostId: Long, val observerNodeId: Long, val networkKey: String,
-            val prometheusPort: Int, val tracingPort: Int, val configSha256: String
-        )
-
-        @MessageMapping("/node/provisioning-preview")
-        @SendTo("/topic/messages")
-        fun previewProvisioning(request: ProvisioningPreviewRequest): SocketResponse<ProvisioningPreview> =
-            try {
-                require(request.type in setOf(NODE_TYPE_CORE, NODE_TYPE_POOL)) { "Invalid producer role" }
-                val observer = nodeRepository.findDefault() ?: throw IOException("A matching connected observer is required")
-                val host = hostRepository.findByIdOrNull(request.hostId) ?: throw IOException("Target host not found")
-                val connection = HostConnection(host)
-                val parent = if (request.type == NODE_TYPE_POOL) {
-                    val node = request.parentId?.let { nodeRepository.findByIdOrNull(it) }
-                        ?: throw IOException("Parent core node not found")
-                    require(!node.isDraft && !node.isDeleted && node.type == NODE_TYPE_CORE && node.hostId == request.hostId &&
-                        cardanoRepository.networkKey(node) == cardanoRepository.networkKey(observer)) {
-                        "Pool parent must be an active core on the selected host and network"
-                    }
-                    node
-                } else null
-                if (parent == null) require(request.port in 1..65535 && !isPortUsed(connection, request.port)) {
-                    "The selected node port is unavailable"
-                }
-                val promPort = parent?.promPort ?: allocatePrometheusPort(request.hostId, connection)
-                if (parent == null) require(promPort != request.port) { "Prometheus and node ports conflict" }
-                val tracingPort = parent?.tracingPort ?: allocateTracingPort(promPort) { it == request.port || isPortUsed(connection, it) }
-                val config = if (parent != null) connection.commandReadFile("${host.nodeHomePath}/${parent.name}/config.json")
-                    else renderManagedConfig(
-                        fileRepository.findByIdOrNull(request.configFileId)?.content
-                            ?: throw IOException("Selected config not found"),
-                        request.type, "2", false, request.prometheusListen, promPort)
-                val digest = MessageDigest.getInstance("SHA-256").digest(config.toByteArray(Charsets.UTF_8))
-                    .joinToString("") { "%02x".format(it.toInt() and 255) }
-                SocketResponse.Success(type = "node_provisioning_preview", data = ProvisioningPreview(
-                    request.hostId, requireNotNull(observer.id), cardanoRepository.networkKey(observer),
-                    promPort, tracingPort, digest
-                ))
-            } catch (e: Exception) {
-                SocketResponse.Error(type = "node_provisioning_preview", exception = e)
-            }
 
 
         @MessageMapping("/restartnode")
@@ -203,11 +159,12 @@ class NodeController
             }
         }
 
-        @MessageMapping("/createnode")
         @Transactional
         fun createNode(input: CreateNodeRequest) {
+            var writing = false
             try {
-                require(input.type == NODE_TYPE_RELAY) { "Producer creation requires a reviewed pool draft" }
+                UUID.fromString(input.requestId)
+                require(input.type == NODE_TYPE_RELAY) { "Producer creation uses pool setup" }
                 require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password!" }
                 require(input.enableTracingListener) { "Tracing listener must be enabled!" }
                 require(input.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*"))) { "Invalid node name" }
@@ -242,6 +199,7 @@ class NodeController
                 val config = renderManagedConfig(assets.getValue("config.json").toString(Charsets.UTF_8),
                     input.type, "4", true, input.prometheusListen, promPort)
 
+                writing = true
                 createNodeFolders(hostConnection, nodeFolder)
                 assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
                     hostConnection.commandWriteFile("$nodeFolder/$name", bytes.toString(Charsets.UTF_8))
@@ -274,10 +232,14 @@ class NodeController
                 nodesChannel.tryEmit(savedNode)
                 val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("createnode", "${input.name} created successfully!"))
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("createnode",
+                    com.swiftmako.jormanager.model.CreateNodeResult(input.requestId, requireNotNull(savedNode.id), "${input.name} created successfully!")))
             } catch (e: Throwable) {
                 log.error("Error Creating Node!", e)
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error(type = "createnode", exception = e))
+                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Error("createnode",
+                    SocketResponse.PublicFailure("NODE_CREATION_FAILED",
+                        if (writing) "Node setup failed; inspect the host before retrying." else "Node setup validation failed.",
+                        "createnode", if (writing) "wait" else "retry", input.requestId)))
                 throw RuntimeException(e)
             }
         }
@@ -566,6 +528,7 @@ class NodeController
                                 type = "getmetadata",
                                 data =
                                     mapOf(
+                                        "nodeId" to nodeId,
                                         "metadata" to metadata,
                                         "extendedMetadata" to extendedMetadata
                                     )
@@ -658,6 +621,96 @@ class NodeController
                 }
                 throw IOException("Could not upload json file!")
             }
+
+        data class PublishedPoolMetadata(
+            val url: String, val hash: String, val extendedUrl: String,
+            val itnPrivateKeyId: Long?, val itnPublicKeyId: Long?,
+        )
+
+        fun publishPoolMetadata(node: Node, metadata: com.swiftmako.jormanager.model.Metadata, spendingPassword: String): PublishedPoolMetadata {
+            require(walletUtils.isValidSpendingPassword(spendingPassword)) { "Invalid spending password" }
+            val name = requireNotNull(metadata.name)
+            val description = requireNotNull(metadata.description)
+            val ticker = requireNotNull(metadata.ticker)
+            val homepage = requireNotNull(metadata.homepage)
+            require(name.isNotBlank() && name.toByteArray(Charsets.UTF_8).size <= 50) { "Invalid pool name" }
+            require(description.toByteArray(Charsets.UTF_8).size <= 255) { "Invalid pool description" }
+            require(ticker.length in 3..5 && ticker.all { it.code in 33..126 }) { "Invalid pool ticker" }
+            require(homepage.toByteArray(Charsets.UTF_8).size <= 64 &&
+                java.net.URI(homepage).let { it.scheme in setOf("http", "https") && !it.host.isNullOrBlank() }) { "Invalid homepage" }
+            val pool = requireNotNull(node.poolId)
+            val host = requireNotNull(hostRepository.findByIdOrNull(node.hostId))
+            val observer = if (node.isDraft) requireNotNull(nodeRepository.findDefault()) else node
+            require(!observer.isDeleted && !observer.isDraft && cardanoRepository.networkKey(observer) == cardanoRepository.networkKey(node))
+            val evidence = cardanoRepository.evidence(observer)
+            require(evidence.freshness == "current" && evidence.source == "host:${observer.hostId}/node:${observer.id}")
+            val era = requireNotNull(evidence.era)
+            require(host.cardanoCliPath.matches(Regex("[A-Za-z0-9_./-]+")) && !host.cardanoCliPath.startsWith("-"))
+            val connection = HostConnection(host, node)
+            val prefix = "/tmp/jormanager-metadata-${UUID.randomUUID()}"
+            val importedSecret = metadata.extended?.itn?.privateKey?.trim()?.takeIf { it.isNotEmpty() }
+            val importedPublic = metadata.extended?.itn?.publicKey?.trim()?.takeIf { it.isNotEmpty() }
+            val retainedSecret = node.itnPrivateKeyId.takeIf { it >= 0 }?.let {
+                requireNotNull(fileRepository.findByIdOrNull(it)) { "ITN private key not found" }
+            }
+            val secret = importedSecret ?: retainedSecret?.let { walletUtils.getSKeyContent(it, spendingPassword) }
+            val owner = importedPublic ?: node.itnPublicKeyId.takeIf { it >= 0 }?.let {
+                requireNotNull(fileRepository.findByIdOrNull(it)) { "ITN public key not found" }.content.trim()
+            }
+            try {
+                val witness = secret?.let {
+                    val jcli = requireNotNull(host.jcliPath) { "jcli is required for the ITN witness" }
+                    require(jcli.matches(Regex("[A-Za-z0-9_./-]+")) && !jcli.startsWith("-")) { "Invalid jcli path" }
+                    require(!owner.isNullOrBlank()) { "ITN public key is required" }
+                    connection.commandWriteFile("$prefix.pool", pool)
+                    connection.commandWriteSecret("$prefix.skey", it)
+                    connection.commandArgs(listOf(jcli, "key", "sign", "--secret-key", "$prefix.skey", "$prefix.pool")).trim()
+                        .also { value -> require(value.isNotBlank()) { "Empty ITN witness" } }
+                }
+                val info = metadata.extended?.info
+                val social = info?.social
+                val company = info?.company
+                val about = info?.about
+                val extended = ExtendedMetadata(
+                    itn = witness?.let { Itn(owner = owner, witness = it) },
+                    info = Info(urlPngIcon64x64 = info?.icon64, urlPngLogo = info?.logo, location = info?.location,
+                        social = Social(social?.twitter, social?.telegram, social?.facebook, social?.youtube,
+                            social?.twitch, social?.discord, social?.github),
+                        company = Company(company?.name, company?.addr, company?.city, company?.country, company?.companyId, company?.vatId),
+                        about = About(about?.me, about?.server, about?.company), rss = info?.rss),
+                    telegramAdminHandle = listOfNotNull(metadata.extended?.telegramAdminHandle),
+                    myPoolIds = listOf(pool), adapoolsVerify = metadata.extended?.adapoolsVerify,
+                )
+                val extendedUrl = uploadMetadata(extendedMetadataAdapter.indent(" ").toJson(extended))
+                require(rationaleUrlPattern.matches(extendedUrl)) { "Invalid extended metadata URL" }
+                val primary = metadataAdapter.toJson(Metadata(name, description, ticker, homepage, extendedUrl))
+                val bytes = primary.toByteArray(Charsets.UTF_8)
+                require(bytes.size <= 512) { "Pool metadata exceeds 512 bytes" }
+                val url = uploadMetadata(primary)
+                require(rationaleUrlPattern.matches(url) && url.toByteArray(Charsets.UTF_8).size <= 64) { "Invalid pool metadata URL" }
+                val actual = rationaleHttpClient.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build())
+                    .execute().use { response ->
+                        check(response.isSuccessful) { "Could not retrieve pool metadata" }
+                        response.body.byteStream().use { it.readNBytes(bytes.size + 1) }
+                    }
+                check(actual.contentEquals(bytes)) { "Uploaded pool metadata differs from submitted document" }
+                val hash = Blake2b.hash256(bytes).toHexString()
+                connection.commandWriteFile("$prefix.json", primary)
+                val cliHash = connection.commandArgs(listOf(host.cardanoCliPath, era, "stake-pool", "metadata-hash",
+                    "--pool-metadata-file", "$prefix.json")).trim()
+                check(cliHash.equals(hash, true)) { "Pool metadata hash differs from CLI" }
+                val privateId = importedSecret?.let {
+                    fileRepository.save(com.swiftmako.jormanager.entities.File(name = "${node.name}.itn.skey",
+                        content = walletUtils.encryptSKeyContent(it, spendingPassword))).id
+                } ?: node.itnPrivateKeyId.takeIf { it >= 0 }
+                val publicId = importedPublic?.let {
+                    fileRepository.save(com.swiftmako.jormanager.entities.File(name = "${node.name}.itn.vkey", content = it)).id
+                } ?: node.itnPublicKeyId.takeIf { it >= 0 }
+                return PublishedPoolMetadata(url, hash, extendedUrl, privateId, publicId)
+            } finally {
+                connection.commandArgs(listOf("rm", "-f", "$prefix.pool", "$prefix.skey", "$prefix.json"))
+            }
+        }
 
         internal fun uploadGovernanceRationale(rationale: String?): Pair<String, String>? {
             if (rationale.isNullOrBlank()) {

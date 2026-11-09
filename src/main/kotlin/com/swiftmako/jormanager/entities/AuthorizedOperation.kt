@@ -17,7 +17,7 @@ data class AuthorizedOperation(
     @Column(nullable = false) val operation: String,
     @Column(nullable = false) val era: String,
     @Column(name = "era_generation", nullable = false) val eraGeneration: Long,
-    @Column(name = "capability_fingerprint", nullable = false) val capabilityFingerprint: String,
+    @Column(name = "capability_fingerprint", nullable = false) val targetFingerprint: String,
     @Column(nullable = false) val state: String,
     @Column(name = "request_fingerprint", nullable = false) val requestFingerprint: String,
     @Column(name = "request_payload", nullable = false) val requestPayload: String,

@@ -14,8 +14,6 @@ data class ToAccountFeeRequest(
     val address: String,
     @param:Json(name = "amount")
     val amount: BigInteger?,
-    @param:Json(name = "type")
-    val type: String? = null,
     @param:Json(name = "percent")
     val percent: Int? = null,
 ) {

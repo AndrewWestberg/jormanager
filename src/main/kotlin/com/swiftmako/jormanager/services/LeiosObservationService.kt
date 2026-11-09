@@ -24,7 +24,6 @@ import org.springframework.stereotype.Service
 @Service
 class LeiosObservationService(
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val files: FileRepository,
     private val observations: PoolKeyObservationRepository,
     private val nodes: NodeRepository,
@@ -36,9 +35,8 @@ class LeiosObservationService(
         val queryHost = if (node.isDraft) hosts.findByIdOrNull(observer.hostId) ?: return null else host
         if (observer.isDeleted || observer.isDraft || eras.networkKey(node) != eras.networkKey(observer)) return null
         val era = eras.evidence(observer)
-        if (era.freshness != "current" || era.era != "dijkstra" || era.source != "host:${queryHost.id}/node:${observer.id}") return null
-        val qualification = capabilities.capability(queryHost, observer, "leios.status")
-        if (qualification.status != "verified" || qualification.qualificationFingerprint == null) return null
+        if (era.freshness != "current" || era.era != "dijkstra" || era.networkKey != eras.networkKey(observer) ||
+            era.source != "host:${queryHost.id}/node:${observer.id}") return null
         val pool = requireNotNull(node.poolId)
         val poolHash = if (pool.startsWith("pool1")) Bech32.decode(pool).let {
             require(it.prefix == "pool" && it.bytes.size == 28)
@@ -117,9 +115,6 @@ class LeiosObservationService(
         val after = eras.evidence(observer)
         check(after.freshness == "current" && after.networkKey == era.networkKey && after.era == era.era &&
             after.generation == era.generation && after.source == era.source)
-        val finalQualification = capabilities.capability(queryHost, observer, "leios.status")
-        check(finalQualification.status == "verified" &&
-            finalQualification.qualificationFingerprint == qualification.qualificationFingerprint)
         return observations.save(PoolKeyObservation(networkKey = era.networkKey, poolId = pool, observedAt = Instant.now(),
             chainSlot = endSlot, chainHash = endHash,
             currentPublicKey = current, futurePublicKey = future, effectiveEpoch = effectiveEpoch,

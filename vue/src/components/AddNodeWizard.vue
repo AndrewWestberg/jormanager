@@ -197,7 +197,6 @@
             <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
           </BFormSelect>
         </BFormGroup>
-        <small>Files referenced by the selected config or topology must also be selected. The server validates their contents and network identity.</small>
       </TabContent>
       
       <!-- Step 2: Pool Keys (Core/Pool only) -->
@@ -676,50 +675,15 @@
             </tbody>
           </table>
         </div>
-        <div v-if="formNode.type !== 'relay'" class="border rounded p-3 mb-3">
-          <h5>Host and network preflight</h5>
-          <p>File selections are not current-era or host-capability evidence. Preview the effective role configuration using a matching connected observer.</p>
-          <BButton variant="outline-info" :disabled="!!provisioningPending || !store.connected" @click="previewProvisioning">Preview host preflight</BButton>
-          <div v-if="provisioningPreview && provisioningCurrent" class="mt-2">
-            <p>Host {{ provisioningPreview.hostId }}; observer node {{ provisioningPreview.observerNodeId }}; network {{ provisioningPreview.networkKey }}.</p>
-            <p class="text-break">Effective config SHA-256: {{ provisioningPreview.configSha256 }}; Prometheus port {{ provisioningPreview.prometheusPort }}; tracing port {{ provisioningPreview.tracingPort }}.</p>
-            <p v-if="provisioningCapability">Current era: {{ provisioningCapability.eraEvidence?.era ?? 'unavailable' }} ({{ provisioningCapability.eraEvidence?.freshness ?? 'unavailable' }}). node.create {{ provisioningOperation?.status ?? 'unavailable' }}: {{ provisioningOperation?.reason ?? provisioningCapability.reason }}</p>
-            <p v-for="operation in provisioningCapability?.operations?.filter(item => item.operation !== 'node.create')" :key="operation.operation">
-              {{ operation.operation }} {{ operation.status }}: {{ operation.reason }}
-            </p>
-            <details>
-              <summary>Record independent host qualification evidence</summary>
-              <p>Record only evidence actually verified for this host, network and effective configuration. A binary version or file selection alone is not qualification.</p>
-              <p>Reviewed observer evidence: era {{ provisioningCapability?.eraEvidence?.era ?? 'unavailable' }}, generation {{ provisioningCapability?.eraEvidence?.generation ?? 'unavailable' }}, source {{ provisioningCapability?.eraEvidence?.source ?? 'unavailable' }}, point {{ provisioningCapability?.eraEvidence?.observedPoint ?? 'unavailable' }}, observed {{ provisioningCapability?.eraEvidence?.observedAt ?? 'unavailable' }}.</p>
-              <BFormGroup label="Operation">
-                <BFormSelect v-model="qualification.operation">
-                  <BFormSelectOption value="node.create">Node creation</BFormSelectOption>
-                  <BFormSelectOption value="leios.key.prepare">Leios key preparation</BFormSelectOption>
-                  <BFormSelectOption value="leios.key.import">Leios key import</BFormSelectOption>
-                </BFormSelect>
-              </BFormGroup>
-              <BFormGroup label="Evidence ID"><BFormInput v-model="qualification.evidenceId" /></BFormGroup>
-              <BFormGroup label="Evidence SHA-256"><BFormInput v-model="qualification.evidenceSha256" /></BFormGroup>
-              <BFormGroup label="CLI SHA-256"><BFormInput v-model="qualification.cliSha256" /></BFormGroup>
-              <BFormGroup label="Node SHA-256"><BFormInput v-model="qualification.nodeSha256" /></BFormGroup>
-              <BFormCheckbox v-model="qualificationConfirmed">I reviewed the observer era and generation above and attest the target evidence and artifact hashes.</BFormCheckbox>
-              <p v-if="qualificationConfirmed && !qualificationReady" class="text-warning">Evidence or target changed; clear and renew the attestation.</p>
-              <BButton class="mt-2" variant="outline-success" :disabled="!qualificationReady || !!provisioningPending" @click="recordHostQualification">Record qualification</BButton>
-            </details>
-          </div>
-          <p v-else-if="provisioningPreview" class="text-warning">Target settings changed; preview the host again.</p>
-          <p v-if="provisioningError" class="text-danger">{{ provisioningError }}</p>
-        </div>
-        <p v-if="formNode.type !== 'relay'" class="text-warning">Preparing a draft does not register or deploy a pool. Registration and deployment each require separate review and authorization.</p>
-        <div v-if="formNode.type !== 'relay'" class="border rounded p-3 mb-3">
-          <p>A pool draft persists protected keys and configuration only. It does not register a pool, install files, start a node or establish eligibility.</p>
-          <p v-if="fileContents.itnPrivateKey" class="text-warning">Draft preparation cannot accept an ITN private key. Remove it in the metadata step; metadata must be published independently.</p>
-          <BFormCheckbox v-model="draftConfirmed">I approve preparing a draft for the displayed host, role, network, accounts and pool settings.</BFormCheckbox>
-          <BButton class="mt-2" variant="outline-info" :disabled="!draftConfirmed || !draftPreflightReady || !!draftPending || !!fileContents.itnPrivateKey"
-            @click="requestDraft">Prepare pool draft</BButton>
-          <p v-if="draftPending" class="text-warning">Awaiting the draft result. If disconnected, check the Nodes list before retrying; the outcome may be unknown.</p>
-          <p v-if="draftError" class="text-danger">{{ draftError }}</p>
-        </div>
+        <BFormGroup v-if="setupContext && setupContext.keys.length > 1 && !setupContext.keyId" label="Existing Leios key">
+          <BFormSelect v-model="selectedKeyId">
+            <BFormSelectOption :value="null" disabled>-- Select a key --</BFormSelectOption>
+            <BFormSelectOption v-for="key in setupContext.keys" :key="key.keyId" :value="key.keyId">
+              {{ key.keyId }}: {{ key.publicKeyHex }}
+            </BFormSelectOption>
+          </BFormSelect>
+        </BFormGroup>
+        <p v-if="creationError" class="text-danger">{{ creationError }}</p>
 
 
         <div v-if="formNode.type !== 'relay'" class="mb-4">
@@ -783,7 +747,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
 import { FormWizard, TabContent } from 'vue3-form-wizard'
@@ -803,8 +767,8 @@ import {
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { isCustomTracingListen, syncTracingListenForHost } from '@/utils/tracing'
-import { generateUUID } from '@/utils/filters'
 import { matchingNetworkFiles } from '@/utils/nodeFiles'
+import { generateUUID } from '@/utils/filters'
 
 interface Relay {
   addr: string | null
@@ -855,6 +819,11 @@ interface Metadata {
 
 const props = defineProps<{
   parentId?: number | null
+  setupContext?: {
+    requestId: string; setupRequestId: string | null; nodeId: number; hostId: number; networkKey: string
+    request: Record<string, unknown>; keyId: number | null
+    keys: { keyId: number; publicKeyHex: string }[]
+  } | null
 }>()
 
 const emit = defineEmits<{
@@ -868,8 +837,15 @@ const emitter = useEventBus()
 const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
 const fileContents = ref<Record<string, File | null>>({})
 const itnPrivateFileInput = ref<HTMLInputElement | null>(null)
-const pendingAction = ref<string | null>(null)
 const hasCustomizedTracingListen = ref(false)
+const selectedKeyId = ref<number | null>(props.setupContext?.keyId ?? null)
+const creationBusy = ref(false)
+const creationError = ref('')
+let requestId = props.setupContext?.setupRequestId ?? generateUUID()
+let requestSignature = ''
+let prepared: { request: Record<string, unknown>; signature: string; sudo: string; keyId: number | null } | null = null
+let resumeSignature = ''
+const privateFileInputs: Record<string, HTMLInputElement> = {}
 
 const formNode = ref({
   spendingPassword: null as string | null,
@@ -941,10 +917,11 @@ const formNode = ref({
 const nodeColors = computed(() => nodes.value.map(n => n.color))
 const selectedHost = computed(() => store.hosts.find(host => host.id === formNode.value.host) ?? null)
 const fileRevision = ref(0)
-const currentSignature = computed(() => {
+const intentSignature = computed(() => {
   const { spendingPassword: _spendingPassword, sudoPassword: _sudoPassword, ...details } = formNode.value
-  return JSON.stringify([details, fileRevision.value])
+  return JSON.stringify(details)
 })
+const currentSignature = computed(() => JSON.stringify([intentSignature.value, fileRevision.value]))
 
 async function buildCreateRequest(): Promise<Record<string, unknown>> {
   const request = JSON.parse(JSON.stringify(formNode.value)) as Record<string, any>
@@ -961,139 +938,16 @@ async function buildCreateRequest(): Promise<Record<string, unknown>> {
 watch(() => formNode.value.type, type => { if (type !== 'relay') formNode.value.isDefault = false })
 
 
-type ProvisioningPreview = { hostId: number; observerNodeId: number; networkKey: string; prometheusPort: number; tracingPort: number; configSha256: string }
-type ProvisioningCapability = { requestId: string; eraEvidence?: { era?: string | null; freshness?: string; generation?: number | string; source?: string | null; observedPoint?: unknown; observedAt?: string | null }; operations?: Array<{ operation: string; status: string; reason: string }>; reason?: string }
-const provisioningPreview = ref<ProvisioningPreview | null>(null)
-const provisioningSignature = ref('')
-const provisioningPending = ref<'node_provisioning_preview' | 'capabilities' | 'host_capability_qualification' | null>(null)
-const provisioningRequestId = ref('')
-const provisioningError = ref('')
-const provisioningCapability = ref<ProvisioningCapability | null>(null)
-const qualification = ref({ operation: 'node.create', evidenceId: '', evidenceSha256: '', cliSha256: '', nodeSha256: '' })
-const qualificationConfirmed = ref(false)
-const qualificationReview = ref<{ signature: string; era: string; generation: number | string } | null>(null)
-const qualificationSignature = computed(() => JSON.stringify([provisioningPreview.value, qualification.value, provisioningCapability.value?.eraEvidence]))
-watch(qualificationConfirmed, confirmed => {
-  const evidence = provisioningCapability.value?.eraEvidence
-  qualificationReview.value = confirmed && evidence?.freshness === 'current' && evidence.era && evidence.generation != null
-    ? { signature: qualificationSignature.value, era: evidence.era, generation: evidence.generation }
-    : null
-})
-const qualificationReady = computed(() => qualificationConfirmed.value && qualificationReview.value?.signature === qualificationSignature.value)
-const provisioningCurrentSignature = computed(() => JSON.stringify([formNode.value.host, formNode.value.parentId, formNode.value.type, formNode.value.port, formNode.value.prometheusListen, formNode.value.genesisByron, formNode.value.genesisShelley, formNode.value.genesisAlonzo, formNode.value.genesisConway, formNode.value.genesisDijkstra, formNode.value.config, formNode.value.topology, formNode.value.peerSnapshot]))
-const provisioningCurrent = computed(() => !!provisioningPreview.value && provisioningSignature.value === provisioningCurrentSignature.value)
-const provisioningOperation = computed(() => provisioningCapability.value?.operations?.find(item => item.operation === 'node.create'))
-const draftPreflightReady = computed(() => provisioningCurrent.value &&
-  provisioningCapability.value?.eraEvidence?.freshness === 'current' &&
-  (provisioningCapability.value.eraEvidence.era === 'dijkstra'
-    ? provisioningOperation.value?.status === 'verified'
-    : provisioningCapability.value.eraEvidence.era === 'conway' &&
-      ['verified', 'unverified'].includes(provisioningOperation.value?.status ?? '')))
 
 
-const draftConfirmed = ref(false)
-const draftPending = ref(false)
-const draftError = ref('')
-const draftSignature = ref('')
-
-function requestDraft() {
-  if (!draftConfirmed.value || !draftPreflightReady.value || fileContents.value.itnPrivateKey ||
-      draftPending.value || !validateStep1() || !validateStep3() || !validateStep4() || !validateStep5()) return
-  draftSignature.value = currentSignature.value
-  emitter.emit('show-spending-password-modal', { action: 'create-pool-draft' })
-}
-
-watch(() => store.leiosResponses.node_pool_draft, response => {
-  if (!draftPending.value || !response) return
-  const result = response.data as { id?: number; isDraft?: boolean } | undefined
-  if (result?.id != null && result.isDraft) {
-    draftPending.value = false
-    store.requestNodes()
-    store.toastInfo = { title: 'Pool draft prepared', message: `Draft node ${result.id} is not registered or running. Use its Leios panel to prepare credentials.` }
-    emit('hide-add-node-wizard')
-  } else if (response.exception) {
-    draftPending.value = false
-    draftError.value = response.exception.message
+watch(intentSignature, signature => {
+  if (!props.setupContext && requestSignature && requestSignature !== signature) {
+    requestId = generateUUID()
+    requestSignature = ''
   }
-})
+}, { flush: 'sync' })
 
 
-function previewProvisioning() {
-  if (!validateStep1() || !formNode.value.host || !formNode.value.config || provisioningPending.value) return
-  provisioningSignature.value = provisioningCurrentSignature.value
-  provisioningPreview.value = null
-  provisioningCapability.value = null
-  provisioningError.value = ''
-  qualificationConfirmed.value = false
-  store.leiosResponses = { ...store.leiosResponses, node_provisioning_preview: {} }
-  provisioningPending.value = 'node_provisioning_preview'
-  store.sendMessage('/jormanager/node/provisioning-preview', {
-    hostId: formNode.value.host, config: formNode.value.config,
-    type: formNode.value.type, parentId: formNode.value.parentId, port: Number(formNode.value.port), prometheusListen: formNode.value.prometheusListen
-  })
-}
-
-function requestHostCapabilities() {
-  const preview = provisioningPreview.value
-  if (!preview || !provisioningCurrent.value) return
-  provisioningRequestId.value = generateUUID()
-  store.leiosResponses = { ...store.leiosResponses, capabilities: {} }
-  provisioningPending.value = 'capabilities'
-  store.sendMessage('/jormanager/capabilities', { requestId: provisioningRequestId.value, hostId: preview.hostId,
-    observerNodeId: preview.observerNodeId, expectedNetworkKey: preview.networkKey, configSha256: preview.configSha256 })
-}
-
-function recordHostQualification() {
-  const preview = provisioningPreview.value
-  if (!preview || !provisioningCurrent.value || !qualificationReady.value || !qualificationReview.value || provisioningPending.value) return
-  if (!qualification.value.evidenceId || ![qualification.value.evidenceSha256, qualification.value.cliSha256, qualification.value.nodeSha256].every(hash => /^[0-9a-f]{64}$/.test(hash))) {
-    provisioningError.value = 'Provide an evidence ID and lowercase SHA-256 hashes.'
-    return
-  }
-  provisioningRequestId.value = generateUUID()
-  store.leiosResponses = { ...store.leiosResponses, host_capability_qualification: {} }
-  provisioningPending.value = 'host_capability_qualification'
-  const reviewed = qualificationReview.value
-  qualificationConfirmed.value = false
-  store.sendMessage('/jormanager/capabilities/host-qualification', {
-    requestId: provisioningRequestId.value, hostId: preview.hostId, observerNodeId: preview.observerNodeId,
-    expectedNetworkKey: preview.networkKey, qualification: { status: 'verified', ...qualification.value, configSha256: preview.configSha256,
-      expectedEra: reviewed.era, expectedGeneration: reviewed.generation }
-  })
-}
-
-watch(() => store.leiosResponses, responses => {
-  const type = provisioningPending.value
-  if (!type) return
-  const response = responses[type]
-  if (response?.exception) {
-    provisioningError.value = response.exception.message
-    provisioningPending.value = null
-  } else if (type === 'node_provisioning_preview' && response?.data) {
-    const preview = response.data as ProvisioningPreview
-    provisioningPending.value = null
-    if (provisioningSignature.value !== provisioningCurrentSignature.value ||
-        preview.hostId !== formNode.value.host) {
-      provisioningError.value = 'Preflight response does not match the current target; preview again.'
-    } else {
-      provisioningPreview.value = preview
-      requestHostCapabilities()
-    }
-  } else if (type === 'capabilities') {
-    const result = response?.data as ProvisioningCapability | undefined
-    if (result?.requestId === provisioningRequestId.value) {
-      provisioningCapability.value = result
-      provisioningPending.value = null
-    }
-  } else if (type === 'host_capability_qualification') {
-    const result = response?.data as { requestId: string; recorded: boolean; reason?: string } | undefined
-    if (result?.requestId === provisioningRequestId.value) {
-      provisioningPending.value = null
-      if (result.recorded) requestHostCapabilities()
-      else provisioningError.value = result.reason || 'Qualification was not recorded.'
-    }
-  }
-})
 
 
 // Key for FormWizard - changes when type changes to force re-render with correct tabs
@@ -1194,6 +1048,7 @@ watch(
 
 function handleFileUpload(event: Event, field: string) {
   const target = event.target as HTMLInputElement
+  if (['coldSKey', 'vrfSKey', 'kesSKey', 'itnPrivateKey'].includes(field)) privateFileInputs[field] = target
   fileContents.value[field] = target.files?.[0] || null
   fileRevision.value++
 }
@@ -1225,7 +1080,7 @@ function validateStep1(): boolean {
       !processorThreadsState.value || !listenState.value || !portState.value ||
       !genesisByronState.value || !genesisShelleyState.value ||
       !genesisAlonzoState.value || !genesisConwayState.value ||
-      formNode.value.config == null || (props.parentId == null && formNode.value.topology == null)) {
+      formNode.value.config == null || (formNode.value.parentId == null && formNode.value.topology == null)) {
     store.toastError = { title: 'Error', message: 'You must fill out all required fields.' }
     return false
   }
@@ -1272,50 +1127,89 @@ function handleCancel() {
 }
 
 async function onComplete() {
-  // For relay nodes, this is called from Step 1. For core/pool, from Step 6.
-  if (!validateStep1()) return
-  if (formNode.value.type !== 'relay') {
-    store.toastError = { title: 'Creation unavailable', message: 'Producer and pool creation require a durable registration review.' }
+  if (creationBusy.value || !store.connected || !validateStep1()) return
+  if (formNode.value.type !== 'relay' && (!validateStep3() || !validateStep4() || !validateStep5())) return
+  if (props.setupContext && props.setupContext.keys.length > 1 && !props.setupContext.keyId && !selectedKeyId.value) {
+    creationError.value = 'Select an existing Leios key.'
     return
   }
-  pendingAction.value = 'create-node'
-  emitter.emit('show-spending-password-modal', { action: 'create-node' })
+  if (props.setupContext && resumeSignature !== currentSignature.value) {
+    creationError.value = 'Saved setup details cannot be changed during resume.'
+    return
+  }
+  creationBusy.value = true
+  creationError.value = ''
+  const signature = currentSignature.value
+  try {
+    const request = props.setupContext
+      ? { ...JSON.parse(JSON.stringify(formNode.value)), ...JSON.parse(JSON.stringify(props.setupContext.request)) } as Record<string, unknown>
+      : await buildCreateRequest()
+    if (signature !== currentSignature.value || !store.connected) return
+    requestSignature = intentSignature.value
+    request.requestId = requestId
+    if (props.setupContext) {
+      request.resumeNodeId = props.setupContext.nodeId
+      if (selectedKeyId.value != null) request.keyId = selectedKeyId.value
+    }
+    prepared = { request, signature, sudo: formNode.value.sudoPassword || '', keyId: selectedKeyId.value }
+    emitter.emit('show-spending-password-modal', { action: 'create-node' })
+  } catch (error) {
+    creationError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    creationBusy.value = false
+  }
 }
 
 async function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
-  if (data.action === 'create-pool-draft') {
-    if (!draftConfirmed.value || !draftPreflightReady.value || fileContents.value.itnPrivateKey ||
-        draftPending.value || draftSignature.value !== currentSignature.value) return
-    const request = await buildCreateRequest()
-    if (draftSignature.value !== currentSignature.value) {
-      draftError.value = 'The form changed; review the draft again.'
-      return
-    }
-    request.spendingPassword = data.password
-    request.sudoPassword = formNode.value.sudoPassword || ''
-    store.leiosResponses = { ...store.leiosResponses, node_pool_draft: {} }
-    draftPending.value = true
-    draftConfirmed.value = false
-    store.sendMessage('/jormanager/node/pool-draft', request)
-    formNode.value.sudoPassword = null
-    fileContents.value = {}
+  if (data.action !== 'create-node' || creationBusy.value || !prepared) return
+  const action = prepared
+  prepared = null
+  if (!store.connected || action.signature !== currentSignature.value || action.keyId !== selectedKeyId.value) {
+    creationError.value = 'The connection or setup changed; submit the form again.'
     return
   }
+  if (!validateStep1() || (formNode.value.type !== 'relay' && (!validateStep3() || !validateStep4() || !validateStep5()))) return
+  creationBusy.value = true
+  creationError.value = ''
+  try {
+    const pending = store.socketRequest<{ requestId: string; nodeId: number; message: string }>(
+      '/jormanager/createnode', 'createnode',
+      { ...action.request, spendingPassword: data.password, sudoPassword: action.sudo }
+    )
+    action.sudo = ''
+    for (const field of ['coldSKey', 'vrfSKey', 'kesSKey']) delete action.request[field]
+    const metadata = action.request.metadata as Metadata | undefined
+    if (metadata?.extended?.itn) metadata.extended.itn.privateKey = null
+    formNode.value.sudoPassword = null
+    for (const field of ['coldSKey', 'vrfSKey', 'kesSKey', 'itnPrivateKey']) {
+      fileContents.value[field] = null
+      if (privateFileInputs[field]) privateFileInputs[field].value = ''
+    }
+    const result = await pending
+    if (result.requestId !== action.request.requestId) throw new Error('Creation response does not match the request')
+    emit('hide-add-node-wizard')
+  } catch (error) {
+    creationError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    creationBusy.value = false
+  }
+}
+
+function passwordHidden(data: { action: string }) {
   if (data.action !== 'create-node') return
-  if (!validateStep1()) return
-  if (formNode.value.type !== 'relay') return
-  const request = await buildCreateRequest()
-  request.spendingPassword = data.password
-  request.sudoPassword = formNode.value.sudoPassword || ''
-  store.createNode(request)
+  prepared = null
   formNode.value.sudoPassword = null
-  fileContents.value = {}
-  emit('hide-add-node-wizard')
 }
 
 onMounted(() => {
   store.requestHosts()
   store.requestFileOptions()
+  if (props.setupContext) {
+    Object.assign(formNode.value, JSON.parse(JSON.stringify(props.setupContext.request)))
+    formNode.value.spendingPassword = null
+    formNode.value.sudoPassword = null
+    nextTick(() => { resumeSignature = currentSignature.value })
+  }
   
   if (props.parentId) {
     store.requestMetadata(props.parentId)
@@ -1343,9 +1237,14 @@ onMounted(() => {
   }
 
   emitter.on('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
+  emitter.on('spending-password-modal-hidden', passwordHidden)
 })
 
 onUnmounted(() => {
+  prepared = null
+  formNode.value.sudoPassword = null
+  fileContents.value = {}
+  emitter.off('spending-password-modal-hidden', passwordHidden)
   emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
