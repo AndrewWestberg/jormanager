@@ -14,8 +14,6 @@ describe('governance submission', () => {
     setActivePinia(pinia)
     const store = useJorManagerStore()
     store.connected = true
-    store.walletNetworkKey = 'network'
-    store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
     store.nodes = [{ id: 1, name: 'Pool', type: 'core', poolId: 'pool1', color: '#000', status: 'Running', isDraft: false,
       host: { type: 'local', hostname: 'localhost', sshUser: '', sshPort: 22, sshPemPath: '', cardanoCliPath: '/bin/cardano-cli', cardanoNodePath: '/bin/cardano-node', nodeHomePath: '/node', jcliPath: null } }]
     store.walletItems = [{ id: 2, name: 'Fees', type: 'payment', hasPaymentKeys: true, paymentAddress: 'addr_fees', paymentAddrLovelace: '10000000', stakingAddrLovelace: '0', nativeAssetMap: {} }]

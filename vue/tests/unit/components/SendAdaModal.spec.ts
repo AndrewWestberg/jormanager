@@ -18,8 +18,6 @@ async function setup(claim = false) {
   setActivePinia(pinia)
   const store = useJorManagerStore()
   store.connected = true
-  store.walletNetworkKey = 'network'
-  store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
   const source = { id: 1, name: 'Source', type: 'payment', paymentAddress: 'addr_source', paymentAddr: 'addr_source', hasPaymentKeys: true, stakingAddr: null, paymentAddrUtxoCount: 1, paymentAddrLovelace: '9007199254740999', stakingAddrRegistered: false, stakingAddrLovelace: '5000000', nativeAssetMap: { 'abcd.61': '9007199254740999' } }
   const destination = { ...source, id: 2, name: 'Destination', paymentAddress: 'addr_destination', paymentAddr: 'addr_destination', paymentAddrLovelace: '5000000', stakingAddrLovelace: '7000000', nativeAssetMap: {} }
   store.walletItems = [source, destination] as typeof store.walletItems
@@ -57,7 +55,7 @@ async function entry(ctx: { modal: HTMLElement; select: (index: number, value: s
 describe('send form fees', () => {
   it('gates a fixed exact amount on a matching fee and dispatches once', async () => {
     const c = await setup()
-    const submit = vi.spyOn(c.store, 'submitWallet').mockRejectedValue(new Error('submission failed'))
+    const submit = vi.spyOn(c.store, 'submitTransaction')
     await entry(c, 'amount', '10')
     expect(c.button().disabled).toBe(true)
     c.fee({ uuid: 'old' })
@@ -73,10 +71,9 @@ describe('send form fees', () => {
     emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
     await flushPromises()
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit).toHaveBeenCalledWith(p.data.requestId, 'send', expect.objectContaining({ txFee: '170000', toAccounts: [expect.objectContaining({ amount: '10000000' })] }), 'secret')
-    c.button().click()
-    await nextTick()
-    expect(c.prompt.mock.lastCall![0].data.requestId).toBe(p.data.requestId)
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ spendingPassword: 'secret', txFee: '170000', toAccounts: [expect.objectContaining({ amount: '10000000' })] }))
+    c.store.handleMessage({ type: 'submittransaction', exception: { message: 'submission failed' } })
+    expect(c.store.toastError?.message).toBe('submission failed')
     c.cleanup()
   })
 
@@ -89,7 +86,8 @@ describe('send form fees', () => {
     expect(c.modal.textContent).toContain('Remaining:')
     c.button().click()
     await nextTick()
-    expect(c.prompt.mock.lastCall![0].data.request.toAccounts[0].amount).toBe('9007199251070999')
+    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({ toAccounts: [expect.objectContaining({ amount: '9007199251070999' })] }))
     c.cleanup()
   })
 
@@ -101,7 +99,8 @@ describe('send form fees', () => {
     await nextTick()
     c.button().click()
     await nextTick()
-    expect(c.prompt.mock.lastCall![0].data.request.toAccounts[0].amount).toBe('9007199254740999')
+    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({ toAccounts: [expect.objectContaining({ amount: '9007199254740999' })] }))
     c.cleanup()
   })
 
@@ -113,36 +112,11 @@ describe('send form fees', () => {
     expect(c.modal.textContent).toContain('Fee payer')
     c.button().click()
     await nextTick()
-    const p = c.prompt.mock.lastCall![0].data
-    expect(p.kind).toBe('withdraw')
-    expect(p.request.fromIds).toEqual([1, 2])
-    expect(p.request.toAccounts[0].amount).toBe('12000000')
+    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({
+      isClaim: true, fromIds: [1, 2], toAccounts: [expect.objectContaining({ amount: '12000000' })]
+    }))
     c.cleanup()
   })
 
-  it('invalidates stale balances and targets and refreshes after fee changes', async () => {
-    const c = await setup()
-    const submit = vi.spyOn(c.store, 'submitWallet').mockRejectedValue(Object.assign(new Error('Fee changed; refresh the form and submit again.'), { code: 'FEE_CHANGED' }))
-    await entry(c, 'amount', '10')
-    c.fee()
-    await nextTick()
-    c.button().click()
-    await nextTick()
-    const p = c.prompt.mock.lastCall![0]
-    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
-    await flushPromises()
-    expect(submit).toHaveBeenCalledTimes(1)
-    expect(c.button().disabled).toBe(true)
-    c.fee()
-    await nextTick()
-    c.store.walletItems = [{ ...c.source, paymentAddrLovelace: '20000000' }, c.destination] as typeof c.store.walletItems
-    await flushPromises()
-    expect(c.button().disabled).toBe(true)
-    c.store.walletNetworkKey = 'other'
-    await flushPromises()
-    c.fee()
-    await nextTick()
-    expect(c.button().disabled).toBe(true)
-    c.cleanup()
-  })
 })

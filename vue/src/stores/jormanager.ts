@@ -10,7 +10,6 @@ import type {
   Block,
   FileOption,
   WalletItem,
-  WalletResult,
   SeriesDataPoint,
   KESSeries,
   NodeStatEvent,
@@ -84,6 +83,8 @@ interface JorManagerState {
   blocks: Block[]
   files: FileOption[]
   walletItems: WalletItem[]
+  walletSubmitting: boolean
+  stakingSubmitting: boolean
   leiosStatus: unknown | null
   leiosStatusError: string | null
   leiosStatusRequest: { requestId: string; nodeId: number; hostId: number; networkKey: string | null } | null
@@ -101,7 +102,6 @@ interface JorManagerState {
   tokenLocked: string
   requestFeesUUID: string
   responseFeesUUID: string
-  feeTarget: { networkKey: string; generation: string } | null
 
 
   // Chart data
@@ -146,6 +146,8 @@ export const useJorManagerStore = defineStore('jormanager', {
     blocks: [],
     files: [],
     walletItems: [],
+    walletSubmitting: false,
+    stakingSubmitting: false,
     leiosStatus: null,
     leiosStatusError: null,
     leiosStatusRequest: null,
@@ -163,7 +165,6 @@ export const useJorManagerStore = defineStore('jormanager', {
     tokenLocked: '0',
     requestFeesUUID: '',
     responseFeesUUID: '',
-    feeTarget: null,
 
 
     // Chart data
@@ -383,6 +384,11 @@ export const useJorManagerStore = defineStore('jormanager', {
         },
         (error: unknown) => {
           this.connected = false
+          if (this.walletSubmitting || this.stakingSubmitting) {
+            this.walletSubmitting = false
+            this.stakingSubmitting = false
+            this.toastError = { title: 'Communication Error', message: 'Disconnected before receiving the transaction result.' }
+          }
           for (const pending of pendingRequests.values()) {
             clearTimeout(pending.timer)
             pending.reject(new Error('Disconnected; the operation outcome may be uncertain'))
@@ -412,7 +418,6 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     handleMessage(message: { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string; code?: string } }) {
       switch (message.type) {
-        case 'walletsubmit':
         case 'governancesubmit':
         case 'pool_retirement_submit':
         case 'createnode':
@@ -453,17 +458,14 @@ export const useJorManagerStore = defineStore('jormanager', {
         }
         case 'calculatefee': {
           const data = message.data as TxFeeData | undefined
-          const target = this.feeTarget
-          if (data && target && this.connected && data.uuid === this.requestFeesUUID &&
-              target.networkKey === this.walletNetworkKey && target.networkKey === this.chainReadState?.networkKey &&
-              target.generation === this.chainReadState?.generation && this.chainReadState?.walletReady && Array.isArray(data.tokenFees) &&
+          if (data && this.connected && data.uuid === this.requestFeesUUID && Array.isArray(data.tokenFees) &&
               [data.txFee, data.tokenKeepFee, data.tokenLocked, ...data.tokenFees].every(value => typeof value === 'string' && /^\d+$/.test(value))) {
             this.txFee = data.txFee
             this.tokenFees = data.tokenFees
             this.tokenKeepFee = data.tokenKeepFee
             this.tokenLocked = data.tokenLocked
             this.responseFeesUUID = data.uuid
-          } else if (!data && target) {
+          } else if (!data) {
             this.toastError = { title: 'CalculateFee Error', message: message.exception?.message || 'Could not calculate fee' }
           }
           break
@@ -558,46 +560,29 @@ export const useJorManagerStore = defineStore('jormanager', {
           this.saveNodeStats(message.data as NodeStatEvent[])
           break
         case 'wallet': {
-          if (!message.data) {
-            if (this.walletNetworkKey) {
-              const previous = this.networkReadStates[this.walletNetworkKey]
-              if (previous) {
-                this.networkReadStates[this.walletNetworkKey] = { ...previous, walletReady: false }
-              }
-              this.invalidateNetworkObservations(this.walletNetworkKey)
-            }
-            this.chainReadState = null
+          if (!Array.isArray(message.data)) {
             this.toastError = { title: 'Wallet unavailable', message: message.exception?.message || 'Could not load wallet' }
             break
           }
-          const data = message.data as WalletResult
-          if (!data.networkKey || !Array.isArray(data.items)) break
-          if (data.readState?.networkKey !== data.networkKey || typeof data.readState.generation !== 'string' || !/^\d+$/.test(data.readState.generation)) {
-            if (data.networkKey === this.walletNetworkKey) {
-              const previous = this.networkReadStates[data.networkKey]
-              if (previous) {
-                this.networkReadStates[data.networkKey] = { ...previous, walletReady: false }
-              }
-              this.invalidateNetworkObservations(data.networkKey)
-              this.chainReadState = null
-            }
-            break
-          }
-          if (!this.canApplyChainReadState(data.readState)) break
-          if (this.walletNetworkKey && this.walletNetworkKey !== data.networkKey) {
-            this.invalidateNetworkObservations(this.walletNetworkKey)
-            this.chainReadState = null
-            this.chainStatusRequestId = null
-          }
-          this.walletNetworkKey = data.networkKey
-          this.applyChainReadState(data.readState)
-          this.walletItems = data.items.map(item => ({
+          this.walletItems = (message.data as WalletItem[]).map(item => ({
             ...item,
             paymentAddrLovelace: item.paymentAddrLovelace == null ? null : String(item.paymentAddrLovelace),
             stakingAddrLovelace: item.stakingAddrLovelace == null ? null : String(item.stakingAddrLovelace),
             nativeAssetMap: item.nativeAssetMap == null ? null : Object.fromEntries(Object.entries(item.nativeAssetMap).map(([key, value]) => [key, String(value)]))
           }))
-          if (data.readState.walletReady !== true) this.clearWalletValues()
+          break
+        }
+        case 'submittransaction':
+        case 'updatestakingaddress': {
+          const isSend = message.type === 'submittransaction'
+          if (isSend) this.walletSubmitting = false
+          else this.stakingSubmitting = false
+          if (message.data) {
+            this.toastSuccess = { title: isSend ? 'Ada Sent' : 'Update Staking Address', message: String(message.data) }
+            this.fetchWalletItems()
+          } else {
+            this.toastError = { title: isSend ? 'Submit Transaction Error' : 'Update Staking Address Error', message: message.exception?.message || 'Operation failed' }
+          }
           break
         }
         case 'chainstatus': {
@@ -916,22 +901,11 @@ export const useJorManagerStore = defineStore('jormanager', {
       }
       return true
     },
-    clearWalletValues() {
-      this.walletItems = this.walletItems.map(item => ({
-        ...item,
-        paymentAddrUtxoCount: null,
-        paymentAddrLovelace: null,
-        stakingAddrRegistered: null,
-        stakingAddrLovelace: null,
-        nativeAssetMap: null
-      }))
-    },
 
     invalidateNetworkObservations(networkKey: string) {
       this.networkInvalidations[networkKey] = (this.networkInvalidations[networkKey] ?? 0) + 1
       if (this.walletNetworkKey === networkKey) {
         this.chainStatusRequestId = null
-        this.clearWalletValues()
       }
       const leios = this.leiosStatus as LeiosStatusValue | null
       if (leios?.target?.networkKey === networkKey && leios.readState) this.leiosStatus = staleLeios(leios)
@@ -982,8 +956,7 @@ export const useJorManagerStore = defineStore('jormanager', {
           pendingRequests.delete(requestId)
           reject(new Error('No response received; the operation outcome may be uncertain'))
         }, 60000)
-        const networkKey = responseType === 'walletsubmit' || responseType === 'governancesubmit'
-          ? this.walletNetworkKey : null
+        const networkKey = responseType === 'governancesubmit' ? this.walletNetworkKey : null
         const target = payload.target && typeof payload.target === 'object'
           ? Object.fromEntries(Object.entries(payload.target).filter(([key]) => ['nodeId', 'hostId', 'networkKey', 'poolId'].includes(key)))
           : undefined
@@ -1000,8 +973,16 @@ export const useJorManagerStore = defineStore('jormanager', {
       })
     },
 
-    submitWallet(requestId: string, kind: string, request: unknown, spendingPassword: string): Promise<TransactionResult> {
-      return this.socketRequest<TransactionResult>('/jormanager/walletsubmit', 'walletsubmit', { requestId, kind, request, spendingPassword })
+    submitTransaction(request: unknown) {
+      if (!this.connected || this.walletSubmitting) return
+      this.walletSubmitting = true
+      this.sendMessage('/jormanager/submittransaction', request)
+    },
+
+    updateStakingAddress(request: unknown) {
+      if (!this.connected || this.stakingSubmitting) return
+      this.stakingSubmitting = true
+      this.sendMessage('/jormanager/updatestakingaddress', request)
     },
 
     submitGovernance(requestId: string, request: unknown, spendingPassword: string): Promise<TransactionResult> {
@@ -1009,11 +990,7 @@ export const useJorManagerStore = defineStore('jormanager', {
     },
 
     calculateSendAdaFees(request: { uuid: string; [key: string]: unknown }) {
-      const networkKey = this.walletNetworkKey
-      const state = this.chainReadState
-      this.invalidateSendAdaFees()
-      if (!this.connected || !networkKey || state?.networkKey !== networkKey || !state.walletReady) return
-      this.feeTarget = { networkKey, generation: state.generation }
+      if (!this.connected) return
       this.requestFeesUUID = request.uuid
       this.sendMessage('/jormanager/calculatefee', request)
     },
@@ -1021,7 +998,6 @@ export const useJorManagerStore = defineStore('jormanager', {
     invalidateSendAdaFees() {
       this.requestFeesUUID = ''
       this.responseFeesUUID = ''
-      this.feeTarget = null
     },
 
     requestAppVersion() {

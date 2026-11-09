@@ -46,11 +46,6 @@ export interface WalletItem {
   nativeAssetMap: Record<string, string> | null
   [key: string]: unknown
 }
-export interface WalletResult {
-  items: WalletItem[]
-  networkKey: string
-  readState: ChainReadState
-}
 
 
 export interface ChainPoint { slot: string; hash: string }

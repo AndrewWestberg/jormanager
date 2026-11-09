@@ -19,7 +19,6 @@ import com.swiftmako.jormanager.model.RegCert
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WalletItem
-import com.swiftmako.jormanager.model.WalletResult
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
@@ -28,8 +27,6 @@ import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.ChainIngestionCoordinator
-import com.swiftmako.jormanager.services.PendingWalletState
-import com.swiftmako.jormanager.utils.CborSpans
 import java.io.IOException
 import java.math.BigInteger
 import javax.crypto.SecretKeyFactory
@@ -60,55 +57,23 @@ class WalletUtils
         private val argon2PasswordEncoder: Argon2PasswordEncoder,
         @param:Value("\${jormanager.spendingpassword}") private val spendingPasswordHash: String,
         private val stakingInfoAdapter: JsonAdapter<List<StakeAddressInfo>>,
+        private val queryUtxoJsonAdapter: JsonAdapter<List<Utxo>>,
         private val regCertAdapter: JsonAdapter<RegCert>,
         private val genesisAdapter: JsonAdapter<GenesisShelley>,
         private val queryTipAdapter: JsonAdapter<QueryTip>,
         private val chainIngestionCoordinator: ChainIngestionCoordinator,
-        private val pendingWalletState: PendingWalletState,
+        private val ledgerDao: LedgerDao,
         private val cardanoRepository: CardanoRepository,
     ) {
         private val log by lazy { LoggerFactory.getLogger("WalletUtils") }
 
-        suspend fun getWalletItems(
-            magicString: String,
-            era: String
-        ): WalletResult {
-            val defaultNode = nodeRepository.findDefault() ?: throw IOException("No default node")
-            val host = hostRepository.findByIdOrNull(defaultNode.hostId) ?: throw IOException("Host for default node not found")
-            val networkKey = cardanoRepository.networkKey(defaultNode)
-            val walletEntries = walletRepository.findAllNotDeleted()
-            if (walletEntries.isEmpty()) return WalletResult(emptyList(), networkKey, chainIngestionCoordinator.status(networkKey))
-            val hostConnection = HostConnection(host, defaultNode)
-            val socketPath = "--socket-path ${host.nodeHomePath}/${defaultNode.name}/db/socket"
-            return try {
-                val snapshot = getUtxoSnapshot(host, defaultNode, hostConnection, magicString, socketPath, era,
-                    walletEntries.map { it.paymentAddr }.toSet())
-                check(snapshot.readState.networkKey == networkKey) { "Wallet target changed" }
-                val items = walletEntries.map { entry ->
-                    getWalletItem(host, hostConnection, magicString, socketPath, era, entry, snapshot).also {
-                        delay(1L) // check to see if we're interrupted
-                    }
-                }
-                val current = chainIngestionCoordinator.status(networkKey)
-                if (!current.walletReady) throw LedgerDao.WalletIndexUnavailableException(current)
-                check(current.generation == snapshot.readState.generation) { "Wallet generation changed" }
-                WalletResult(items, networkKey, snapshot.readState)
-            } catch (unavailable: LedgerDao.WalletIndexUnavailableException) {
-                WalletResult(walletEntries.map { entry ->
-                    WalletItem(
-                        id = entry.id!!,
-                        name = entry.name,
-                        type = entry.type,
-                        paymentAddr = entry.paymentAddr,
-                        hasPaymentKeys = entry.paymentSkey != null,
-                        paymentAddrUtxoCount = null,
-                        paymentAddrLovelace = null,
-                        stakingAddr = entry.stakingAddr,
-                        stakingAddrRegistered = null,
-                        stakingAddrLovelace = null,
-                        nativeAssetMap = null,
-                    )
-                }, networkKey, unavailable.readState)
+        suspend fun getWalletItems(magicString: String, era: String): List<WalletItem> {
+            val node = nodeRepository.findDefault() ?: throw IOException("No default node")
+            val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host for default node not found")
+            val connection = HostConnection(host, node)
+            val socket = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
+            return walletRepository.findAllNotDeleted().map { entry ->
+                getWalletItem(host, connection, magicString, socket, era, entry).also { delay(1L) }
             }
         }
 
@@ -119,11 +84,9 @@ class WalletUtils
             socketPath: String,
             era: String,
             walletEntry: WalletEntry,
-            snapshot: PendingWalletState.Snapshot,
         ): WalletItem {
-            val utxos = snapshot.utxosByAddress[walletEntry.paymentAddr].orEmpty()
+            val utxos = getUtxos(host, hostConnection, magicString, socketPath, era, walletEntry.paymentAddr)
 
-            // Query the target node, not the pending-transaction overlay.
             val start = System.currentTimeMillis()
             val stakingInfo =
                 if (walletEntry.type == "stake" || walletEntry.type == "pledge") {
@@ -131,9 +94,7 @@ class WalletUtils
                 } else {
                     emptyList()
                 }
-            val stakingAddrLovelace = stakingInfo.takeIf { it.isNotEmpty() }?.sumByBigInteger { it.rewardAccountBalance }?.let {
-                (it - (snapshot.reservedRewardWithdrawals[walletEntry.stakingAddr] ?: BigInteger.ZERO)).max(BigInteger.ZERO)
-            }
+            val stakingAddrLovelace = stakingInfo.takeIf { it.isNotEmpty() }?.sumByBigInteger { it.rewardAccountBalance }
 
             (System.currentTimeMillis() - start).takeIf { it > 1000L }?.let {
                 log.warn("stakeAddressInfo: ${walletEntry.stakingAddr}, ${it}ms")
@@ -212,19 +173,22 @@ class WalletUtils
                 account != null, account?.rewardAccountBalance?.toString(), account?.stakeAddressDeposit?.toString())
         }
 
-        fun getUtxoSnapshot(
+        fun getUtxos(
             host: Host,
-            node: Node,
             hostConnection: HostConnection,
             magicString: String,
             socketPath: String,
             era: String,
-            paymentAddresses: Set<String>,
-            excludingOperationId: String? = null,
-        ): PendingWalletState.Snapshot {
-            require(node.hostId == host.id) { "Wallet host does not own the target node" }
-            require(socketPath == "--socket-path ${host.nodeHomePath}/${node.name}/db/socket") { "Wallet target node changed" }
-            return pendingWalletState.snapshot(host, node, hostConnection, magicString, socketPath, era, paymentAddresses, excludingOperationId)
+            paymentAddr: String,
+        ): List<Utxo> {
+            val node = nodeRepository.findDefault() ?: throw IOException("No default node")
+            require(node.hostId == host.id &&
+                socketPath == "--socket-path ${host.nodeHomePath}/${node.name}/db/socket") { "Wallet target node changed" }
+            val args = listOf(host.cardanoCliPath, era, "query", "utxo", "--address", paymentAddr) +
+                magicString.split(" ") + socketPath.split(" ") + "--output-json"
+            val confirmed = queryUtxoJsonAdapter.fromJson(hostConnection.commandArgs(args))
+                ?: throw IOException("Invalid UTxO response")
+            return ledgerDao.liveUtxos(cardanoRepository.networkKey(node), paymentAddr, confirmed)
         }
 
         fun queryReferenceScriptSize(
@@ -234,19 +198,18 @@ class WalletUtils
             socketPath: String,
             era: String,
             utxos: Collection<Utxo>,
-            snapshot: PendingWalletState.Snapshot,
         ): Long {
             if (utxos.isEmpty()) {
                 return 0L
             }
+            val node = nodeRepository.findDefault() ?: throw IOException("No default node")
+            val network = cardanoRepository.networkKey(node)
 
             var pendingSize = 0L
             val confirmed = utxos.filter { utxo ->
-                val pending = snapshot.pendingOutputs[utxo.hash to Math.toIntExact(utxo.ix)]
-                pending?.referenceScript?.let { bytes ->
-                    val parts = CborSpans.parse(bytes).array()
-                    require(parts.size == 2) { "Invalid pending reference script" }
-                    val size = if (parts[0].integer() == BigInteger.ZERO) parts[1].bytes().size else parts[1].payload().size
+                val pending = ledgerDao.pendingOutput(network, utxo.hash, Math.toIntExact(utxo.ix))
+                pending?.referenceScriptDetails?.let { script ->
+                    val size = if (script.language == 0) script.raw.bytes().size else script.raw.payload().size
                     pendingSize = Math.addExact(pendingSize, size.toLong())
                 }
                 pending == null

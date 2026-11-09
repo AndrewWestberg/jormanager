@@ -10,6 +10,7 @@ import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.nodeclient.protocols.fixtures.CatchupFixtures
 import com.swiftmako.jormanager.utils.Blake2b
@@ -32,6 +33,7 @@ import javax.sql.DataSource
 import liquibase.command.CommandScope
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -80,7 +82,7 @@ class ChainCatchupIntegrationTest {
             val counts = Counters()
             val source = counts.wrap(pool)
             db = Database.connect(source)
-            val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
+            val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel(), mockk<LedgerDao>(relaxed = true))
             return body(source, coordinator, counts)
         } finally {
             db?.let { TransactionManager.closeAndUnregister(it) }
@@ -453,10 +455,9 @@ class ChainCatchupIntegrationTest {
     @Test
     fun readinessRequiresObservedCompleteTip() = database { source, _, _ ->
         val refresh = Configuration().getRefreshWalletChannel()
-        val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), refresh)
+        val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), refresh, mockk<LedgerDao>(relaxed = true))
         val fixture = CatchupFixtures.leios(2)
         val generation = prepare(coordinator, fixture)
-        val wallet = LedgerDao(coordinator)
         val address = requireNotNull(query(source, "SELECT l.address FROM ledger l JOIN ledger_utxos u ON u.ledger_id=l.id WHERE u.network_key=? LIMIT 1", fixture.network).single().single())
         val first = LedgerBlockDecoder.decode(7, fixture.blocks.first())
         val second = LedgerBlockDecoder.decode(7, fixture.blocks.last())
@@ -470,7 +471,6 @@ class ChainCatchupIntegrationTest {
         val fourth = LedgerBlockDecoder.decode(7, fourthBytes)
         fun unavailable() {
             assertFalse(coordinator.status(fixture.network).walletReady)
-            assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(fixture.network, setOf(address)) }
         }
         coordinator.observeTip(fixture.network, point(second), generation)
         coordinator.adopt(fixture.network, generation, 7, first, point(first))
@@ -480,7 +480,7 @@ class ChainCatchupIntegrationTest {
         coordinator.adopt(fixture.network, generation, 7, second, point(second), closure(fixture))
         assertEquals("complete", coordinator.status(fixture.network).status)
         assertTrue(coordinator.status(fixture.network).walletReady)
-        val balance = wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace }
+        val balance = LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace }
         assertTrue(balance.signum() > 0)
         val followedBalance = balance - java.math.BigInteger.valueOf(100_000)
         var lastRefresh = requireNotNull(refresh.value)
@@ -488,35 +488,33 @@ class ChainCatchupIntegrationTest {
         coordinator.observeTip(fixture.network, point(fourth), generation)
         assertEquals("syncing", coordinator.status(fixture.network).status)
         assertTrue(coordinator.status(fixture.network).walletReady)
-        assertEquals(balance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(balance, LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace })
         assertEquals(lastRefresh, refresh.value)
         coordinator.adopt(fixture.network, generation, 7, third, point(third))
         assertEquals("syncing", coordinator.status(fixture.network).status)
         assertTrue(coordinator.status(fixture.network).walletReady)
-        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(followedBalance, LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace })
         assertEquals(lastRefresh + 1, refresh.value)
         lastRefresh = requireNotNull(refresh.value)
         coordinator.adopt(fixture.network, generation, 7, fourth, point(fourth))
         assertEquals("complete", coordinator.status(fixture.network).status)
         assertTrue(coordinator.status(fixture.network).walletReady)
-        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(followedBalance, LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace })
         assertEquals(lastRefresh + 1, refresh.value)
 
-        val restarted = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
-        val restartedWallet = LedgerDao(restarted)
+        val restarted = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel(), mockk<LedgerDao>(relaxed = true))
         assertEquals("complete", restarted.status(fixture.network).status)
         assertFalse(restarted.status(fixture.network).walletReady)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { restartedWallet.querySnapshot(fixture.network, setOf(address)) }
         restarted.observeTip(fixture.network, point(fourth), generation)
         assertTrue(restarted.status(fixture.network).walletReady)
-        assertEquals(followedBalance, restartedWallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(followedBalance, LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace })
 
         val rolledBack = coordinator.rollback(fixture.network, point(third), generation)
         assertEquals("syncing", coordinator.status(fixture.network).status)
         unavailable()
         coordinator.observeTip(fixture.network, point(third), rolledBack)
         assertTrue(coordinator.status(fixture.network).walletReady)
-        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(followedBalance, LedgerRepository.queryUtxos(fixture.network, setOf(address)).getValue(address).sumOf { it.lovelace })
         assertThrows(ChainIngestionCoordinator.ReplayRequiredException::class.java) {
             coordinator.rollback(fixture.network, ChainPoint("999", "ff".repeat(32)), rolledBack)
         }

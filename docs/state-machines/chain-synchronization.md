@@ -2,6 +2,8 @@
 
 **Proposed design — not implemented or approved.** Model the durable per-network readiness transitions explicitly inside `ChainIngestionCoordinator`; do not replace the database lock with a coroutine state machine. This machine is about verified projection coverage, not the already explicit wire-protocol enums in `ChainSyncProtocol` or `BlockFetchProtocol`. See [fetch validity](block-fetch-validity.md), [block adjudication](block-adjudication.md), and [connection supervision](connection-supervision.md).
 
+The wallet-specific snapshot, reservation and operation-confirmation references below are historical. The minimal-wallet cutover removed those readers/writers; chain generation and projection transactions remain, while wallet reads use the node plus success-only in-memory change.
+
 ## What exists
 
 [`SyncStatesTable`](../../src/main/kotlin/com/swiftmako/jormanager/tables/ChainTables.kt) stores network, generation, observed tip, last complete inclusion, status and reason. Migration 044 permits `complete`, `syncing`, `incomplete`, `stale`, `unavailable`; matching session closure now writes `stale` while retaining the complete pointer. A missing row reports unavailable, `walletReady=false`, generation `"0"`. The observed tip is a peer observation; only a committed complete inclusion represents projected ledger coverage. Required `walletReady` and decimal-string `generation` are additional wire fields, not new SQL statuses.
