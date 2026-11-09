@@ -10,6 +10,7 @@ import type {
   Block,
   FileOption,
   WalletItem,
+  WalletResult,
   SeriesDataPoint,
   KESSeries,
   NodeStatEvent,
@@ -459,9 +460,9 @@ export const useJorManagerStore = defineStore('jormanager', {
           delete this.nodeIndexRequests[nodeId]
           if (data?.readState && data.replay && this.nodes.some(node => node.id === nodeId) &&
               data.readState.networkKey === data.replay.networkKey) {
-            // A network broadcast may have arrived while this request was in flight.
-            // Once the association is known, prefer the latest broadcast for its state.
-            const state = this.networkReadStates[data.readState.networkKey] ?? data.readState
+            this.applyChainReadState(data.readState)
+            const state = this.networkReadStates[data.readState.networkKey]
+            if (!state) break
             this.nodeIndexStatus[nodeId] = { readState: state, replay: data.replay, error: null }
           } else {
             this.nodeIndexStatus[nodeId] = { readState: null, replay: null, error: message.exception?.message || 'Node network index status unavailable' }
@@ -522,21 +523,45 @@ export const useJorManagerStore = defineStore('jormanager', {
           break
         case 'wallet': {
           if (!message.data) {
-            this.walletItems = []
-            this.walletNetworkKey = null
+            if (this.walletNetworkKey) {
+              const previous = this.networkReadStates[this.walletNetworkKey]
+              if (previous) {
+                this.networkReadStates[this.walletNetworkKey] = { ...previous, walletReady: false }
+              }
+              this.invalidateNetworkObservations(this.walletNetworkKey)
+            }
             this.chainReadState = null
             this.toastError = { title: 'Wallet unavailable', message: message.exception?.message || 'Could not load wallet' }
             break
           }
-          const data = message.data as { items: WalletItem[]; networkKey: string }
+          const data = message.data as WalletResult
+          if (!data.networkKey || !Array.isArray(data.items)) break
+          if (data.readState?.networkKey !== data.networkKey || typeof data.readState.generation !== 'string' || !/^\d+$/.test(data.readState.generation)) {
+            if (data.networkKey === this.walletNetworkKey) {
+              const previous = this.networkReadStates[data.networkKey]
+              if (previous) {
+                this.networkReadStates[data.networkKey] = { ...previous, walletReady: false }
+              }
+              this.invalidateNetworkObservations(data.networkKey)
+              this.chainReadState = null
+            }
+            break
+          }
+          if (!this.canApplyChainReadState(data.readState)) break
+          if (this.walletNetworkKey && this.walletNetworkKey !== data.networkKey) {
+            this.invalidateNetworkObservations(this.walletNetworkKey)
+            this.chainReadState = null
+            this.chainStatusRequestId = null
+          }
           this.walletNetworkKey = data.networkKey
+          this.applyChainReadState(data.readState)
           this.walletItems = data.items.map(item => ({
             ...item,
             paymentAddrLovelace: item.paymentAddrLovelace == null ? null : String(item.paymentAddrLovelace),
             stakingAddrLovelace: item.stakingAddrLovelace == null ? null : String(item.stakingAddrLovelace),
             nativeAssetMap: item.nativeAssetMap == null ? null : Object.fromEntries(Object.entries(item.nativeAssetMap).map(([key, value]) => [key, String(value)]))
           }))
-          this.requestChainStatus(data.networkKey)
+          if (data.readState.walletReady !== true) this.clearWalletValues()
           break
         }
         case 'chainstatus': {
@@ -544,18 +569,17 @@ export const useJorManagerStore = defineStore('jormanager', {
           const accepted = !!data && (!data.requestId ||
             (data.requestId === this.chainStatusRequestId && data.networkKey === this.walletNetworkKey))
           if (data && accepted && data.networkKey) {
-            if (data.networkKey === this.walletNetworkKey) this.chainReadState = data
-            this.networkReadStates[data.networkKey] = data
-            if (data.status !== 'complete') this.invalidateNetworkObservations(data.networkKey)
-            Object.values(this.nodeIndexStatus).forEach(status => {
-              if (status.readState?.networkKey === data.networkKey) status.readState = data
-            })
-          } else if (!data && message.exception?.requestId === this.chainStatusRequestId && message.exception.target === this.walletNetworkKey) {
-            this.chainReadState = null
-            if (this.walletNetworkKey) {
-              delete this.networkReadStates[this.walletNetworkKey]
-              this.invalidateNetworkObservations(this.walletNetworkKey)
+            this.applyChainReadState(data)
+          } else if (!data && message.exception?.requestId && message.exception.requestId === this.chainStatusRequestId && message.exception.target === this.walletNetworkKey) {
+            const network = this.walletNetworkKey
+            if (network) {
+              const previous = this.networkReadStates[network]
+              if (previous) {
+                this.networkReadStates[network] = { ...previous, walletReady: false }
+              }
+              this.invalidateNetworkObservations(network)
             }
+            this.chainReadState = null
           }
           break
         }
@@ -821,18 +845,57 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.sendMessage('/jormanager/node/chainstatus', { requestId, nodeId })
     },
 
+    canApplyChainReadState(state: ChainReadState): boolean {
+      if (!state?.networkKey || typeof state.generation !== 'string' || !/^\d+$/.test(state.generation)) return false
+      const previous = this.networkReadStates[state.networkKey]
+      if (previous && BigInt(state.generation) < BigInt(previous.generation)) return false
+      return true
+    },
+    applyChainReadState(incoming: ChainReadState): boolean {
+      if (incoming?.networkKey && (typeof incoming.generation !== 'string' || !/^\d+$/.test(incoming.generation))) {
+        const previous = this.networkReadStates[incoming.networkKey]
+        if (previous) {
+          this.networkReadStates[incoming.networkKey] = { ...previous, walletReady: false }
+          this.invalidateNetworkObservations(incoming.networkKey)
+          if (incoming.networkKey === this.walletNetworkKey) this.chainReadState = null
+        }
+        return false
+      }
+      if (!this.canApplyChainReadState(incoming)) return false
+      const state = { ...incoming, walletReady: incoming.walletReady === true }
+      const network = state.networkKey
+      const previous = this.networkReadStates[network]
+      const generationChanged = !!previous && BigInt(state.generation) > BigInt(previous.generation)
+      if (generationChanged || (previous?.walletReady === true && !state.walletReady)) {
+        this.invalidateNetworkObservations(network)
+      }
+      this.networkReadStates[network] = state
+      if (network === this.walletNetworkKey) this.chainReadState = state
+      Object.values(this.nodeIndexStatus).forEach(status => {
+        if (status.readState?.networkKey === network) status.readState = state
+      })
+      if (state.status !== 'complete') {
+        const leios = this.leiosStatus as LeiosStatusValue | null
+        if (leios?.target?.networkKey === network && leios.readState) this.leiosStatus = staleLeios(leios)
+      }
+      return true
+    },
+    clearWalletValues() {
+      this.walletItems = this.walletItems.map(item => ({
+        ...item,
+        paymentAddrUtxoCount: null,
+        paymentAddrLovelace: null,
+        stakingAddrRegistered: null,
+        stakingAddrLovelace: null,
+        nativeAssetMap: null
+      }))
+    },
+
     invalidateNetworkObservations(networkKey: string) {
       this.networkInvalidations[networkKey] = (this.networkInvalidations[networkKey] ?? 0) + 1
       if (this.walletNetworkKey === networkKey) {
         this.chainStatusRequestId = null
-        this.walletItems = this.walletItems.map(item => ({
-          ...item,
-          paymentAddrUtxoCount: null,
-          paymentAddrLovelace: null,
-          stakingAddrRegistered: null,
-          stakingAddrLovelace: null,
-          nativeAssetMap: null
-        }))
+        this.clearWalletValues()
       }
       const leios = this.leiosStatus as LeiosStatusValue | null
       if (leios?.target?.networkKey === networkKey && leios.readState) this.leiosStatus = staleLeios(leios)
@@ -845,7 +908,9 @@ export const useJorManagerStore = defineStore('jormanager', {
       const leios = this.leiosStatus as LeiosStatusValue | null
       if (leios?.target?.networkKey) networks.add(leios.target.networkKey)
       networks.forEach(network => this.invalidateNetworkObservations(network))
-      this.networkReadStates = {}
+      this.networkReadStates = Object.fromEntries(
+        Object.entries(this.networkReadStates).map(([network, state]) => [network, { ...state, walletReady: false }])
+      )
       this.chainReadState = null
       this.chainStatusRequestId = null
       this.leiosStatusRequest = null
@@ -865,7 +930,6 @@ export const useJorManagerStore = defineStore('jormanager', {
 
 
     requestChainStatus(networkKey: string) {
-      this.chainReadState = null
       this.chainStatusRequestId = generateUUID()
       this.sendMessage('/jormanager/chainstatus', { requestId: this.chainStatusRequestId, networkKey })
     },

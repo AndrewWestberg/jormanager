@@ -132,7 +132,7 @@
           <label class="d-block mt-2">Spending password
             <input v-model="registrationPassword" class="form-control" type="password" autocomplete="current-password">
           </label>
-          <BButton class="mt-2" variant="success" :disabled="!registrationApproved || !registrationPassword || !!pending || reconcilingRegistration || !store.connected" @click="submitRegistration">Approve and submit</BButton>
+          <BButton class="mt-2" variant="success" :disabled="!registrationApproved || !registrationPassword || !!pending || reconcilingRegistration || registrationPreview.networkKey !== capabilities?.networkKey || !walletReady(registrationPreview.networkKey) || previewGeneration !== networkGeneration(registrationPreview.networkKey)" @click="submitRegistration">Approve and submit</BButton>
         </template>
         <BButton class="mt-2 ms-2" variant="secondary" :disabled="!!pending || registrationUncertain || reconcilingRegistration" @click="registrationPreview = null; registrationPassword = ''; registrationApproved = false">Close review</BButton>
       </div>
@@ -141,7 +141,7 @@
         <label class="d-block">Spending password for reconciliation
           <input v-model="reconciliationPassword" class="form-control" type="password" autocomplete="current-password">
         </label>
-        <BButton class="mt-2" variant="warning" :disabled="!reconciliationPassword || !!pending || reconcilingRegistration || !store.connected" @click="reconcileRegistration">Authorize reconciliation</BButton>
+        <BButton class="mt-2" variant="warning" :disabled="!reconciliationPassword || !!pending || reconcilingRegistration || !chainComplete(reconciliationReview.networkKey)" @click="reconcileRegistration">Authorize reconciliation</BButton>
       </div>
     </div>
     <div class="alert alert-warning mt-3">
@@ -243,6 +243,14 @@ const previewGeneration = ref<number | null>(null)
 function networkGeneration(networkKey: string) {
   return store.networkInvalidations[networkKey] ?? 0
 }
+function walletReady(networkKey: string) {
+  const state = store.networkReadStates[networkKey]
+  return store.connected && state?.networkKey === networkKey && state.walletReady === true
+}
+function chainComplete(networkKey: string) {
+  const state = store.networkReadStates[networkKey]
+  return store.connected && state?.networkKey === networkKey && state.status === 'complete'
+}
 watch(() => store.networkInvalidations, () => {
   const preview = registrationPreview.value
   if (preview && previewGeneration.value !== networkGeneration(preview.networkKey)) {
@@ -268,7 +276,7 @@ const reconciliationReview = computed(() => {
 })
 const canReviewRegistration = computed(() => !!node.value && store.connected && !pending.value && !registrationUncertain.value && !reconcilingRegistration.value &&
   ['dijkstra', 'conway'].includes(capabilities.value?.eraEvidence?.era ?? '') && capabilities.value?.eraEvidence?.freshness === 'current' &&
-  !!capabilities.value.networkKey && registrationPayer.value != null && !!registrationPassword.value &&
+  !!capabilities.value.networkKey && walletReady(capabilities.value.networkKey) && registrationPayer.value != null && !!registrationPassword.value &&
   (capabilities.value.eraEvidence.era === 'conway' || registrationAction.value === 'cancel' || registrationKeyId.value != null) &&
   (!node.value.isDraft || registrationAction.value !== 'register' ||
     (!!registrationMetadataUrl.value.trim() && /^[0-9a-fA-F]{64}$/.test(registrationMetadataHash.value.trim()))))
@@ -292,7 +300,8 @@ function reviewRegistration() {
 
 function submitRegistration() {
   const preview = registrationPreview.value
-  if (!preview || preview.state !== 'previewed' || !registrationApproved.value || !registrationPassword.value || pending.value || registrationUncertain.value || reconcilingRegistration.value || !store.connected) return
+  if (!preview || preview.state !== 'previewed' || !registrationApproved.value || !registrationPassword.value || pending.value || registrationUncertain.value || reconcilingRegistration.value ||
+      preview.networkKey !== capabilities.value?.networkKey || !walletReady(preview.networkKey) || previewGeneration.value !== networkGeneration(preview.networkKey)) return
   const requestId = generateUUID()
   store.leiosResponses = { ...store.leiosResponses, leios_registration_submitted: {} }
   pending.value = { type: 'leios_registration_submitted', requestId, networkKey: preview.networkKey, generation: networkGeneration(preview.networkKey) }
@@ -304,7 +313,7 @@ function submitRegistration() {
 
 async function reconcileRegistration() {
   const review = reconciliationReview.value
-  if (!review || !reconciliationPassword.value || pending.value || reconcilingRegistration.value || !store.connected) return
+  if (!review || !reconciliationPassword.value || pending.value || reconcilingRegistration.value || !chainComplete(review.networkKey)) return
   const generation = networkGeneration(review.networkKey)
   reconcilingRegistration.value = true
   registrationError.value = ''
@@ -419,7 +428,7 @@ watch(() => store.leiosResponses, responses => {
       refresh()
     } else if (pending.value.type === 'leios_registration_preview') {
       const review = response.data as RegistrationReview
-      if (pending.value.networkKey !== review.networkKey || pending.value.generation !== networkGeneration(review.networkKey)) {
+      if (pending.value.networkKey !== review.networkKey || pending.value.generation !== networkGeneration(review.networkKey) || !walletReady(review.networkKey)) {
         registrationError.value = 'Chain status changed during review. Request a new transaction review.'
       } else if (review.nodeId === props.nodeId && review.networkKey === capabilities.value?.networkKey && review.action === registrationAction.value &&
           review.feePayerAccountId === registrationPayer.value && (review.action === 'cancel' ||

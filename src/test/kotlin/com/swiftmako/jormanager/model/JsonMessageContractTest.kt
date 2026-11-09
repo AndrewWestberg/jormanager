@@ -25,13 +25,30 @@ class JsonMessageContractTest {
 
         val unavailableWallet = wallet.copy(paymentAddrUtxoCount = null, paymentAddrLovelace = null,
             stakingAddrRegistered = null, stakingAddrLovelace = null, nativeAssetMap = null)
-        val unavailable = requireNotNull(converter.toMessage(WalletResult(listOf(unavailableWallet), "network"), null))
-        val item = mapper.readTree(unavailable.payload as ByteArray)["items"][0]
+        val state = ChainReadState("network", "incomplete", null, null, null, false, Long.MAX_VALUE.toString())
+        val unavailable = requireNotNull(converter.toMessage(WalletResult(listOf(unavailableWallet), "network", state), null))
+        val result = mapper.readTree(unavailable.payload as ByteArray)
+        assertThat(result["networkKey"].stringValue()).isEqualTo("network")
+        assertThat(result["readState"]["networkKey"].stringValue()).isEqualTo("network")
+        assertThat(result["readState"]["generation"].stringValue()).isEqualTo("9223372036854775807")
+        assertThat(result["readState"]["walletReady"].booleanValue()).isFalse()
+        val item = result["items"][0]
         listOf("paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddrRegistered", "stakingAddrLovelace", "nativeAssetMap")
             .forEach { assertThat(item[it].isNull).isTrue() }
         assertThat(item.propertyNames()).containsExactly("id", "name", "type", "paymentAddr", "hasPaymentKeys",
             "paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddr", "stakingAddrRegistered",
             "stakingAddrLovelace", "nativeAssetMap")
+    }
+
+    @Test
+    fun followingCoverageCarriesReadinessAndExactGeneration() = withJson { mapper, converter ->
+        val state = ChainReadState("network", "syncing", null, null, null, true, Long.MAX_VALUE.toString())
+        val json = mapper.readTree(requireNotNull(converter.toMessage(state, null)).payload as ByteArray)
+        assertThat(json["walletReady"].booleanValue()).isTrue()
+        assertThat(json["generation"].isString).isTrue()
+        assertThat(json["generation"].stringValue()).isEqualTo("9223372036854775807")
+        assertThat(json["observedTip"].isNull).isTrue()
+        assertThat(json["lastCompletePoint"].isNull).isTrue()
     }
 
     @Test

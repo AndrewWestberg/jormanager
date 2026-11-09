@@ -16,7 +16,7 @@
           </BButton>
           <div>
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
-            <BButton v-if="!review" variant="primary" :disabled="reviewing || store.chainReadState?.status !== 'complete'" @click="reviewSend">{{ reviewing ? 'Preparing review…' : 'Review transaction' }}</BButton>
+            <BButton v-if="!review" variant="primary" :disabled="reviewing || !walletReady || !sourcesReady" @click="reviewSend">{{ reviewing ? 'Preparing review…' : 'Review transaction' }}</BButton>
           </div>
         </div>
       </template>
@@ -24,7 +24,7 @@
       <WalletReviewPanel v-if="review" :review="review" @close="review = null" @submitted="review = $event" />
       <div v-if="!review" class="alert alert-info" role="status">
         Amounts are provisional until the transaction is built. The reviewed fee, deposits and final effects are shown before authorization. Percentage amounts do not reserve transaction fees.
-        <span v-if="store.chainReadState?.status !== 'complete'"> Complete chain state is required to review.</span>
+        <span v-if="!walletReady"> Usable wallet coverage is required to review.</span>
       </div>
       <BForm v-if="!review" ref="sendAdaForm" @submit.stop.prevent>
         <fieldset :disabled="reviewing">
@@ -289,7 +289,7 @@ const reviewError = ref('')
 let reviewGeneration = 0
 
 async function reviewSend() {
-  if (reviewing.value || store.chainReadState?.status !== 'complete') return
+  if (reviewing.value || !walletReady.value || !sourcesReady.value) return
   if (!metadataState.value || formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) {
     reviewError.value = 'Complete all payment entries and correct any invalid metadata.'
     return
@@ -323,13 +323,10 @@ async function reviewSend() {
   }
 }
 const remainingLovelace = ref(0n)
-const fromWalletItem = ref<WalletItemRef>({
-  id: 0,
-  name: '',
-  paymentAddrLovelace: '0',
-  stakingAddrLovelace: '0',
-  nativeAssetMap: {}
-})
+const sourceNetworkKey = ref<string | null>(null)
+const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
+  store.walletNetworkKey === sourceNetworkKey.value &&
+  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.walletReady === true)
 
 const formSendAda = ref({
   fromId: null as number | null,
@@ -342,8 +339,17 @@ const formSendAda = ref({
   valid: false
 })
 
-// Multi-claim state
-const fromWalletItems = ref<WalletItemRef[]>([])
+const fromWalletItems = computed(() => formSendAda.value.fromIds
+  .map(id => walletItems.value.find(item => item.id === id))
+  .filter((item): item is NonNullable<typeof item> => item != null))
+const fromWalletItem = computed<WalletItemRef>(() => fromWalletItems.value[0] ?? {
+  id: 0, name: '', paymentAddrLovelace: null, stakingAddrLovelace: null, nativeAssetMap: null
+})
+const sourcesReady = computed(() => formSendAda.value.fromIds.length > 0 &&
+  fromWalletItems.value.length === formSendAda.value.fromIds.length &&
+  fromWalletItems.value.every(item => formSendAda.value.isClaim
+    ? item.stakingAddrLovelace !== null
+    : item.paymentAddrLovelace !== null && item.nativeAssetMap !== null))
 
 const metadataPlaceholder = `{
   "411": [
@@ -440,7 +446,7 @@ function clearFormSendAda() {
     metadataError: null,
     valid: false,
   }
-  fromWalletItems.value = []
+  sourceNetworkKey.value = null
   openIndex.value = 0
   metadataOpen.value = false
 }
@@ -459,7 +465,7 @@ function createEmptyToAccount(): ToAccount {
 
 function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
   clearFormSendAda()
-  fromWalletItem.value = walletItem
+  sourceNetworkKey.value = store.walletNetworkKey
   formSendAda.value.fromId = walletItem.id
   formSendAda.value.fromIds = [walletItem.id]
   formSendAda.value.isClaim = isClaim
@@ -470,9 +476,7 @@ function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
 
 function showMultiClaimModal(items: WalletItemRef[]) {
   clearFormSendAda()
-  fromWalletItems.value = items
-  // Use the first item as the primary for compatibility
-  fromWalletItem.value = items[0]
+  sourceNetworkKey.value = store.walletNetworkKey
   formSendAda.value.fromId = items[0].id
   formSendAda.value.fromIds = items.map(item => item.id)
   formSendAda.value.isClaim = true

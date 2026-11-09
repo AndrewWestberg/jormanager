@@ -1,4 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import { createBootstrap } from 'bootstrap-vue-next'
+import { library } from '@fortawesome/fontawesome-svg-core'
+import { fas } from '@fortawesome/free-solid-svg-icons'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import SendAdaModal from '@/components/SendAdaModal.vue'
+import { useJorManagerStore } from '@/stores/jormanager'
+import { emitter } from '@/composables/useEventBus'
+
+library.add(fas)
+afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks() })
 
 /**
  * Tests for SendAdaModal component methods.
@@ -571,5 +584,62 @@ describe('SendAdaModal component methods', () => {
       const ada = minUTxO / 1000000
       expect(ada).toBe(1)
     })
+  })
+})
+
+describe('SendAdaModal live wallet availability', () => {
+  it('updates an open source by id and revalidates the unchanged payment', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useJorManagerStore()
+    store.connected = true
+    store.walletNetworkKey = 'network'
+    store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
+    const source = { id: 1, name: 'Source', type: 'payment', paymentAddress: 'addr_source', paymentAddr: 'addr_source', hasPaymentKeys: true, stakingAddr: null, paymentAddrUtxoCount: 1, paymentAddrLovelace: '59800000', stakingAddrRegistered: false, stakingAddrLovelace: '0', nativeAssetMap: {} }
+    const destination = { ...source, id: 2, name: 'Destination', paymentAddress: 'addr_destination', paymentAddr: 'addr_destination' }
+    store.walletItems = [source, destination] as typeof store.walletItems
+    const review = vi.spyOn(store, 'reviewWallet').mockRejectedValue(new Error('review fixture'))
+    const wrapper = mount(SendAdaModal, {
+      attachTo: document.body,
+      global: { plugins: [pinia, createBootstrap()], components: { FontAwesomeIcon } }
+    })
+    emitter.emit('show-send-ada-modal', { walletItem: source, isClaim: false })
+    await flushPromises()
+    const modal = document.querySelector('#modal-send-ada') as HTMLElement
+    expect(modal.textContent).toContain('₳59.800000')
+    const account = modal.querySelectorAll('select')[1] as HTMLSelectElement
+    account.value = '2'
+    account.dispatchEvent(new Event('change', { bubbles: true }))
+    const amountRadio = modal.querySelector('input[value="amount"]') as HTMLInputElement
+    amountRadio.click()
+    await nextTick()
+    const amount = modal.querySelector('input[placeholder="e.g. 10.000000"]') as HTMLInputElement
+    amount.value = '55'
+    amount.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    store.chainReadState = { ...store.chainReadState!, status: 'syncing' }
+    store.walletItems = [{ ...source, paymentAddrLovelace: '49600000' }, destination] as typeof store.walletItems
+    await nextTick()
+    expect(modal.textContent).toContain('₳49.600000')
+    expect(amount.value).toBe('55')
+    const button = Array.from(modal.querySelectorAll('button')).find(item => item.textContent?.includes('Review transaction'))!
+    expect(button.disabled).toBe(false)
+    button.click()
+    await nextTick()
+    expect(review).not.toHaveBeenCalled()
+    expect(modal.textContent).toContain('Complete all payment entries')
+    amount.value = '10'
+    amount.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    button.click()
+    await flushPromises()
+    expect(review).toHaveBeenCalledWith('send', expect.objectContaining({
+      fromId: 1, toAccounts: [expect.objectContaining({ account: 2, amount: '10000000' })]
+    }))
+    store.chainReadState = { ...store.chainReadState!, walletReady: false, generation: '2' }
+    await nextTick()
+    expect(button.disabled).toBe(true)
+    expect(modal.textContent).toContain('Usable wallet coverage')
+    wrapper.unmount()
   })
 })

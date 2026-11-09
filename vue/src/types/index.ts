@@ -46,11 +46,19 @@ export interface WalletItem {
   nativeAssetMap: Record<string, string> | null
   [key: string]: unknown
 }
+export interface WalletResult {
+  items: WalletItem[]
+  networkKey: string
+  readState: ChainReadState
+}
+
 
 export interface ChainPoint { slot: string; hash: string }
 export interface ChainReadState {
   networkKey: string
   status: string
+  walletReady: boolean
+  generation: string
   reason: string | null
   observedTip: ChainPoint | null
   lastCompletePoint: ChainPoint | null
