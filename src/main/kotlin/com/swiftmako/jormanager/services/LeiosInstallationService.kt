@@ -12,7 +12,6 @@ import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.utils.CborSpans
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.model.LeiosInstallPreviewRequest
 import com.swiftmako.jormanager.model.LeiosInstallRequest
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
@@ -36,15 +35,14 @@ class LeiosInstallationService(
     private val installations: KeyInstallationRepository,
     private val walletUtils: WalletUtils,
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val jdbc: JdbcTemplate,
     private val json: ObjectMapper,
 ) {
-    data class Preview(val requestId: String, val previewId: String, val target: LeiosController.Target, val keyId: Long,
-        val publicFingerprint: String, val configurationFingerprint: String, val startupPath: String, val credentialPath: String,
-        val mode: String, val disruption: String, val backupPath: String)
-    data class Result(val requestId: String, val previewId: String, val target: LeiosController.Target, val keyId: Long,
-        val state: String, val installedFingerprint: String?, val loadedFingerprint: String?, val reason: String)
+    data class Result(val requestId: String, val target: LeiosController.Target, val keyId: Long,
+        val state: String, val installedFingerprint: String?, val loadedFingerprint: String?)
+    class InstallationFailure(message: String, val disposition: String) : IllegalStateException(message)
+    private data class Journal(val id: String, val nodeId: Long, val hostId: Long, val keyId: Long,
+        val installedFingerprint: String?, val intent: String, val state: String)
     private data class Context(val host: Host, val node: Node, val producer: Node, val key: LeiosVotingKey,
         val target: LeiosController.Target, val connection: HostConnection, val startup: String, val credential: String,
         val systemd: Boolean, val bulk: Boolean, val fingerprint: String)
@@ -71,8 +69,8 @@ class LeiosInstallationService(
         val key = requireNotNull(keys.findByIdOrNull(keyId))
         require(key.networkKey == network && key.poolId == pool && key.signingFileId != null)
         val era = eras.evidence(node)
-        require(era.freshness == "current" && era.era == "dijkstra" && era.source == "host:${host.id}/node:${node.id}")
-        require(capabilities.capability(host, node, "leios.key.install").status == "verified") { "Installation is not qualified" }
+        require(era.freshness == "current" && era.era == "dijkstra" && era.networkKey == network &&
+            era.source == "host:${host.id}/node:${node.id}")
         checkedPath(host.cardanoCliPath)
         val connection = HostConnection(host, producer)
         val folder = checkedPath("${host.nodeHomePath}/${producer.name}")
@@ -94,39 +92,50 @@ class LeiosInstallationService(
         return Context(host, node, producer, key, LeiosController.Target(target.hostId, target.nodeId, pool, network), connection,
             startup, credential, systemd, bulk, fingerprint)
     }
-    fun preview(request: LeiosInstallPreviewRequest): Preview {
-        require(request.requestId.isNotBlank())
-        val c = context(request.target, request.keyId)
-        val selected = digest(c.key.publicKey)
-        val prior = jdbc.query("SELECT id,node_id,host_id,key_id,configuration_fingerprint,installed_fingerprint,disruption,state FROM leios_install_previews WHERE request_id=?",
-            { rs, _ -> (1..8).map { rs.getString(it) } }, request.requestId).singleOrNull()
-        val id = if (prior == null) UUID.randomUUID().toString() else {
-            require(prior[1] == c.node.id.toString() && prior[2] == c.host.id.toString() && prior[3] == c.key.id.toString() &&
-                prior[4] == c.fingerprint && prior[5] == selected && prior[7] == "previewed") { "Earlier installation review is no longer valid" }
-            prior[0]
+    private fun journal(requestId: String): Journal? = jdbc.query(
+        "SELECT id,node_id,host_id,key_id,installed_fingerprint,disruption,state FROM leios_install_previews WHERE request_id=?",
+        { rs, _ -> Journal(rs.getString(1), rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getString(5), rs.getString(6), rs.getString(7)) },
+        requestId,
+    ).singleOrNull()
+
+    private fun recorded(request: LeiosInstallRequest, row: Journal): Result {
+        require(row.nodeId == request.target.nodeId && row.hostId == request.target.hostId && row.keyId == request.keyId &&
+            row.intent.startsWith("direct:")) { "Installation request ID belongs to another action" }
+        val intent = json.readTree(row.intent.removePrefix("direct:"))
+        fun value(index: Int): String? = if (intent[index].isNull) null else intent[index].asString()
+        require(value(0) == request.target.poolId && value(1) == request.target.networkKey) {
+            "Installation request ID belongs to another target"
         }
-        val backup = "${if (c.bulk) c.credential else c.startup}.jormanager-backup-$id"
-        val disruption = prior?.get(6) ?: "Changes ${if (c.bulk) "bulk credentials" else "producer startup and key file"}${if (c.systemd && !c.bulk) " and reloads systemd configuration" else ""}; the producer must be restarted manually to load it. No restart is performed."
-        if (prior == null) jdbc.update("INSERT INTO leios_install_previews(id,request_id,node_id,host_id,key_id,configuration_fingerprint,installed_fingerprint,disruption,created_at,state) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            id, request.requestId, c.node.id, c.host.id, c.key.id, c.fingerprint, selected, disruption, java.sql.Timestamp.from(Instant.now()), "previewed")
-        return Preview(request.requestId, id, c.target, request.keyId, selected, c.fingerprint, c.startup, c.credential,
-            if (c.bulk) "bulk" else if (c.systemd) "systemd" else "manual", disruption, backup)
+        val node = requireNotNull(nodes.findByIdOrNull(row.nodeId))
+        val host = requireNotNull(hosts.findByIdOrNull(row.hostId))
+        val key = requireNotNull(keys.findByIdOrNull(row.keyId))
+        require(!node.isDeleted && node.hostId == host.id && node.poolId == value(2) &&
+            key.poolId == value(2) && key.networkKey == value(3) && eras.networkKey(node) == value(3)) {
+            "Installation target has changed"
+        }
+        if (row.state != "installed") throw InstallationFailure(
+            "Installation outcome is uncertain; inspect the producer configuration before retrying", "wait")
+        return Result(request.requestId, LeiosController.Target(row.hostId, row.nodeId, value(2), value(3)),
+            row.keyId, "installed", row.installedFingerprint, null)
     }
+
     fun install(request: LeiosInstallRequest): Result {
-        require(request.requestId.isNotBlank() && request.approved && walletUtils.isValidSpendingPassword(request.spendingPassword))
+        require(request.requestId.isNotBlank() && walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Authorization required" }
+        journal(request.requestId)?.let { return recorded(request, it) }
         val c = context(request.target, request.keyId)
-        val rows = jdbc.query("SELECT node_id,host_id,key_id,configuration_fingerprint,installed_fingerprint,state FROM leios_install_previews WHERE id=?",
-            { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6)) }, request.previewId)
-        val reviewed = rows.singleOrNull() ?: throw IllegalArgumentException("Installation preview not found")
-        require(reviewed[0] == c.node.id.toString() && reviewed[1] == c.host.id.toString() && reviewed[2] == c.key.id.toString() &&
-            reviewed[3] == c.fingerprint && reviewed[4] == digest(c.key.publicKey) && reviewed[5] == "previewed") { "Installation preview is stale" }
         val secret = walletUtils.getSKeyContent(requireNotNull(files.findByIdOrNull(requireNotNull(c.key.signingFileId))), request.spendingPassword)
         val envelope = json.readTree(secret)
         require(envelope.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
-            envelope.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}")))
-        require(jdbc.update("UPDATE leios_install_previews SET state='installing' WHERE id=? AND state='previewed'", request.previewId) == 1)
+            envelope.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}"))) { "Invalid signing key" }
+        val id = UUID.randomUUID().toString()
+        val intent = "direct:" + json.writeValueAsString(listOf(request.target.poolId, request.target.networkKey, c.target.poolId, c.target.networkKey))
+        val inserted = jdbc.update("INSERT INTO leios_install_previews(id,request_id,node_id,host_id,key_id,configuration_fingerprint,installed_fingerprint,disruption,created_at,state) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (request_id) DO NOTHING",
+            id, request.requestId, c.node.id, c.host.id, c.key.id, c.fingerprint, digest(c.key.publicKey), intent, java.sql.Timestamp.from(Instant.now()), "prepared")
+        if (inserted == 0) return recorded(request, requireNotNull(journal(request.requestId)))
+        require(jdbc.update("UPDATE leios_install_previews SET state='installing' WHERE id=? AND state='prepared'", id) == 1)
+        var writesStarted = false
         try {
-            require(context(request.target, request.keyId).fingerprint == c.fingerprint) { "Installation preview is stale" }
+            require(context(request.target, request.keyId).fingerprint == c.fingerprint) { "Installation target configuration changed" }
             val verifyKey = "/tmp/jormanager-leios-verify-${UUID.randomUUID()}"
             val verifyPublic = "$verifyKey.vkey"
             try {
@@ -134,7 +143,7 @@ class LeiosInstallationService(
                 c.connection.command(listOf(c.host.cardanoCliPath, "dijkstra", "key", "verification-key", "--signing-key-file", verifyKey, "--verification-key-file", verifyPublic))
                 val hex = json.readTree(c.connection.command(listOf("cat", verifyPublic))).path("cborHex").asString()
                 require(hex.matches(Regex("[0-9a-fA-F]+")) && hex.length % 2 == 0)
-                require(CborSpans.parse(hex.hexToByteArray()).payload().contentEquals(c.key.publicKey)) { "Signing key no longer matches the reviewed public key" }
+                require(CborSpans.parse(hex.hexToByteArray()).payload().contentEquals(c.key.publicKey)) { "Signing key does not match the selected public key" }
             } finally {
                 c.connection.command(listOf("rm", "-f", verifyKey, verifyPublic))
             }
@@ -170,7 +179,8 @@ class LeiosInstallationService(
                 val oldStage = "/tmp/jormanager-leios-backup-${UUID.randomUUID()}"
                 try {
                     connection.commandWriteSecret(oldStage, oldContent)
-                    connection.command(listOf("cp", oldStage, "${c.credential}.jormanager-backup-${request.previewId}"))
+                    writesStarted = true
+                    connection.command(listOf("cp", oldStage, "${c.credential}.jormanager-backup-$id"))
                 } finally { connection.command(listOf("rm", "-f", oldStage)) }
                 json.writeValueAsString(existing)
             } else secret
@@ -178,6 +188,7 @@ class LeiosInstallationService(
             val adjacent = "${c.credential}.jormanager-stage-${UUID.randomUUID()}"
             try {
                 connection.commandWriteSecret(staged, content)
+                writesStarted = true
                 connection.command(listOf("cp", staged, adjacent))
                 connection.command(listOf("chmod", "600", adjacent))
                 connection.command(listOf("mv", "-f", adjacent, c.credential))
@@ -191,7 +202,7 @@ class LeiosInstallationService(
                 } else original.replace("--shelley-operational-certificate", "--shelley-bls-key ${c.credential} \\\n  --shelley-operational-certificate")
                 require(replacement.contains("--shelley-bls-key ${c.credential}"))
                 val temp = "/tmp/jormanager-leios-startup-${UUID.randomUUID()}"
-                val backup = "${c.startup}.jormanager-backup-${request.previewId}"
+                val backup = "${c.startup}.jormanager-backup-$id"
                 val adjacentStartup = "${c.startup}.jormanager-stage-${UUID.randomUUID()}"
                 try {
                     connection.commandWriteSecret(temp, replacement)
@@ -209,7 +220,7 @@ class LeiosInstallationService(
                 } finally { connection.command(listOf("rm", "-f", temp)) }
             }
             val actualHash = hashFile(connection, c.credential)
-            require(actualHash == digest(content.toByteArray())) { "Installed credential differs from reviewed key material" }
+            require(actualHash == digest(content.toByteArray())) { "Installed credential differs from selected key material" }
             val ownerMode = connection.command(listOf("stat", "-c", "%U:%a", c.credential)).trim()
             val owner = connection.command(listOf("id", "-un")).trim()
             require(ownerMode == "$owner:600") { "Installed credential ownership or permissions are incorrect" }
@@ -217,14 +228,17 @@ class LeiosInstallationService(
             installations.save(KeyInstallation(keyId = request.keyId, nodeId = request.target.nodeId, hostId = request.target.hostId,
                 configurationFingerprint = c.fingerprint, installedFingerprint = publicFingerprint, permissionResult = ownerMode,
                 state = "installed", observedAt = Instant.now()))
-            jdbc.update("UPDATE leios_install_previews SET state='installed' WHERE id=?", request.previewId)
-            return Result(request.requestId, request.previewId, c.target, request.keyId, "installed", publicFingerprint, null,
-                "Producer restart is required; actual loaded key is not observable by the qualified interface")
+            jdbc.update("UPDATE leios_install_previews SET state='installed' WHERE id=?", id)
+            return Result(request.requestId, c.target, request.keyId, "installed", publicFingerprint, null)
         } catch (error: Exception) {
-            jdbc.update("UPDATE leios_install_previews SET state='failed' WHERE id=?", request.previewId)
+            jdbc.update("UPDATE leios_install_previews SET state='failed' WHERE id=?", id)
+            val safeReasons = setOf("Installation target configuration changed", "Signing key does not match the selected public key",
+                "Cannot identify the target pool in bulk credentials", "Installed credential differs from selected key material",
+                "Installed credential ownership or permissions are incorrect")
+            val reason = error.message?.takeIf { it in safeReasons } ?: "Installation failed; inspect the producer configuration before retrying"
             installations.save(KeyInstallation(keyId = request.keyId, nodeId = request.target.nodeId, hostId = request.target.hostId,
-                configurationFingerprint = c.fingerprint, state = "failed", observedAt = Instant.now(), sanitizedError = "Installation failed; inspect the producer configuration before retrying"))
-            throw IllegalStateException("Installation failed; inspect the producer configuration before retrying")
+                configurationFingerprint = c.fingerprint, state = "failed", observedAt = Instant.now(), sanitizedError = reason))
+            throw InstallationFailure(reason, if (writesStarted) "wait" else "retry")
         }
     }
 }

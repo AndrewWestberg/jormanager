@@ -16,7 +16,7 @@ sealed class SocketResponse<out T : Any> {
                 code = exception.javaClass.simpleName,
                 message = "Operation failed; inspect the protected server diagnostics.",
                 operation = type,
-                retryDisposition = "review",
+                retryDisposition = "retry",
             ),
         )
     }

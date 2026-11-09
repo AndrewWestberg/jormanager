@@ -138,4 +138,46 @@ class WalletTransactionBuilderTest {
         assertThrows<IllegalArgumentException> { f.build() }
         assertEquals(16, f.builds.size)
     }
+
+    @Test fun feeDependentFullSendUsesSameBodyAsFixedSubmission() {
+        val estimate = Fixture()
+        estimate.builder.build(estimate.host, estimate.connection, "babbage", listOf(input()), emptyList(), "change",
+            protocolParameters = estimate.params, protocolPath = "params", witnessCount = 1, bodyPath = "body",
+            referenceScriptSize = 123, outputsForFee = { fee -> listOf(WalletTransactionBuilder.Output("recipient", n(100_000_000) - fee)) })
+        assertEquals(listOf("recipient+99800000"), estimate.finalOutputs())
+        assertEquals("123", estimate.commands.last { it[3] == "calculate-min-fee" }.let { it[it.indexOf("--reference-script-size") + 1] })
+        val actual = Fixture()
+        actual.build(outputs = listOf(output(99_800_000)))
+        assertEquals(actual.finalOutputs(), estimate.finalOutputs())
+    }
+
+    @Test fun feeDependentSendRetainsNativeAssetsAndMatchesFixedSubmission() {
+        val token = NativeAsset("01", policy, n(9))
+        val estimate = Fixture()
+        estimate.builder.build(estimate.host, estimate.connection, "babbage", listOf(input(100_000_000, listOf(token))),
+            emptyList(), "change", protocolParameters = estimate.params, protocolPath = "params",
+            witnessCount = 1, bodyPath = "body", outputsForFee = { fee ->
+                listOf(WalletTransactionBuilder.Output("recipient", n(99_000_000) - fee, listOf(token.copy(amount = n(4)))))
+            })
+        assertEquals(listOf("recipient+98800000+4 $policy.01", "change+1000000+5 $policy.01"), estimate.finalOutputs())
+        val actual = Fixture()
+        actual.build(inputs = listOf(input(100_000_000, listOf(token))), outputs = listOf(output(98_800_000, listOf(token.copy(amount = n(4))))))
+        assertEquals(actual.finalOutputs(), estimate.finalOutputs())
+    }
+
+    @Test fun multiClaimAndLargeFixedAmountsUseIdenticalFeeAccounting() {
+        val inputValue = 9_007_199_254_900_000L
+        val reward = 4_000_000L
+        val destination = output(2_000_000)
+        val estimate = Fixture()
+        estimate.builder.build(estimate.host, estimate.connection, "babbage", listOf(input(inputValue)),
+            emptyList(), "change", withdrawals = n(reward), extraArgs = listOf("--withdrawal", "stake1+2000000", "--withdrawal", "stake2+2000000"),
+            validUntil = 21700, protocolParameters = estimate.params, protocolPath = "params", witnessCount = 3,
+            bodyPath = "body", outputsForFee = { listOf(destination) })
+        val actual = Fixture()
+        actual.build(inputs = listOf(input(inputValue)), outputs = listOf(destination), withdrawal = reward,
+            witnesses = 3, extra = listOf("--withdrawal", "stake1+2000000", "--withdrawal", "stake2+2000000"), validUntil = 21700)
+        assertEquals(actual.finalOutputs(), estimate.finalOutputs())
+        assertEquals("3", estimate.commands.last { it[3] == "calculate-min-fee" }.let { it[it.indexOf("--witness-count") + 1] })
+    }
 }

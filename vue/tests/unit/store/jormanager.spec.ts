@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useJorManagerStore } from '@/stores/jormanager'
+import Stomp, { type Client } from 'webstomp-client'
+
+vi.mock('sockjs-client', () => ({ default: vi.fn() }))
 
 describe('store/jormanager - getters', () => {
   beforeEach(() => {
@@ -526,5 +529,129 @@ describe('wallet coverage availability', () => {
     expect(store.toastError?.message).toBe('Database failed')
     wallet()
     expect(store.walletItems).toEqual([{ ...identity, ...available }])
+  })
+})
+
+describe('direct transaction requests', () => {
+  const id = '12345678-1234-4234-8234-123456789abc'
+  const result = {
+    requestId: id, txId: 'tx', networkKey: 'network', era: 'Conway',
+    fee: '170000', deposit: '0', refund: '0', state: 'submitted'
+  }
+
+  function setup() {
+    setActivePinia(createPinia())
+    const store = useJorManagerStore()
+    store.stompClient = { connected: true } as typeof store.stompClient
+    store.walletNetworkKey = 'network'
+    const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+    return { store, send }
+  }
+
+  it('sends one direct wallet action and correlates its response', async () => {
+    const { store, send } = setup()
+    const request = { fromId: 1, txFee: '170000' }
+    const pending = store.submitWallet(id, 'send', request, 'secret')
+    expect(send).toHaveBeenCalledWith('/jormanager/walletsubmit', { requestId: id, kind: 'send', request, spendingPassword: 'secret' })
+    await expect(store.submitWallet(id, 'send', request, 'secret')).rejects.toThrow('already in flight')
+    store.handleMessage({ type: 'governancesubmit', data: result })
+    store.handleMessage({ type: 'walletsubmit', data: { ...result, requestId: 'another' } })
+    expect(send).toHaveBeenCalledTimes(1)
+    store.handleMessage({ type: 'walletsubmit', data: result })
+    await expect(pending).resolves.toEqual(result)
+  })
+
+  it('sends governance directly and preserves a public failure code', async () => {
+    const { store, send } = setup()
+    const request = { govActionId: 'action', votes: [], feesAccountId: 1 }
+    const pending = store.submitGovernance(id, request, 'secret')
+    expect(send).toHaveBeenCalledWith('/jormanager/governancesubmit', { requestId: id, request, spendingPassword: 'secret' })
+    store.handleMessage({ type: 'governancesubmit', exception: { requestId: id, message: 'Fee changed', code: 'FEE_CHANGED' } })
+    await expect(pending).rejects.toMatchObject({ message: 'Fee changed', code: 'FEE_CHANGED' })
+  })
+
+  it('rejects invalid identifiers and mismatched targets without dispatching twice', async () => {
+    const { store, send } = setup()
+    await expect(store.submitWallet('bad', 'send', {}, 'secret')).rejects.toThrow('Invalid request ID')
+    expect(send).not.toHaveBeenCalled()
+    const pending = store.socketRequest('/jormanager/pool/retirement/submit', 'pool_retirement_submit', { requestId: id, nodeId: 5 })
+    store.handleMessage({ type: 'pool_retirement_submit', data: { ...result, nodeId: 6 } })
+    await expect(pending).rejects.toThrow('target')
+    const wallet = store.submitWallet(id, 'send', {}, 'secret')
+    store.handleMessage({ type: 'walletsubmit', data: { ...result, networkKey: 'other' } })
+    await expect(wallet).rejects.toThrow('target')
+  })
+
+  it('times out without retrying and permits a later explicit request with the same ID', async () => {
+    vi.useFakeTimers()
+    try {
+      const { store, send } = setup()
+      const pending = store.submitWallet(id, 'send', {}, 'secret')
+      const rejected = expect(pending).rejects.toThrow('outcome may be uncertain')
+      await vi.advanceTimersByTimeAsync(60000)
+      await rejected
+      expect(send).toHaveBeenCalledTimes(1)
+      const retry = store.submitWallet(id, 'send', {}, 'secret')
+      expect(send).toHaveBeenCalledTimes(2)
+      store.handleMessage({ type: 'walletsubmit', data: result })
+      await expect(retry).resolves.toEqual(result)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects pending requests on disconnect without replaying them', async () => {
+    const { store, send } = setup()
+    let disconnected: (error: unknown) => void = () => {}
+    const client = {
+      connected: true,
+      connect: (_headers: unknown, _success: unknown, failure: (error: unknown) => void) => { disconnected = failure }
+    }
+    const over = vi.spyOn(Stomp, 'over').mockReturnValue(client as unknown as Client)
+    try {
+      store.connectToServer()
+      const pending = store.submitWallet(id, 'send', {}, 'secret')
+      const rejected = expect(pending).rejects.toThrow('Disconnected')
+      disconnected(new Error('connection lost'))
+      await rejected
+      expect(store.connected).toBe(false)
+      expect(send).toHaveBeenCalledTimes(1)
+    } finally {
+      over.mockRestore()
+    }
+  })
+
+  it('does not dispatch while disconnected', async () => {
+    const { store, send } = setup()
+    store.stompClient = null
+    await expect(store.submitWallet(id, 'send', {}, 'secret')).rejects.toThrow('Not connected')
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('fee estimates', () => {
+  it('accepts only matching exact fee responses for the current target and generation', () => {
+    setActivePinia(createPinia())
+    const store = useJorManagerStore()
+    store.connected = true
+    store.walletNetworkKey = 'network'
+    store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
+    const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+    store.calculateSendAdaFees({ uuid: 'first' })
+    store.calculateSendAdaFees({ uuid: 'second' })
+    const data = { uuid: 'first', txFee: '9007199254740999', tokenKeepFee: '0', tokenLocked: '0', tokenFees: ['123'] }
+    store.handleMessage({ type: 'calculatefee', data })
+    expect(store.responseFeesUUID).toBe('')
+    store.chainReadState = { ...store.chainReadState, generation: '2' }
+    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second' } })
+    expect(store.responseFeesUUID).toBe('')
+    store.calculateSendAdaFees({ uuid: 'third' })
+    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'third' } })
+    expect(store.txFee).toBe('9007199254740999')
+    expect(store.responseFeesUUID).toBe('third')
+    expect(send).toHaveBeenCalledTimes(3)
+    store.invalidateSendAdaFees()
+    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'third' } })
+    expect(store.responseFeesUUID).toBe('')
   })
 })

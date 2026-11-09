@@ -14,6 +14,8 @@ data class ToAccountFeeRequest(
     val address: String,
     @param:Json(name = "amount")
     val amount: BigInteger?,
+    @param:Json(name = "percent")
+    val percent: Int? = null,
 ) {
     val isAddress by lazy { account < 0 && address.isNotBlank() }
 }

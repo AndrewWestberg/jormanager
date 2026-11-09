@@ -21,17 +21,19 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
         changeAddress: String, withdrawals: BigInteger = BigInteger.ZERO, deposits: BigInteger = BigInteger.ZERO,
         refunds: BigInteger = BigInteger.ZERO, extraArgs: List<String> = emptyList(), validFrom: Long? = null,
         validUntil: Long? = null, protocolParameters: String, protocolPath: String, witnessCount: Int, bodyPath: String,
+        referenceScriptSize: Long = 0,
+        outputsForFee: ((BigInteger) -> List<Output>)? = null,
     ): ReviewedWalletOperations.CliBody {
         val eraNumber = QueryTip(era).eraNumber
         require(eraNumber in QueryTip.ERA_SHELLEY..QueryTip.ERA_DIJKSTRA) { "Unsupported transaction era" }
         require(inputs.isNotEmpty() && witnessCount > 0 && changeAddress.isNotBlank()) { "Invalid transaction inputs or witnesses" }
+        require(referenceScriptSize >= 0) { "Invalid reference script size" }
         require(listOf(withdrawals, deposits, refunds).all { it.signum() >= 0 }) { "Invalid transaction balance" }
         require(validFrom == null || validFrom >= 0)
         require(validUntil == null || validUntil >= 0)
         require(validFrom == null || validUntil == null || validFrom <= validUntil)
         require(inputs.all { it.hash.matches(Regex("[0-9a-fA-F]{64}")) && it.ix in 0..65535 && it.lovelace.signum() >= 0 }) { "Invalid input" }
         require(inputs.map { it.hash.lowercase() to it.ix }.toSet().size == inputs.size) { "Duplicate transaction input" }
-        require(outputs.all { it.address.isNotBlank() && it.lovelace.signum() >= 0 }) { "Invalid output" }
 
         fun addAssets(target: MutableMap<Pair<String, String>, BigInteger>, assets: List<NativeAsset>, sign: Int) {
             val seen = HashSet<Pair<String, String>>()
@@ -42,13 +44,6 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
                 target[key] = (target[key] ?: BigInteger.ZERO) + asset.amount * BigInteger.valueOf(sign.toLong())
             }
         }
-        val assets = sortedMapOf<Pair<String, String>, BigInteger>(compareBy({ it.first }, { it.second }))
-        inputs.forEach { addAssets(assets, it.nativeAssets, 1) }
-        outputs.forEach { addAssets(assets, it.nativeAssets, -1) }
-        require(assets.values.all { it.signum() >= 0 }) { "Insufficient native assets" }
-        val changeAssets = assets.filterValues { it.signum() > 0 }.map { (key, amount) -> NativeAsset(key.second, key.first, amount) }
-        val available = inputs.fold(withdrawals + refunds - deposits) { sum, input -> sum + input.lovelace } - outputs.fold(BigInteger.ZERO) { sum, output -> sum + output.lovelace }
-        require(available.signum() >= 0) { "Insufficient funds; reduce the requested amount or add funds" }
         val parameters = json.readTree(protocolParameters)
         fun limit(name: String, required: Boolean): BigInteger? {
             val node = parameters.path(name)
@@ -71,12 +66,33 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
             return requireNotNull(token) { "Invalid CLI amount" }.toBigInteger()
         }
         fun minimum(output: Output): BigInteger = amount(command("calculate-min-required-utxo", "--protocol-params-file", protocolPath, "--tx-out", outputArg(output)))
-        outputs.forEach { require(it.lovelace >= minimum(it)) { "Recipient output is below minimum ADA" } }
         var fee = BigInteger.ZERO
         repeat(16) {
-            val change = available - fee
+            val currentOutputs = outputsForFee?.invoke(fee) ?: outputs
+            require(currentOutputs.all { it.address.isNotBlank() && it.lovelace.signum() >= 0 }) { "Invalid output" }
+            val assets = sortedMapOf<Pair<String, String>, BigInteger>(compareBy({ it.first }, { it.second }))
+            inputs.forEach { addAssets(assets, it.nativeAssets, 1) }
+            currentOutputs.forEach { addAssets(assets, it.nativeAssets, -1) }
+            require(assets.values.all { it.signum() >= 0 }) { "Insufficient native assets" }
+            val changeAssets = assets.filterValues { it.signum() > 0 }.map { (key, amount) -> NativeAsset(key.second, key.first, amount) }
+            val available = inputs.fold(withdrawals + refunds - deposits) { sum, input -> sum + input.lovelace } -
+                currentOutputs.fold(BigInteger.ZERO) { sum, output -> sum + output.lovelace }
+            require(available.signum() >= 0) { "Insufficient funds; reduce the requested amount or add funds" }
+            currentOutputs.forEach { require(it.lovelace >= minimum(it)) { "Recipient output is below minimum ADA" } }
+            var change = available - fee
             require(change.signum() >= 0) { "Insufficient funds for fee; reduce the requested amount or add funds" }
-            val finalOutputs = outputs.toMutableList()
+            var exactChange = false
+            if (outputsForFee == null && (change.signum() > 0 || changeAssets.isNotEmpty())) {
+                val minChange = minimum(Output(changeAddress, change, changeAssets))
+                if (change < minChange) {
+                    val retained = if (changeAssets.isEmpty()) BigInteger.ZERO else minChange
+                    require(available >= retained) { "Insufficient change ADA; reduce the requested amount or add funds" }
+                    fee = available - retained
+                    change = retained
+                    exactChange = true
+                }
+            }
+            val finalOutputs = currentOutputs.toMutableList()
             if (change.signum() != 0 || changeAssets.isNotEmpty()) {
                 val output = Output(changeAddress, change, changeAssets)
                 finalOutputs.add(output)
@@ -90,7 +106,8 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
             args += listOf("--fee", fee.toString(), "--out-file", bodyPath)
             command(*args.toTypedArray())
             val requiredFee = amount(command("calculate-min-fee", "--tx-body-file", bodyPath, "--protocol-params-file", protocolPath,
-                "--witness-count", witnessCount.toString(), "--byron-witness-count", "0", "--reference-script-size", "0", "--output-text"))
+                "--witness-count", witnessCount.toString(), "--byron-witness-count", "0", "--reference-script-size", referenceScriptSize.toString(), "--output-text"))
+            if (exactChange) require(requiredFee == fee) { "Insufficient change ADA; reduce the requested amount or add funds" }
             if (requiredFee <= fee) {
                 val text = connection.commandReadFile(bodyPath)
                 val cbor = json.readTree(text).path("cborHex").asString()

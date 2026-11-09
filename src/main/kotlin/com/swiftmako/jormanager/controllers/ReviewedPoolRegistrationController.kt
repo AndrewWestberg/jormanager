@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.entities.AuthorizedOperation
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.SocketResponse
+import com.swiftmako.jormanager.model.Metadata
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.repositories.AuthorizedOperationRepository
@@ -18,7 +19,6 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
-import com.swiftmako.jormanager.services.CardanoCapabilities
 import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.PoolRegistrationCertificateBuilder
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
@@ -42,7 +42,6 @@ class ReviewedPoolRegistrationController(
     private val files: FileRepository,
     private val wallets: WalletRepository,
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val snapshots: ProtocolSnapshotRepository,
     private val walletUtils: WalletUtils,
     private val certificates: PoolRegistrationCertificateBuilder,
@@ -50,19 +49,16 @@ class ReviewedPoolRegistrationController(
     private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
     private val jdbc: JdbcTemplate,
+    private val nodeController: NodeController,
 ) {
-    data class PreviewRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long,
-        val keyId: Long? = null, val action: String, val spendingPassword: String, val changes: JsonNode? = null) {
-        override fun toString() = "PreviewRequest(requestId=$requestId, nodeId=$nodeId, feePayerAccountId=$feePayerAccountId, keyId=$keyId, action=$action, spendingPassword='********')"
+    data class SubmitRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long,
+        val keyId: Long? = null, val action: String, val changes: JsonNode? = null,
+        val metadata: Metadata? = null, val spendingPassword: String) {
+        override fun toString() = "SubmitRequest(requestId=$requestId, nodeId=$nodeId, action=$action, spendingPassword='********')"
     }
-    data class SubmitRequest(val requestId: String, val previewId: String, val spendingPassword: String, val approved: Boolean) {
-        override fun toString() = "SubmitRequest(requestId=$requestId, previewId=$previewId, spendingPassword='********', approved=$approved)"
-    }
-    data class Result(val requestId: String, val previewId: String, val txId: String, val networkKey: String, val era: String,
-        val nodeId: Long, val observerNodeId: Long, val hostId: Long, val feePayerAccountId: Long,
-        val fee: String, val deposit: String, val refund: String, val validFrom: String?, val validUntil: String?,
-        val state: String, val poolState: JsonNode, val action: String, val keyId: Long?, val targetPublicKey: String?,
-        val changes: JsonNode, val effects: JsonNode, val parameterFingerprint: String, val stateFingerprint: String)
+    data class Result(val requestId: String, val txId: String, val networkKey: String, val era: String,
+        val nodeId: Long, val fee: String, val deposit: String, val refund: String, val state: String,
+        val action: String, val keyId: Long?)
     private data class Target(val observer: Node, val pool: Node, val host: Host, val connection: HostConnection,
         val era: String, val network: List<String>, val magic: String, val socket: String)
     private data class Observation(val parameters: String, val snapshot: PendingWalletState.Snapshot, val poolState: JsonNode,
@@ -97,11 +93,16 @@ class ReviewedPoolRegistrationController(
     private fun query(t: Target, vararg args: String): String = cmd(t,
         listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
             listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json"))
+    private fun expiry(t: Target): Long {
+        val tip = json.readTree(query(t, "tip"))
+        val slot = tip.path("slot")
+        require(slot.isIntegralNumber && slot.canConvertToLong() && slot.asLong() >= 0 &&
+            tip.path("era").asString().equals(t.era, true) && tip.path("hash").asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Current slot unavailable" }
+        return Math.addExact(slot.asLong(), 21600L)
+    }
     private fun operation(action: String) = if (action == "register") "pool.register" else "pool.update"
     private fun observe(t: Target, payerId: Long, action: String, payload: String, stakeIds: List<Long> = emptyList(),
         excludingOperationId: String? = null): Observation {
-        val op = operation(action)
-        capabilities.requireOperation(t.host, t.observer, op)
         val payer = requireNotNull(wallets.findByIdOrNull(payerId)) { "Fee payer not found" }
         require(!payer.deleted && payer.paymentSkey != null) { "Fee payer cannot sign" }
         val parameters = snapshots.query(t.host, t.observer, t.connection, t.era, t.magic, t.socket)
@@ -157,18 +158,15 @@ class ReviewedPoolRegistrationController(
         val e = eras.evidence(t.observer)
         check(e.freshness == "current" && e.era == t.era && e.source == "host:${t.host.id}/node:${t.observer.id}") { "Current era unavailable" }
         return Observation(parameters, snapshot, poolState, stakeStates, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
-            digest("${e.networkKey}|${e.era}|${e.generation}|$op|${t.host.id}|${t.observer.id}"), snapshot.readState.generation))
+            digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, t.host.id, t.observer.id))), snapshot.readState.generation))
     }
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     private fun result(record: AuthorizedOperation, requestId: String): Result {
         val p = json.readTree(record.requestPayload)
-        return Result(requestId, record.previewId, record.txId, record.networkKey, record.era, p.path("nodeId").asLong(),
-            record.nodeId, record.hostId, p.path("feePayerAccountId").asLong(), record.fee.toString(), record.deposit.toString(),
-            record.refund.toString(), record.validFrom?.toString(), record.validUntil?.toString(), record.state,
-            p.path("poolState"), p.path("action").asString(), p.path("keyId").takeIf { it.isIntegralNumber }?.asLong(),
-            p.path("targetPublicKey").takeIf { it.isString }?.asString(), p.path("changes"), p.path("effects"),
-            record.parameterFingerprint, record.stateFingerprint)
+        return Result(requestId, record.txId, record.networkKey, record.era, p.path("nodeId").asLong(),
+            record.fee.toString(), record.deposit.toString(), record.refund.toString(), record.state,
+            p.path("action").asString(), p.path("keyId").takeIf { it.isIntegralNumber }?.asLong())
     }
     private fun ensureNoPending(t: Target, requestId: String) {
         val pending = jdbc.query("SELECT id,request_payload FROM authorized_operations WHERE network_key=? AND operation IN ('pool.register','pool.update','pool.retire') AND state IN ('signing','submission_uncertain','submitted','rolled_back')",
@@ -178,29 +176,77 @@ class ReviewedPoolRegistrationController(
             id != requestId && (p.path("nodeId").asLong(-1) == t.pool.id ||
                 p.path("poolId").asString().isNotEmpty() && p.path("poolId").asString().equals(t.pool.poolId, true))
         }) {
-            "A pool operation needs reconciliation before another authorization"
+            "Another pool operation is pending"
         }
     }
-    @MessageMapping("/leios/registration/preview")
-    @SendTo("/topic/messages")
-    fun previewMessage(input: PreviewRequest): SocketResponse<Result> = try {
-        SocketResponse.Success("leios_registration_preview", preview(input))
-    } catch (e: Exception) {
-        SocketResponse.Error("leios_registration_preview", SocketResponse.PublicFailure(e.javaClass.simpleName,
-            "Pool registration review failed; inspect protected server diagnostics.", "leios_registration_preview", "review", input.requestId))
+    private fun intent(input: SubmitRequest): JsonNode {
+        val metadata = input.metadata
+        val itn = metadata?.extended?.itn
+        val sanitized = metadata?.copy(extended = metadata.extended?.copy(itn = itn?.copy(privateKey = null)))
+        return json.readTree(json.writeValueAsString(mapOf("nodeId" to input.nodeId,
+            "feePayerAccountId" to input.feePayerAccountId, "keyId" to input.keyId,
+            "action" to input.action, "changes" to input.changes, "metadata" to sanitized,
+            "itnPrivateKeyFingerprint" to itn?.privateKey?.let(::digest))))
     }
-    private fun preview(input: PreviewRequest): Result {
+
+    @Synchronized
+    fun execute(input: SubmitRequest): Result {
+        require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
         UUID.fromString(input.requestId)
         require(input.action in setOf("register", "rotate", "cancel", "update")) { "Unsupported pool action" }
-        require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
+        require(input.changes == null || input.changes.isObject) { "Invalid pool changes" }
+        require(input.changes?.has("metadata") != true) { "Client metadata anchors are not accepted" }
+        require(input.changes == null || input.changes.propertyNames().all {
+            it in setOf("pledge", "cost", "margin", "relays", "ownerAccountIds", "rewardAccountId")
+        }) { "Invalid pool changes" }
+        input.changes?.let { changes ->
+            listOf("pledge", "cost").forEach { name ->
+                changes.get(name)?.let { require(it.asString().matches(Regex("0|[1-9][0-9]*"))) { "Invalid pool amount" } }
+            }
+            changes.get("ownerAccountIds")?.let {
+                require(it.isArray && it.size() > 0 && it.all { id -> id.isIntegralNumber && id.canConvertToLong() && id.asLong() > 0 } &&
+                    it.values().map { id -> id.asLong() }.distinct().size == it.size()) { "Invalid pool owners" }
+            }
+            changes.get("rewardAccountId")?.let {
+                require(it.isIntegralNumber && it.canConvertToLong() && it.asLong() > 0) { "Invalid reward account" }
+            }
+            changes.get("relays")?.let { require(it.isArray || it.isNull) { "Invalid pool relays" } }
+            changes.get("margin")?.let { require(it.isObject || it.isNumber || it.isString) { "Invalid pool margin" } }
+        }
         val existing = operations.findById(input.requestId).orElse(null)
         if (existing != null) {
-            val p = json.readTree(existing.requestPayload)
-            check(p.path("nodeId").asLong() == input.nodeId && p.path("feePayerAccountId").asLong() == input.feePayerAccountId &&
-                p.path("action").asString() == input.action && p.path("keyId").takeIf { it.isIntegralNumber }?.asLong() == input.keyId &&
-                p.path("changes") == (input.changes ?: json.nodeFactory.nullNode())) { "Request ID already used" }
-            return result(existing, input.requestId)
+            check(existing.operation == operation(input.action) && json.readTree(existing.requestPayload).path("intent") == intent(input)) {
+                "Request ID already used"
+            }
+            if (existing.state != "previewed") {
+                persistPublication(existing)
+                return result(existing, input.requestId)
+            }
+            val saved = submit(input, existing)
+            persistPublication(saved)
+            return result(saved, input.requestId)
         }
+        val prepared = preview(input)
+        val record = requireNotNull(operations.findById(prepared.requestId).orElse(null))
+        check(record.operation == operation(input.action) && json.readTree(record.requestPayload).path("intent") == intent(input)) { "Request ID already used" }
+        val saved = if (record.state == "previewed") submit(input, record) else record
+        persistPublication(saved)
+        return result(saved, input.requestId)
+    }
+
+    private fun persistPublication(record: AuthorizedOperation) {
+        if (record.state !in setOf("submitted", "confirmed")) return
+        val p = json.readTree(record.requestPayload)
+        val publication = p.path("publication")
+        if (!publication.isObject) return
+        val node = requireNotNull(nodes.findByIdOrNull(p.path("nodeId").asLong()))
+        nodes.save(node.copy(metadataUrl = publication.path("url").asString(),
+            extendedMetadataUrl = publication.path("extendedUrl").asString(),
+            itnPrivateKeyId = publication.path("itnPrivateKeyId").takeIf { it.isIntegralNumber }?.asLong() ?: node.itnPrivateKeyId,
+            itnPublicKeyId = publication.path("itnPublicKeyId").takeIf { it.isIntegralNumber }?.asLong() ?: node.itnPublicKeyId))
+    }
+
+    private fun preview(input: SubmitRequest): Result {
         val t = target(input.nodeId)
         ensureNoPending(t, input.requestId)
         if (t.era.equals("dijkstra", true) && input.action in setOf("register", "rotate")) require(input.keyId != null) { "Voting key required" }
@@ -208,21 +254,24 @@ class ReviewedPoolRegistrationController(
         val initial = observe(t, input.feePayerAccountId, input.action, "pending")
         val payer = requireNotNull(wallets.findByIdOrNull(input.feePayerAccountId))
         require(initial.snapshot.utxosByAddress[payer.paymentAddr].orEmpty().isNotEmpty()) { "Available fee payer inputs unavailable" }
+        val publication = input.metadata?.let { nodeController.publishPoolMetadata(t.pool, it, input.spendingPassword) }
+        val changes = (input.changes as? tools.jackson.databind.node.ObjectNode)?.deepCopy() ?: json.createObjectNode()
+        publication?.let { changes.set("metadata", json.readTree(json.writeValueAsString(mapOf("url" to it.url, "hash" to it.hash)))) }
         val prefix = "/tmp/jormanager-pool-registration-${UUID.randomUUID()}"
         val body = "$prefix.body"
         val protocolPath = "$prefix.protocol.json"
         val cert = certificates.build(t.host, t.observer, t.pool, t.era, t.network, initial.poolState,
-            input.action, input.keyId, input.spendingPassword, prefix, input.changes)
+            input.action, input.keyId, input.spendingPassword, prefix, changes)
         val extraPaths = mutableListOf<String>()
         try {
             val unchanged = observe(t, input.feePayerAccountId, input.action, "pending")
             check(initial.evidence.parameterFingerprint == unchanged.evidence.parameterFingerprint &&
                 initial.evidence.stateFingerprint == unchanged.evidence.stateFingerprint &&
-                initial.evidence.capabilityFingerprint == unchanged.evidence.capabilityFingerprint) { "Pool state changed; review again" }
+                initial.evidence.targetFingerprint == unchanged.evidence.targetFingerprint) { "Pool state changed; review again" }
             val stakeIds = (cert.ownerAccountIds + cert.rewardAccountId).distinct().sorted()
             val beforeStake = observe(t, input.feePayerAccountId, input.action, "pending", stakeIds)
             check(initial.evidence.parameterFingerprint == beforeStake.evidence.parameterFingerprint &&
-                initial.evidence.capabilityFingerprint == beforeStake.evidence.capabilityFingerprint &&
+                initial.evidence.targetFingerprint == beforeStake.evidence.targetFingerprint &&
                 initial.poolState == beforeStake.poolState &&
                 initial.snapshot.readState.generation == beforeStake.snapshot.readState.generation &&
                 canonicalWalletInputs(initial.snapshot, payer.paymentAddr) == canonicalWalletInputs(beforeStake.snapshot, payer.paymentAddr)) {
@@ -276,17 +325,17 @@ class ReviewedPoolRegistrationController(
                 deposits = cert.deposit + stakeDeposit,
                 extraArgs = (registrationCerts + cert.certPath + delegationCerts).flatMap { listOf("--certificate-file", it) },
                 protocolParameters = beforeStake.parameters, protocolPath = protocolPath,
-                witnessCount = signingIds.size + 1, bodyPath = body
+                witnessCount = signingIds.size + 1, bodyPath = body, validUntil = expiry(t)
             )
             val envelope = built.textEnvelope
             val effects = exact(json.readTree(cmd(t, listOf(t.host.cardanoCliPath, "debug", "transaction", "view", "--tx-body-file", body, "--output-json"))))
-            val payload = json.writeValueAsString(mapOf("kind" to operation(input.action), "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
+            val payload = json.writeValueAsString(mapOf("intent" to intent(input), "kind" to operation(input.action), "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
                 "keyId" to input.keyId, "feePayerAccountId" to input.feePayerAccountId, "action" to input.action,
-                "changes" to input.changes, "poolState" to exact(initial.poolState), "targetPublicKey" to cert.targetPublicKey,
+                "changes" to changes, "publication" to publication, "poolState" to exact(initial.poolState), "targetPublicKey" to cert.targetPublicKey,
                 "signingFileIds" to signingIds, "stakeAccountIds" to stakeIds, "effects" to effects))
             val after = observe(t, input.feePayerAccountId, input.action, payload, stakeIds)
             check(beforeStake.evidence.parameterFingerprint == after.evidence.parameterFingerprint && beforeStake.evidence.stateFingerprint == after.evidence.stateFingerprint &&
-                beforeStake.evidence.capabilityFingerprint == after.evidence.capabilityFingerprint) { "Pool or stake state changed; review again" }
+                beforeStake.evidence.targetFingerprint == after.evidence.targetFingerprint) { "Pool or stake state changed; review again" }
             ensureNoPending(t, input.requestId)
             return result(reviewed.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), t.host, t.observer,
                 operation(input.action), after.evidence, payload, built, requireNotNull(bodyField(envelope, 2)),
@@ -296,21 +345,20 @@ class ReviewedPoolRegistrationController(
     @MessageMapping("/leios/registration/submit")
     @SendTo("/topic/messages")
     fun submitMessage(input: SubmitRequest): SocketResponse<Result> = try {
-        SocketResponse.Success("leios_registration_submitted", submit(input))
+        SocketResponse.Success("leios_registration_submitted", execute(input))
     } catch (e: Exception) {
         SocketResponse.Error("leios_registration_submitted", SocketResponse.PublicFailure(e.javaClass.simpleName,
-            "Pool registration submission failed; inspect protected server diagnostics.", "leios_registration_submitted", "reconcile", input.requestId))
+            "Pool registration submission failed; inspect protected server diagnostics.", "leios_registration_submitted",
+            if (operations.findById(input.requestId).orElse(null)?.state in setOf("signing", "submission_uncertain", "submitted", "rolled_back")) "wait" else "retry", input.requestId))
     }
-    private fun submit(input: SubmitRequest): Result {
-        require(input.approved && walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Approval and valid spending password required" }
-        val record = operations.findByPreviewId(input.previewId) ?: throw IllegalArgumentException("Unknown preview")
+    private fun submit(input: SubmitRequest, record: AuthorizedOperation): AuthorizedOperation {
         val p = json.readTree(record.requestPayload)
         require(p.path("kind").asString() in setOf("pool.register", "pool.update")) { "Not a pool registration review" }
         val payerId = p.path("feePayerAccountId").asLong(); val action = p.path("action").asString()
         val t = target(p.path("nodeId").asLong(), record.nodeId)
         ensureNoPending(t, record.id)
         var envelope = ""
-        val saved = reviewed.submit(input.previewId, t.host, t.observer,
+        val saved = reviewed.submit(record.previewId, t.host, t.observer,
             evidence = { operation -> observe(t, payerId, action, record.requestPayload, p.path("stakeAccountIds").values().map { it.asLong() }, operation.id).evidence },
             sign = { operation ->
                 val payer = requireNotNull(wallets.findByIdOrNull(payerId))
@@ -340,6 +388,6 @@ class ReviewedPoolRegistrationController(
                         listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket"))
                 } finally { cmd(t, listOf("rm", "-f", path)) }
             })
-        return result(saved, input.requestId)
+        return saved
     }
 }

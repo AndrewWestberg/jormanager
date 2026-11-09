@@ -15,6 +15,7 @@ import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import tools.jackson.databind.ObjectMapper
 import java.math.BigInteger
 import org.junit.jupiter.api.Assertions.*
@@ -77,11 +78,14 @@ class PendingWalletStateTest {
         val ledger = mockk<LedgerDao>()
         val coordinator = mockk<ChainIngestionCoordinator>()
         val cardano = mockk<CardanoRepository>()
-        val service = PendingWalletState(ledger, coordinator, cardano, ObjectMapper())
+        val reviewed = mockk<ReviewedWalletOperations>()
+        val service = PendingWalletState(ledger, coordinator, cardano, reviewed, ObjectMapper())
         var database = PendingWalletState.DatabaseSnapshot(ready, mapOf(address to listOf(utxo(root, 100_000_000, true))), listOf(op), emptyList())
         var current = ready
         var tip = """{"slot":10,"hash":"${"aa".repeat(32)}","era":"babbage"}"""
+        var afterTip: String? = null
         var mempool = """{"exists":true,"txId":"${op.txId}","slot":10}"""
+        val mempoolById = mutableMapOf<String, String>()
         var utxos = """{"$root#0":{"address":"$address","value":{"lovelace":100000000,"$policy":{"02":2,"01":$large}}}}"""
         var failure: RuntimeException? = null
         val calls = mutableListOf<List<String>>()
@@ -98,18 +102,115 @@ class PendingWalletStateTest {
             every { cardano.evidence(node) } returns CardanoRepository.EraEvidence(network, "babbage", "current", "host:1/node:2")
             every { ledger.querySnapshot(network, setOf(address)) } answers { database }
             every { coordinator.status(network) } answers { current }
+            every { reviewed.expirePending(any(), any(), any(), any(), any()) } returns false
             every { connection.commandArgs(any()) } answers {
                 val args = firstArg<List<String>>()
                 calls += args
                 when {
-                    "tx-mempool" in args -> { failure?.let { throw it }; mempool }
+                    "tx-mempool" in args -> { failure?.let { throw it }; mempoolById[args.last()] ?: mempool }
                     "utxo" in args -> utxos
-                    "tip" in args -> tip
+                    "tip" in args -> if (calls.count { "tip" in it } % 2 == 0) afterTip ?: tip else tip
                     else -> error("Unexpected node command")
                 }
             }
         }
-        fun snapshot() = service.snapshot(host, node, connection, "--mainnet", "--socket-path /node/relay/db/socket", "babbage", setOf(address))
+        fun snapshot(excluded: String? = null) = service.snapshot(host, node, connection, "--mainnet",
+            "--socket-path /node/relay/db/socket", "babbage", setOf(address), excluded)
+    }
+
+    @Test fun `expired signing absence is offered for fencing but service may decline`() {
+        val f = NodeFixture()
+        val op = operation("signing", root, 48_000_000, state = "signing", until = 10).copy(signedBatch = null)
+        f.database = f.database.copy(operations = listOf(op),
+            reservations = listOf(PendingWalletState.Reservation(op.id, root, 0, "signing")))
+        f.mempoolById[op.txId] = """{"exists":false,"txId":"${op.txId}","slot":10}"""
+        assertEquals(BigInteger.ZERO, balance(f.snapshot()))
+        verify(exactly = 1) { f.reviewed.expirePending(network, 4L, BigInteger.TEN, "aa".repeat(32), setOf(op.id)) }
+        verify(exactly = 1) { f.ledger.querySnapshot(network, setOf(address)) }
+    }
+
+    @Test fun `unavailable additional mempool observation leaves reservations intact`() {
+        val f = NodeFixture()
+        val op = operation("uncertain", root, 49_000_000, state = "submission_uncertain", until = 10)
+        f.database = f.database.copy(operations = listOf(op),
+            reservations = listOf(PendingWalletState.Reservation(op.id, root, 0, op.state)))
+        f.failure = IllegalStateException("node unavailable")
+        assertEquals(BigInteger.ZERO, balance(f.snapshot()))
+        verify(exactly = 0) { f.reviewed.expirePending(any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun `expiry queries only missing eligible ids and excludes active and selected operations`() {
+        val f = NodeFixture()
+        val submitted = operation("submitted", root, 50_000_000, until = 10)
+        val uncertain = operation("uncertain", root, 49_000_000, state = "submission_uncertain", until = 9)
+        val active = operation("active", root, 48_000_000, state = "signing", until = 11)
+        val excluded = operation("excluded", root, 47_000_000, state = "rolled_back", until = 9)
+        val legacy = operation("legacy", root, 46_000_000, state = "signing")
+        f.database = f.database.copy(operations = listOf(submitted, uncertain, active, excluded, legacy))
+        for (op in listOf(submitted, uncertain)) {
+            f.mempoolById[op.txId] = """{"exists":false,"txId":"${op.txId}","slot":10}"""
+        }
+        f.snapshot("excluded")
+        assertEquals(listOf(submitted.txId, uncertain.txId), f.calls.filter { "tx-mempool" in it }.map { it.last() })
+        assertEquals(2, f.calls.count { "tip" in it })
+        verify(exactly = 1) { f.reviewed.expirePending(network, 4L, BigInteger.TEN, "aa".repeat(32), setOf("submitted", "uncertain")) }
+    }
+
+    @Test fun `no finite eligible expiry adds no observations`() {
+        val f = NodeFixture()
+        val active = operation("active", root, 48_000_000, state = "signing", until = 11)
+        val legacy = operation("legacy", root, 46_000_000, state = "signing")
+        f.database = f.database.copy(operations = listOf(active, legacy))
+        f.snapshot()
+        assertEquals(1, f.calls.count { "tip" in it })
+        assertEquals(0, f.calls.count { "tx-mempool" in it })
+        verify(exactly = 0) { f.reviewed.expirePending(any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun `expiry requires coherent tip and explicit valid absence`() {
+        val f = NodeFixture()
+        val op = operation("uncertain", root, 49_000_000, state = "submission_uncertain", until = 10)
+        f.database = f.database.copy(operations = listOf(op))
+        for (response in listOf(
+            """{"exists":true,"txId":"${op.txId}","slot":10}""",
+            """{"exists":"false","txId":"${op.txId}","slot":10}""",
+            """{"exists":false,"txId":"$root","slot":10}""",
+            """{"exists":false,"txId":"${op.txId}","slot":9}"""
+        )) {
+            f.calls.clear()
+            f.mempoolById[op.txId] = response
+            f.snapshot()
+        }
+        f.mempoolById[op.txId] = """{"exists":false,"txId":"${op.txId}","slot":10}"""
+        for (after in listOf(
+            """{"slot":11,"hash":"${"aa".repeat(32)}","era":"babbage"}""",
+            """{"slot":10,"hash":"${"bb".repeat(32)}","era":"babbage"}""",
+            """{"slot":10,"hash":"${"aa".repeat(32)}","era":"conway"}"""
+        )) {
+            f.calls.clear()
+            f.afterTip = after
+            f.snapshot()
+        }
+        verify(exactly = 0) { f.reviewed.expirePending(any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun `successful expiry reloads released funds once and later reads are idempotent`() {
+        val f = NodeFixture()
+        val op = operation("uncertain", root, 49_000_000, state = "submission_uncertain", until = 10)
+        f.database = f.database.copy(operations = listOf(op),
+            reservations = listOf(PendingWalletState.Reservation(op.id, root, 0, "reserved")))
+        f.mempoolById[op.txId] = """{"exists":false,"txId":"${op.txId}","slot":10}"""
+        every { f.reviewed.expirePending(network, 4L, BigInteger.TEN, any(), setOf(op.id)) } answers {
+            f.database = f.database.copy(operations = listOf(op.copy(state = "expired")), reservations = emptyList())
+            true
+        }
+        assertEquals(BigInteger.valueOf(100_000_000), balance(f.snapshot()))
+        verify(exactly = 2) { f.ledger.querySnapshot(network, setOf(address)) }
+        f.calls.clear()
+        assertEquals(BigInteger.valueOf(100_000_000), balance(f.snapshot()))
+        assertEquals(1, f.calls.count { "tip" in it })
+        assertEquals(0, f.calls.count { "tx-mempool" in it })
+        verify(exactly = 1) { f.reviewed.expirePending(network, 4L, BigInteger.TEN, any(), setOf(op.id)) }
     }
 
     @Test fun `snapshot observes only local mempool ids and parses exact node values`() {

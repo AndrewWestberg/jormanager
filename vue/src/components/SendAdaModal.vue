@@ -11,22 +11,17 @@
     >
       <template #footer="{ cancel }">
         <div class="w-100 d-flex justify-content-between align-items-center">
-          <BButton v-if="!review" variant="outline-primary" :disabled="reviewing" @click="addPaymentEntry">
+          <BButton variant="outline-primary" :disabled="reviewing" @click="addPaymentEntry">
             +&nbsp;Add Entry
           </BButton>
           <div>
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
-            <BButton v-if="!review" variant="primary" :disabled="reviewing || !walletReady || !sourcesReady" @click="reviewSend">{{ reviewing ? 'Preparing review…' : 'Review transaction' }}</BButton>
+            <BButton variant="primary" :disabled="reviewing || !walletReady || !sourcesReady || !feeReady" @click="reviewSend">{{ reviewing ? 'Submitting…' : 'Send' }}</BButton>
           </div>
         </div>
       </template>
       <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
-      <WalletReviewPanel v-if="review" :review="review" @close="review = null" @submitted="review = $event" />
-      <div v-if="!review" class="alert alert-info" role="status">
-        Amounts are provisional until the transaction is built. The reviewed fee, deposits and final effects are shown before authorization. Percentage amounts do not reserve transaction fees.
-        <span v-if="!walletReady"> Usable wallet coverage is required to review.</span>
-      </div>
-      <BForm v-if="!review" ref="sendAdaForm" @submit.stop.prevent>
+      <BForm ref="sendAdaForm" @submit.stop.prevent>
         <fieldset :disabled="reviewing">
         <div class="accordion" role="tablist">
           <BCard
@@ -43,9 +38,8 @@
                 class="text-start d-flex align-items-center justify-content-between w-100 p-2 text-wrap"
               >
                 <div class="d-flex align-items-center w-100 me-3">
-                  <span>
-                     {{ toAccount.currency === 'ada' ? 'ADA' : toAccount.currency }}
-                  </span>
+                  <span v-if="feePayerId === toAccount.account && toAccount.destination === 'account'" class="me-2">Fee payer</span>
+                  <span>Available: {{ entryAvailableLabel(index, toAccount.currency) }} | Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}</span>
                 </div>
                 <div class="d-flex align-items-center">
                   <span
@@ -166,7 +160,6 @@
                     :state="amountState(index, toAccount.amount, toAccount.currency)"
                     :placeholder="amountPlaceholder(toAccount.currency)"
                     trim
-                    @input="prepareCalculateSendAdaFees"
                   />
                   <BFormInvalidFeedback>
                     Enter an amount between {{ minAmountLabel(toAccount.currency) }} and {{ amountRemainingLabel(index, toAccount.currency) }}
@@ -187,7 +180,6 @@
                     max="100"
                     step="1"
                     :state="percentState(index, toAccount.percent, toAccount.currency)"
-                    @input="prepareCalculateSendAdaFees"
                   />
                   <p class="text-center mt-2">{{ percentLabel(index, toAccount.percent, toAccount.currency) }}</p>
                 </BFormGroup>
@@ -220,7 +212,6 @@
                     :state="metadataState"
                     rows="5"
                     :placeholder="metadataPlaceholder"
-                    @input="prepareCalculateSendAdaFees"
                   />
                   <BFormInvalidFeedback>{{ formSendAda.metadataError }}</BFormInvalidFeedback>
                 </BFormGroup>
@@ -235,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import bs58 from 'bs58check'
 import {
@@ -257,9 +248,8 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
+import { generateUUID } from '@/utils/filters'
 
-import WalletReviewPanel from '@/components/WalletReviewPanel.vue'
-import type { WalletReview } from '@/types'
 interface ToAccount {
   currency: string
   destination: 'account' | 'address'
@@ -283,13 +273,19 @@ const { walletItems } = storeToRefs(store)
 const emitter = useEventBus()
 
 const isVisible = ref(false)
-const review = ref<WalletReview | null>(null)
 const reviewing = ref(false)
 const reviewError = ref('')
 let reviewGeneration = 0
+let requestId = ''
+let pendingSignature = ''
 
-async function reviewSend() {
-  if (reviewing.value || !walletReady.value || !sourcesReady.value) return
+function formSignature() {
+  const form = formSendAda.value
+  return JSON.stringify([form.fromId, form.fromIds, form.isClaim, form.toAccounts, form.metadata])
+}
+
+function reviewSend() {
+  if (reviewing.value || !walletReady.value || !sourcesReady.value || !feeReady.value) return
   if (!metadataState.value || formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) {
     reviewError.value = 'Complete all payment entries and correct any invalid metadata.'
     return
@@ -304,20 +300,46 @@ async function reviewSend() {
     reviewError.value = 'Every payment must have a positive exact amount.'
     return
   }
-  const generation = ++reviewGeneration
+  requestId ||= generateUUID()
+  pendingSignature = formSignature()
+  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-send', data: {
+    requestId, signature: pendingSignature, generation: reviewGeneration,
+    networkKey: sourceNetworkKey.value, chainGeneration: store.chainReadState?.generation, feeUUID: store.responseFeesUUID,
+    kind: formSendAda.value.isClaim ? 'withdraw' : 'send',
+    request: { fromId: formSendAda.value.fromId, fromIds: [...formSendAda.value.fromIds],
+      toAccounts: outputs, isClaim: formSendAda.value.isClaim, metadata: formSendAda.value.metadata, txFee: store.txFee }
+  } })
+}
+
+async function onPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'submit-wallet-send' || reviewing.value) return
+  const pending = data.originalData as { requestId: string; signature: string; generation: number; networkKey: string | null; chainGeneration: string | undefined; feeUUID: string; kind: string; request: unknown }
+  if (!isVisible.value || !walletReady.value || !sourcesReady.value || !feeReady.value || pending.generation !== reviewGeneration ||
+      pending.requestId !== requestId || pending.signature !== pendingSignature || pending.signature !== formSignature() ||
+      pending.networkKey !== store.walletNetworkKey || pending.chainGeneration !== store.chainReadState?.generation || pending.feeUUID !== store.responseFeesUUID ||
+      !metadataState.value || formSendAda.value.toAccounts.some((entry, index) =>
+        headerVariant(index, entry) !== 'success' ||
+        String(calculateSpent(index + 1).amount[entry.currency] || 0n) !==
+          (pending.request as { toAccounts: { amount: string }[] }).toAccounts[index]?.amount) ||
+      (pending.request as { txFee: string }).txFee !== store.txFee) return
+  pendingSignature = ''
+  const generation = reviewGeneration
   reviewing.value = true
   reviewError.value = ''
   try {
-    const result = await store.reviewWallet(formSendAda.value.isClaim ? 'withdraw' : 'send', {
-      fromId: formSendAda.value.fromId,
-      fromIds: formSendAda.value.fromIds,
-      toAccounts: outputs,
-      isClaim: formSendAda.value.isClaim,
-      metadata: formSendAda.value.metadata
-    })
-    if (generation === reviewGeneration) review.value = result
+    const result = await store.submitWallet(pending.requestId, pending.kind, pending.request, data.password)
+    if (result.state !== 'submitted' && result.state !== 'confirmed') {
+      throw new Error(`Transaction ${result.txId}: ${result.state}`)
+    }
+    if (generation === reviewGeneration) {
+      store.toastInfo = { title: 'Transaction submitted', message: result.txId }
+      isVisible.value = false
+    }
   } catch (e) {
-    if (generation === reviewGeneration) reviewError.value = e instanceof Error ? e.message : String(e)
+    if (generation === reviewGeneration) {
+      reviewError.value = e instanceof Error ? e.message : String(e)
+      if ((e as { code?: string })?.code === 'FEE_CHANGED') prepareCalculateSendAdaFees()
+    }
   } finally {
     if (generation === reviewGeneration) reviewing.value = false
   }
@@ -327,6 +349,9 @@ const sourceNetworkKey = ref<string | null>(null)
 const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
   store.walletNetworkKey === sourceNetworkKey.value &&
   store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.walletReady === true)
+const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID &&
+  store.feeTarget?.networkKey === store.walletNetworkKey &&
+  store.feeTarget?.generation === store.chainReadState?.generation)
 
 const formSendAda = ref({
   fromId: null as number | null,
@@ -338,7 +363,10 @@ const formSendAda = ref({
   metadataError: null as string | null,
   valid: false
 })
-
+watch(formSignature, () => {
+  requestId = ''
+  scheduleFeeCalculation()
+}, { flush: 'sync' })
 const fromWalletItems = computed(() => formSendAda.value.fromIds
   .map(id => walletItems.value.find(item => item.id === id))
   .filter((item): item is NonNullable<typeof item> => item != null))
@@ -405,9 +433,12 @@ const sendingAmount = computed(() => formSendAda.value.isMultiClaim
   ? fromWalletItems.value.reduce((sum, item) => sum + integer(item.stakingAddrLovelace), 0n)
   : integer(formSendAda.value.isClaim ? fromWalletItem.value.stakingAddrLovelace : fromWalletItem.value.paymentAddrLovelace))
 
-const modalTitle = computed(() => formSendAda.value.isMultiClaim
-  ? `Claiming from ${fromWalletItems.value.length} addresses: ${formatAda(sendingAmount.value)}`
-  : `${formSendAda.value.isClaim ? 'Claiming' : 'Sending'}: ${formatAda(sendingAmount.value)}`)
+const modalTitle = computed(() => {
+  const prefix = formSendAda.value.isMultiClaim
+    ? `Claiming from ${fromWalletItems.value.length} addresses`
+    : formSendAda.value.isClaim ? 'Claiming' : 'Sending'
+  return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${formatAda(store.txFee)}, Remaining: ${formatAda(calculateSpent(formSendAda.value.toAccounts.length).remaining.ada || 0n)}`
+})
 
 const metadataState = computed(() => {
   if (!formSendAda.value.metadata) return true
@@ -433,7 +464,8 @@ const metadataOpen = ref(false)
 // Methods
 function clearFormSendAda() {
   reviewGeneration++
-  review.value = null
+  requestId = ''
+  pendingSignature = ''
   reviewing.value = false
   reviewError.value = ''
   formSendAda.value = {
@@ -449,6 +481,11 @@ function clearFormSendAda() {
   sourceNetworkKey.value = null
   openIndex.value = 0
   metadataOpen.value = false
+  store.invalidateSendAdaFees()
+  store.txFee = '0'
+  store.tokenFees = []
+  store.tokenKeepFee = '0'
+  store.tokenLocked = '0'
 }
 
 function createEmptyToAccount(): ToAccount {
@@ -471,7 +508,7 @@ function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
   formSendAda.value.isClaim = isClaim
   formSendAda.value.isMultiClaim = false
   isVisible.value = true
-  prepareCalculateSendAdaFees()
+  scheduleFeeCalculation()
 }
 
 function showMultiClaimModal(items: WalletItemRef[]) {
@@ -482,7 +519,7 @@ function showMultiClaimModal(items: WalletItemRef[]) {
   formSendAda.value.isClaim = true
   formSendAda.value.isMultiClaim = true
   isVisible.value = true
-  prepareCalculateSendAdaFees()
+  scheduleFeeCalculation()
 }
 
 function addPaymentEntry() {
@@ -565,7 +602,7 @@ function amountState(index: number, amount: string | null, currency: string): bo
 
 function percentState(index: number, percent: number, currency: string): boolean | null {
   recalculateRemaining()
-  if (percent != null && percent > 0) {
+  if (percent != null && Number.isInteger(Number(percent)) && percent > 0 && percent <= 100) {
     const spent = calculateSpent(index + 1)
     const tokens = spent.amount[currency] || 0n
     const remaining = spent.remaining[currency] || 0n
@@ -594,6 +631,15 @@ function headerVariant(_index: number, toAccount: ToAccount): string {
   return isValid ? 'success' : 'danger'
 }
 
+function entryAvailableLabel(index: number, currency: string): string {
+  const value = calculateSpent(index).remaining[currency] || 0n
+  return currency === 'ada' ? formatAda(value) : String(value)
+}
+
+function entryRemainingLabel(index: number, currency: string): string {
+  const value = calculateSpent(index + 1).remaining[currency] || 0n
+  return currency === 'ada' ? formatAda(value) : String(value)
+}
 
 function amountPlaceholder(currency: string): string {
   return currency === 'ada' ? 'e.g. 10.000000' : 'e.g. 100'
@@ -617,7 +663,7 @@ function percentLabel(index: number, percent: number, currency: string): string 
 function onCurrencyChange(toAccount: ToAccount) {
   toAccount.amount = null
   toAccount.percent = 0
-  prepareCalculateSendAdaFees()
+  scheduleFeeCalculation()
 }
 
 function onDestinationChange(toAccount: ToAccount) {
@@ -640,6 +686,11 @@ function recalculateRemaining() {
   remainingLovelace.value = calculateSpent(formSendAda.value.toAccounts.length).remaining['ada'] || 0n
 }
 
+const feePayerId = computed(() => formSendAda.value.isClaim
+  ? formSendAda.value.toAccounts.map(entry => entry.destination === 'account' ? walletItems.value.find(item => item.id === entry.account) : undefined)
+    .find(item => item?.hasPaymentKeys && item.paymentAddrLovelace !== null && integer(item.paymentAddrLovelace) >= 1000000n)?.id
+  : fromWalletItem.value.id)
+
 
 function calculateSpent(index: number): { remaining: Record<string, bigint>, amount: Record<string, bigint> } {
   const baseAmount: Record<string, bigint> = {}
@@ -651,7 +702,8 @@ function calculateSpent(index: number): { remaining: Record<string, bigint>, amo
     : integer(fromWalletItem.value.stakingAddrLovelace)
   baseAmount.ada = formSendAda.value.isClaim
     ? rewards
-    : integer(fromWalletItem.value.paymentAddrLovelace)
+    : integer(fromWalletItem.value.paymentAddrLovelace) - integer(store.txFee) - integer(store.tokenKeepFee) -
+      integer(store.tokenLocked) - store.tokenFees.reduce((sum, fee) => sum + integer(fee), 0n)
 
   const spentPercentages: Record<string, number> = {}
   const amount: Record<string, bigint> = {}
@@ -672,7 +724,7 @@ function calculateSpent(index: number): { remaining: Record<string, bigint>, amo
       }
     }
     baseAmount[currency] = (baseAmount[currency] || 0n) - amount[currency]
-    // Fees and minimum-output adjustments are determined by the reviewed transaction.
+    // Claim fees come from the selected receiving account's payment inputs.
   }
   return { remaining: baseAmount, amount }
 }
@@ -694,9 +746,41 @@ function validateMetadataItem(field: unknown): string | null {
   return null
 }
 
-function prepareCalculateSendAdaFees() {
-  recalculateRemaining()
+let feeCalculationVersion = 0
+function scheduleFeeCalculation() {
+  store.invalidateSendAdaFees()
+  const version = ++feeCalculationVersion
+  queueMicrotask(() => {
+    if (version === feeCalculationVersion) prepareCalculateSendAdaFees()
+  })
 }
+
+function prepareCalculateSendAdaFees() {
+  store.invalidateSendAdaFees()
+  if (!isVisible.value || !walletReady.value || !sourcesReady.value || !metadataState.value ||
+      formSendAda.value.toAccounts.some(entry => !currencyState(entry.currency) || !destinationState(entry.destination) ||
+        !accountState(entry) || !addressState(entry) || !typeState(entry.type) ||
+        (entry.type === 'amount' && (parseAmount(entry.amount, entry.currency) ?? 0n) <= 0n) ||
+        (entry.type === 'percent' && (!Number.isInteger(Number(entry.percent)) || entry.percent <= 0 || entry.percent > 100)))) return
+  const toAccounts = formSendAda.value.toAccounts.map((entry, index) => ({
+    currency: entry.currency,
+    account: entry.destination === 'account' ? entry.account : -1,
+    address: entry.destination === 'address' ? entry.address : '',
+    amount: String(calculateSpent(index + 1).amount[entry.currency] || 0n),
+    percent: entry.type === 'percent' ? Number(entry.percent) : null
+  }))
+  const destinations = new Set(toAccounts.map(entry => `${entry.account}:${entry.address}`))
+  store.calculateSendAdaFees({
+    fromId: formSendAda.value.fromId, fromIds: [...formSendAda.value.fromIds], toAccounts,
+    txOut: destinations.size + (calculateSpent(toAccounts.length).remaining.ada > 0n ? 1 : 0),
+    isClaim: formSendAda.value.isClaim, metadata: formSendAda.value.metadata, uuid: generateUUID()
+  })
+}
+
+watch(() => JSON.stringify([walletItems.value, store.connected, store.walletNetworkKey,
+  store.chainReadState?.networkKey, store.chainReadState?.generation, store.chainReadState?.walletReady,
+  store.walletNetworkKey && store.networkInvalidations[store.walletNetworkKey]]),
+  scheduleFeeCalculation, { flush: 'sync' })
 
 function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
   if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {
@@ -711,10 +795,12 @@ function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: Wa
 onMounted(() => {
   clearFormSendAda()
   emitter.on('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.on('confirm-spending-password-with-action', onPasswordConfirmed)
 })
 
 onUnmounted(() => {
   emitter.off('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.off('confirm-spending-password-with-action', onPasswordConfirmed)
 })
 </script>
 

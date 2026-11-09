@@ -36,7 +36,6 @@ class LeiosKeyService(
     private val nodes: NodeRepository,
     private val hosts: HostRepository,
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val json: ObjectMapper,
     transactionManager: PlatformTransactionManager,
 ) {
@@ -70,21 +69,21 @@ class LeiosKeyService(
 
     fun prepare(request: LeiosKeyRequest, host: Host, node: Node): LeiosVotingKey {
         require(request.intent == "prepare" || request.intent == "import")
-        require(request.confirmed && walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Authorization required" }
+        require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Authorization required" }
         require(node.hostId == host.id && !node.isDeleted && node.type in setOf("core", "pool"))
         val poolId = requireNotNull(node.poolId)
         val network = eras.networkKey(node)
         require(request.target.poolId == null || request.target.poolId == poolId)
         require(request.target.networkKey == null || request.target.networkKey == network)
-        val operation = "leios.key.${request.intent}"
         val observer = if (node.isDraft) {
             if (request.observerNodeId != null) requireNotNull(nodes.findByIdOrNull(request.observerNodeId))
-            else nodes.findDefault() ?: throw IllegalStateException("A verified observer is required for a draft pool")
+            else nodes.findDefault() ?: throw IllegalStateException("A current observer is required for a draft pool")
         } else node
         val observerHost = if (node.isDraft) requireNotNull(hosts.findByIdOrNull(observer.hostId)) else host
         val configDigest = if (node.isDraft) MessageDigest.getInstance("SHA-256")
             .digest(requireNotNull(files.findByIdOrNull(node.configFileId)).content.toByteArray(Charsets.UTF_8)).toHexString() else null
-        fun qualified(): String {
+        fun validateTarget(): CardanoRepository.EraEvidence {
+            check(!observer.isDeleted && !observer.isDraft && eras.networkKey(observer) == network)
             val currentNode = requireNotNull(nodes.findByIdOrNull(requireNotNull(node.id)))
             check(!currentNode.isDeleted && currentNode.hostId == node.hostId && currentNode.poolId == poolId &&
                 currentNode.configFileId == node.configFileId && currentNode.coreVKeyId == node.coreVKeyId &&
@@ -98,12 +97,9 @@ class LeiosKeyService(
             val era = eras.evidence(observer)
             check(era.freshness == "current" && era.era == "dijkstra" &&
                 era.source == "host:${observerHost.id}/node:${observer.id}" && era.networkKey == network)
-            val capability = if (node.isDraft) capabilities.hostCapability(host, observerHost, observer, network, requireNotNull(configDigest), operation)
-                else capabilities.capability(host, node, operation)
-            check(capability.status == "verified") { "Key operation is not qualified" }
-            return requireNotNull(capability.evidenceId)
+            return era
         }
-        val evidence = qualified()
+        val evidence = validateTarget()
         require(safePath.matches(host.cardanoCliPath) && !host.cardanoCliPath.startsWith("-"))
         val connection = HostConnection(host, node)
         val directory = connection.command(listOf("mktemp", "-d", "/tmp/jormanager-leios-XXXXXXXXXX")).trim()
@@ -151,11 +147,16 @@ class LeiosKeyService(
             require(request.proofOfPossessionHex == null || request.proofOfPossessionHex.equals(proof.toHexString(), true))
             val secret = connection.command(listOf("cat", skey))
             val encrypted = walletUtils.encryptSKeyContent(secret, request.spendingPassword)
-            check(qualified() == evidence) { "Key qualification changed" }
+            val after = validateTarget()
+            check(after.networkKey == evidence.networkKey && after.era == evidence.era &&
+                after.generation == evidence.generation && after.source == evidence.source) { "Key target evidence changed" }
+            val digest = MessageDigest.getInstance("SHA-256")
+            digest.update(public)
+            val provenance = "cli-derived-key-and-certificate:" + digest.digest(proof).toHexString()
             return requireNotNull(transaction.execute {
                 val file = files.save(File(name = "leios-${node.id}-${UUID.randomUUID()}.skey", content = encrypted))
                 keys.save(LeiosVotingKey(networkKey = network, poolId = poolId, publicKey = public, proof = proof,
-                    signingFileId = requireNotNull(file.id), preparedAt = Instant.now(), validationProvenance = evidence))
+                    signingFileId = requireNotNull(file.id), preparedAt = Instant.now(), validationProvenance = provenance))
             })
         } finally {
             connection.command(listOf("rm", "-rf", directory))

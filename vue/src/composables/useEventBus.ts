@@ -13,6 +13,7 @@ type Events = {
   'show-spending-password-modal': { action: string; data?: unknown }
   'confirm-spending-password': string
   'confirm-spending-password-with-action': { action: string; password: string; originalData: unknown }
+  'spending-password-modal-hidden': { action: string }
 }
 
 // Create the event emitter instance

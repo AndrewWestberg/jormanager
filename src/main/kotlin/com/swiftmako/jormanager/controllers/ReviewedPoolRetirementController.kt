@@ -18,7 +18,6 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
-import com.swiftmako.jormanager.services.CardanoCapabilities
 import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
@@ -33,7 +32,7 @@ import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.stereotype.Controller
 
-/** Pool retirement is reviewed separately from the later epoch-boundary refund. */
+/** Password-authorized pool retirement. */
 @Controller
 class ReviewedPoolRetirementController(
     private val json: ObjectMapper,
@@ -42,7 +41,6 @@ class ReviewedPoolRetirementController(
     private val files: FileRepository,
     private val wallets: WalletRepository,
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val walletUtils: WalletUtils,
     private val reviewed: ReviewedWalletOperations,
     private val builder: WalletTransactionBuilder,
@@ -50,15 +48,12 @@ class ReviewedPoolRetirementController(
     private val protocolSnapshots: ProtocolSnapshotRepository,
     private val jdbc: JdbcTemplate,
 ) {
-    data class ReviewRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long, val retireEpoch: String)
-    data class SubmitRequest(val requestId: String, val previewId: String, val spendingPassword: String, val approved: Boolean) {
-        override fun toString() = "SubmitRequest(previewId=$previewId, spendingPassword='********', approved=$approved)"
+    data class SubmitRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long,
+        val retireEpoch: String, val spendingPassword: String) {
+        override fun toString() = "SubmitRequest(requestId=$requestId, nodeId=$nodeId, spendingPassword='********')"
     }
-    data class Result(val requestId: String, val previewId: String, val txId: String, val networkKey: String, val era: String,
-        val nodeId: Long, val observerNodeId: Long, val hostId: Long, val feePayerAccountId: Long,
-        val fee: String, val deposit: String, val refund: String, val validFrom: String?, val validUntil: String?,
-        val state: String, val poolState: JsonNode, val retireEpoch: String,
-        val parameterFingerprint: String, val stateFingerprint: String)
+    data class Result(val requestId: String, val txId: String, val networkKey: String, val era: String,
+        val nodeId: Long, val fee: String, val deposit: String, val refund: String, val state: String)
     private data class Target(val observer: Node, val pool: Node, val host: Host, val connection: HostConnection,
         val era: String, val network: List<String>, val magic: String, val socket: String)
     private data class Observation(val parameters: String, val snapshot: PendingWalletState.Snapshot, val poolState: JsonNode,
@@ -97,8 +92,14 @@ class ReviewedPoolRetirementController(
     private fun query(t: Target, vararg args: String): String = cmd(t,
         listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
             listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json"))
+    private fun expiry(t: Target): Long {
+        val tip = json.readTree(query(t, "tip"))
+        val slot = tip.path("slot")
+        require(slot.isIntegralNumber && slot.canConvertToLong() && slot.asLong() >= 0 &&
+            tip.path("era").asString().equals(t.era, true) && tip.path("hash").asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Current slot unavailable" }
+        return Math.addExact(slot.asLong(), 21600L)
+    }
     private fun observe(t: Target, payerId: Long, epoch: Long, payload: String, excludingOperationId: String? = null): Observation {
-        capabilities.requireOperation(t.host, t.observer, "pool.retire")
         val payer = requireNotNull(wallets.findByIdOrNull(payerId)) { "Fee payer not found" }
         require(!payer.deleted && payer.paymentSkey != null) { "Fee payer cannot sign" }
         val parameters = protocolSnapshots.query(t.host, t.observer, t.connection, t.era, t.magic, t.socket)
@@ -131,16 +132,14 @@ class ReviewedPoolRetirementController(
         val e = eras.evidence(t.observer)
         check(e.freshness == "current" && e.era == t.era && e.source == "host:${t.host.id}/node:${t.observer.id}") { "Current era unavailable" }
         return Observation(parameters, snapshot, poolState, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
-            digest("${e.networkKey}|${e.era}|${e.generation}|pool.retire|${t.host.id}|${t.observer.id}"), snapshot.readState.generation))
+            digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, t.host.id, t.observer.id))), snapshot.readState.generation))
     }
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     private fun result(record: AuthorizedOperation, requestId: String): Result {
         val payload = json.readTree(record.requestPayload)
-        return Result(requestId, record.previewId, record.txId, record.networkKey, record.era, payload.path("nodeId").asLong(),
-            record.nodeId, record.hostId, payload.path("feePayerAccountId").asLong(), record.fee.toString(), record.deposit.toString(),
-            record.refund.toString(), record.validFrom?.toString(), record.validUntil?.toString(), record.state,
-            payload.path("poolState"), payload.path("retireEpoch").asString(), record.parameterFingerprint, record.stateFingerprint)
+        return Result(requestId, record.txId, record.networkKey, record.era, payload.path("nodeId").asLong(),
+            record.fee.toString(), record.deposit.toString(), record.refund.toString(), record.state)
     }
     private fun ensureNoPending(t: Target, requestId: String) {
         val pending = jdbc.query("SELECT id,request_payload FROM authorized_operations WHERE network_key=? AND operation IN ('pool.register','pool.update','pool.retire') AND state IN ('signing','submission_uncertain','submitted','rolled_back')",
@@ -149,31 +148,34 @@ class ReviewedPoolRetirementController(
             val p = json.readTree(raw)
             id != requestId && (p.path("nodeId").asLong(-1) == t.pool.id ||
                 p.path("poolId").asString().isNotEmpty() && p.path("poolId").asString().equals(t.pool.poolId, true))
-        }) { "A pool operation needs reconciliation before another authorization" }
+        }) { "Another pool operation is pending" }
     }
 
 
-    @MessageMapping("/pool/retirement/review")
-    @SendTo("/topic/messages")
-    fun reviewMessage(input: ReviewRequest): SocketResponse<Result> = try {
-        SocketResponse.Success("pool_retirement_review", preview(input))
-    } catch (e: Exception) {
-        SocketResponse.Error("pool_retirement_review", SocketResponse.PublicFailure(
-            e.javaClass.simpleName, "Retirement review failed; inspect the protected server diagnostics.",
-            "pool_retirement_review", "review", input.requestId))
-    }
+    private fun intent(input: SubmitRequest) = json.readTree(json.writeValueAsString(mapOf(
+        "nodeId" to input.nodeId, "feePayerAccountId" to input.feePayerAccountId, "retireEpoch" to input.retireEpoch)))
 
-    private fun preview(input: ReviewRequest): Result {
+    @Synchronized
+    fun execute(input: SubmitRequest): Result {
+        require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
         UUID.fromString(input.requestId)
         require(input.retireEpoch.matches(Regex("0|[1-9][0-9]*"))) { "Invalid retirement epoch" }
-        val epoch = input.retireEpoch.toLong()
+        input.retireEpoch.toLong()
         val existing = operations.findById(input.requestId).orElse(null)
         if (existing != null) {
-            val old = json.readTree(existing.requestPayload)
-            check(old.path("kind").asString() == "pool.retire" && old.path("nodeId").asLong() == input.nodeId &&
-                old.path("feePayerAccountId").asLong() == input.feePayerAccountId && old.path("retireEpoch").asString() == input.retireEpoch) { "Request ID already used" }
-            return result(existing, input.requestId)
+            check(existing.operation == "pool.retire" && json.readTree(existing.requestPayload).path("intent") == intent(input)) {
+                "Request ID already used"
+            }
+            return if (existing.state == "previewed") submit(input, existing) else result(existing, input.requestId)
         }
+        val prepared = preview(input)
+        val record = requireNotNull(operations.findById(prepared.requestId).orElse(null))
+        check(record.operation == "pool.retire" && json.readTree(record.requestPayload).path("intent") == intent(input)) { "Request ID already used" }
+        return if (record.state == "previewed") submit(input, record) else result(record, input.requestId)
+    }
+
+    private fun preview(input: SubmitRequest): Result {
+        val epoch = input.retireEpoch.toLong()
         val t = target(input.nodeId)
         ensureNoPending(t, input.requestId)
         val initial = observe(t, input.feePayerAccountId, epoch, "pending")
@@ -193,14 +195,14 @@ class ReviewedPoolRetirementController(
                 outputs = emptyList(), changeAddress = payer.paymentAddr,
                 extraArgs = listOf("--certificate-file", cert),
                 protocolParameters = initial.parameters, protocolPath = protocolPath,
-                witnessCount = 2, bodyPath = body
+                witnessCount = 2, bodyPath = body, validUntil = expiry(t)
             )
             val envelope = built.textEnvelope
-            val payload = json.writeValueAsString(mapOf("kind" to "pool.retire", "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
+            val payload = json.writeValueAsString(mapOf("intent" to intent(input), "kind" to "pool.retire", "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
                 "feePayerAccountId" to input.feePayerAccountId, "retireEpoch" to input.retireEpoch, "poolState" to exact(initial.poolState)))
             val after = observe(t, input.feePayerAccountId, epoch, payload)
             check(initial.evidence.parameterFingerprint == after.evidence.parameterFingerprint && initial.evidence.stateFingerprint == after.evidence.stateFingerprint &&
-                initial.evidence.capabilityFingerprint == after.evidence.capabilityFingerprint) { "Pool state changed; review again" }
+                initial.evidence.targetFingerprint == after.evidence.targetFingerprint) { "Pool state changed; review again" }
             ensureNoPending(t, input.requestId)
             return result(reviewed.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), t.host, t.observer,
                 "pool.retire", after.evidence, payload, built, requireNotNull(bodyField(envelope, 2)),
@@ -211,17 +213,14 @@ class ReviewedPoolRetirementController(
     @MessageMapping("/pool/retirement/submit")
     @SendTo("/topic/messages")
     fun submitMessage(input: SubmitRequest): SocketResponse<Result> = try {
-        SocketResponse.Success("pool_retirement_submit", submit(input))
+        SocketResponse.Success("pool_retirement_submit", execute(input))
     } catch (e: Exception) {
         SocketResponse.Error("pool_retirement_submit", SocketResponse.PublicFailure(
             e.javaClass.simpleName, "Retirement submission failed; inspect the protected server diagnostics.",
-            "pool_retirement_submit", "reconcile", input.requestId))
+            "pool_retirement_submit", if (operations.findById(input.requestId).orElse(null)?.state in setOf("signing", "submission_uncertain", "submitted", "rolled_back")) "wait" else "retry", input.requestId))
     }
 
-    private fun submit(input: SubmitRequest): Result {
-        require(input.approved) { "Explicit approval required" }
-        require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
-        val record = operations.findByPreviewId(input.previewId) ?: throw IllegalArgumentException("Unknown preview")
+    private fun submit(input: SubmitRequest, record: AuthorizedOperation): Result {
         val payload = json.readTree(record.requestPayload)
         require(payload.path("kind").asString() == "pool.retire") { "Not a pool retirement review" }
         val payerId = payload.path("feePayerAccountId").asLong()
@@ -229,7 +228,7 @@ class ReviewedPoolRetirementController(
         val t = target(payload.path("nodeId").asLong(), record.nodeId)
         ensureNoPending(t, record.id)
         var envelope = ""
-        val saved = reviewed.submit(input.previewId, t.host, t.observer,
+        val saved = reviewed.submit(record.previewId, t.host, t.observer,
             evidence = { operation -> observe(t, payerId, epoch, record.requestPayload, operation.id).evidence },
             sign = { operation ->
                 val payer = requireNotNull(wallets.findByIdOrNull(payerId))

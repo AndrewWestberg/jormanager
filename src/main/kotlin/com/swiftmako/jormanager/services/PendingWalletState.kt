@@ -22,6 +22,7 @@ class PendingWalletState(
     private val ledger: LedgerDao,
     private val coordinator: ChainIngestionCoordinator,
     private val cardano: CardanoRepository,
+    private val reviewedOperations: ReviewedWalletOperations,
     private val json: ObjectMapper,
 ) {
     data class Operation(val id: String, val networkKey: String, val txId: String, val era: String, val state: String,
@@ -42,9 +43,10 @@ class PendingWalletState(
         val evidence = cardano.evidence(node)
         check(evidence.networkKey == network && evidence.era.equals(era, true) && evidence.freshness == "current" &&
             evidence.source == "host:${host.id}/node:${node.id}") { "Wallet target era unavailable" }
-        val database = ledger.querySnapshot(network, addresses)
+        var database = ledger.querySnapshot(network, addresses)
         if (!database.readState.walletReady) throw LedgerDao.WalletIndexUnavailableException(database.readState)
-        val decoded = decode(database.operations)
+        val generationAtStart = database.readState.generation
+        var decoded = decode(database.operations)
         val memberOwners = decoded.flatMap { (id, tx) ->
             (listOf(tx.batch.parent) + tx.batch.children).map { it.bodyId.toHexString().lowercase() to id }
         }.toMap()
@@ -75,6 +77,36 @@ class PendingWalletState(
                 number(result.path("slot")) >= slot) { "Invalid or stale mempool response" }
             observationSlot = observationSlot.max(number(result.path("slot")))
             inMempool[op.id] = result.path("exists").asBoolean()
+        }
+        val expiryCandidates = database.operations.filter {
+            it.id != excludingOperationId && it.state in setOf("signing", "submission_uncertain", "submitted", "rolled_back") &&
+                it.validUntil != null && BigInteger.valueOf(it.validUntil) <= slot
+        }
+        for (op in expiryCandidates.filter { it.id !in inMempool }) {
+            val exists = runCatching {
+                require(op.txId.matches(Regex("[0-9a-fA-F]{64}")))
+                val response = json.readTree(connection.commandArgs(listOf(host.cardanoCliPath, era, "query", "tx-mempool") +
+                    flags + listOf("--output-json", "tx-exists", op.txId)))
+                require(response.isObject && response.path("exists").isBoolean &&
+                    response.path("txId").asString().equals(op.txId, true) && number(response.path("slot")) >= slot)
+                response.path("exists").asBoolean()
+            }.getOrNull()
+            if (exists != null) inMempool[op.id] = exists
+        }
+        if (expiryCandidates.isNotEmpty()) {
+            val coherent = runCatching {
+                val after = query("tip")
+                number(after.path("slot")) == slot && after.path("hash").asString().equals(tip.path("hash").asString(), true) &&
+                    after.path("era").asString().equals(era, true)
+            }.getOrDefault(false)
+            val absent = expiryCandidates.filter { inMempool[it.id] == false }.map { it.id }.toSet()
+            val generation = database.readState.generation.toLongOrNull()
+            if (coherent && absent.isNotEmpty() && generation != null &&
+                reviewedOperations.expirePending(network, generation, slot, tip.path("hash").asString().lowercase(), absent)) {
+                database = ledger.querySnapshot(network, addresses)
+                if (!database.readState.walletReady) throw LedgerDao.WalletIndexUnavailableException(database.readState)
+                decoded = decode(database.operations)
+            }
         }
         val nodeOutputs = mutableMapOf<Pair<String, Int>, PendingOutput>()
         for (address in queryAddresses) {
@@ -108,7 +140,8 @@ class PendingWalletState(
         val result = merge(database, addresses, nodeOutputs, inMempool, observationSlot, excludingOperationId, decoded)
         val current = coordinator.status(network)
         if (!current.walletReady) throw LedgerDao.WalletIndexUnavailableException(current)
-        check(current.generation == database.readState.generation && cardano.networkKey(node) == network) { "Wallet snapshot target or generation changed" }
+        check(current.generation == generationAtStart && database.readState.generation == generationAtStart &&
+            cardano.networkKey(node) == network) { "Wallet snapshot target or generation changed" }
         return result
     }
 

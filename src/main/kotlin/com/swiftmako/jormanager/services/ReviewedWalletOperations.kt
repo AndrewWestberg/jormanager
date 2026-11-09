@@ -25,7 +25,6 @@ class ReviewedWalletOperations(
     private val operations: AuthorizedOperationRepository,
     private val entityManager: EntityManager,
     private val eras: CardanoRepository,
-    private val capabilities: CardanoCapabilities,
     private val json: ObjectMapper,
     private val coordinator: ChainIngestionCoordinator,
     transactionManager: PlatformTransactionManager,
@@ -39,7 +38,7 @@ class ReviewedWalletOperations(
         val requestFingerprint: String,
         val parameterFingerprint: String,
         val stateFingerprint: String,
-        val capabilityFingerprint: String,
+        val targetFingerprint: String,
         val walletGeneration: String,
     )
 
@@ -62,14 +61,6 @@ class ReviewedWalletOperations(
         val validUntil: Long?,
     )
 
-    data class ReconciliationObservation(
-        val slot: BigInteger,
-        val hash: String,
-        val inMempool: Boolean,
-        val unspentInputs: Set<Pair<String, Int>>,
-    )
-    data class Reconciliation(val operation: AuthorizedOperation, val reason: String)
-
     private fun releaseInputs(id: String) {
         entityManager.createQuery("delete from AuthorizedOperationInput i where i.operationId = :operationId")
             .setParameter("operationId", id).executeUpdate()
@@ -86,123 +77,47 @@ class ReviewedWalletOperations(
         return rows.singleOrNull() as? Array<Any?>
     }
 
-    private fun releaseUnusedInputs(id: String, batch: Any) {
-        entityManager.createNativeQuery(
-            "DELETE FROM authorized_operation_inputs r WHERE r.operation_id=:operation AND NOT EXISTS (" +
-                "SELECT 1 FROM input_occurrences i JOIN transaction_members m ON m.id=i.member_id " +
-                "WHERE m.batch_id=:batch AND i.effective AND encode(i.tx_id,'hex')=r.input_tx_id " +
-                "AND i.output_index=r.input_index)"
-        ).setParameter("operation", id).setParameter("batch", batch).executeUpdate()
-    }
+    fun expirePending(networkKey: String, generation: Long, slot: BigInteger, hash: String, absentOperationIds: Set<String>): Boolean {
+        if (absentOperationIds.isEmpty()) return false
+        val changed = independent.execute {
+            val sync = lockSync(networkKey) ?: return@execute false
+            if (sync[0] != "complete" || sync[6] != true || (sync[5] as Number).toLong() != generation ||
+                sync[1] == null || sync[2] == null || sync[3] == null || sync[4] == null ||
+                (sync[1] as java.math.BigDecimal).toBigIntegerExact() != slot ||
+                (sync[3] as java.math.BigDecimal).toBigIntegerExact() != slot ||
+                (sync[2] as ByteArray).toHexString() != hash || (sync[4] as ByteArray).toHexString() != hash) return@execute false
 
-    /**
-     * An operator explicitly reconciles the persisted whole batch; this never signs or submits.
-     * Node observations happen outside the database transaction. The sync row is always locked
-     * before the operation, matching the ingestion coordinator's lock order.
-     */
-    fun reconcile(
-        previewId: String, host: Host, node: Node,
-        observe: (AuthorizedOperation, Set<Pair<String, Int>>) -> ReconciliationObservation,
-    ): Reconciliation {
-        val original = operations.findByPreviewId(previewId) ?: throw IllegalArgumentException("Unknown preview")
-        require(original.hostId == host.id && original.nodeId == node.id && original.networkKey == eras.networkKey(node)) { "Review target changed" }
-
-
-        val initial = requireNotNull(independent.execute {
-            val sync = lockSync(original.networkKey)
-            val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, original.id, LockModeType.PESSIMISTIC_WRITE))
-            if (sync == null) return@execute Reconciliation(record, "Network synchronization state is unavailable")
-            if (record.state == "signing") {
-                releaseInputs(record.id)
-                val cancelled = operations.saveAndFlush(record.copy(state = "not_submitted"))
-                return@execute Reconciliation(cancelled, "Interrupted signing was cancelled before submission; create a new review")
-            }
-            Reconciliation(record, "")
-        })
-        if (initial.reason.isNotEmpty()) {
-            if (initial.operation.state == "not_submitted") coordinator.refreshWallet()
-            return initial
-        }
-        val record = initial.operation
-        if (record.state !in setOf("submission_uncertain", "submitted", "rolled_back", "confirmed", "phase2_failed")) {
-            return Reconciliation(record, "This review has no outstanding submission to reconcile")
-        }
-        val signedHex = record.signedBatch ?: return Reconciliation(record, "The signed batch is unavailable; outcome remains unresolved")
-        val signed = try { ReviewedTransactionIdentity.decodeSubmitted(signedHex, record.era) } catch (_: Exception) {
-            return Reconciliation(record, "The persisted signed batch is invalid; outcome remains unresolved")
-        }
-        val unsignedHex = json.readTree(record.unsignedBody).path("cborHex").asString()
-        val unsigned = try { ReviewedTransactionIdentity.decodeSubmitted(unsignedHex, record.era) } catch (_: Exception) {
-            return Reconciliation(record, "The persisted reviewed body is invalid; outcome remains unresolved")
-        }
-        if (signed.id != record.txId || unsigned.id != record.txId || !signed.body.sameEncoding(unsigned.body)) {
-            return Reconciliation(record, "Signed and reviewed body identities differ; outcome remains unresolved")
-        }
-        val observation = try { observe(record, signed.inputs) } catch (_: Exception) {
-            return Reconciliation(record, "Node observations are unavailable; outcome remains unresolved")
-        }
-
-        val result = requireNotNull(independent.execute {
-            val sync = lockSync(record.networkKey)
-            val current = requireNotNull(entityManager.find(AuthorizedOperation::class.java, record.id, LockModeType.PESSIMISTIC_WRITE))
-            if (sync == null || sync[0] != "complete" || sync[1] == null || sync[2] == null || sync[3] == null || sync[4] == null) {
-                return@execute Reconciliation(current, "A complete point-matched chain index is unavailable")
-            }
-            val observedSlot = (sync[1] as java.math.BigDecimal).toBigIntegerExact()
-            val completeSlot = (sync[3] as java.math.BigDecimal).toBigIntegerExact()
-            val observedHash = (sync[2] as ByteArray).toHexString()
-            val completeHash = (sync[4] as ByteArray).toHexString()
-            if (observation.slot != observedSlot || observation.slot != completeSlot ||
-                observation.hash != observedHash || observation.hash != completeHash) {
-                return@execute Reconciliation(current, "The node and complete index are at different chain points")
-            }
-            if (current.signedBatch != signedHex || current.txId != record.txId || current.unsignedBody != record.unsignedBody) {
-                return@execute Reconciliation(current, "The persisted review changed during reconciliation")
-            }
-            if (current.state !in setOf("submission_uncertain", "submitted", "rolled_back", "confirmed", "phase2_failed")) {
-                return@execute Reconciliation(current, "The operation state changed during reconciliation")
-            }
-            val matches = entityManager.createNativeQuery(
-                "SELECT b.id, i.header_hash, i.slot, i.height, b.valid, i.era FROM transaction_members m " +
-                    "JOIN transaction_batches b ON b.id=m.batch_id JOIN chain_inclusions i ON i.id=b.inclusion_id " +
-                    "WHERE i.network_key=:network AND i.adopted AND i.complete AND m.parent_id IS NULL AND m.tx_id=decode(:txid,'hex')"
-            ).setParameter("network", record.networkKey).setParameter("txid", record.txId).resultList
-            if (matches.isNotEmpty()) {
-                if (matches.size != 1) return@execute Reconciliation(current, "Multiple adopted parent occurrences require investigation")
-                val found = matches.single() as Array<*>
-                val rows = entityManager.createNativeQuery(
-                    "SELECT raw_body, raw_witnesses, raw_auxiliary FROM transaction_members " +
-                        "WHERE batch_id=:batch ORDER BY child_position NULLS FIRST"
-                ).setParameter("batch", found[0]).resultList
-                val members = rows.map { raw ->
-                    val row = raw as Array<*>
-                    ReviewedTransactionIdentity.StoredMember(row[0] as ByteArray, row[1] as ByteArray, row[2] as? ByteArray)
+            var updated = false
+            for (id in absentOperationIds.sorted()) {
+                val record = entityManager.find(AuthorizedOperation::class.java, id, LockModeType.PESSIMISTIC_WRITE) ?: continue
+                val validUntil = record.validUntil
+                if (record.networkKey != networkKey || record.state !in setOf("signing", "submission_uncertain", "submitted", "rolled_back") ||
+                    validUntil == null || BigInteger.valueOf(validUntil) > slot) continue
+                val valid = try {
+                    val unsigned = ReviewedTransactionIdentity.decodeSubmitted(json.readTree(record.unsignedBody).path("cborHex").asString(), record.era)
+                    validateConsequences(unsigned.body, record.fee, record.deposit, record.refund, record.validFrom, record.validUntil)
+                    val signed = record.signedBatch?.let { ReviewedTransactionIdentity.decodeSubmitted(it, record.era) }
+                    unsigned.id == record.txId && (if (signed == null) record.state == "signing" && record.signedBatch == null
+                    else signed.id == record.txId && signed.body.sameEncoding(unsigned.body))
+                } catch (_: Exception) {
+                    false
                 }
-                val identical = ReviewedTransactionIdentity.matchesStored((found[5] as Number).toInt(), signedHex, members)
-                if (!identical) return@execute Reconciliation(current, "Adopted batch differs from the signed batch; investigate before releasing inputs")
-                releaseUnusedInputs(current.id, requireNotNull(found[0]))
-                val confirmed = operations.saveAndFlush(current.copy(state = if (found[4] == true) "confirmed" else "phase2_failed",
-                    confirmationHash = (found[1] as ByteArray).toHexString(),
-                    confirmationSlot = (found[2] as java.math.BigDecimal).toBigIntegerExact(),
-                    confirmationHeight = (found[3] as java.math.BigDecimal).toBigIntegerExact()))
-                return@execute Reconciliation(confirmed, if (found[4] == true) "The exact signed batch is confirmed" else "The exact signed batch was included but failed phase 2")
+                if (!valid) continue
+                val adopted = entityManager.createNativeQuery(
+                    "SELECT 1 FROM transaction_members m JOIN transaction_batches b ON b.id=m.batch_id " +
+                        "JOIN chain_inclusions i ON i.id=b.inclusion_id " +
+                        "WHERE i.network_key=:network AND i.adopted AND i.complete AND m.tx_id=decode(:txid,'hex')"
+                ).setParameter("network", networkKey).setParameter("txid", record.txId).setMaxResults(1).resultList
+                if (adopted.isNotEmpty()) continue
+                releaseInputs(record.id)
+                operations.saveAndFlush(record.copy(state = if (record.state == "signing") "not_submitted" else "expired",
+                    confirmationHash = null, confirmationSlot = null, confirmationHeight = null))
+                updated = true
             }
-            if (current.state in setOf("confirmed", "phase2_failed")) {
-                return@execute Reconciliation(current, "Previously confirmed inclusion is not in the complete adopted index; investigate rollback")
-            }
-            if (observation.inMempool) return@execute Reconciliation(current, "The transaction is in the node mempool; outcome remains uncertain")
-            val until = current.validUntil
-            if (until != null && observation.slot >= BigInteger.valueOf(until)) {
-                releaseInputs(current.id)
-                val expired = operations.saveAndFlush(current.copy(state = "expired", confirmationHash = null, confirmationSlot = null, confirmationHeight = null))
-                return@execute Reconciliation(expired, "The validity interval expired without an adopted occurrence or mempool entry; inputs were released")
-            }
-            val missing = signed.inputs.size - observation.unspentInputs.intersect(signed.inputs).size
-            Reconciliation(current, if (missing == 0) "Inputs remain unspent, but absence from the mempool does not prove non-submission"
-                else "$missing reviewed inputs are no longer unspent; the whole-batch outcome remains unresolved")
-        })
-        coordinator.refreshWallet()
-        return result
+            updated
+        } == true
+        if (changed) coordinator.refreshWallet()
+        return changed
     }
 
 
@@ -218,15 +133,14 @@ class ReviewedWalletOperations(
         require(from == null || until == null || from <= until) { "Invalid validity interval" }
     }
 
-    private fun current(host: Host, node: Node, operation: String): CardanoRepository.EraEvidence {
-        capabilities.requireOperation(host, node, operation)
+    private fun current(host: Host, node: Node): CardanoRepository.EraEvidence {
         val evidence = eras.evidence(node)
         check(evidence.freshness == "current" && evidence.source == "host:${host.id}/node:${node.id}" && evidence.networkKey == eras.networkKey(node)) { "Target era unavailable" }
         return evidence
     }
 
     private fun validateEvidence(evidence: Evidence) {
-        require(listOf(evidence.requestFingerprint, evidence.parameterFingerprint, evidence.stateFingerprint, evidence.capabilityFingerprint, evidence.walletGeneration).all { it.isNotBlank() }) { "Missing review evidence" }
+        require(listOf(evidence.requestFingerprint, evidence.parameterFingerprint, evidence.stateFingerprint, evidence.targetFingerprint, evidence.walletGeneration).all { it.isNotBlank() }) { "Missing review evidence" }
         require(evidence.walletGeneration.toLongOrNull()?.let { it >= 0 } == true) { "Invalid wallet generation" }
     }
 
@@ -235,7 +149,7 @@ class ReviewedWalletOperations(
         require(preview.requestId.isNotBlank() && preview.previewId.isNotBlank())
         validateEvidence(preview.evidence)
         require(preview.requestPayload.isNotBlank()) { "Missing secret-free request payload" }
-        val era = current(preview.host, preview.node, preview.operation)
+        val era = current(preview.host, preview.node)
         val bodyJson = json.readTree(preview.body.textEnvelope)
         require(bodyJson.isObject && bodyJson.path("type").isString && bodyJson.path("type").asString().isNotBlank()) { "Invalid CLI transaction body envelope" }
         val bodyHex = bodyJson.path("cborHex").takeIf { it.isString }?.asString() ?: throw IllegalArgumentException("Missing CLI body CBOR")
@@ -249,7 +163,7 @@ class ReviewedWalletOperations(
         val candidate = AuthorizedOperation(
             id = preview.requestId, previewId = preview.previewId, networkKey = era.networkKey,
             nodeId = requireNotNull(preview.node.id), hostId = requireNotNull(preview.host.id), operation = preview.operation,
-            era = targetEra, eraGeneration = era.generation, capabilityFingerprint = preview.evidence.capabilityFingerprint,
+            era = targetEra, eraGeneration = era.generation, targetFingerprint = preview.evidence.targetFingerprint,
             state = "previewed", requestFingerprint = preview.evidence.requestFingerprint,
             requestPayload = preview.requestPayload,
             parameterFingerprint = preview.evidence.parameterFingerprint, stateFingerprint = preview.evidence.stateFingerprint,
@@ -284,9 +198,9 @@ class ReviewedWalletOperations(
 
     private fun revalidate(record: AuthorizedOperation, host: Host, node: Node, evidence: Evidence) {
         validateEvidence(evidence)
-        val era = current(host, node, record.operation)
-        check(host.id == record.hostId && node.id == record.nodeId && era.networkKey == record.networkKey && era.era == record.era && era.generation == record.eraGeneration) { "Target or era changed; review again" }
-        check(evidence.requestFingerprint == record.requestFingerprint && evidence.parameterFingerprint == record.parameterFingerprint && evidence.stateFingerprint == record.stateFingerprint && evidence.capabilityFingerprint == record.capabilityFingerprint) { "Review evidence changed; review again" }
+        val era = current(host, node)
+        check(host.id == record.hostId && node.id == record.nodeId && era.networkKey == record.networkKey && era.era == record.era && era.generation == record.eraGeneration) { "Target or era changed; refresh and retry" }
+        check(evidence.requestFingerprint == record.requestFingerprint && evidence.parameterFingerprint == record.parameterFingerprint && evidence.stateFingerprint == record.stateFingerprint && evidence.targetFingerprint == record.targetFingerprint) { "Transaction inputs changed; refresh and retry" }
     }
 
     /**
@@ -330,7 +244,7 @@ class ReviewedWalletOperations(
                 val sync = lockSync(claimed.first.networkKey)
                 check(sync != null && coordinator.isWalletReady(claimed.first.networkKey, (sync[5] as Number).toLong(),
                     sync[0] as String, sync[6] == true) && reservationEvidence.walletGeneration == (sync[5] as Number).toLong().toString()) {
-                    "Wallet coverage changed; review again"
+                    "Wallet coverage changed; refresh and retry"
                 }
                 val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, claimed.first.id, LockModeType.PESSIMISTIC_WRITE))
                 check(record.state == "signing") { "Review state changed while signing" }
@@ -341,7 +255,7 @@ class ReviewedWalletOperations(
             }).also { coordinator.refreshWallet() }
         } catch (error: Exception) {
             // Before submission no network write has occurred. A failed signing attempt
-            // is terminal for this review; a process crash leaves it for reconciliation.
+            // is terminal; a finite interval lets a later wallet read fence an interrupted signer.
             independent.execute {
                 lockSync(claimed.first.networkKey)
                 val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, claimed.first.id, LockModeType.PESSIMISTIC_WRITE))

@@ -69,8 +69,6 @@ describe('Wallet indexed balance availability', () => {
     expect(table.text()).toContain('Unavailable')
     expect(table.findAll(actions)).toHaveLength(0)
     expect(table.text()).not.toContain('Delegate')
-    expect(wrapper.get('.alert-warning[role="status"]').text()).toContain('<b>Coverage unavailable</b>')
-    expect(wrapper.get('.alert-warning').find('b').exists()).toBe(false)
     expect(store.toastError).toBeNull()
 
     status('complete')
@@ -137,13 +135,39 @@ describe('Wallet indexed balance availability', () => {
     expect(wrapper.find('.alert-warning').exists()).toBe(false)
     store.chainReadState = { ...store.chainReadState!, networkKey: 'other' }
     await nextTick()
-    expect(wrapper.find('.alert-warning').exists()).toBe(true)
     expect(wrapper.findAll(actions)).toHaveLength(0)
     store.chainReadState = { ...store.chainReadState!, networkKey: 'wallet-import-smoke' }
     store.connected = false
     await nextTick()
-    expect(wrapper.find('.alert-warning').exists()).toBe(true)
     expect(wrapper.findAll(actions)).toHaveLength(0)
+  })
+
+  it('submits staking once after password confirmation and keeps the form on failure', async () => {
+    const { store, wrapper, status, wallet } = setup()
+    status('complete')
+    wallet([{ ...completeItems[1], stakingAddrRegistered: false }])
+    const submit = vi.spyOn(store, 'submitWallet').mockRejectedValue(new Error('not submitted'))
+    const prompt = vi.fn()
+    emitter.on('show-spending-password-modal', prompt)
+    await nextTick()
+    await wrapper.get('table [data-icon="unlink"]').trigger('click')
+    await flushPromises()
+    const modal = document.querySelector('#modal-staking-address') as HTMLElement
+    const account = modal.querySelector('select') as HTMLSelectElement
+    account.value = '102'
+    account.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
+    const button = Array.from(modal.querySelectorAll('button')).find(item => item.textContent?.trim() === 'Submit')!
+    button.click()
+    const pending = prompt.mock.lastCall![0]
+    expect(submit).not.toHaveBeenCalled()
+    emitter.emit('confirm-spending-password-with-action', { action: pending.action, password: 'secret', originalData: pending.data })
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(pending.data.requestId, 'stake', expect.objectContaining({ id: 102, stakingFeesAccount: 102, isRegistration: true }), 'secret')
+    expect(modal.textContent).toContain('not submitted')
+    button.click()
+    expect(prompt.mock.lastCall![0].data.requestId).toBe(pending.data.requestId)
+    emitter.off('show-spending-password-modal', prompt)
   })
 
   it('shows unknown destination balances in the actual Send modal', async () => {

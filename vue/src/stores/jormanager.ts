@@ -19,13 +19,18 @@ import type {
   ChainReadState,
   NodeIndexStatus,
   LedgerReplayCoverage,
-  WalletReview,
-  WalletReconciliation
+  TransactionResult,
+  TxFeeData
 } from '@/types'
 
 const exactJson = JSONBIG({ storeAsString: true })
-const pendingReviews = new Map<string, {
+const pendingRequests = new Map<string, {
   type: string
+  nodeId?: unknown
+  action?: unknown
+  keyId?: unknown
+  networkKey?: string | null
+  target?: Record<string, unknown>
   resolve: (data: unknown) => void
   reject: (error: Error) => void
   timer: number
@@ -34,6 +39,7 @@ const pendingReviews = new Map<string, {
 type LeiosStatusValue = {
   requestId: string
   target: { nodeId: number; hostId: number; networkKey?: string | null }
+  era?: string | null
   readState: { status: string; reasonCode: string; affectedData: string[]; [key: string]: unknown }
   [key: string]: unknown
 }
@@ -41,6 +47,7 @@ type LeiosStatusValue = {
 function staleLeios(value: LeiosStatusValue): LeiosStatusValue {
   return {
     ...value,
+    era: null,
     readState: {
       ...value.readState,
       status: 'stale',
@@ -88,6 +95,13 @@ interface JorManagerState {
   nodeIndexRequests: Record<number, string>
   networkInvalidations: Record<string, number>
   networkReadStates: Record<string, ChainReadState>
+  txFee: string
+  tokenFees: string[]
+  tokenKeepFee: string
+  tokenLocked: string
+  requestFeesUUID: string
+  responseFeesUUID: string
+  feeTarget: { networkKey: string; generation: string } | null
 
 
   // Chart data
@@ -143,6 +157,13 @@ export const useJorManagerStore = defineStore('jormanager', {
     nodeIndexRequests: {},
     networkInvalidations: {},
     networkReadStates: {},
+    txFee: '0',
+    tokenFees: [],
+    tokenKeepFee: '0',
+    tokenLocked: '0',
+    requestFeesUUID: '',
+    responseFeesUUID: '',
+    feeTarget: null,
 
 
     // Chart data
@@ -362,6 +383,11 @@ export const useJorManagerStore = defineStore('jormanager', {
         },
         (error: unknown) => {
           this.connected = false
+          for (const pending of pendingRequests.values()) {
+            clearTimeout(pending.timer)
+            pending.reject(new Error('Disconnected; the operation outcome may be uncertain'))
+          }
+          pendingRequests.clear()
           this.invalidateAllNetworkObservations()
           this.nodeIndexStatus = {}
           this.nodeIndexRequests = {}
@@ -374,7 +400,7 @@ export const useJorManagerStore = defineStore('jormanager', {
       if (!this.stompClient) return
 
       this.stompClient.subscribe('/topic/messages', (tick: Message) => {
-        const message = exactJson.parse(tick.body) as { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string } }
+        const message = exactJson.parse(tick.body) as { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string; code?: string } }
         this.handleMessage(message)
       })
       this.invalidateAllNetworkObservations()
@@ -384,31 +410,62 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.requestNodes()
     },
 
-    handleMessage(message: { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string } }) {
+    handleMessage(message: { type: string; data?: unknown; exception?: { message: string; requestId?: string; target?: string; code?: string } }) {
       switch (message.type) {
-        case 'walletreview':
         case 'walletsubmit':
-        case 'walletreconcile':
-        case 'governancereview':
-        case 'governancepublish':
         case 'governancesubmit':
-        case 'pool_retirement_review':
         case 'pool_retirement_submit':
-        case 'node_pool_deployment_preview':
-        case 'node_pool_deployment_install':
-        case 'leios_registration_preview':
+        case 'createnode':
+        case 'node_setup_context':
+        case 'leios_key_prepared':
+        case 'leios_key_imported':
+        case 'leios_key_installation':
         case 'leios_registration_submitted': {
-          if (message.type.startsWith('node_pool_deployment_') || message.type.startsWith('leios_registration_')) {
+          if (message.type.startsWith('leios_registration_') || message.type.startsWith('leios_key_')) {
             this.leiosResponses = { ...this.leiosResponses, [message.type]: { data: message.data, exception: message.exception } }
           }
-          const data = message.data as { requestId: string } | undefined
+          if (message.type === 'createnode') {
+            const acknowledgement = message.data
+            if (acknowledgement && typeof acknowledgement === 'object' && 'message' in acknowledgement && typeof acknowledgement.message === 'string') {
+              this.toastSuccess = { title: 'Node Created', message: acknowledgement.message }
+            } else if (message.exception) this.toastError = { title: 'Node Save Error', message: message.exception.message }
+          }
+          const data = message.data as { requestId: string; nodeId?: unknown; action?: unknown; keyId?: unknown; networkKey?: string; target?: Record<string, unknown> } | undefined
           const requestId = data?.requestId || message.exception?.requestId
-          const pending = requestId ? pendingReviews.get(requestId) : undefined
+          const pending = requestId ? pendingRequests.get(requestId) : undefined
           if (!pending || pending.type !== message.type) break
           clearTimeout(pending.timer)
-          pendingReviews.delete(requestId!)
-          if (data) pending.resolve(data)
-          else pending.reject(new Error(message.exception?.message || 'Operation failed'))
+          pendingRequests.delete(requestId!)
+          if (data) {
+            if ((pending.nodeId !== undefined && data.nodeId !== pending.nodeId) ||
+                (pending.action !== undefined && data.action !== pending.action) ||
+                (pending.keyId !== undefined && data.keyId !== pending.keyId) ||
+                (pending.networkKey && data.networkKey !== pending.networkKey) ||
+                (pending.target && Object.entries(pending.target).some(([key, value]) => value != null && data.target?.[key] !== value))) {
+              pending.reject(new Error('Response target did not match the request'))
+            } else pending.resolve(data)
+          } else {
+            const error = new Error(message.exception?.message || 'Operation failed') as Error & { code?: string }
+            error.code = message.exception?.code
+            pending.reject(error)
+          }
+          break
+        }
+        case 'calculatefee': {
+          const data = message.data as TxFeeData | undefined
+          const target = this.feeTarget
+          if (data && target && this.connected && data.uuid === this.requestFeesUUID &&
+              target.networkKey === this.walletNetworkKey && target.networkKey === this.chainReadState?.networkKey &&
+              target.generation === this.chainReadState?.generation && this.chainReadState?.walletReady && Array.isArray(data.tokenFees) &&
+              [data.txFee, data.tokenKeepFee, data.tokenLocked, ...data.tokenFees].every(value => typeof value === 'string' && /^\d+$/.test(value))) {
+            this.txFee = data.txFee
+            this.tokenFees = data.tokenFees
+            this.tokenKeepFee = data.tokenKeepFee
+            this.tokenLocked = data.tokenLocked
+            this.responseFeesUUID = data.uuid
+          } else if (!data && target) {
+            this.toastError = { title: 'CalculateFee Error', message: message.exception?.message || 'Could not calculate fee' }
+          }
           break
         }
         case 'version':
@@ -497,27 +554,6 @@ export const useJorManagerStore = defineStore('jormanager', {
           }
           break
         }
-        case 'capabilities':
-          this.leiosResponses = { ...this.leiosResponses, capabilities: { data: message.data, exception: message.exception } }
-          break
-        case 'leios_key_prepared':
-        case 'leios_key_imported':
-        case 'leios_key_install_preview':
-        case 'leios_key_installation':
-        case 'node_provisioning_preview':
-        case 'node_pool_draft':
-        case 'node_pool_draft_context':
-        case 'capability_qualification':
-        case 'host_capability_qualification':
-          this.leiosResponses = { ...this.leiosResponses, [message.type]: { data: message.data, exception: message.exception } }
-          break
-        case 'createnode':
-          if (message.data) {
-            this.toastSuccess = { title: 'Node Created', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Node Save Error', message: message.exception!.message }
-          }
-          break
         case 'nodestats':
           this.saveNodeStats(message.data as NodeStatEvent[])
           break
@@ -936,42 +972,56 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     socketRequest<T>(destination: string, responseType: string, payload: Record<string, unknown>): Promise<T> {
       if (!this.stompClient?.connected) return Promise.reject(new Error('Not connected to the server'))
-      const requestId = generateUUID()
+      const requestId = payload.requestId === undefined ? generateUUID() : payload.requestId
+      if (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) {
+        return Promise.reject(new Error('Invalid request ID'))
+      }
+      if (pendingRequests.has(requestId)) return Promise.reject(new Error('Request is already in flight'))
       return new Promise((resolve, reject) => {
         const timer = window.setTimeout(() => {
-          pendingReviews.delete(requestId)
+          pendingRequests.delete(requestId)
           reject(new Error('No response received; the operation outcome may be uncertain'))
         }, 60000)
-        pendingReviews.set(requestId, { type: responseType, resolve: value => resolve(value as T), reject, timer })
+        const networkKey = responseType === 'walletsubmit' || responseType === 'governancesubmit'
+          ? this.walletNetworkKey : null
+        const target = payload.target && typeof payload.target === 'object'
+          ? Object.fromEntries(Object.entries(payload.target).filter(([key]) => ['nodeId', 'hostId', 'networkKey', 'poolId'].includes(key)))
+          : undefined
+        pendingRequests.set(requestId, { type: responseType, nodeId: payload.nodeId, action: payload.action,
+          keyId: responseType === 'leios_registration_submitted' || responseType === 'leios_key_installation' ? payload.keyId : undefined,
+          networkKey, target, resolve: value => resolve(value as T), reject, timer })
         try {
           this.sendMessage(destination, { ...payload, requestId })
         } catch (error) {
           clearTimeout(timer)
-          pendingReviews.delete(requestId)
+          pendingRequests.delete(requestId)
           reject(error instanceof Error ? error : new Error(String(error)))
         }
       })
     },
 
-    reviewWallet(kind: string, request: unknown): Promise<WalletReview> {
-      return this.socketRequest<WalletReview>('/jormanager/walletreview', 'walletreview', { kind, request })
+    submitWallet(requestId: string, kind: string, request: unknown, spendingPassword: string): Promise<TransactionResult> {
+      return this.socketRequest<TransactionResult>('/jormanager/walletsubmit', 'walletsubmit', { requestId, kind, request, spendingPassword })
     },
 
-    reviewGovernance(request: unknown): Promise<WalletReview> {
-      return this.socketRequest<WalletReview>('/jormanager/governancereview', 'governancereview', { request })
+    submitGovernance(requestId: string, request: unknown, spendingPassword: string): Promise<TransactionResult> {
+      return this.socketRequest<TransactionResult>('/jormanager/governancesubmit', 'governancesubmit', { requestId, request, spendingPassword })
     },
 
-    async submitReviewedWallet(previewId: string, spendingPassword: string, governance = false): Promise<WalletReview> {
-      const type = governance ? 'governancesubmit' : 'walletsubmit'
-      const result = await this.socketRequest<WalletReview>(`/jormanager/${type}`, type, { previewId, spendingPassword })
-      if (result.previewId !== previewId) throw new Error('Submission response did not match the reviewed preview')
-      return result
+    calculateSendAdaFees(request: { uuid: string; [key: string]: unknown }) {
+      const networkKey = this.walletNetworkKey
+      const state = this.chainReadState
+      this.invalidateSendAdaFees()
+      if (!this.connected || !networkKey || state?.networkKey !== networkKey || !state.walletReady) return
+      this.feeTarget = { networkKey, generation: state.generation }
+      this.requestFeesUUID = request.uuid
+      this.sendMessage('/jormanager/calculatefee', request)
     },
 
-    async reconcileWallet(previewId: string, spendingPassword: string): Promise<WalletReconciliation> {
-      const result = await this.socketRequest<WalletReconciliation>('/jormanager/walletreconcile', 'walletreconcile', { previewId, spendingPassword })
-      if (result.previewId !== previewId) throw new Error('Reconciliation response did not match the reviewed preview')
-      return result
+    invalidateSendAdaFees() {
+      this.requestFeesUUID = ''
+      this.responseFeesUUID = ''
+      this.feeTarget = null
     },
 
     requestAppVersion() {

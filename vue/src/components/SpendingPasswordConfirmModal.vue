@@ -41,19 +41,22 @@ function show(action: string, data?: unknown) {
 }
 
 function confirmClicked() {
-  if (spendingPassword.value && pendingAction.value) {
-    emitter.emit('confirm-spending-password-with-action', {
-      action: pendingAction.value,
-      password: spendingPassword.value,
-      originalData: pendingData.value
-    })
-  }
+  const action = pendingAction.value
+  const password = spendingPassword.value
+  const originalData = pendingData.value
   spendingPassword.value = null
+  pendingData.value = null
+  if (password && action) {
+    emitter.emit('confirm-spending-password-with-action', { action, password, originalData })
+  }
   isVisible.value = false
 }
 
 function onHidden() {
   spendingPassword.value = null
+  pendingData.value = null
+  emitter.emit('spending-password-modal-hidden', { action: pendingAction.value })
+  pendingAction.value = ''
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -69,6 +72,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  onHidden()
   emitter.off('show-spending-password-modal')
 })
 </script>

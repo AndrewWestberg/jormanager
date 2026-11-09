@@ -80,28 +80,24 @@ export interface NodeIndexStatus {
   error: string | null
 }
 
-export interface WalletReview {
-  previewId: string
+export interface TransactionResult {
+  requestId: string
   txId: string
   networkKey: string
   era: string
   fee: string
   deposit: string
   refund: string
-  validFrom: string | null
-  validUntil: string | null
   state: string
-  reason?: string | null
-  effects?: unknown
 }
 
-export interface WalletReconciliation {
-  requestId: string
-  previewId: string
-  txId: string
-  networkKey: string
-  state: string
-  reason: string | null
+export interface PoolRetirementResult extends TransactionResult {
+  nodeId: number
+}
+
+export interface PoolRegistrationResult extends PoolRetirementResult {
+  action: string
+  keyId: number | null
 }
 
 export interface SeriesDataPoint {
@@ -143,10 +139,10 @@ export interface AppVersionData {
 }
 
 export interface TxFeeData {
-  txFee: number
-  tokenFees: number[]
-  tokenKeepFee: number
-  tokenLocked: number
+  txFee: string
+  tokenFees: string[]
+  tokenKeepFee: string
+  tokenLocked: string
   uuid: string
 }
 

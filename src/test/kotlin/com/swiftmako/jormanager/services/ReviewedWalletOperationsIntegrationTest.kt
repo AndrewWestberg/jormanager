@@ -21,9 +21,7 @@ import com.swiftmako.jormanager.utils.CborSpans
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.Runs
 import java.math.BigInteger
 import java.net.URI
 import java.sql.DriverManager
@@ -97,14 +95,12 @@ class ReviewedWalletOperationsIntegrationTest {
             val host = mockk<Host>()
             val node = mockk<Node>()
             val eras = mockk<CardanoRepository>()
-            val capabilities = mockk<CardanoCapabilities>()
             every { host.id } returns 1L
             every { host.cardanoCliPath } returns "cli"
             every { node.id } returns 2L
             every { eras.networkKey(node) } returns "operation-test"
             every { eras.evidence(node) } returns CardanoRepository.EraEvidence("operation-test", era, "current", "host:1/node:2", generation = 1)
-            every { capabilities.requireOperation(host, node, any()) } just Runs
-            val service = ReviewedWalletOperations(repository, em, eras, capabilities, json, coordinator, manager)
+            val service = ReviewedWalletOperations(repository, em, eras, json, coordinator, manager)
             test(Fixture(pool, coordinator, service, repository, host, node, rootCount, era))
         } finally {
             factory?.destroy()
@@ -151,14 +147,25 @@ class ReviewedWalletOperationsIntegrationTest {
             return (if (era == "dijkstra") F.array(parts[0].bytes(), parts[1].bytes(), parts[2].bytes())
                 else F.array(parts[0].bytes(), parts[1].bytes(), byteArrayOf(0xf5.toByte()), parts[2].bytes())).toHexString()
         }
-        fun preview(id: String, tx: ByteArray, body: ReviewedWalletOperations.CliBody? = null): AuthorizedOperation {
+        fun preview(id: String, tx: ByteArray, body: ReviewedWalletOperations.CliBody? = null, until: Long? = 10_000_000): AuthorizedOperation {
             val signed = submission(tx)
             val decoded = ReviewedTransactionIdentity.decodeSubmitted(signed, era)
             val envelope = json.writeValueAsString(mapOf("type" to "Tx ${era.replaceFirstChar { it.uppercase() }}Era", "cborHex" to signed))
             return service.preview(ReviewedWalletOperations.Preview(id, "preview-$id", host, node, "wallet.send", evidence,
                 "{}", body ?: ReviewedWalletOperations.CliBody(envelope, decoded.id), BigInteger.valueOf(200_000),
-                BigInteger.ZERO, BigInteger.ZERO, 0, 10_000_000))
+                BigInteger.ZERO, BigInteger.ZERO, 0, until))
         }
+
+        fun expiryTransaction(index: Int, until: Long? = 1): ByteArray {
+            val tx = F.transaction(listOf(F.input(roots[index].txId)), listOf(F.output(coin = 99_800_000)))
+            val parts = CborSpans.parse(tx).array()
+            val entries = parts[0].entries().filter { it.first.integer().toInt() != 3 }
+                .map { it.first.bytes() to it.second.bytes() }.toMutableList()
+            if (until != null) entries.add(F.integer(3) to F.integer(until))
+            return F.array(F.map(entries), parts[1].bytes(), parts[2].bytes(), parts[3].bytes())
+        }
+        fun expire(vararg ids: String, generation: Long = this.generation, point: ChainPoint = point(block)): Boolean =
+            service.expirePending(network, generation, point.slot.toBigInteger(), point.hash, ids.toSet())
         fun submit(id: String, tx: ByteArray, callback: (String) -> Unit = {}): AuthorizedOperation =
             service.submit("preview-$id", host, node, { evidence }, { submission(tx) }, callback)
         fun state(id: String) = repository.findById(id).orElseThrow()
@@ -239,11 +246,6 @@ class ReviewedWalletOperationsIntegrationTest {
         }
         assertEquals(3, checks)
         assertEquals("submission_uncertain", f.state("uncertain").state)
-        val point = f.point(f.block)
-        val uncertain = f.service.reconcile("preview-uncertain", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(point.slot.toBigInteger(), point.hash, true, setOf(f.root(0).hash to 0))
-        }
-        assertEquals("submission_uncertain", uncertain.operation.state)
         assertEquals(1, f.reservations("uncertain").size)
         val other = F.transaction(listOf(F.input(f.roots[1].txId)), listOf(F.output(coin = 99_800_000)))
         f.preview("failed-check", other)
@@ -338,6 +340,138 @@ class ReviewedWalletOperationsIntegrationTest {
         assertTrue(f.snapshot(listOf(root), emptyMap()).utxosByAddress.getValue(f.address).isEmpty())
     }
 
+    @Test fun `expiry releases only absent eligible operations at the matched point`() = database { f ->
+        val submitted = f.expiryTransaction(0)
+        val uncertain = f.expiryTransaction(1)
+        val rolledBack = f.expiryTransaction(2)
+        val future = f.expiryTransaction(3, 100)
+        val noExpiry = f.expiryTransaction(4, null)
+        listOf("submitted" to submitted, "uncertain" to uncertain, "rollback" to rolledBack).forEach { (id, tx) ->
+            f.preview(id, tx, until = 1)
+            if (id == "uncertain") assertThrows(IllegalStateException::class.java) {
+                f.submit(id, tx) { error("unknown broadcast") }
+            } else f.submit(id, tx)
+        }
+        f.preview("future", future, until = 100); f.submit("future", future)
+        f.preview("legacy", noExpiry, until = null); f.submit("legacy", noExpiry)
+        val priorBlock = f.block
+        val prior = f.point(priorBlock)
+        f.confirm(rolledBack)
+        f.generation = f.chain.rollback(f.network, prior, f.generation)
+        f.chain.observeTip(f.network, prior, f.generation)
+        f.block = priorBlock
+        assertEquals("rolled_back", f.state("rollback").state)
+        assertFalse(f.expire("submitted", generation = f.generation + 1))
+        assertFalse(f.expire("submitted", point = prior.copy(hash = "00".repeat(32))))
+        assertFalse(f.expire("future", "legacy"))
+        assertFalse(f.expire())
+        assertEquals(1, f.reservations("submitted").size)
+        assertTrue(f.expire("submitted", "uncertain", "rollback"))
+        listOf("submitted", "uncertain", "rollback").forEach {
+            assertEquals("expired", f.state(it).state)
+            assertTrue(f.reservations(it).isEmpty())
+        }
+        assertFalse(f.expire("submitted", "uncertain", "rollback"))
+        assertEquals(1, f.reservations("future").size)
+        assertEquals(1, f.reservations("legacy").size)
+        assertTrue(f.snapshot((0..5).map(f::root), emptyMap()).utxosByAddress.getValue(f.address).any { it.hash == f.root(0).hash })
+    }
+
+    @Test fun `expired signing is fenced but live signing continues`() = database { f ->
+        val tx = f.expiryTransaction(0)
+        f.preview("signing", tx, until = 1)
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val signer = executor.submit<Boolean> {
+                try {
+                    f.service.submit("preview-signing", f.host, f.node, { f.evidence }, {
+                        entered.countDown(); check(resume.await(30, TimeUnit.SECONDS)); f.submission(tx)
+                    }, { fail<Unit>("expired signer must not broadcast") })
+                    true
+                } catch (_: Exception) { false }
+            }
+            assertTrue(entered.await(30, TimeUnit.SECONDS))
+            assertFalse(f.expire("signing", point = f.point(f.block).copy(slot = "0")))
+            assertTrue(f.expire("signing"))
+            assertEquals("not_submitted", f.state("signing").state)
+            resume.countDown()
+            assertFalse(signer.get(30, TimeUnit.SECONDS))
+            assertTrue(f.reservations("signing").isEmpty())
+        } finally { resume.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun `unexpired signer is not fenced`() = database { f ->
+        val tx = f.expiryTransaction(0, 100)
+        f.preview("live", tx, until = 100)
+        var broadcast = false
+        val result = f.service.submit("preview-live", f.host, f.node, { f.evidence }, {
+            assertFalse(f.expire("live"))
+            f.submission(tx)
+        }, { broadcast = true })
+        assertTrue(broadcast)
+        assertEquals("submitted", result.state)
+    }
+
+    @Test fun `concurrent adoption prevents expiry at the old point`() = database { f ->
+        val tx = f.expiryTransaction(0)
+        f.preview("adoption", tx, until = 1); f.submit("adoption", tx)
+        val oldPoint = f.point(f.block)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            f.pool.connection.use { lock ->
+                lock.prepareStatement("SELECT network_key FROM sync_states WHERE network_key=? FOR UPDATE").use {
+                    it.setString(1, f.network); it.executeQuery().close()
+                }
+                val adoption = executor.submit { f.confirm(tx) }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+                var waiting = false
+                while (!waiting && System.nanoTime() < deadline) {
+                    f.pool.connection.use { c ->
+                        c.createStatement().use { s ->
+                            s.executeQuery("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query ILIKE '%sync_states%')").use {
+                                it.next(); waiting = it.getBoolean(1)
+                            }
+                        }
+                    }
+                    if (!waiting) Thread.sleep(10)
+                }
+                assertTrue(waiting)
+                val expiry = executor.submit<Boolean> { f.expire("adoption", point = oldPoint) }
+                lock.commit()
+                adoption.get(30, TimeUnit.SECONDS)
+                assertFalse(expiry.get(30, TimeUnit.SECONDS))
+            }
+            assertEquals("confirmed", f.state("adoption").state)
+            assertEquals(1, f.reservations("adoption").size)
+        } finally { executor.shutdownNow() }
+    }
+
+    @Test fun `expiry preserves malformed and adopted conflicting identities`() = database { f ->
+        val malformed = f.expiryTransaction(0)
+        f.preview("malformed", malformed, until = 1); f.submit("malformed", malformed)
+        f.pool.connection.use { connection ->
+            connection.prepareStatement("UPDATE authorized_operations SET signed_batch=? WHERE id=?").use {
+                it.setString(1, "00")
+                it.setString(2, "malformed")
+                it.executeUpdate()
+            }
+            connection.commit()
+        }
+        assertFalse(f.expire("malformed"))
+        assertEquals(1, f.reservations("malformed").size)
+        val tx = f.expiryTransaction(1)
+        f.preview("conflict", tx, until = 1); f.submit("conflict", tx)
+        val parts = CborSpans.parse(tx).array()
+        val witness = F.map(listOf(F.integer(0) to (byteArrayOf(0xd9.toByte(), 1, 2) +
+            F.array(F.array(F.bytes(ByteArray(32) { 1 }), F.bytes(ByteArray(64) { 2 }))))))
+        f.confirm(F.array(parts[0].bytes(), witness, parts[2].bytes(), parts[3].bytes()))
+        assertEquals("submitted", f.state("conflict").state)
+        assertFalse(f.expire("conflict"))
+        assertEquals(1, f.reservations("conflict").size)
+    }
+
     @Test fun `reservation release follows effective branch`() = database { f ->
         val success = F.transaction(listOf(F.input(f.roots[1].txId)), listOf(F.output(coin = 99_800_000)), collateral = listOf(F.input(f.roots[2].txId)))
         f.preview("success", success); f.submit("success", success)
@@ -347,21 +481,9 @@ class ReviewedWalletOperationsIntegrationTest {
         f.preview("failure", failed); f.submit("failure", failed)
         f.confirm(failed)
         assertEquals(setOf(f.roots[4].txId.toHexString() to 0), f.reservations("failure"))
-        f.pool.connection.use { c ->
-            c.prepareStatement("INSERT INTO authorized_operation_inputs(id,operation_id,network_key,input_tx_id,input_index) VALUES (?,?,?,?,0)").use { s ->
-                s.setString(1, UUID.randomUUID().toString()); s.setString(2, "failure"); s.setString(3, f.network)
-                s.setString(4, f.root(3).hash); s.executeUpdate()
-            }
-            c.commit()
-        }
-        val point = f.point(f.block)
-        val reconciled = f.service.reconcile("preview-failure", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(point.slot.toBigInteger(), point.hash, false, emptySet())
-        }
-        assertEquals("phase2_failed", reconciled.operation.state)
-        assertEquals(setOf(f.root(4).hash to 0), f.reservations("failure"))
+        assertEquals("phase2_failed", f.state("failure").state)
     }
-    @Test fun `confirmation races submission and strict reconciliation releases only unused inputs`() = database { f ->
+    @Test fun `confirmation races submission and rollback preserves reservations`() = database { f ->
         val prior = f.point(f.block)
         val tx = F.transaction(listOf(F.input(f.roots[0].txId)), listOf(F.output(coin = 99_800_000)),
             collateral = listOf(F.input(f.roots[1].txId)))
@@ -369,32 +491,11 @@ class ReviewedWalletOperationsIntegrationTest {
         val result = f.submit("race", tx) { f.confirm(tx) }
         assertEquals("confirmed", result.state)
         assertEquals(setOf(f.root(0).hash to 0), f.reservations("race"))
-        f.pool.connection.use { c ->
-            c.prepareStatement("INSERT INTO authorized_operation_inputs(id,operation_id,network_key,input_tx_id,input_index) VALUES (?,?,?,?,0)").use { s ->
-                s.setString(1, UUID.randomUUID().toString()); s.setString(2, "race"); s.setString(3, f.network)
-                s.setString(4, f.root(1).hash); s.executeUpdate()
-            }
-            c.commit()
-        }
-        val point = f.point(f.block)
-        val mismatch = f.service.reconcile("preview-race", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(BigInteger.valueOf(f.height + 1), point.hash, false, emptySet())
-        }
-        assertEquals(2, f.reservations("race").size)
-        assertEquals("confirmed", mismatch.operation.state)
-        f.service.reconcile("preview-race", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(BigInteger.valueOf(f.height), point.hash, false, emptySet())
-        }
-        assertEquals(setOf(f.root(0).hash to 0), f.reservations("race"))
         f.generation = f.chain.rollback(f.network, prior, f.generation)
         f.chain.observeTip(f.network, prior, f.generation)
         assertEquals("rolled_back", f.state("race").state)
         val restored = f.snapshot((0..5).map(f::root), emptyMap())
         assertFalse(restored.utxosByAddress.getValue(f.address).any { it.hash == f.root(0).hash || it.hash == f.root(1).hash })
-        val unresolved = f.service.reconcile("preview-race", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(prior.slot.toBigInteger(), prior.hash, true, setOf(f.root(0).hash to 0))
-        }
-        assertEquals("rolled_back", unresolved.operation.state)
     }
     @Test fun `dijkstra confirmation requires original parent and child bytes`() = database(era = "dijkstra") { f ->
         val child = F.transaction(listOf(F.input(f.roots[1].txId)), listOf(F.output(coin = 99_800_000)))
@@ -422,11 +523,6 @@ class ReviewedWalletOperationsIntegrationTest {
         val altered = F.array(parts[0].bytes(), changedWitness, parts[2].bytes(), parts[3].bytes())
         f.confirm(altered)
         assertEquals("submitted", f.state("batch").state)
-        val point = f.point(f.block)
-        val mismatch = f.service.reconcile("preview-batch", f.host, f.node) { _, _ ->
-            ReviewedWalletOperations.ReconciliationObservation(point.slot.toBigInteger(), point.hash, false, emptySet())
-        }
-        assertEquals("submitted", mismatch.operation.state)
         f.generation = f.chain.rollback(f.network, previousPoint, f.generation)
         f.chain.observeTip(f.network, previousPoint, f.generation)
         f.block = previousBlock

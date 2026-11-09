@@ -5,7 +5,6 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.LeiosKeyRequest
 import com.swiftmako.jormanager.services.LeiosKeyService
 import com.swiftmako.jormanager.services.LeiosObservationService
-import com.swiftmako.jormanager.model.LeiosInstallPreviewRequest
 import com.swiftmako.jormanager.model.LeiosInstallRequest
 import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import com.swiftmako.jormanager.services.LeiosInstallationService
@@ -44,12 +43,12 @@ class LeiosController(
     data class Eligibility(val markEpoch: String?, val setEpoch: String?, val eligible: Boolean?, val selected: Boolean?, val expired: Boolean?)
     data class Installation(val state: String, val installedFingerprint: String?, val loadedFingerprint: String?, val permissionResult: String?, val observedAt: String, val stale: Boolean, val error: String?)
     data class KeyView(val keyId: Long?, val publicKeyHex: String, val proofOfPossessionHex: String?, val proofValidated: Boolean, val registration: Registration?, val eligibility: Eligibility?, val installation: Installation?)
-    data class Status(val requestId: String, val target: Target, val keys: List<KeyView>, val readState: ReadState)
+    data class Status(val requestId: String, val target: Target, val keys: List<KeyView>, val readState: ReadState, val era: String?)
     data class KeyResult(val requestId: String, val target: Target, val key: KeyView)
-    private fun failure(type: String, requestId: String, message: String) = SocketResponse.Error(
+    private fun failure(type: String, requestId: String, message: String, disposition: String = "retry") = SocketResponse.Error(
         type, SocketResponse.PublicFailure(
             code = "LeiosOperationFailed", message = message, operation = type,
-            retryDisposition = "review", requestId = requestId,
+            retryDisposition = disposition, requestId = requestId,
         ),
     )
 
@@ -63,7 +62,7 @@ class LeiosController(
         SocketResponse.Success(responseType, KeyResult(request.requestId, target,
             KeyView(key.id, key.publicKey.toHexString(), key.proof.toHexString(), true, null, null, null)))
     } catch (_: Exception) {
-        failure(responseType, request.requestId, "Key operation failed or is not qualified for this target")
+        failure(responseType, request.requestId, "Key operation failed; check the target and authorization")
     }
 
     @MessageMapping("/leios/key/prepare")
@@ -74,20 +73,19 @@ class LeiosController(
     @SendTo("/topic/messages")
     fun importKey(request: LeiosKeyRequest): SocketResponse<KeyResult> = keyOperation(request, "import", "leios_key_imported")
 
-    @MessageMapping("/leios/key/install-preview")
-    @SendTo("/topic/messages")
-    fun installPreview(request: LeiosInstallPreviewRequest): SocketResponse<LeiosInstallationService.Preview> = try {
-        SocketResponse.Success("leios_key_install_preview", installationService.preview(request))
-    } catch (_: Exception) {
-        failure("leios_key_install_preview", request.requestId, "Installation target or qualified preview unavailable")
-    }
-
     @MessageMapping("/leios/key/install")
     @SendTo("/topic/messages")
     fun install(request: LeiosInstallRequest): SocketResponse<LeiosInstallationService.Result> = try {
         SocketResponse.Success("leios_key_installation", installationService.install(request))
-    } catch (_: Exception) {
-        failure("leios_key_installation", request.requestId, "Installation failed or the review is stale; inspect the producer before retrying")
+    } catch (error: Exception) {
+        val safeReasons = setOf("Authorization required", "Invalid signing key", "Installation request ID belongs to another action",
+            "Installation request ID belongs to another target", "Installation target has changed",
+            "Producer service user differs from the credential owner", "Unsupported producer startup configuration",
+            "Pool child requires bulk credentials")
+        val message = if (error is LeiosInstallationService.InstallationFailure) error.message
+            else error.message?.takeIf { it in safeReasons }
+        failure("leios_key_installation", request.requestId, message ?: "Installation target or authorization is invalid",
+            (error as? LeiosInstallationService.InstallationFailure)?.disposition ?: "retry")
     }
 
     @MessageMapping("/leios/status")
@@ -102,6 +100,16 @@ class LeiosController(
         require(request.target.poolId == null || request.target.poolId == pool)
         require(request.target.networkKey == null || request.target.networkKey == network)
         val target = Target(request.target.hostId, request.target.nodeId, pool, network)
+        val era = try {
+            val observer = if (node.isDraft) nodes.findDefault() else node
+            observer?.takeIf { !it.isDeleted && !it.isDraft && eras.networkKey(it) == network }?.let {
+                val evidence = eras.evidence(it)
+                evidence.era.takeIf { _ -> evidence.freshness == "current" && evidence.networkKey == network &&
+                    evidence.source == "host:${it.hostId}/node:${it.id}" }
+            }
+        } catch (_: Exception) {
+            null
+        }
         val refreshed = try { observationService.refresh(host, node) } catch (_: Exception) { null }
         val observation = refreshed ?: observations.findFirstByNetworkKeyAndPoolIdOrderByObservedAtDesc(network, pool)
         val installed = installations.findByNodeIdAndHostIdOrderByObservedAtDesc(request.target.nodeId, request.target.hostId).groupBy { it.keyId }
@@ -159,7 +167,7 @@ class LeiosController(
                 else -> "POOL_OBSERVATION_CURRENT"
             }, affected
         )
-        SocketResponse.Success("leios_status", Status(request.requestId, target, views, state))
+        SocketResponse.Success("leios_status", Status(request.requestId, target, views, state, era))
     } catch (_: Exception) {
         failure("leios_status", request.requestId, "Leios target or observations unavailable")
     }
