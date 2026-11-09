@@ -7,12 +7,8 @@
     :no-close-on-backdrop="true"
     @hidden="resetForm"
   >
-    <div class="alert alert-info" role="alert">
-      Publishing a rationale is a separate authorized action. It is public and may be permanent even if the vote is never submitted.
-    </div>
     <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
-    <WalletReviewPanel v-if="review" :review="review" governance @close="review = null" @submitted="review = $event" />
-    <fieldset v-if="!review" :disabled="busy">
+    <fieldset :disabled="busy">
     <BFormGroup label="Fees Account" label-cols-md="4">
       <BFormSelect
         v-model="feesAccountId"
@@ -42,18 +38,9 @@
     <BFormGroup label="Rationale (optional)" label-for="governance-vote-rationale" label-cols-md="4">
       <BFormTextarea id="governance-vote-rationale" v-model="rationale" />
       <BFormText class="text-muted">
-        This rationale will be attached to every pool vote below, even if their choices differ.
+        Published publicly and attached to every pool vote below, even if their choices differ. Publication may remain if the transaction fails.
       </BFormText>
     </BFormGroup>
-    <div v-if="rationale.trim()" class="border rounded p-3 mb-3">
-      <p v-if="anchor">Published: {{ anchor.anchorUrl }}<br>Hash: {{ anchor.anchorHash }}</p>
-      <template v-else>
-        <BFormGroup label="Spending password to authorize publication" label-for="rationale-password">
-          <BFormInput id="rationale-password" v-model="publicationPassword" type="password" autocomplete="current-password" />
-        </BFormGroup>
-        <BButton variant="warning" :disabled="!publicationPassword || busy" @click="publishRationale">Authorize public publication</BButton>
-      </template>
-    </div>
 
     <hr />
 
@@ -93,13 +80,14 @@
 
     <template #footer>
       <BButton variant="secondary" @click="handleCancel">Cancel</BButton>
-      <BButton v-if="!review" variant="success" :disabled="busy || !rationaleReady || !walletReady || !isValidGovActionId || feesAccountId === null || !coreNodes.length" @click="reviewVote">Review vote</BButton>
+      <BButton variant="success" :disabled="busy || !walletReady || !isValidGovActionId || feesAccountId === null || !coreNodes.length" @click="reviewVote">Submit Vote</BButton>
     </template>
   </BModal>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { generateUUID } from '@/utils/filters'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { filter } from 'lodash-es'
 import {
@@ -115,8 +103,7 @@ import {
   BButton
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
-import WalletReviewPanel from '@/components/WalletReviewPanel.vue'
-import type { WalletReview } from '@/types'
+import { useEventBus } from '@/composables/useEventBus'
 
 const props = defineProps<{
   modelValue: boolean
@@ -128,61 +115,63 @@ const emit = defineEmits<{
 
 const store = useJorManagerStore()
 const { nodes } = storeToRefs(store)
+const emitter = useEventBus()
 
 // Form state
 const govActionId = ref('')
 const rationale = ref('')
 const nodeVotes = ref<Record<number, 'YES' | 'NO' | 'ABSTAIN'>>({})
 const feesAccountId = ref<number | null>(null)
-const review = ref<WalletReview | null>(null)
 const reviewError = ref('')
 const busy = ref(false)
-const publicationPassword = ref('')
-const anchor = ref<{ anchorUrl: string; anchorHash: string } | null>(null)
-const rationaleReady = computed(() => !rationale.value.trim() || anchor.value !== null)
 const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
   store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState.walletReady === true)
-watch(rationale, () => { anchor.value = null; publicationPassword.value = '' })
-
-async function publishRationale() {
-  if (busy.value || !rationale.value.trim() || !publicationPassword.value) return
-  const generation = ++reviewGeneration
-  const spendingPassword = publicationPassword.value
-  publicationPassword.value = ''
-  busy.value = true
-  reviewError.value = ''
-  try {
-    const result = await store.socketRequest<{ anchorUrl: string; anchorHash: string }>(
-      '/jormanager/governancepublish', 'governancepublish',
-      { rationale: rationale.value, spendingPassword }
-    )
-    if (generation === reviewGeneration) anchor.value = result
-  } catch (e) {
-    if (generation === reviewGeneration) reviewError.value = `${e instanceof Error ? e.message : String(e)}. Publication may have occurred; check before retrying.`
-  } finally {
-    if (generation === reviewGeneration) busy.value = false
-  }
-}
 let reviewGeneration = 0
+let requestId = ''
+function formSignature() {
+  return JSON.stringify([govActionId.value, rationale.value, feesAccountId.value, nodeVotes.value])
+}
+watch(formSignature, () => { requestId = '' }, { flush: 'sync' })
 
-async function reviewVote() {
-  if (busy.value || !rationaleReady.value || !walletReady.value || !isValidGovActionId.value || feesAccountId.value === null || !coreNodes.value.length) return
-  const generation = ++reviewGeneration
+function reviewVote() {
+  if (busy.value || !walletReady.value || !isValidGovActionId.value || feesAccountId.value === null ||
+      !feeAccountOptions.value.some(option => option.value === feesAccountId.value) ||
+      !coreNodes.value.length || coreNodes.value.some(node => !node.id || !nodeVotes.value[node.id])) return
+  requestId ||= generateUUID()
+  emitter.emit('show-spending-password-modal', { action: 'submit-governance-vote', data: {
+    requestId, signature: formSignature(), generation: reviewGeneration,
+    networkKey: store.walletNetworkKey, chainGeneration: store.chainReadState?.generation,
+    request: { govActionId: govActionId.value.trim(),
+      votes: coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] })),
+      feesAccountId: feesAccountId.value, rationale: rationale.value.trim() || null }
+  } })
+}
+
+async function onPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
+  if (data.action !== 'submit-governance-vote' || busy.value) return
+  const pending = data.originalData as { requestId: string; signature: string; generation: number; networkKey: string | null; chainGeneration: string | undefined; request: unknown }
+  if (!props.modelValue || !walletReady.value || pending.generation !== reviewGeneration ||
+      pending.requestId !== requestId || pending.signature !== formSignature() ||
+      pending.networkKey !== store.walletNetworkKey || pending.chainGeneration !== store.chainReadState?.generation ||
+      !feeAccountOptions.value.some(option => option.value === feesAccountId.value) ||
+      !coreNodes.value.length ||
+      JSON.stringify(coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] }))) !==
+        JSON.stringify((pending.request as { votes: unknown[] }).votes)) return
   busy.value = true
   reviewError.value = ''
   try {
-    const result = await store.reviewGovernance({
-      govActionId: govActionId.value.trim(),
-      votes: coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] })),
-      feesAccountId: feesAccountId.value,
-      anchorUrl: anchor.value?.anchorUrl ?? null,
-      anchorHash: anchor.value?.anchorHash ?? null
-    })
-    if (generation === reviewGeneration) review.value = result
+    const result = await store.submitGovernance(pending.requestId, pending.request, data.password)
+    if (result.state !== 'submitted' && result.state !== 'confirmed') {
+      throw new Error(`Transaction ${result.txId}: ${result.state}`)
+    }
+    if (pending.generation === reviewGeneration) {
+      store.toastInfo = { title: 'Vote submitted', message: result.txId }
+      emit('update:modelValue', false)
+    }
   } catch (e) {
-    if (generation === reviewGeneration) reviewError.value = e instanceof Error ? e.message : String(e)
+    if (pending.generation === reviewGeneration) reviewError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    if (generation === reviewGeneration) busy.value = false
+    if (pending.generation === reviewGeneration) busy.value = false
   }
 }
 
@@ -260,10 +249,8 @@ function initializeDefaultVotes() {
 function resetForm() {
   reviewGeneration++
   busy.value = false
-  review.value = null
+  requestId = ''
   reviewError.value = ''
-  publicationPassword.value = ''
-  anchor.value = null
   govActionId.value = ''
   rationale.value = ''
   nodeVotes.value = {}
@@ -289,7 +276,9 @@ watch(
 
 onMounted(() => {
   initializeDefaultVotes()
+  emitter.on('confirm-spending-password-with-action', onPasswordConfirmed)
 })
+onUnmounted(() => emitter.off('confirm-spending-password-with-action', onPasswordConfirmed))
 
 </script>
 

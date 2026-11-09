@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.controllers
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import com.squareup.moshi.JsonAdapter
@@ -20,7 +21,6 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
-import com.swiftmako.jormanager.services.CardanoCapabilities
 import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
@@ -43,7 +43,6 @@ class GovernanceReviewController(
     private val walletUtils: WalletUtils,
     private val eras: CardanoRepository,
     private val protocolSnapshots: ProtocolSnapshotRepository,
-    private val capabilities: CardanoCapabilities,
     private val reviews: ReviewedWalletOperations,
     private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
@@ -52,21 +51,13 @@ class GovernanceReviewController(
     private val tipAdapter: JsonAdapter<QueryTip>,
     private val json: ObjectMapper,
 ) {
-    data class VoteRequest(val govActionId: String, val votes: List<NodeVoteSelection>, val feesAccountId: Long, val anchorUrl: String? = null, val anchorHash: String? = null)
-    data class ReviewRequest(val requestId: String, val request: VoteRequest)
-    data class PublishRequest(val requestId: String, val rationale: String, val spendingPassword: String) {
-        override fun toString() = "PublishRequest(requestId=$requestId, spendingPassword=********)"
+    data class VoteRequest(val govActionId: String, val votes: List<NodeVoteSelection>, val feesAccountId: Long, val rationale: String? = null)
+    data class SubmitRequest(val requestId: String, val request: VoteRequest,
+        @get:JsonProperty(access = JsonProperty.Access.WRITE_ONLY) val spendingPassword: String) {
+        override fun toString() = "SubmitRequest(requestId=$requestId, spendingPassword=********)"
     }
-    data class PublishedAnchor(val requestId: String, val anchorUrl: String, val anchorHash: String)
-    data class SubmitRequest(val requestId: String, val previewId: String, val spendingPassword: String) {
-        override fun toString() = "SubmitRequest(requestId=$requestId, previewId=$previewId, spendingPassword=********)"
-    }
-    data class Result(
-        val requestId: String,
-        val previewId: String, val txId: String, val networkKey: String, val era: String,
-        val fee: String, val deposit: String, val refund: String,
-        val validFrom: String?, val validUntil: String?, val state: String, val effects: JsonNode,
-    )
+    data class Result(val requestId: String, val txId: String, val networkKey: String, val era: String,
+        val fee: String, val deposit: String, val refund: String, val state: String)
     private data class Target(val node: Node, val host: Host, val connection: HostConnection, val era: String, val magic: List<String>, val socket: List<String>)
     private data class Observation(val evidence: ReviewedWalletOperations.Evidence, val snapshot: PendingWalletState.Snapshot, val parameters: String)
 
@@ -78,7 +69,6 @@ class GovernanceReviewController(
         val magic = if (genesis.networkId.equals("testnet", true)) listOf("--testnet-magic", genesis.networkMagic.toString()) else listOf("--mainnet")
         val socket = listOf("--socket-path", "${host.nodeHomePath}/${node.name}/db/socket")
         val era = eras.getEra(host, node, magic.joinToString(" "), socket.joinToString(" "))
-        capabilities.requireOperation(host, node, "governance.vote")
         return Target(node, host, HostConnection(host, node), era, magic, socket)
     }
 
@@ -108,9 +98,10 @@ class GovernanceReviewController(
             canonicalWalletInputs(snapshot, payer.paymentAddr), snapshot.readState.generation,
             pools.map { listOf(it.id, it.coreSKeyId, digest(requireNotNull(files.findByIdOrNull(it.coreSKeyId)).content),
                 it.coreVKeyId, requireNotNull(files.findByIdOrNull(it.coreVKeyId)).content) }, json.readTree(gov))
-        val capability = capabilities.capability(target.host, target.node, "governance.vote")
+        val e = eras.evidence(target.node)
+        check(e.freshness == "current" && e.era == target.era && e.source == "host:${target.host.id}/node:${target.node.id}") { "Current era unavailable" }
         return Observation(ReviewedWalletOperations.Evidence(digest(payload), digest(json.readTree(params).toString()),
-            digest(json.writeValueAsString(state)), digest(json.writeValueAsString(capability)), snapshot.readState.generation), snapshot, params)
+            digest(json.writeValueAsString(state)), digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, target.host.id, target.node.id))), snapshot.readState.generation), snapshot, params)
     }
 
     private fun bodyField(envelope: String, key: Int): BigInteger? {
@@ -119,61 +110,30 @@ class GovernanceReviewController(
         return body.entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
     }
 
-    private fun exactJson(value: JsonNode): JsonNode = when {
-        value.isObject -> json.createObjectNode().also { out -> value.properties().forEach { (key, child) -> out.set(key, exactJson(child)) } }
-        value.isArray -> json.createArrayNode().also { out -> value.forEach { out.add(exactJson(it)) } }
-        value.isNumber -> json.nodeFactory.stringNode(value.asString())
-        else -> value
-    }
-
     private fun result(record: com.swiftmako.jormanager.entities.AuthorizedOperation, requestId: String): Result =
-        Result(requestId, record.previewId, record.txId, record.networkKey, record.era, record.fee.toString(), record.deposit.toString(), record.refund.toString(),
-            record.validFrom?.toString(), record.validUntil?.toString(), record.state, json.readTree(record.requestPayload).path("effects"))
-
-    @MessageMapping("/governancepublish")
-    @SendTo("/topic/messages")
-    fun receivePublication(input: PublishRequest): SocketResponse<PublishedAnchor> = try {
-        require(input.requestId.isNotBlank() && input.requestId.length <= 128) { "Invalid request ID" }
-        require(input.rationale.isNotBlank()) { "Rationale is empty" }
-        require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
-        target()
-        val anchor = requireNotNull(nodeController.uploadGovernanceRationale(input.rationale))
-        SocketResponse.Success("governancepublish", PublishedAnchor(input.requestId, anchor.first, anchor.second))
-    } catch (_: Exception) {
-        SocketResponse.Error("governancepublish", SocketResponse.PublicFailure("PUBLICATION_UNAVAILABLE", "Rationale publication could not be completed; check its publication status before retrying.", "governancepublish", "reconcile", input.requestId))
-    }
-
-    @MessageMapping("/governancereview")
-    @SendTo("/topic/messages")
-    fun receiveReview(input: ReviewRequest): SocketResponse<Result> =
-        respond("governancereview", input.requestId) { review(input) }
+        Result(requestId, record.txId, record.networkKey, record.era, record.fee.toString(), record.deposit.toString(), record.refund.toString(), record.state)
 
     @MessageMapping("/governancesubmit")
     @SendTo("/topic/messages")
-    fun receiveSubmit(input: SubmitRequest): SocketResponse<Result> =
-        respond("governancesubmit", input.requestId) { submit(input) }
-
-    private fun respond(type: String, requestId: String, action: () -> Result): SocketResponse<Result> = try {
-        require(requestId.isNotBlank() && requestId.length <= 128) { "Invalid request ID" }
-        SocketResponse.Success(type, action())
+    fun receiveSubmit(input: SubmitRequest): SocketResponse<Result> = try {
+        SocketResponse.Success("governancesubmit", execute(input))
     } catch (_: Exception) {
-        SocketResponse.Error(type, SocketResponse.PublicFailure("OPERATION_UNAVAILABLE", "The governance operation could not be completed; review the target and try again.", type, "review", requestId))
+        val state = operations.findById(input.requestId).orElse(null)?.state
+        val uncertain = state in setOf("signing", "submission_uncertain", "submitted", "rolled_back")
+        SocketResponse.Error("governancesubmit", SocketResponse.PublicFailure("OPERATION_UNAVAILABLE",
+            if (uncertain) "Submission outcome may be uncertain." else "The governance action could not be completed.",
+            "governancesubmit", if (uncertain) "wait" else "retry", input.requestId))
     }
 
-    private fun review(input: ReviewRequest): Result {
-        require(input.requestId.isNotBlank()) { "Missing request ID" }
+    private fun review(input: SubmitRequest): Result {
         val request = input.request
-        require((request.anchorUrl == null) == (request.anchorHash == null)) { "Incomplete rationale anchor" }
-        request.anchorUrl?.let { url ->
-            require(url.toByteArray(Charsets.UTF_8).size <= 128 && Regex("""https://cardanostakehouse\.com/(?:[A-Za-z0-9._~/-]|%[0-9A-Fa-f]{2})+""").matches(url)) { "Invalid rationale anchor URL" }
-            require(request.anchorHash!!.matches(Regex("[0-9a-f]{64}"))) { "Invalid rationale anchor hash" }
-        }
-        val payload = json.writeValueAsString(mapOf("request" to request))
+        val intent = json.readTree(json.writeValueAsString(request))
         val existing = operations.findById(input.requestId).orElse(null)
         if (existing != null) {
-            check(existing.operation == "governance.vote" && json.readTree(existing.requestPayload).path("request") == json.readTree(payload).path("request")) { "Request ID already used for a different review" }
+            check(existing.operation == "governance.vote" && json.readTree(existing.requestPayload).path("intent") == intent) { "Request ID already used for a different action" }
             return result(existing, input.requestId)
         }
+        val payload = json.writeValueAsString(mapOf("intent" to intent, "request" to request))
         val target = target()
         val decoded = Bech32.decode(request.govActionId)
         require(decoded.prefix == "gov_action" && decoded.bytes.size == 33) { "Invalid governance action ID" }
@@ -183,6 +143,9 @@ class GovernanceReviewController(
         val payer = wallets.findByIdOrNull(request.feesAccountId) ?: error("Fee payer not found")
         requireNotNull(payer.paymentSkey) { "Fee payer signing key unavailable" }
         val observed = evidence(target, payload)
+        require(observed.snapshot.utxosByAddress[payer.paymentAddr].orEmpty().isNotEmpty()) { "No available fee payer inputs" }
+        val anchor = nodeController.uploadGovernanceRationale(request.rationale)
+        val finalPayload = json.writeValueAsString(mapOf("intent" to intent, "request" to request, "anchor" to anchor?.let { listOf(it.first, it.second) }))
         val base = "/tmp/jormanager-gov-${UUID.randomUUID()}"
         val paths = mutableListOf<String>()
         fun path(suffix: String): String = "$base-$suffix".also { paths.add(it) }
@@ -191,7 +154,6 @@ class GovernanceReviewController(
         try {
             val utxos = observed.snapshot.utxosByAddress[payer.paymentAddr].orEmpty()
             require(utxos.isNotEmpty()) { "No available fee payer inputs" }
-            val anchor = request.anchorUrl?.let { it to requireNotNull(request.anchorHash) }
             val votes = pools.mapIndexed { index, pool ->
                 val vkey = path("$index.vkey")
                 val vote = path("$index.vote")
@@ -213,10 +175,8 @@ class GovernanceReviewController(
             val fee = requireNotNull(bodyField(envelope, 2)) { "Transaction fee unavailable" }
             val validFrom = bodyField(envelope, 8)?.longValueExact()
             val validUntil = bodyField(envelope, 3)?.longValueExact()
-            val view = json.readTree(target.connection.commandArgs(listOf(target.host.cardanoCliPath, "debug", "transaction", "view", "--tx-body-file", body, "--output-json")))
-            val finalPayload = json.writeValueAsString(mapOf("request" to request, "effects" to exactJson(view)))
             val after = evidence(target, finalPayload).evidence
-            check(after.parameterFingerprint == observed.evidence.parameterFingerprint && after.stateFingerprint == observed.evidence.stateFingerprint && after.capabilityFingerprint == observed.evidence.capabilityFingerprint) { "Governance state changed; review again" }
+            check(after.parameterFingerprint == observed.evidence.parameterFingerprint && after.stateFingerprint == observed.evidence.stateFingerprint && after.targetFingerprint == observed.evidence.targetFingerprint) { "Governance state changed" }
             val record = reviews.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), target.host, target.node, "governance.vote", after, finalPayload, built, fee, BigInteger.ZERO, BigInteger.ZERO, validFrom, validUntil))
             return result(record, input.requestId)
         } finally {
@@ -224,11 +184,14 @@ class GovernanceReviewController(
         }
     }
 
-    private fun submit(input: SubmitRequest): Result {
+    @Synchronized
+    fun execute(input: SubmitRequest): Result {
+        UUID.fromString(input.requestId)
         require(walletUtils.isValidSpendingPassword(input.spendingPassword)) { "Invalid spending password" }
+        review(input)
+        val existing = operations.findById(input.requestId).orElseThrow()
+        if (existing.state != "previewed") return result(existing, input.requestId)
         val target = target()
-        val existing = operations.findByPreviewId(input.previewId) ?: error("Unknown preview")
-        require(existing.operation == "governance.vote") { "Not a governance preview" }
         val request = json.treeToValue(json.readTree(existing.requestPayload).path("request"), VoteRequest::class.java)
         val base = "/tmp/jormanager-gov-${UUID.randomUUID()}"
         val paths = mutableListOf<String>()
@@ -236,7 +199,7 @@ class GovernanceReviewController(
         val body = path("body")
         val signed = path("signed")
         try {
-            val record = reviews.submit(input.previewId, target.host, target.node, { operation -> evidence(target, existing.requestPayload, operation.id).evidence }, { operation ->
+            val record = reviews.submit(existing.previewId, target.host, target.node, { operation -> evidence(target, existing.requestPayload, operation.id).evidence }, { operation ->
                 val payer = wallets.findByIdOrNull(request.feesAccountId) ?: error("Fee payer not found")
                 val keys = listOf(requireNotNull(payer.paymentSkey)) + poolNodes(target, request).map { requireNotNull(files.findByIdOrNull(it.coreSKeyId)) }
                 target.connection.commandWriteFile(body, operation.unsignedBody)

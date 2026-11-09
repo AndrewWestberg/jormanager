@@ -64,7 +64,7 @@ class JsonMessageContractTest {
 
     @Test
     fun credentialInputCanBeReadButNeverAppearsInSerializedMessages() = withJson { mapper, converter ->
-        val input = """{"requestId":"prepare","target":{"hostId":1,"nodeId":2},"intent":"import","confirmed":true,"spendingPassword":"synthetic-password","signingKey":"synthetic-key"}"""
+        val input = """{"requestId":"prepare","target":{"hostId":1,"nodeId":2},"intent":"import","spendingPassword":"synthetic-password","signingKey":"synthetic-key"}"""
         val request = converter.fromMessage(GenericMessage(input.toByteArray()), LeiosKeyRequest::class.java) as LeiosKeyRequest
         assertThat(request.spendingPassword).isEqualTo("synthetic-password")
         assertThat(request.signingKey).isEqualTo("synthetic-key")
@@ -74,9 +74,9 @@ class JsonMessageContractTest {
     }
 
     @Test
-    fun reviewedRequestsAcceptJsonTreesWithoutNarrowingMetadataIntegers() = withJson { _, converter ->
-        val input = """{"requestId":"review","kind":"send","request":{"txFee":"0","metadata":{"counter":18446744073709551615}}}"""
-        val request = converter.fromMessage(GenericMessage(input.toByteArray()), ReviewedWalletController.ReviewRequest::class.java) as ReviewedWalletController.ReviewRequest
+    fun directRequestsAcceptJsonTreesWithoutNarrowingMetadataIntegers() = withJson { _, converter ->
+        val input = """{"requestId":"submit","kind":"send","request":{"txFee":"0","metadata":{"counter":18446744073709551615}},"spendingPassword":"synthetic-password"}"""
+        val request = converter.fromMessage(GenericMessage(input.toByteArray()), ReviewedWalletController.SubmitRequest::class.java) as ReviewedWalletController.SubmitRequest
         assertThat(request.request["metadata"]["counter"].isIntegralNumber).isTrue()
         assertThat(request.request["metadata"]["counter"].bigIntegerValue()).isEqualTo(maximumCoin)
     }

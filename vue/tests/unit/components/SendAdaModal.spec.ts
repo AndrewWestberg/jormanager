@@ -13,633 +13,136 @@ import { emitter } from '@/composables/useEventBus'
 library.add(fas)
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks() })
 
-/**
- * Tests for SendAdaModal component methods.
- * 
- * Key functions tested:
- * - calculateSpent: Complex spending calculation with amounts, percentages, and fees
- * - hexEncode: Character to hex encoding
- * - validateMetadataItem: Recursive metadata validation
- * - formatCurrency: Currency display formatting
- */
-
-interface ToAccount {
-  currency: string
-  type: 'amount' | 'percent'
-  amount: number | null
-  percent?: number
-  account: number
-  tokenFee?: number
-  isFeePayer?: boolean
+async function setup(claim = false) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useJorManagerStore()
+  store.connected = true
+  store.walletNetworkKey = 'network'
+  store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
+  const source = { id: 1, name: 'Source', type: 'payment', paymentAddress: 'addr_source', paymentAddr: 'addr_source', hasPaymentKeys: true, stakingAddr: null, paymentAddrUtxoCount: 1, paymentAddrLovelace: '9007199254740999', stakingAddrRegistered: false, stakingAddrLovelace: '5000000', nativeAssetMap: { 'abcd.61': '9007199254740999' } }
+  const destination = { ...source, id: 2, name: 'Destination', paymentAddress: 'addr_destination', paymentAddr: 'addr_destination', paymentAddrLovelace: '5000000', stakingAddrLovelace: '7000000', nativeAssetMap: {} }
+  store.walletItems = [source, destination] as typeof store.walletItems
+  const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+  const prompt = vi.fn()
+  emitter.on('show-spending-password-modal', prompt)
+  const wrapper = mount(SendAdaModal, { attachTo: document.body, global: { plugins: [pinia, createBootstrap()], components: { FontAwesomeIcon } } })
+  emitter.emit('show-send-ada-modal', claim ? { walletItems: [source, destination], isClaim: true, isMultiClaim: true } : { walletItem: source, isClaim: false })
+  await flushPromises()
+  const modal = document.querySelector('#modal-send-ada') as HTMLElement
+  const select = (index: number, value: string) => {
+    const element = modal.querySelectorAll('select')[index] as HTMLSelectElement
+    element.value = value
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+  const input = (element: HTMLInputElement, value: string) => {
+    element.value = value
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const fee = (overrides: Record<string, unknown> = {}) => store.handleMessage({ type: 'calculatefee', data: { uuid: store.requestFeesUUID, txFee: '170000', tokenKeepFee: '0', tokenLocked: '0', tokenFees: ['0'], ...overrides } })
+  const button = () => Array.from(modal.querySelectorAll('button')).find(item => item.textContent?.trim() === 'Send')!
+  const cleanup = () => { emitter.off('show-spending-password-modal', prompt); wrapper.unmount() }
+  return { store, source, destination, send, prompt, modal, select, input, fee, button, cleanup }
 }
 
-interface MockContext {
-  formSendAda: {
-    isClaim: boolean
-    isMultiClaim: boolean
-    toAccounts: ToAccount[]
-  }
-  fromWalletItem: {
-    id: number
-    paymentAddrLovelace: number
-    stakingAddrLovelace: number
-    nativeAssetMap: Record<string, number>
-  }
-  fromWalletItems: Array<{
-    id: number
-    stakingAddrLovelace: number
-  }>
-  txFee: number
-  tokenKeepFee: number
-  tokenLocked: number
-  tokenFees: number[]
-  walletItems: unknown[]
-  $ci: { parse: (value: unknown, options: unknown) => number }
+async function entry(ctx: { modal: HTMLElement; select: (index: number, value: string) => void; input: (element: HTMLInputElement, value: string) => void }, type: 'amount' | 'percent', value: string) {
+  ctx.select(1, '2')
+  ;(ctx.modal.querySelector(`input[value="${type}"]`) as HTMLInputElement).click()
+  await nextTick()
+  const input = ctx.modal.querySelector(type === 'amount' ? 'input[placeholder="e.g. 10.000000"]' : 'input[type="range"]') as HTMLInputElement
+  ctx.input(input, value)
+  await flushPromises()
 }
 
-describe('SendAdaModal component methods', () => {
-  // Mock the $ci.parse function used by the component
-  const mockCiParse = (value: unknown): number => {
-    // Simple mock that strips non-numeric chars and returns integer
-    if (typeof value === 'number') return value
-    const numStr = String(value).replace(/[^0-9.-]/g, '')
-    return parseInt(numStr) || 0
-  }
-
-  // Create mock component context for testing
-  const createMockContext = (overrides: Partial<MockContext> = {}): MockContext => ({
-    formSendAda: {
-      isClaim: false,
-      isMultiClaim: false,
-      toAccounts: [],
-      ...overrides.formSendAda
-    },
-    fromWalletItem: {
-      id: 1,
-      paymentAddrLovelace: 10000000, // 10 ADA
-      stakingAddrLovelace: 5000000,  // 5 ADA
-      nativeAssetMap: {},
-      ...overrides.fromWalletItem
-    },
-    fromWalletItems: overrides.fromWalletItems || [],
-    txFee: 200000, // 0.2 ADA
-    tokenKeepFee: 0,
-    tokenLocked: 0,
-    tokenFees: [],
-    walletItems: [],
-    $ci: { parse: mockCiParse },
-    ...overrides
-  })
-
-  describe('hexEncode', () => {
-    // Extracted function for testing
-    const hexEncode = (value: string): string => {
-      let result = ''
-      for (let i = 0; i < value.length; i++) {
-        const hex = value.charCodeAt(i).toString(16)
-        if (hex.length > 2) {
-          result += ('000' + hex).slice(-4)
-        } else {
-          result += ('0' + hex).slice(-2)
-        }
-      }
-      return result
-    }
-
-    it('encodes ASCII characters to hex', () => {
-      expect(hexEncode('Hello')).toBe('48656c6c6f')
-    })
-
-    it('encodes lowercase text', () => {
-      expect(hexEncode('world')).toBe('776f726c64')
-    })
-
-    it('encodes numbers as ASCII', () => {
-      expect(hexEncode('123')).toBe('313233')
-    })
-
-    it('handles empty string', () => {
-      expect(hexEncode('')).toBe('')
-    })
-
-    it('encodes special characters', () => {
-      expect(hexEncode('!@#')).toBe('214023')
-    })
-
-    it('encodes spaces', () => {
-      expect(hexEncode(' ')).toBe('20')
-    })
-
-    it('encodes mixed content', () => {
-      expect(hexEncode('A1!')).toBe('413121')
-    })
-  })
-
-  describe('validateMetadataItem', () => {
-    // Extracted function for testing
-    const validateMetadataItem = (field: unknown): string | null => {
-      if (Array.isArray(field)) {
-        for (let i = 0; i < field.length; i++) {
-          const errorMessage = validateMetadataItem(field[i])
-          if (errorMessage !== null) {
-            return errorMessage
-          }
-        }
-      } else if (typeof field === 'string' || field instanceof String) {
-        if (field.length >= 64) {
-          return 'Metadata strings must be less than 64 characters.'
-        }
-      } else if (field === Object(field)) {
-        for (const propertyName in field as Record<string, unknown>) {
-          const errorMessage = validateMetadataItem((field as Record<string, unknown>)[propertyName])
-          if (errorMessage !== null) {
-            return errorMessage
-          }
-        }
-      }
-      return null
-    }
-
-    it('returns null for valid short string', () => {
-      expect(validateMetadataItem('short string')).toBeNull()
-    })
-
-    it('returns error for string >= 64 characters', () => {
-      const longString = 'a'.repeat(64)
-      expect(validateMetadataItem(longString)).toBe(
-        'Metadata strings must be less than 64 characters.'
-      )
-    })
-
-    it('returns null for string exactly 63 characters', () => {
-      const maxString = 'a'.repeat(63)
-      expect(validateMetadataItem(maxString)).toBeNull()
-    })
-
-    it('returns null for valid array of short strings', () => {
-      expect(validateMetadataItem(['short1', 'short2'])).toBeNull()
-    })
-
-    it('returns error for array containing long string', () => {
-      const arr = ['short', 'a'.repeat(64)]
-      expect(validateMetadataItem(arr)).toBe(
-        'Metadata strings must be less than 64 characters.'
-      )
-    })
-
-    it('returns null for valid nested object', () => {
-      const obj = {
-        key1: 'value1',
-        key2: { nested: 'value2' }
-      }
-      expect(validateMetadataItem(obj)).toBeNull()
-    })
-
-    it('returns error for nested object with long string', () => {
-      const obj = {
-        level1: {
-          level2: 'a'.repeat(64)
-        }
-      }
-      expect(validateMetadataItem(obj)).toBe(
-        'Metadata strings must be less than 64 characters.'
-      )
-    })
-
-    it('returns null for numbers', () => {
-      expect(validateMetadataItem(12345)).toBeNull()
-    })
-
-    it('returns null for boolean', () => {
-      expect(validateMetadataItem(true)).toBeNull()
-    })
-
-    it('handles mixed nested structure', () => {
-      const complex = {
-        arr: ['short', 'strings'],
-        obj: { nested: 'value' },
-        num: 123
-      }
-      expect(validateMetadataItem(complex)).toBeNull()
-    })
-  })
-
-  describe('calculateSpent', () => {
-    // Simplified version of calculateSpent for unit testing
-    // This tests the core calculation logic without Vue dependencies
-    
-    const calculateSpent = (ctx: MockContext, index: number, skipTokenFees = false) => {
-      let feePayerAccountId = -1
-      if (ctx.formSendAda.isClaim) {
-        // Simplified fee payer calculation
-        feePayerAccountId = ctx.formSendAda.toAccounts[0]?.account || -1
-      } else {
-        feePayerAccountId = ctx.fromWalletItem.id
-      }
-      
-      const tokenKeepFee = skipTokenFees ? 0 : ctx.tokenKeepFee
-      const tokenLocked = skipTokenFees ? 0 : ctx.tokenLocked
-      const baseAmount: Record<string, number> = ctx.fromWalletItem.nativeAssetMap
-        ? { ...ctx.fromWalletItem.nativeAssetMap }
-        : {}
-      
-      // For multi-claim, sum staking rewards from all wallet items
-      const totalStakingRewards = ctx.formSendAda.isMultiClaim
-        ? ctx.fromWalletItems.reduce((sum, item) => sum + item.stakingAddrLovelace, 0)
-        : ctx.fromWalletItem.stakingAddrLovelace
-
-      baseAmount['ada'] = ctx.formSendAda.isClaim
-        ? totalStakingRewards
-        : ctx.fromWalletItem.paymentAddrLovelace -
-          ctx.txFee -
-          tokenKeepFee -
-          tokenLocked
-      
-      const alreadySpentPercentages: Record<string, number> = {}
-      const amount: Record<string, number> = {}
-
-      for (let i = 0; i < index; i++) {
-        const account = ctx.formSendAda.toAccounts[i]
-        amount[account.currency] = 0
-        
-        if (feePayerAccountId === account.account) {
-          account.isFeePayer = true
-        } else {
-          account.isFeePayer = false
-        }
-        
-        if (account.type === 'amount' && account.amount != null) {
-          amount[account.currency] = ctx.$ci.parse(account.amount, {})
-          baseAmount[account.currency] -= amount[account.currency]
-          
-          if (
-            ctx.formSendAda.isClaim &&
-            account.account === feePayerAccountId &&
-            account.currency === 'ada'
-          ) {
-            baseAmount[account.currency] -= ctx.txFee
-          }
-          alreadySpentPercentages[account.currency] = 0
-        } else if (
-          account.type === 'percent' &&
-          account.percent != null &&
-          account.percent > 0
-        ) {
-          if (alreadySpentPercentages[account.currency] === undefined) {
-            alreadySpentPercentages[account.currency] = 0
-          }
-          const percent = account.percent
-          if (alreadySpentPercentages[account.currency] == 100) {
-            amount[account.currency] = 0
-          } else {
-            amount[account.currency] = Math.round(
-              baseAmount[account.currency] *
-                (percent / (100.0 - alreadySpentPercentages[account.currency]))
-            )
-            alreadySpentPercentages[account.currency] += percent
-          }
-          baseAmount[account.currency] -= amount[account.currency]
-          
-          if (
-            ctx.formSendAda.isClaim &&
-            account.account === feePayerAccountId &&
-            account.currency === 'ada'
-          ) {
-            if (baseAmount[account.currency] >= ctx.txFee) {
-              baseAmount[account.currency] -= ctx.txFee
-            } else {
-              amount[account.currency] -= ctx.txFee
-            }
-          }
-        }
-
-        if (!skipTokenFees && account.currency !== 'ada') {
-          account.tokenFee = ctx.tokenFees[i] || 0
-          baseAmount['ada'] -= account.tokenFee
-        }
-      }
-      
-      return { remaining: baseAmount, amount: amount }
-    }
-
-    it('calculates remaining ada after tx fee for empty accounts', () => {
-      const ctx = createMockContext()
-      ctx.formSendAda.toAccounts = []
-      
-      const result = calculateSpent(ctx, 0)
-      
-      // 10 ADA - 0.2 ADA fee = 9.8 ADA = 9800000 lovelace
-      expect(result.remaining['ada']).toBe(9800000)
-    })
-
-    it('calculates remaining ada after amount transfer', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: [
-            {
-              currency: 'ada',
-              type: 'amount',
-              amount: 1000000, // 1 ADA
-              account: 2,
-              tokenFee: 0
-            }
-          ]
-        }
-      })
-      
-      const result = calculateSpent(ctx, 1)
-      
-      // 10 ADA - 0.2 fee - 1 ADA = 8.8 ADA
-      expect(result.remaining['ada']).toBe(8800000)
-      expect(result.amount['ada']).toBe(1000000)
-    })
-
-    it('calculates 50% transfer correctly', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: [
-            {
-              currency: 'ada',
-              type: 'percent',
-              percent: 50,
-              amount: null,
-              account: 2,
-              tokenFee: 0
-            }
-          ]
-        }
-      })
-      
-      const result = calculateSpent(ctx, 1)
-      
-      // Available: 10 ADA - 0.2 fee = 9.8 ADA
-      // 50% of 9.8 ADA = 4.9 ADA = 4900000 lovelace
-      expect(result.amount['ada']).toBe(4900000)
-      expect(result.remaining['ada']).toBe(4900000)
-    })
-
-    it('calculates 100% transfer correctly', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: [
-            {
-              currency: 'ada',
-              type: 'percent',
-              percent: 100,
-              amount: null,
-              account: 2,
-              tokenFee: 0
-            }
-          ]
-        }
-      })
-      
-      const result = calculateSpent(ctx, 1)
-      
-      // 100% of (10 ADA - 0.2 fee) = 9.8 ADA
-      expect(result.amount['ada']).toBe(9800000)
-      expect(result.remaining['ada']).toBe(0)
-    })
-
-    it('uses staking balance for claims', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: true,
-          isMultiClaim: false,
-          toAccounts: []
-        }
-      })
-      
-      const result = calculateSpent(ctx, 0)
-      
-      // For claims, uses stakingAddrLovelace (5 ADA) without subtracting fee
-      expect(result.remaining['ada']).toBe(5000000)
-    })
-
-    it('sums staking rewards from multiple addresses for multi-claim', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: true,
-          isMultiClaim: true,
-          toAccounts: []
-        },
-        fromWalletItem: {
-          id: 1,
-          paymentAddrLovelace: 10000000,
-          stakingAddrLovelace: 5000000,  // 5 ADA (first address)
-          nativeAssetMap: {}
-        },
-        fromWalletItems: [
-          { id: 1, stakingAddrLovelace: 5000000 },   // 5 ADA
-          { id: 2, stakingAddrLovelace: 3000000 },   // 3 ADA
-          { id: 3, stakingAddrLovelace: 2000000 }    // 2 ADA
-        ]
-      })
-      
-      const result = calculateSpent(ctx, 0)
-      
-      // Multi-claim should sum all staking rewards: 5 + 3 + 2 = 10 ADA
-      expect(result.remaining['ada']).toBe(10000000)
-    })
-
-    it('uses single address staking balance when isMultiClaim is false', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: true,
-          isMultiClaim: false,
-          toAccounts: []
-        },
-        fromWalletItem: {
-          id: 1,
-          paymentAddrLovelace: 10000000,
-          stakingAddrLovelace: 5000000,  // 5 ADA
-          nativeAssetMap: {}
-        },
-        fromWalletItems: [
-          { id: 1, stakingAddrLovelace: 5000000 },
-          { id: 2, stakingAddrLovelace: 3000000 }
-        ]
-      })
-      
-      const result = calculateSpent(ctx, 0)
-      
-      // Should use single stakingAddrLovelace, not sum
-      expect(result.remaining['ada']).toBe(5000000)
-    })
-
-    it('calculates 100% distribution correctly for multi-claim', () => {
-      const ctx = createMockContext({
-        formSendAda: {
-          isClaim: true,
-          isMultiClaim: true,
-          toAccounts: [
-            {
-              currency: 'ada',
-              type: 'percent',
-              percent: 100,
-              amount: null,
-              account: 99, // This becomes fee payer for claims
-              tokenFee: 0
-            }
-          ]
-        },
-        fromWalletItem: {
-          id: 1,
-          paymentAddrLovelace: 10000000,
-          stakingAddrLovelace: 18000000,  // 18 ADA
-          nativeAssetMap: {}
-        },
-        fromWalletItems: [
-          { id: 1, stakingAddrLovelace: 18000000 },  // 18 ADA
-          { id: 2, stakingAddrLovelace: 2000000 }    // 2 ADA
-        ]
-      })
-      
-      const result = calculateSpent(ctx, 1)
-      
-      // Multi-claim sums to 20 ADA, but fee payer with 100% has txFee (0.2 ADA) deducted from amount
-      // 20 ADA - 0.2 ADA fee = 19.8 ADA = 19800000 lovelace
-      expect(result.amount['ada']).toBe(19800000)
-      expect(result.remaining['ada']).toBe(0)
-    })
-
-    it('handles native tokens', () => {
-      const ctx = createMockContext({
-        fromWalletItem: {
-          id: 1,
-          paymentAddrLovelace: 10000000,
-          stakingAddrLovelace: 5000000,
-          nativeAssetMap: {
-            'policyId.TOKEN': 1000
-          }
-        },
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: []
-        }
-      })
-      
-      const result = calculateSpent(ctx, 0)
-      
-      expect(result.remaining['ada']).toBe(9800000)
-      expect(result.remaining['policyId.TOKEN']).toBe(1000)
-    })
-
-    it('handles tokenKeepFee deduction', () => {
-      const ctx = createMockContext({
-        tokenKeepFee: 1000000, // 1 ADA keep fee
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: []
-        }
-      })
-      
-      const result = calculateSpent(ctx, 0)
-      
-      // 10 ADA - 0.2 fee - 1 ADA keep fee = 8.8 ADA
-      expect(result.remaining['ada']).toBe(8800000)
-    })
-
-    it('skips token fees when skipTokenFees is true', () => {
-      const ctx = createMockContext({
-        tokenKeepFee: 1000000,
-        tokenLocked: 500000,
-        formSendAda: {
-          isClaim: false,
-          isMultiClaim: false,
-          toAccounts: []
-        }
-      })
-      
-      const result = calculateSpent(ctx, 0, true)
-      
-      // 10 ADA - 0.2 fee (no keep/locked fees)
-      expect(result.remaining['ada']).toBe(9800000)
-    })
-  })
-
-  describe('formatCurrency logic', () => {
-    it('formats ada in lovelace to ADA with 6 decimals', () => {
-      const lovelace = 1234567
-      const ada = lovelace / 1000000 // 1.234567
-      expect(ada).toBeCloseTo(1.234567, 6)
-    })
-
-    it('converts whole ada amounts correctly', () => {
-      const lovelace = 5000000
-      const ada = lovelace / 1000000
-      expect(ada).toBe(5)
-    })
-
-    it('handles minimum UTxO value', () => {
-      const minUTxO = 1000000 // 1 ADA
-      const ada = minUTxO / 1000000
-      expect(ada).toBe(1)
-    })
-  })
-})
-
-describe('SendAdaModal live wallet availability', () => {
-  it('updates an open source by id and revalidates the unchanged payment', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const store = useJorManagerStore()
-    store.connected = true
-    store.walletNetworkKey = 'network'
-    store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
-    const source = { id: 1, name: 'Source', type: 'payment', paymentAddress: 'addr_source', paymentAddr: 'addr_source', hasPaymentKeys: true, stakingAddr: null, paymentAddrUtxoCount: 1, paymentAddrLovelace: '59800000', stakingAddrRegistered: false, stakingAddrLovelace: '0', nativeAssetMap: {} }
-    const destination = { ...source, id: 2, name: 'Destination', paymentAddress: 'addr_destination', paymentAddr: 'addr_destination' }
-    store.walletItems = [source, destination] as typeof store.walletItems
-    const review = vi.spyOn(store, 'reviewWallet').mockRejectedValue(new Error('review fixture'))
-    const wrapper = mount(SendAdaModal, {
-      attachTo: document.body,
-      global: { plugins: [pinia, createBootstrap()], components: { FontAwesomeIcon } }
-    })
-    emitter.emit('show-send-ada-modal', { walletItem: source, isClaim: false })
+describe('send form fees', () => {
+  it('gates a fixed exact amount on a matching fee and dispatches once', async () => {
+    const c = await setup()
+    const submit = vi.spyOn(c.store, 'submitWallet').mockRejectedValue(new Error('submission failed'))
+    await entry(c, 'amount', '10')
+    expect(c.button().disabled).toBe(true)
+    c.fee({ uuid: 'old' })
+    await nextTick()
+    expect(c.button().disabled).toBe(true)
+    c.fee()
+    await nextTick()
+    expect(c.modal.textContent).toContain('TxFee: ₳0.170000')
+    c.button().click()
+    await nextTick()
+    const p = c.prompt.mock.lastCall![0]
+    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
+    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
     await flushPromises()
-    const modal = document.querySelector('#modal-send-ada') as HTMLElement
-    expect(modal.textContent).toContain('₳59.800000')
-    const account = modal.querySelectorAll('select')[1] as HTMLSelectElement
-    account.value = '2'
-    account.dispatchEvent(new Event('change', { bubbles: true }))
-    const amountRadio = modal.querySelector('input[value="amount"]') as HTMLInputElement
-    amountRadio.click()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith(p.data.requestId, 'send', expect.objectContaining({ txFee: '170000', toAccounts: [expect.objectContaining({ amount: '10000000' })] }), 'secret')
+    c.button().click()
     await nextTick()
-    const amount = modal.querySelector('input[placeholder="e.g. 10.000000"]') as HTMLInputElement
-    amount.value = '55'
-    amount.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(c.prompt.mock.lastCall![0].data.requestId).toBe(p.data.requestId)
+    c.cleanup()
+  })
+
+  it('calculates 100 percent exactly after fee and reserved asset change', async () => {
+    const c = await setup()
+    await entry(c, 'percent', '100')
+    c.fee({ tokenKeepFee: '1500000', tokenLocked: '2000000', tokenFees: ['0'] })
     await nextTick()
-    store.chainReadState = { ...store.chainReadState!, status: 'syncing' }
-    store.walletItems = [{ ...source, paymentAddrLovelace: '49600000' }, destination] as typeof store.walletItems
+    expect(c.modal.textContent).toContain('Available:')
+    expect(c.modal.textContent).toContain('Remaining:')
+    c.button().click()
     await nextTick()
-    expect(modal.textContent).toContain('₳49.600000')
-    expect(amount.value).toBe('55')
-    const button = Array.from(modal.querySelectorAll('button')).find(item => item.textContent?.includes('Review transaction'))!
-    expect(button.disabled).toBe(false)
-    button.click()
+    expect(c.prompt.mock.lastCall![0].data.request.toAccounts[0].amount).toBe('9007199251070999')
+    c.cleanup()
+  })
+
+  it('sends exact asset units and reserves the destination minimum ADA', async () => {
+    const c = await setup()
+    c.select(0, 'abcd.61')
+    await entry(c, 'percent', '100')
+    c.fee({ tokenFees: ['1500000'], tokenKeepFee: '0' })
     await nextTick()
-    expect(review).not.toHaveBeenCalled()
-    expect(modal.textContent).toContain('Complete all payment entries')
-    amount.value = '10'
-    amount.dispatchEvent(new Event('input', { bubbles: true }))
+    c.button().click()
     await nextTick()
-    button.click()
+    expect(c.prompt.mock.lastCall![0].data.request.toAccounts[0].amount).toBe('9007199254740999')
+    c.cleanup()
+  })
+
+  it('combines multi-claim rewards and identifies the selected fee payer', async () => {
+    const c = await setup(true)
+    await entry(c, 'percent', '100')
+    c.fee()
+    await nextTick()
+    expect(c.modal.textContent).toContain('Fee payer')
+    c.button().click()
+    await nextTick()
+    const p = c.prompt.mock.lastCall![0].data
+    expect(p.kind).toBe('withdraw')
+    expect(p.request.fromIds).toEqual([1, 2])
+    expect(p.request.toAccounts[0].amount).toBe('12000000')
+    c.cleanup()
+  })
+
+  it('invalidates stale balances and targets and refreshes after fee changes', async () => {
+    const c = await setup()
+    const submit = vi.spyOn(c.store, 'submitWallet').mockRejectedValue(Object.assign(new Error('Fee changed; refresh the form and submit again.'), { code: 'FEE_CHANGED' }))
+    await entry(c, 'amount', '10')
+    c.fee()
+    await nextTick()
+    c.button().click()
+    await nextTick()
+    const p = c.prompt.mock.lastCall![0]
+    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
     await flushPromises()
-    expect(review).toHaveBeenCalledWith('send', expect.objectContaining({
-      fromId: 1, toAccounts: [expect.objectContaining({ account: 2, amount: '10000000' })]
-    }))
-    store.chainReadState = { ...store.chainReadState!, walletReady: false, generation: '2' }
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(c.button().disabled).toBe(true)
+    c.fee()
     await nextTick()
-    expect(button.disabled).toBe(true)
-    expect(modal.textContent).toContain('Usable wallet coverage')
-    wrapper.unmount()
+    c.store.walletItems = [{ ...c.source, paymentAddrLovelace: '20000000' }, c.destination] as typeof c.store.walletItems
+    await flushPromises()
+    expect(c.button().disabled).toBe(true)
+    c.store.walletNetworkKey = 'other'
+    await flushPromises()
+    c.fee()
+    await nextTick()
+    expect(c.button().disabled).toBe(true)
+    c.cleanup()
   })
 })

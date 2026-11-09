@@ -111,6 +111,7 @@ class NodeControllerTest {
         name: String = "tickr",
         processorThreads: Int = 8,
     ) = CreateNodeRequest(
+        requestId = java.util.UUID.randomUUID().toString(),
         color = "#0000FF",
         hostId = 1L,
         name = name,
@@ -232,6 +233,7 @@ class NodeControllerTest {
         var retrievalCount = 0
         var uploadedBytes: ByteArray? = null
         var uploadCount = 0
+        val documents = mutableListOf<ByteArray>()
 
         override fun intercept(chain: Interceptor.Chain): Response {
             requestCount++
@@ -264,6 +266,7 @@ class NodeControllerTest {
                                 file.body.writeTo(buffer)
                                 buffer.readByteArray()
                             }
+                        documents += checkNotNull(uploadedBytes)
                         return response(request, uploadCode)
                     }
 
@@ -295,6 +298,63 @@ class NodeControllerTest {
             .build()
 
         fun client(): OkHttpClient = OkHttpClient.Builder().addInterceptor(this).build()
+    }
+
+    @Test
+    fun poolMetadataPublishesContentAndChecksExactBytesWithoutLeakingKeys() {
+        val fixture = RationaleHttpFixture(key = "pool.json")
+        val node = mockk<Node> {
+            every { hostId } returns 1L
+            every { id } returns 2L
+            every { name } returns "pool"
+            every { poolId } returns "pool1fixture"
+            every { isDraft } returns false
+            every { isDeleted } returns false
+            every { itnPrivateKeyId } returns -1L
+            every { itnPublicKeyId } returns -1L
+        }
+        val hosts = mockk<HostRepository> { every { findById(1L) } returns Optional.of(testHost) }
+        val eras = mockk<CardanoRepository> {
+            every { networkKey(node) } returns "test"
+            every { evidence(node) } returns CardanoRepository.EraEvidence("test", "conway", "current", "host:1/node:2", generation = 1)
+        }
+        val files = mockk<FileRepository> { every { save(any<File>()) } answers { firstArg<File>().copy(id = 99) } }
+        val wallet = mockk<WalletUtils> {
+            every { isValidSpendingPassword("password") } returns true
+            every { encryptSKeyContent("private-secret", "password") } returns "encrypted-secret"
+        }
+        val metadata = com.swiftmako.jormanager.model.Metadata("POOL", "Pool", "Description", "https://example.org",
+            Extended(Itn("public-key", "private-secret"), null, "admin", "verify"))
+        mockkConstructor(HostConnection::class)
+        try {
+            every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } returns ""
+            every { anyConstructed<HostConnection>().commandWriteSecret(any(), any()) } returns Unit
+            every { anyConstructed<HostConnection>().commandArgs(any()) } answers {
+                val args = firstArg<List<String>>()
+                when {
+                    "metadata-hash" in args -> com.swiftmako.jormanager.utils.Blake2b.hash256(checkNotNull(fixture.uploadedBytes))
+                        .joinToString("") { "%02x".format(it) }
+                    "sign" in args -> "witness"
+                    else -> ""
+                }
+            }
+            val result = createTarget(fixture.client(), hostRepository = hosts, fileRepository = files,
+                walletUtils = wallet, cardanoRepository = eras).publishPoolMetadata(node, metadata, "password")
+            assertThat(fixture.uploadCount).isEqualTo(2)
+            val extended = jacksonObjectMapper().readTree(fixture.documents.first())
+            assertThat(extended["itn"]["witness"].asString()).isEqualTo("witness")
+            assertThat(extended["itn"]["owner"].asString()).isEqualTo("public-key")
+            assertThat(fixture.documents.joinToString { it.toString(Charsets.UTF_8) }).doesNotContain("private-secret")
+            assertThat(result.itnPrivateKeyId).isEqualTo(99)
+            verify { files.save(match { it.content == "encrypted-secret" }) }
+            fixture.getBytes = { it + 0 }
+            assertThrows<IllegalStateException> {
+                createTarget(fixture.client(), hostRepository = hosts, fileRepository = files,
+                    walletUtils = wallet, cardanoRepository = eras).publishPoolMetadata(node, metadata, "password")
+            }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test
@@ -827,6 +887,7 @@ class NodeControllerTest {
 
         val request =
             CreateNodeRequest(
+                requestId = java.util.UUID.randomUUID().toString(),
                 color = "#0000FF",
                 hostId = 1L,
                 name = "tickr",
