@@ -34,16 +34,17 @@ object LedgerRepository {
         internal val pendingData = ArrayList<PendingData>()
     }
 
-    fun queryUtxos(network: String, address: String): List<Utxo> = transaction {
+    fun queryUtxos(network: String, addresses: Set<String>): Map<String, List<Utxo>> = transaction {
+        if (addresses.isEmpty()) return@transaction emptyMap()
         (LedgerUtxosTable innerJoin LedgerTable).selectAll().where {
-            (LedgerUtxosTable.networkKey eq network) and (LedgerTable.address eq address) and
+            (LedgerUtxosTable.networkKey eq network) and (LedgerTable.address inList addresses) and
                 LedgerUtxosTable.spendingInclusionId.isNull()
         }.map { row ->
             val assets = (LedgerUtxoAssetsTable innerJoin LedgerAssetsTable).selectAll().where {
                 LedgerUtxoAssetsTable.ledgerUtxoId eq row[LedgerUtxosTable.id].value
             }.map { asset -> NativeAsset(asset[LedgerAssetsTable.name], asset[LedgerAssetsTable.policy], BigInteger(asset[LedgerUtxoAssetsTable.amount])) }
-            Utxo(row[LedgerUtxosTable.txId], row[LedgerUtxosTable.txIx].toLong(), BigInteger(row[LedgerUtxosTable.lovelace]), assets)
-        }
+            row[LedgerTable.address] to Utxo(row[LedgerUtxosTable.txId], row[LedgerUtxosTable.txIx].toLong(), BigInteger(row[LedgerUtxosTable.lovelace]), assets)
+        }.groupBy({ it.first }, { it.second })
     }
 
     fun seedGenesis(network: String, outputs: List<com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DecodedGenesisOutput>) {
@@ -161,7 +162,7 @@ object LedgerRepository {
         if (outputs.isNotEmpty()) LedgerUtxosTable.deleteWhere { (networkKey eq network) and (outputOccurrenceId inList outputs) }
     }
 
-    private fun addressText(address: ByteArray): String {
+    internal fun addressText(address: ByteArray): String {
         require(address.isNotEmpty()) { "Empty output address" }
         return if ((address[0].toInt() and 0xf0) == 0x80) {
             // Byron base58 is presentation only; binary identity remains in the occurrence.

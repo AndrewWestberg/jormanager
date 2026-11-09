@@ -4,7 +4,6 @@ import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.GenesisShelley
-import com.swiftmako.jormanager.model.WalletResult
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
@@ -100,22 +99,27 @@ class WalletMonitor
                         val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                         val networkKey = cardanoRepository.networkKey(defaultNode)
                         if (magicString.isNotBlank() && era.isNotBlank()) {
-                            // A new block has arrived.
-                            val walletItems = walletUtils.getWalletItems(magicString, era)
-                            check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey) { "Wallet target changed" }
+                            val result = walletUtils.getWalletItems(magicString, era)
+                            check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey &&
+                                result.networkKey == networkKey) { "Wallet target changed" }
                             webSocketTemplate.convertAndSend(
                                 "/topic/messages",
-                                SocketResponse.Success(type = "wallet", data = WalletResult(walletItems, networkKey))
+                                SocketResponse.Success(type = "wallet", data = result)
                             )
                         }
                     } catch (e: Throwable) {
                         if (e is CancellationException) throw e
                         if (!isShuttingDown) {
                             log.error("Error monitoring wallet!", e)
-                            webSocketTemplate.convertAndSend(
-                                "/topic/messages",
-                                SocketResponse.Error("wallet", IOException("Wallet state is unavailable; refresh after synchronization"))
-                            )
+                            try {
+                                webSocketTemplate.convertAndSend(
+                                    "/topic/messages",
+                                    SocketResponse.Error("wallet", IOException("Wallet state is unavailable; refresh after synchronization"))
+                                )
+                            } catch (failure: Exception) {
+                                if (failure is CancellationException) throw failure
+                                log.warn("Unable to publish wallet refresh failure", failure)
+                            }
                         }
                     }
                 }

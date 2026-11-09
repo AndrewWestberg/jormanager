@@ -6,12 +6,9 @@ import com.swiftmako.jormanager.entities.AuthorizedOperationInput
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DijkstraBlockDecoder
 import com.swiftmako.jormanager.repositories.AuthorizedOperationRepository
 import com.swiftmako.jormanager.repositories.CardanoRepository
-import com.swiftmako.jormanager.utils.Blake2b
 import com.swiftmako.jormanager.utils.CborSpan
-import com.swiftmako.jormanager.utils.CborSpans
 import jakarta.persistence.EntityManager
 import jakarta.persistence.LockModeType
 import java.math.BigInteger
@@ -30,6 +27,7 @@ class ReviewedWalletOperations(
     private val eras: CardanoRepository,
     private val capabilities: CardanoCapabilities,
     private val json: ObjectMapper,
+    private val coordinator: ChainIngestionCoordinator,
     transactionManager: PlatformTransactionManager,
 ) {
     private val independent = TransactionTemplate(transactionManager).apply {
@@ -42,6 +40,7 @@ class ReviewedWalletOperations(
         val parameterFingerprint: String,
         val stateFingerprint: String,
         val capabilityFingerprint: String,
+        val walletGeneration: String,
     )
 
     /** Exact CLI text envelope and the ID obtained from that same file with transaction txid. */
@@ -76,6 +75,26 @@ class ReviewedWalletOperations(
             .setParameter("operationId", id).executeUpdate()
     }
 
+    private fun lockSync(network: String): Array<Any?>? {
+        val rows = entityManager.createNativeQuery(
+            "SELECT s.status, s.observed_slot, s.observed_hash, i.slot, i.header_hash, s.generation, " +
+                "(i.id IS NOT NULL AND i.complete AND i.adopted) " +
+                "FROM sync_states s LEFT JOIN chain_inclusions i ON i.id=s.complete_inclusion_id " +
+                "WHERE s.network_key=:network FOR UPDATE OF s"
+        ).setParameter("network", network).resultList
+        @Suppress("UNCHECKED_CAST")
+        return rows.singleOrNull() as? Array<Any?>
+    }
+
+    private fun releaseUnusedInputs(id: String, batch: Any) {
+        entityManager.createNativeQuery(
+            "DELETE FROM authorized_operation_inputs r WHERE r.operation_id=:operation AND NOT EXISTS (" +
+                "SELECT 1 FROM input_occurrences i JOIN transaction_members m ON m.id=i.member_id " +
+                "WHERE m.batch_id=:batch AND i.effective AND encode(i.tx_id,'hex')=r.input_tx_id " +
+                "AND i.output_index=r.input_index)"
+        ).setParameter("operation", id).setParameter("batch", batch).executeUpdate()
+    }
+
     /**
      * An operator explicitly reconciles the persisted whole batch; this never signs or submits.
      * Node observations happen outside the database transaction. The sync row is always locked
@@ -88,15 +107,6 @@ class ReviewedWalletOperations(
         val original = operations.findByPreviewId(previewId) ?: throw IllegalArgumentException("Unknown preview")
         require(original.hostId == host.id && original.nodeId == node.id && original.networkKey == eras.networkKey(node)) { "Review target changed" }
 
-        fun lockSync(network: String): Array<Any?>? {
-            val rows = entityManager.createNativeQuery(
-                "SELECT s.status, s.observed_slot, s.observed_hash, i.slot, i.header_hash " +
-                    "FROM sync_states s LEFT JOIN chain_inclusions i ON i.id=s.complete_inclusion_id " +
-                    "WHERE s.network_key=:network FOR UPDATE OF s"
-            ).setParameter("network", network).resultList
-            @Suppress("UNCHECKED_CAST")
-            return rows.singleOrNull() as? Array<Any?>
-        }
 
         val initial = requireNotNull(independent.execute {
             val sync = lockSync(original.networkKey)
@@ -109,27 +119,30 @@ class ReviewedWalletOperations(
             }
             Reconciliation(record, "")
         })
-        if (initial.reason.isNotEmpty()) return initial
+        if (initial.reason.isNotEmpty()) {
+            if (initial.operation.state == "not_submitted") coordinator.refreshWallet()
+            return initial
+        }
         val record = initial.operation
         if (record.state !in setOf("submission_uncertain", "submitted", "rolled_back", "confirmed", "phase2_failed")) {
             return Reconciliation(record, "This review has no outstanding submission to reconcile")
         }
         val signedHex = record.signedBatch ?: return Reconciliation(record, "The signed batch is unavailable; outcome remains unresolved")
-        val signed = try { decode(signedHex, record.era) } catch (_: Exception) {
+        val signed = try { ReviewedTransactionIdentity.decodeSubmitted(signedHex, record.era) } catch (_: Exception) {
             return Reconciliation(record, "The persisted signed batch is invalid; outcome remains unresolved")
         }
         val unsignedHex = json.readTree(record.unsignedBody).path("cborHex").asString()
-        val unsigned = try { decode(unsignedHex, record.era) } catch (_: Exception) {
+        val unsigned = try { ReviewedTransactionIdentity.decodeSubmitted(unsignedHex, record.era) } catch (_: Exception) {
             return Reconciliation(record, "The persisted reviewed body is invalid; outcome remains unresolved")
         }
-        if (signed.id != record.txId || unsigned.id != record.txId || !signed.body.bytes().contentEquals(unsigned.body.bytes())) {
+        if (signed.id != record.txId || unsigned.id != record.txId || !signed.body.sameEncoding(unsigned.body)) {
             return Reconciliation(record, "Signed and reviewed body identities differ; outcome remains unresolved")
         }
         val observation = try { observe(record, signed.inputs) } catch (_: Exception) {
             return Reconciliation(record, "Node observations are unavailable; outcome remains unresolved")
         }
 
-        return requireNotNull(independent.execute {
+        val result = requireNotNull(independent.execute {
             val sync = lockSync(record.networkKey)
             val current = requireNotNull(entityManager.find(AuthorizedOperation::class.java, record.id, LockModeType.PESSIMISTIC_WRITE))
             if (sync == null || sync[0] != "complete" || sync[1] == null || sync[2] == null || sync[3] == null || sync[4] == null) {
@@ -167,6 +180,7 @@ class ReviewedWalletOperations(
                 }
                 val identical = ReviewedTransactionIdentity.matchesStored((found[5] as Number).toInt(), signedHex, members)
                 if (!identical) return@execute Reconciliation(current, "Adopted batch differs from the signed batch; investigate before releasing inputs")
+                releaseUnusedInputs(current.id, requireNotNull(found[0]))
                 val confirmed = operations.saveAndFlush(current.copy(state = if (found[4] == true) "confirmed" else "phase2_failed",
                     confirmationHash = (found[1] as ByteArray).toHexString(),
                     confirmationSlot = (found[2] as java.math.BigDecimal).toBigIntegerExact(),
@@ -187,40 +201,8 @@ class ReviewedWalletOperations(
             Reconciliation(current, if (missing == 0) "Inputs remain unspent, but absence from the mempool does not prove non-submission"
                 else "$missing reviewed inputs are no longer unspent; the whole-batch outcome remains unresolved")
         })
-    }
-
-    private data class Envelope(val body: CborSpan, val id: String, val inputs: Set<Pair<String, Int>>)
-
-    private fun decode(hex: String, era: String): Envelope {
-        require(hex.isNotEmpty() && hex.length % 2 == 0 && hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) { "Invalid transaction hex" }
-        val bytes = ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
-        val parts = CborSpans.parse(bytes).array()
-        require(parts.size == 3 || parts.size == 4) { "Invalid submitted transaction envelope" }
-        if (era in setOf("alonzo", "babbage", "conway")) require(parts.size == 4) { "Invalid transaction representation for target era" }
-        if (parts.size == 4) require(parts[2].boolean()) { "Invalid submission validity flag" }
-        val body = parts[0]
-        val fields = body.entries()
-        require(fields.isNotEmpty() && parts[1].major == 5) { "Invalid transaction body or witnesses" }
-        val keys = HashSet<BigInteger>()
-        fields.forEach { (key, _) -> require(key.major == 0 && keys.add(key.integer())) { "Invalid or duplicate transaction field" } }
-        require(keys.containsAll(setOf(BigInteger.ZERO, BigInteger.ONE, BigInteger.TWO))) { "A child is not a complete submitted transaction" }
-        val inputs = if (era == "dijkstra") {
-            val batch = DijkstraBlockDecoder.decodeSubmittedTransaction(bytes)
-            (listOf(batch.parent) + batch.children).flatMap { it.inputs + it.collateralInputs }
-                .map { it.transactionId.toHexString() to it.index }.toSet()
-        } else {
-            fields.filter { it.first.integer() in setOf(BigInteger.ZERO, BigInteger.valueOf(13)) }.flatMap { (_, value) ->
-                val items = if (value.major == 6) value.tagged(258).array() else value.array()
-                items.map { item ->
-                    val pair = item.array()
-                    require(pair.size == 2 && pair[0].major == 2 && pair[0].payload().size == 32) { "Invalid transaction input" }
-                    val index = pair[1].integer()
-                    require(index.signum() >= 0 && index <= BigInteger.valueOf(65535)) { "Invalid transaction input index" }
-                    pair[0].payload().toHexString() to index.toInt()
-                }
-            }.toSet()
-        }
-        return Envelope(body, Blake2b.hash256(body.bytes()).toHexString(), inputs)
+        coordinator.refreshWallet()
+        return result
     }
 
 
@@ -244,7 +226,8 @@ class ReviewedWalletOperations(
     }
 
     private fun validateEvidence(evidence: Evidence) {
-        require(listOf(evidence.requestFingerprint, evidence.parameterFingerprint, evidence.stateFingerprint, evidence.capabilityFingerprint).all { it.isNotBlank() }) { "Missing review evidence" }
+        require(listOf(evidence.requestFingerprint, evidence.parameterFingerprint, evidence.stateFingerprint, evidence.capabilityFingerprint, evidence.walletGeneration).all { it.isNotBlank() }) { "Missing review evidence" }
+        require(evidence.walletGeneration.toLongOrNull()?.let { it >= 0 } == true) { "Invalid wallet generation" }
     }
 
     /** A request ID is an idempotency key, not permission to replace an earlier review. */
@@ -258,7 +241,7 @@ class ReviewedWalletOperations(
         val bodyHex = bodyJson.path("cborHex").takeIf { it.isString }?.asString() ?: throw IllegalArgumentException("Missing CLI body CBOR")
         require(bodyHex.isNotEmpty() && bodyHex.length % 2 == 0 && bodyHex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) { "Invalid CLI body CBOR" }
         val targetEra = requireNotNull(era.era) { "Target era unavailable" }
-        val unsigned = decode(bodyHex, targetEra)
+        val unsigned = ReviewedTransactionIdentity.decodeSubmitted(bodyHex, targetEra)
         val txId = preview.body.txId.lowercase()
         require(txId.length == 64 && txId.all { it in '0'..'9' || it in 'a'..'f' }) { "Invalid CLI transaction ID" }
         require(unsigned.id == txId) { "CLI transaction ID differs from unsigned body" }
@@ -315,14 +298,15 @@ class ReviewedWalletOperations(
         previewId: String,
         host: Host,
         node: Node,
-        evidence: () -> Evidence,
+        evidence: (AuthorizedOperation) -> Evidence,
         sign: (AuthorizedOperation) -> String,
         submit: (String) -> Unit,
     ): AuthorizedOperation {
         // Claim the review under a short lock. A concurrent request observes the durable claim
         // rather than signing or submitting a second time.
+        val found = operations.findByPreviewId(previewId) ?: throw IllegalArgumentException("Unknown preview")
         val claimed = requireNotNull(independent.execute {
-            val found = operations.findByPreviewId(previewId) ?: throw IllegalArgumentException("Unknown preview")
+            lockSync(found.networkKey)
             val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, found.id, LockModeType.PESSIMISTIC_WRITE))
             if (record.state != "previewed") record to false
             else operations.saveAndFlush(record.copy(state = "signing")) to true
@@ -332,35 +316,50 @@ class ReviewedWalletOperations(
         val prepared = try {
             // These callbacks may query the node and invoke the CLI/SSH; no database
             // transaction is held while they run.
-            revalidate(claimed.first, host, node, evidence())
+            revalidate(claimed.first, host, node, evidence(claimed.first))
             val signedHex = sign(claimed.first).lowercase()
-            val signed = decode(signedHex, claimed.first.era)
+            val signed = ReviewedTransactionIdentity.decodeSubmitted(signedHex, claimed.first.era)
+            val unsignedHex = json.readTree(claimed.first.unsignedBody).path("cborHex").asString()
+            val unsigned = ReviewedTransactionIdentity.decodeSubmitted(unsignedHex, claimed.first.era)
+            check(signed.body.sameEncoding(unsigned.body)) { "Signed body differs from review" }
             check(signed.id == claimed.first.txId) { "Signed body differs from review" }
             validateConsequences(signed.body, claimed.first.fee, claimed.first.deposit, claimed.first.refund, claimed.first.validFrom, claimed.first.validUntil)
-            revalidate(claimed.first, host, node, evidence())
+            val reservationEvidence = evidence(claimed.first)
+            revalidate(claimed.first, host, node, reservationEvidence)
             requireNotNull(independent.execute {
+                val sync = lockSync(claimed.first.networkKey)
+                check(sync != null && coordinator.isWalletReady(claimed.first.networkKey, (sync[5] as Number).toLong(),
+                    sync[0] as String, sync[6] == true) && reservationEvidence.walletGeneration == (sync[5] as Number).toLong().toString()) {
+                    "Wallet coverage changed; review again"
+                }
                 val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, claimed.first.id, LockModeType.PESSIMISTIC_WRITE))
                 check(record.state == "signing") { "Review state changed while signing" }
                 signed.inputs.forEach { (txId, index) ->
                     entityManager.persist(AuthorizedOperationInput(UUID.randomUUID().toString(), record.id, record.networkKey, txId, index))
                 }
                 operations.saveAndFlush(record.copy(state = "submission_uncertain", signedBatch = signedHex))
-            })
+            }).also { coordinator.refreshWallet() }
         } catch (error: Exception) {
             // Before submission no network write has occurred. A failed signing attempt
             // is terminal for this review; a process crash leaves it for reconciliation.
             independent.execute {
+                lockSync(claimed.first.networkKey)
                 val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, claimed.first.id, LockModeType.PESSIMISTIC_WRITE))
-                if (record.state == "signing") operations.saveAndFlush(record.copy(state = "not_submitted"))
+                if (record.state == "signing") {
+                    releaseInputs(record.id)
+                    operations.saveAndFlush(record.copy(state = "not_submitted"))
+                }
             }
+            coordinator.refreshWallet()
             throw error
         }
         // A failed final check is provably before the submission callback. Release only
         // those reservations and retain a durable terminal result for this review.
         try {
-            revalidate(prepared, host, node, evidence())
+            revalidate(prepared, host, node, evidence(prepared))
         } catch (error: Exception) {
             independent.execute {
+                lockSync(prepared.networkKey)
                 val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, prepared.id, LockModeType.PESSIMISTIC_WRITE))
                 if (record.state == "submission_uncertain") {
                     entityManager.createQuery("delete from AuthorizedOperationInput i where i.operationId = :operationId")
@@ -368,14 +367,23 @@ class ReviewedWalletOperations(
                     operations.saveAndFlush(record.copy(state = "not_submitted"))
                 }
             }
+            coordinator.refreshWallet()
             throw error
         }
         // From this point a failed callback may have broadcast. Retain uncertainty
         // and all input reservations, and never retry implicitly.
-        submit(requireNotNull(prepared.signedBatch))
-        return requireNotNull(independent.execute {
+        try {
+            submit(requireNotNull(prepared.signedBatch))
+        } catch (error: Exception) {
+            coordinator.refreshWallet()
+            throw error
+        }
+        val result = requireNotNull(independent.execute {
+            lockSync(prepared.networkKey)
             val record = requireNotNull(entityManager.find(AuthorizedOperation::class.java, prepared.id, LockModeType.PESSIMISTIC_WRITE))
             if (record.state == "submission_uncertain") operations.saveAndFlush(record.copy(state = "submitted")) else record
         })
+        coordinator.refreshWallet()
+        return result
     }
 }

@@ -21,7 +21,9 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.CardanoCapabilities
+import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
+import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
 import java.math.BigInteger
@@ -43,6 +45,7 @@ class GovernanceReviewController(
     private val protocolSnapshots: ProtocolSnapshotRepository,
     private val capabilities: CardanoCapabilities,
     private val reviews: ReviewedWalletOperations,
+    private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
     private val nodeController: NodeController,
     private val genesisAdapter: JsonAdapter<GenesisShelley>,
@@ -65,6 +68,7 @@ class GovernanceReviewController(
         val validFrom: String?, val validUntil: String?, val state: String, val effects: JsonNode,
     )
     private data class Target(val node: Node, val host: Host, val connection: HostConnection, val era: String, val magic: List<String>, val socket: List<String>)
+    private data class Observation(val evidence: ReviewedWalletOperations.Evidence, val snapshot: PendingWalletState.Snapshot, val parameters: String)
 
     private fun target(): Target {
         val node = nodes.findDefault() ?: error("Default node not found")
@@ -90,7 +94,7 @@ class GovernanceReviewController(
             node
         }
     }
-    private fun evidence(target: Target, payload: String): ReviewedWalletOperations.Evidence {
+    private fun evidence(target: Target, payload: String, excludingOperationId: String? = null): Observation {
         check(nodes.findDefault()?.id == target.node.id) { "Default node changed" }
         val request = json.treeToValue(json.readTree(payload).path("request"), VoteRequest::class.java)
         val pools = poolNodes(target, request)
@@ -98,14 +102,15 @@ class GovernanceReviewController(
         val paymentSigningKey = requireNotNull(payer.paymentSkey) { "Fee payer signing key unavailable" }
         val params = protocolSnapshots.query(target.host, target.node, target.connection, target.era, target.magic.joinToString(" "), target.socket.joinToString(" "))
         val gov = target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "query", "gov-state") + target.magic + target.socket + "--output-json")
-        val nodeUtxos = json.readTree(target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "query", "utxo", "--address", payer.paymentAddr) + target.magic + target.socket + "--output-json"))
-        require(nodeUtxos.isObject) { "Invalid node UTxO response" }
-        val utxos = walletUtils.getUtxos(target.host, target.connection, target.magic.joinToString(" "), target.socket.joinToString(" "), target.era, payer.paymentAddr)
-            .sortedWith(compareBy({ it.hash }, { it.ix }))
-        check(utxos.all { nodeUtxos.has("${it.hash}#${it.ix}") }) { "Confirmed wallet inputs differ from the target node; wait for synchronization" }
-        val state = listOf(payer.paymentAddr, paymentSigningKey.id, payer.paymentVkey?.id, payer.paymentVkey?.content, utxos, nodeUtxos, pools.map { listOf(it.id, it.coreSKeyId, it.coreVKeyId, files.findByIdOrNull(it.coreVKeyId)!!.content) }, json.readTree(gov))
+        val snapshot = walletUtils.getUtxoSnapshot(target.host, target.node, target.connection, target.magic.joinToString(" "),
+            target.socket.joinToString(" "), target.era, setOf(payer.paymentAddr), excludingOperationId)
+        val state = listOf(payer.paymentAddr, paymentSigningKey.id, digest(paymentSigningKey.content), payer.paymentVkey?.id, payer.paymentVkey?.content,
+            canonicalWalletInputs(snapshot, payer.paymentAddr), snapshot.readState.generation,
+            pools.map { listOf(it.id, it.coreSKeyId, digest(requireNotNull(files.findByIdOrNull(it.coreSKeyId)).content),
+                it.coreVKeyId, requireNotNull(files.findByIdOrNull(it.coreVKeyId)).content) }, json.readTree(gov))
         val capability = capabilities.capability(target.host, target.node, "governance.vote")
-        return ReviewedWalletOperations.Evidence(digest(payload), digest(json.readTree(params).toString()), digest(json.writeValueAsString(state)), digest(json.writeValueAsString(capability)))
+        return Observation(ReviewedWalletOperations.Evidence(digest(payload), digest(json.readTree(params).toString()),
+            digest(json.writeValueAsString(state)), digest(json.writeValueAsString(capability)), snapshot.readState.generation), snapshot, params)
     }
 
     private fun bodyField(envelope: String, key: Int): BigInteger? {
@@ -182,11 +187,10 @@ class GovernanceReviewController(
         val paths = mutableListOf<String>()
         fun path(suffix: String): String = "$base-$suffix".also { paths.add(it) }
         val body = path("body")
+        val paramsPath = path("params")
         try {
-            val utxos = walletUtils.getUtxos(target.host, target.connection, target.magic.joinToString(" "), target.socket.joinToString(" "), target.era, payer.paymentAddr)
-            require(utxos.isNotEmpty()) { "No confirmed fee payer inputs" }
-            val nodeUtxos = json.readTree(target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "query", "utxo", "--address", payer.paymentAddr) + target.magic + target.socket + "--output-json"))
-            require(nodeUtxos.isObject && utxos.all { nodeUtxos.has("${it.hash}#${it.ix}") }) { "Confirmed wallet inputs differ from the target node; wait for synchronization" }
+            val utxos = observed.snapshot.utxosByAddress[payer.paymentAddr].orEmpty()
+            require(utxos.isNotEmpty()) { "No available fee payer inputs" }
             val anchor = request.anchorUrl?.let { it to requireNotNull(request.anchorHash) }
             val votes = pools.mapIndexed { index, pool ->
                 val vkey = path("$index.vkey")
@@ -200,24 +204,20 @@ class GovernanceReviewController(
             }
             val tip = target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "query", "tip") + target.magic + target.socket + "--output-json")
             val ttl = Math.addExact(requireNotNull(tipAdapter.fromJson(tip)).slot, 21600L)
-            val args = mutableListOf(target.host.cardanoCliPath, target.era, "transaction", "build", "--witness-override", (pools.size + 1).toString())
-            args.addAll(target.magic)
-            args.addAll(target.socket)
-            utxos.forEach { args.addAll(listOf("--tx-in", "${it.hash}#${it.ix}")) }
-            args.addAll(listOf("--change-address", payer.paymentAddr, "--invalid-hereafter", ttl.toString()))
-            votes.forEach { args.addAll(listOf("--vote-file", it)) }
-            args.addAll(listOf("--out-file", body))
-            target.connection.commandArgs(args)
-            val envelope = target.connection.commandReadFile(body)
+            target.connection.commandWriteFile(paramsPath, observed.parameters)
+            val args = votes.flatMap { listOf("--vote-file", it) }
+            val built = builder.build(target.host, target.connection, target.era, utxos, emptyList(), payer.paymentAddr,
+                extraArgs = args, validUntil = ttl, protocolParameters = observed.parameters, protocolPath = paramsPath,
+                witnessCount = pools.size + 1, bodyPath = body)
+            val envelope = built.textEnvelope
             val fee = requireNotNull(bodyField(envelope, 2)) { "Transaction fee unavailable" }
             val validFrom = bodyField(envelope, 8)?.longValueExact()
             val validUntil = bodyField(envelope, 3)?.longValueExact()
             val view = json.readTree(target.connection.commandArgs(listOf(target.host.cardanoCliPath, "debug", "transaction", "view", "--tx-body-file", body, "--output-json")))
             val finalPayload = json.writeValueAsString(mapOf("request" to request, "effects" to exactJson(view)))
-            val after = evidence(target, finalPayload)
-            check(after.parameterFingerprint == observed.parameterFingerprint && after.stateFingerprint == observed.stateFingerprint && after.capabilityFingerprint == observed.capabilityFingerprint) { "Governance state changed; review again" }
-            val txid = target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "transaction", "txid", "--tx-body-file", body, "--output-text")).trim()
-            val record = reviews.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), target.host, target.node, "governance.vote", after, finalPayload, ReviewedWalletOperations.CliBody(envelope, txid), fee, BigInteger.ZERO, BigInteger.ZERO, validFrom, validUntil))
+            val after = evidence(target, finalPayload).evidence
+            check(after.parameterFingerprint == observed.evidence.parameterFingerprint && after.stateFingerprint == observed.evidence.stateFingerprint && after.capabilityFingerprint == observed.evidence.capabilityFingerprint) { "Governance state changed; review again" }
+            val record = reviews.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), target.host, target.node, "governance.vote", after, finalPayload, built, fee, BigInteger.ZERO, BigInteger.ZERO, validFrom, validUntil))
             return result(record, input.requestId)
         } finally {
             if (paths.isNotEmpty()) target.connection.commandArgs(listOf("rm", "-f") + paths)
@@ -236,7 +236,7 @@ class GovernanceReviewController(
         val body = path("body")
         val signed = path("signed")
         try {
-            val record = reviews.submit(input.previewId, target.host, target.node, { evidence(target, existing.requestPayload) }, { operation ->
+            val record = reviews.submit(input.previewId, target.host, target.node, { operation -> evidence(target, existing.requestPayload, operation.id).evidence }, { operation ->
                 val payer = wallets.findByIdOrNull(request.feesAccountId) ?: error("Fee payer not found")
                 val keys = listOf(requireNotNull(payer.paymentSkey)) + poolNodes(target, request).map { requireNotNull(files.findByIdOrNull(it.coreSKeyId)) }
                 target.connection.commandWriteFile(body, operation.unsignedBody)

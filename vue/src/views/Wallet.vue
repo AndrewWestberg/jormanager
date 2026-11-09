@@ -27,7 +27,7 @@
       </div>
       <hr />
       <div v-if="balancesUnavailable" class="alert alert-warning" role="status">
-        Wallet entries are saved. Balances and spending are unavailable until wallet index coverage is complete.
+        Wallet entries are saved. Balances and spending are unavailable until wallet coverage is usable.
         <span v-if="store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.reason">{{ store.chainReadState.reason }}</span>
       </div>
       <BContainer fluid>
@@ -177,7 +177,7 @@
       <WalletReviewPanel v-if="stakingReview" :review="stakingReview" @close="stakingReview = null" @submitted="stakingReview = $event" />
       <template #footer>
         <BButton variant="secondary" @click="showStakingModal = false">Close</BButton>
-        <BButton v-if="!stakingReview" variant="primary" :disabled="stakingBusy || !stakingFeesAccountState || store.chainReadState?.status !== 'complete' || (stakingAddressForm.isDelegation && !stakingAddressForm.poolId.trim())" @click="reviewStaking">Review</BButton>
+        <BButton v-if="!stakingReview" variant="primary" :disabled="stakingBusy || !stakingFeesAccountState || !chainReady || (stakingAddressForm.isDelegation && !stakingAddressForm.poolId.trim())" @click="reviewStaking">Review</BButton>
       </template>
       <fieldset v-if="!stakingReview" :disabled="stakingBusy">
       <BFormGroup
@@ -238,8 +238,8 @@ import type { WalletItem } from '@/types'
 
 const store = useJorManagerStore()
 const { walletItems } = storeToRefs(store)
-const chainReady = computed(() => store.chainReadState?.networkKey === store.walletNetworkKey &&
-  store.chainReadState?.status === 'complete')
+const chainReady = computed(() => store.connected && !!store.walletNetworkKey &&
+  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.walletReady === true)
 const balancesUnavailable = computed(() => walletItems.value.length > 0 &&
   (!chainReady.value || walletItems.value.some(item => item.paymentAddrLovelace === null)))
 const emitter = useEventBus()

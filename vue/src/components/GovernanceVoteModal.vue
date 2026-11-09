@@ -93,7 +93,7 @@
 
     <template #footer>
       <BButton variant="secondary" @click="handleCancel">Cancel</BButton>
-      <BButton v-if="!review" variant="success" :disabled="busy || !rationaleReady || store.chainReadState?.status !== 'complete' || !isValidGovActionId || feesAccountId === null || !coreNodes.length" @click="reviewVote">Review vote</BButton>
+      <BButton v-if="!review" variant="success" :disabled="busy || !rationaleReady || !walletReady || !isValidGovActionId || feesAccountId === null || !coreNodes.length" @click="reviewVote">Review vote</BButton>
     </template>
   </BModal>
 </template>
@@ -140,6 +140,8 @@ const busy = ref(false)
 const publicationPassword = ref('')
 const anchor = ref<{ anchorUrl: string; anchorHash: string } | null>(null)
 const rationaleReady = computed(() => !rationale.value.trim() || anchor.value !== null)
+const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
+  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState.walletReady === true)
 watch(rationale, () => { anchor.value = null; publicationPassword.value = '' })
 
 async function publishRationale() {
@@ -164,7 +166,7 @@ async function publishRationale() {
 let reviewGeneration = 0
 
 async function reviewVote() {
-  if (busy.value || !rationaleReady.value || store.chainReadState?.status !== 'complete' || !isValidGovActionId.value || feesAccountId.value === null || !coreNodes.value.length) return
+  if (busy.value || !rationaleReady.value || !walletReady.value || !isValidGovActionId.value || feesAccountId.value === null || !coreNodes.value.length) return
   const generation = ++reviewGeneration
   busy.value = true
   reviewError.value = ''

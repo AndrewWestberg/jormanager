@@ -4,14 +4,18 @@ import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.WalletEntry
+import com.swiftmako.jormanager.model.ChainReadState
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.WalletItem
+import com.swiftmako.jormanager.model.WalletResult
 import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.services.PendingWalletState
+import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import com.squareup.moshi.JsonAdapter
 import io.mockk.Called
 import io.mockk.mockkConstructor
@@ -51,62 +55,88 @@ class WalletUtilsTest {
             WalletEntry(102, "Imported stake", "stake", "stake-payment-address", stakingAddr = "stake-address"),
         )
         val wallets = mockk<WalletRepository> { every { findAllNotDeleted() } returns entries }
-        val ledger = mockk<LedgerDao>()
+        val pending = mockk<PendingWalletState>()
         val staking = mockk<JsonAdapter<List<StakeAddressInfo>>>()
+        var readState = ChainReadState("network", "complete", null, null, null, true, "1")
+        val unavailableState = readState.copy(status = "incomplete", walletReady = false)
+        val chain = mockk<ChainIngestionCoordinator> { every { status("network") } answers { readState } }
         val utils = WalletUtils(
             hostRepository = mockk<HostRepository> { every { findById(1L) } returns Optional.of(host) },
             nodeRepository = mockk<NodeRepository> { every { findDefault() } returns node },
             walletRepository = wallets, fileRepository = mockk(), argon2PasswordEncoder = mockk(),
             spendingPasswordHash = "", stakingInfoAdapter = staking, regCertAdapter = mockk(),
-            genesisAdapter = mockk(), queryTipAdapter = mockk(), chainIngestionCoordinator = mockk(),
-            ledgerDao = ledger,
+            genesisAdapter = mockk(), queryTipAdapter = mockk(), chainIngestionCoordinator = chain,
+            pendingWalletState = pending,
             cardanoRepository = mockk<CardanoRepository> { every { networkKey(node) } returns "network" },
         )
-        fun unavailable() = entries.map {
+        fun unavailable(state: ChainReadState = unavailableState) = WalletResult(entries.map {
             WalletItem(it.id!!, it.name, it.type, it.paymentAddr, it.paymentSkey != null,
                 null, null, it.stakingAddr, null, null, null)
-        }
+        }, "network", state)
     }
+
+    private fun snapshot(
+        utxos: Map<String, List<Utxo>> = emptyMap(),
+        rewards: Map<String, BigInteger> = emptyMap(),
+        pendingOutputs: Map<Pair<String, Int>, PendingWalletState.PendingOutput> = emptyMap(),
+    ) = PendingWalletState.Snapshot(
+        ChainReadState("network", "complete", null, null, null, true, "1"),
+        utxos, pendingOutputs, rewards,
+    )
 
     @Test
     fun `unavailable listing preserves identities and stops balance queries`() = runBlocking<Unit> {
         val f = ListingFixture()
-        every { f.ledger.queryUtxos("network", "payment-address") } throws LedgerDao.WalletIndexUnavailableException()
+        every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } throws LedgerDao.WalletIndexUnavailableException(f.unavailableState)
 
         assertEquals(f.unavailable(), f.utils.getWalletItems("--mainnet", "conway"))
         verify(exactly = 1) { f.wallets.findAllNotDeleted() }
-        verify(exactly = 1) { f.ledger.queryUtxos(any(), any()) }
+        verify(exactly = 1) { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) }
         verify { f.staking wasNot Called }
         assertThrows<LedgerDao.WalletIndexUnavailableException> {
-            f.utils.getUtxos(f.host, mockk(), "--mainnet", "--socket-path /node/default/db/socket", "conway", "payment-address")
+            f.utils.getUtxoSnapshot(f.host, f.node, mockk(), "--mainnet", "--socket-path /node/default/db/socket", "conway", setOf("payment-address"))
         }
     }
 
     @Test
-    fun `partial balances are discarded and later reads recover without saving`() = runBlocking {
+    fun `snapshot balances recover together and withhold reserved rewards`() = runBlocking {
         val f = ListingFixture()
         val amount = BigInteger("18446744073709551615")
-        every { f.ledger.queryUtxos("network", "payment-address") } returns
-            listOf(Utxo("hash", 0, amount, listOf(NativeAsset("asset", "policy", amount))))
-        every { f.ledger.queryUtxos("network", "stake-payment-address") } throws LedgerDao.WalletIndexUnavailableException()
+        every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } throws LedgerDao.WalletIndexUnavailableException(f.unavailableState)
         assertEquals(f.unavailable(), f.utils.getWalletItems("--mainnet", "conway"))
         verify { f.staking wasNot Called }
 
         mockkConstructor(HostConnection::class)
         try {
             every { anyConstructed<HostConnection>().commandArgs(any()) } returns "[]"
-            every { f.staking.fromJson("[]") } returns emptyList()
-            every { f.ledger.queryUtxos("network", "stake-payment-address") } returns emptyList()
-            val recovered = f.utils.getWalletItems("--mainnet", "conway")
+            every { f.staking.fromJson("[]") } returns listOf(StakeAddressInfo("stake-address", rewardAccountBalance = BigInteger.valueOf(20)))
+            every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns snapshot(
+                mapOf(
+                    "payment-address" to listOf(Utxo("hash", 0, amount, listOf(NativeAsset("asset", "policy", amount)))),
+                    "stake-payment-address" to listOf(Utxo("change", 1, BigInteger.TEN, emptyList())),
+                ),
+                mapOf("stake-address" to BigInteger.valueOf(7)),
+            )
+            val recoveredResult = f.utils.getWalletItems("--mainnet", "conway")
+            val recovered = recoveredResult.items
+            assertEquals(f.readState, recoveredResult.readState)
             assertEquals(amount, recovered[0].paymentAddrLovelace)
             assertEquals(mapOf("policy.asset" to amount), recovered[0].nativeAssetMap)
             assertEquals(1L, recovered[0].paymentAddrUtxoCount)
-            assertEquals(BigInteger.ZERO, recovered[1].paymentAddrLovelace)
-            assertEquals(0L, recovered[1].paymentAddrUtxoCount)
+            assertEquals(BigInteger.TEN, recovered[1].paymentAddrLovelace)
+            assertEquals(1L, recovered[1].paymentAddrUtxoCount)
             assertEquals(emptyMap<String, BigInteger>(), recovered[1].nativeAssetMap)
-            assertEquals(false, recovered[1].stakingAddrRegistered)
-            assertEquals(BigInteger.ZERO, recovered[1].stakingAddrLovelace)
+            assertEquals(true, recovered[1].stakingAddrRegistered)
+            assertEquals(BigInteger.valueOf(13), recovered[1].stakingAddrLovelace)
+            verify(exactly = 2) {
+                f.pending.snapshot(f.host, f.node, any(), "--mainnet", "--socket-path /node/default/db/socket", "conway",
+                    setOf("payment-address", "stake-payment-address"), null)
+            }
             verify(exactly = 0) { f.wallets.save(any()) }
+            every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns snapshot(
+                rewards = mapOf("stake-address" to BigInteger.valueOf(30)),
+            )
+            assertEquals(BigInteger.ZERO, f.utils.getWalletItems("--mainnet", "conway").items[1].stakingAddrLovelace)
         } finally {
             unmockkConstructor(HostConnection::class)
         }
@@ -116,10 +146,10 @@ class WalletUtilsTest {
     fun `listing propagates unrelated failures and cancellation`() = runBlocking {
         val f = ListingFixture()
         val failure = IOException("database failed")
-        every { f.ledger.queryUtxos(any(), any()) } throws failure
+        every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } throws failure
         assertEquals(failure, assertThrows<IOException> { f.utils.getWalletItems("--mainnet", "conway") })
         val cancellation = CancellationException("cancelled")
-        every { f.ledger.queryUtxos(any(), any()) } throws cancellation
+        every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } throws cancellation
         assertEquals(cancellation, assertThrows<CancellationException> { f.utils.getWalletItems("--mainnet", "conway") })
     }
 
@@ -127,15 +157,37 @@ class WalletUtilsTest {
     fun `empty saved wallet needs no coverage`() = runBlocking {
         val f = ListingFixture()
         every { f.wallets.findAllNotDeleted() } returns emptyList()
-        assertEquals(emptyList<WalletItem>(), f.utils.getWalletItems("--mainnet", "conway"))
-        verify { f.ledger wasNot Called }
+        assertEquals(WalletResult(emptyList(), "network", f.readState), f.utils.getWalletItems("--mainnet", "conway"))
+        verify { f.pending wasNot Called }
+    }
+
+    @Test
+    fun `listing never pairs old amounts with a newer generation`() = runBlocking<Unit> {
+        val f = ListingFixture()
+        mockkConstructor(HostConnection::class)
+        try {
+            every { f.pending.snapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns snapshot()
+            every { anyConstructed<HostConnection>().commandArgs(any()) } returns "[]"
+            every { f.staking.fromJson("[]") } answers {
+                f.readState = f.unavailableState.copy(generation = "2")
+                emptyList()
+            }
+            assertEquals(f.unavailable(f.unavailableState.copy(generation = "2")), f.utils.getWalletItems("--mainnet", "conway"))
+            every { f.staking.fromJson("[]") } answers {
+                f.readState = f.readState.copy(status = "syncing", walletReady = true)
+                emptyList()
+            }
+            assertThrows<IllegalStateException> { f.utils.getWalletItems("--mainnet", "conway") }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test
     fun `invalid reference script size fails closed`() {
         val host = mockk<Host> { every { cardanoCliPath } returns "cardano-cli" }
         val hostConnection = mockk<HostConnection> {
-            every { command(any<String>()) } returns "Reference inputs scripts size is -1 bytes."
+            every { commandArgs(any()) } returns "Reference inputs scripts size is -1 bytes."
         }
         val walletUtils =
             WalletUtils(
@@ -151,7 +203,7 @@ class WalletUtilsTest {
                 chainIngestionCoordinator = mockk(),
                 cardanoRepository = mockk(),
                 regCertAdapter = mockk(),
-                ledgerDao = mockk(),
+                pendingWalletState = mockk(),
             )
 
         assertThrows<IOException> {
@@ -162,7 +214,29 @@ class WalletUtilsTest {
                 "--socket-path /node.socket",
                 "conway",
                 listOf(Utxo("hash", 0L, BigInteger.ONE, emptyList())),
+                snapshot(),
             )
+        }
+    }
+
+    @Test
+    fun `reference script size combines pending bytes with confirmed query`() {
+        val host = mockk<Host> { every { cardanoCliPath } returns "cardano-cli" }
+        val connection = mockk<HostConnection> {
+            every { commandArgs(any()) } returns "Reference inputs scripts size is 7 bytes."
+        }
+        val pending = Utxo("pending", 1, BigInteger.ONE, emptyList())
+        val confirmed = Utxo("confirmed", 0, BigInteger.ONE, emptyList())
+        val state = snapshot(pendingOutputs = mapOf(
+            ("pending" to 1) to PendingWalletState.PendingOutput("address", pending, byteArrayOf(0x82.toByte(), 1, 0x43, 1, 2, 3))
+        ))
+        val f = ListingFixture()
+        assertEquals(10L, f.utils.queryReferenceScriptSize(
+            host, connection, "--mainnet", "--socket-path /node.socket", "conway", listOf(pending, confirmed), state,
+        ))
+        verify(exactly = 1) {
+            connection.commandArgs(listOf("cardano-cli", "conway", "query", "ref-script-size", "--tx-in", "confirmed#0",
+                "--mainnet", "--socket-path", "/node.socket", "--output-text"))
         }
     }
 
@@ -202,7 +276,7 @@ class WalletUtilsTest {
                 chainIngestionCoordinator = mockk(),
                 cardanoRepository = mockk(),
                 regCertAdapter = mockk(),
-                ledgerDao = mockk(),
+                pendingWalletState = mockk(),
             )
 
         assertEquals(cleartext, walletUtils.getSKeyContent(legacyFile, password))

@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.nodeclient.protocols.NetworkChainSession
 import com.swiftmako.jormanager.nodeclient.protocols.chainsync.ChainSyncProtocol
 import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
+import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.nodeclient.protocols.fixtures.CatchupFixtures
 import com.swiftmako.jormanager.utils.Blake2b
@@ -450,26 +451,100 @@ class ChainCatchupIntegrationTest {
     }
 
     @Test
-    fun readinessRequiresObservedCompleteTip() = database { _, _, _ ->
+    fun readinessRequiresObservedCompleteTip() = database { source, _, _ ->
         val refresh = Configuration().getRefreshWalletChannel()
         val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), refresh)
         val fixture = CatchupFixtures.leios(2)
         val generation = prepare(coordinator, fixture)
+        val wallet = LedgerDao(coordinator)
+        val address = requireNotNull(query(source, "SELECT l.address FROM ledger l JOIN ledger_utxos u ON u.ledger_id=l.id WHERE u.network_key=? LIMIT 1", fixture.network).single().single())
         val first = LedgerBlockDecoder.decode(7, fixture.blocks.first())
         val second = LedgerBlockDecoder.decode(7, fixture.blocks.last())
+        val nextTx = CatchupFixtures.transaction(
+            listOf(CatchupFixtures.input(CatchupFixtures.transactionId(fixture.transactions.first()))),
+            outputs = listOf(CatchupFixtures.output(coin = 9_700_000)), fee = 100_000,
+        )
+        val thirdBytes = CatchupFixtures.block(7, 3, previous = CatchupFixtures.blockHash(fixture.blocks.last()), transactions = listOf(nextTx))
+        val fourthBytes = CatchupFixtures.block(7, 4, previous = CatchupFixtures.blockHash(thirdBytes))
+        val third = LedgerBlockDecoder.decode(7, thirdBytes)
+        val fourth = LedgerBlockDecoder.decode(7, fourthBytes)
+        fun unavailable() {
+            assertFalse(coordinator.status(fixture.network).walletReady)
+            assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(fixture.network, setOf(address)) }
+        }
         coordinator.observeTip(fixture.network, point(second), generation)
         coordinator.adopt(fixture.network, generation, 7, first, point(first))
         assertEquals("syncing", coordinator.status(fixture.network).status)
-        assertNull(refresh.value, "Catching up must not trigger wallet reads")
+        unavailable()
+        assertNull(refresh.value)
         coordinator.adopt(fixture.network, generation, 7, second, point(second), closure(fixture))
         assertEquals("complete", coordinator.status(fixture.network).status)
-        val firstRefresh = requireNotNull(refresh.value) { "Reaching the observed tip must refresh wallets" }
-        val next = coordinator.rollback(fixture.network, point(first), generation)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        val balance = wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace }
+        assertTrue(balance.signum() > 0)
+        val followedBalance = balance - java.math.BigInteger.valueOf(100_000)
+        var lastRefresh = requireNotNull(refresh.value)
+
+        coordinator.observeTip(fixture.network, point(fourth), generation)
         assertEquals("syncing", coordinator.status(fixture.network).status)
-        assertEquals(firstRefresh, refresh.value, "Rollback must not request wallet reads before readiness")
-        coordinator.observeTip(fixture.network, point(first), next)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        assertEquals(balance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(lastRefresh, refresh.value)
+        coordinator.adopt(fixture.network, generation, 7, third, point(third))
+        assertEquals("syncing", coordinator.status(fixture.network).status)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(lastRefresh + 1, refresh.value)
+        lastRefresh = requireNotNull(refresh.value)
+        coordinator.adopt(fixture.network, generation, 7, fourth, point(fourth))
         assertEquals("complete", coordinator.status(fixture.network).status)
-        assertEquals(firstRefresh + 1L, refresh.value, "Later complete notifications must remain observable")
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertEquals(lastRefresh + 1, refresh.value)
+
+        val restarted = ChainIngestionCoordinator(BatchEffectProjector(json), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
+        val restartedWallet = LedgerDao(restarted)
+        assertEquals("complete", restarted.status(fixture.network).status)
+        assertFalse(restarted.status(fixture.network).walletReady)
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { restartedWallet.querySnapshot(fixture.network, setOf(address)) }
+        restarted.observeTip(fixture.network, point(fourth), generation)
+        assertTrue(restarted.status(fixture.network).walletReady)
+        assertEquals(followedBalance, restartedWallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+
+        val rolledBack = coordinator.rollback(fixture.network, point(third), generation)
+        assertEquals("syncing", coordinator.status(fixture.network).status)
+        unavailable()
+        coordinator.observeTip(fixture.network, point(third), rolledBack)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        assertEquals(followedBalance, wallet.querySnapshot(fixture.network, setOf(address)).utxosByAddress.getValue(address).sumOf { it.lovelace })
+        assertThrows(ChainIngestionCoordinator.ReplayRequiredException::class.java) {
+            coordinator.rollback(fixture.network, ChainPoint("999", "ff".repeat(32)), rolledBack)
+        }
+        assertEquals("unavailable", coordinator.status(fixture.network).status)
+        unavailable()
+        val afterReplay = coordinator.beginSession(fixture.network)
+        coordinator.observeTip(fixture.network, point(third), afterReplay)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+
+        coordinator.boundaryFailure(fixture.network, "fetch failed", afterReplay)
+        assertEquals(afterReplay + 1, coordinator.generation(fixture.network))
+        unavailable()
+        assertThrows(IllegalStateException::class.java) { coordinator.adopt(fixture.network, afterReplay, 7, fourth, point(fourth)) }
+        assertThrows(IllegalStateException::class.java) { coordinator.observeTip(fixture.network, point(third), afterReplay) }
+        assertEquals("incomplete", coordinator.status(fixture.network).status)
+        val replacement = coordinator.beginSession(fixture.network)
+        coordinator.observeTip(fixture.network, point(third), replacement)
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        val session = NetworkChainSession(fixture.network, coordinator, false, replacement, 21600)
+        val newer = coordinator.beginSession(fixture.network)
+        coordinator.observeTip(fixture.network, point(third), newer)
+        session.close()
+        assertTrue(coordinator.status(fixture.network).walletReady)
+        assertEquals(newer, coordinator.generation(fixture.network))
+        NetworkChainSession(fixture.network, coordinator, false, newer, 21600).close()
+        assertEquals("stale", coordinator.status(fixture.network).status)
+        assertEquals(newer + 1, coordinator.generation(fixture.network))
+        unavailable()
     }
 
     @Test
@@ -709,7 +784,7 @@ class ChainCatchupIntegrationTest {
                 coordinator.adopt(fixture.network, session.generation, 6, decoded[2], third)
                 assertEquals("complete", coordinator.status(fixture.network).status)
                 coordinator.boundaryFailure(fixture.network, "test boundary failure", session.generation)
-                forward(2)
+                assertThrows(IllegalStateException::class.java) { coordinator.observeTip(fixture.network, third, session.generation) }
                 assertEquals("incomplete", coordinator.status(fixture.network).status)
                 assertEquals("test boundary failure", coordinator.status(fixture.network).reason)
             } finally {

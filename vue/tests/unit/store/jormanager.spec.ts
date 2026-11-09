@@ -375,80 +375,156 @@ describe('wallet coverage availability', () => {
     setActivePinia(createPinia())
     const store = useJorManagerStore()
     vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
-    function status(state: string, networkKey = 'network') {
-      store.handleMessage({ type: 'chainstatus', data: {
-        networkKey, status: state, reason: 'Coverage prerequisite', observedTip: null, lastCompletePoint: null
-      } })
-    }
-    function wallet() {
-      store.handleMessage({ type: 'wallet', data: {
-        networkKey: 'network', items: [{ ...identity, ...available }]
-      } })
-    }
-    return { store, status, wallet }
+    const state = (status = 'complete', walletReady = true, generation = '9007199254740993', networkKey = 'network') =>
+      ({ networkKey, status, walletReady, generation, reason: null, observedTip: null, lastCompletePoint: null })
+    const status = (readState = state()) => store.handleMessage({ type: 'chainstatus', data: readState })
+    const wallet = (readState = state(), item: typeof available | typeof unknown = available) => store.handleMessage({
+      type: 'wallet', data: { networkKey: readState.networkKey, readState, items: [{ ...identity, ...item }] }
+    })
+    return { store, state, status, wallet }
   }
 
-  it('keeps successful saves and metadata visible while coverage is unavailable', () => {
-    const { store, status } = setup()
+  it('keeps metadata and nulls while initially unavailable', () => {
+    const { store, state, wallet } = setup()
     store.handleMessage({ type: 'createwalletentry', data: 'Saved imported entry' })
-    const success = store.toastSuccess
-    store.handleMessage({ type: 'wallet', data: { networkKey: 'network', items: [{ ...identity, ...unknown }] } })
-    status('syncing')
+    wallet(state('syncing', false), unknown)
     expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    expect(store.walletNetworkKey).toBe('network')
-    expect(store.toastSuccess).toEqual(success)
     expect(store.toastSuccess).not.toBeNull()
     expect(store.toastError).toBeNull()
     expect(store.paymentSelectOptions()).toEqual([{ value: 101, text: 'Imported payment - Unavailable' }])
     expect(store.feeAccountOptions(0n)).toEqual([])
   })
 
-  it('preserves exact amounts and known zero from successful reads', () => {
-    const { store } = setup()
-    store.handleMessage({ type: 'wallet', data: { networkKey: 'network', items: [
-      { ...identity, ...available },
-      { ...identity, id: 102, ...available, paymentAddrLovelace: '0', nativeAssetMap: {} }
-    ] } })
-    expect(store.walletItems[0].paymentAddrLovelace).toBe('9007199254740993')
-    expect(store.walletItems[0].nativeAssetMap).toEqual({ asset: '18446744073709551615' })
-    expect(store.walletItems[1].paymentAddrLovelace).toBe('0')
-    expect(store.walletItems[1].nativeAssetMap).toEqual({})
+  it('recovers initial catch-up and a new session only after readiness', () => {
+    const { store, state, status, wallet } = setup()
+    wallet(state('syncing', false), unknown)
+    wallet(state('complete', true))
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    status(state('syncing', false, '9007199254740994'))
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    wallet(state('complete', true, '9007199254740994'))
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
   })
 
-  it('revokes only matching balances and requires a fresh wallet payload to restore them', () => {
-    const { store, status, wallet } = setup()
+  it('retains exact balances and reviews through ordinary following and refresh', () => {
+    const { store, state, status, wallet } = setup()
     wallet()
-    status('complete')
-    status('incomplete', 'other-network')
+    const count = store.networkInvalidations.network ?? 0
+    expect(store.walletItems[0].paymentAddrLovelace).toBe('9007199254740993')
+    expect(store.walletItems[0].nativeAssetMap).toEqual({ asset: '18446744073709551615' })
+    status(state('syncing'))
     expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    status('incomplete')
+    expect(store.networkInvalidations.network ?? 0).toBe(count)
+    store.requestChainStatus('network')
+    expect(store.chainReadState?.walletReady).toBe(true)
+    const send = vi.mocked(store.sendMessage)
+    const calls = send.mock.calls.length
+    wallet(state('syncing'))
+    expect(send.mock.calls.length).toBe(calls)
+    status(state('complete'))
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    expect(store.networkInvalidations.network ?? 0).toBe(count)
+  })
+
+  it('fences older generations and invalidates when a missed boundary advances generation', () => {
+    const { store, state, status, wallet } = setup()
+    wallet()
+    const old = state()
+    status(state('syncing', true, '9007199254740994'))
+    expect(store.networkInvalidations.network).toBe(1)
     expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    status('complete')
+    wallet(old)
+    status(old)
+    expect(store.chainReadState?.generation).toBe('9007199254740994')
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    wallet(state('syncing', true, '9007199254740994'))
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    status(state('incomplete', false, '9007199254740995'))
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    wallet(state('complete', true, '9007199254740994'))
+    expect(store.chainReadState?.walletReady).toBe(false)
+    wallet(state('complete', true, '9007199254740996'))
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+  })
+
+  it('rejects obsolete correlated responses and recovers from status errors in the same generation', () => {
+    const { store, state, wallet } = setup()
+    wallet()
+    store.requestChainStatus('network')
+    const requestId = store.chainStatusRequestId!
+    store.handleMessage({ type: 'chainstatus', data: { ...state('incomplete', false), requestId: 'old' } })
+    store.handleMessage({ type: 'chainstatus', data: { ...state('incomplete', false, '9007199254740993', 'other'), requestId } })
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+    store.handleMessage({ type: 'chainstatus', exception: { message: 'Status failed', requestId, target: 'network' } })
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    expect(store.chainReadState).toBeNull()
+    store.handleMessage({ type: 'chainstatus', data: { ...state(), requestId } })
+    expect(store.chainReadState).toBeNull()
+    store.requestChainStatus('network')
+    store.handleMessage({ type: 'chainstatus', data: { ...state(), requestId: store.chainStatusRequestId } })
+    expect(store.chainReadState?.walletReady).toBe(true)
     expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
     wallet()
-    status('complete')
     expect(store.walletItems).toEqual([{ ...identity, ...available }])
     store.invalidateAllNetworkObservations()
     expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-  })
-
-  it('revokes balances on a matching failed status request', () => {
-    const { store, wallet } = setup()
-    wallet()
-    store.handleMessage({ type: 'chainstatus', exception: {
-      message: 'Status failed', requestId: store.chainStatusRequestId!, target: 'network'
-    } })
+    wallet(state('complete', true, '9007199254740992'))
     expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    expect(store.chainReadState).toBeNull()
+    wallet()
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
   })
 
-  it('retains genuine save and unrelated refresh errors', () => {
+  it('fails closed on missing readiness and rejects wrong-network wallet snapshots', () => {
+    const { store, state, wallet } = setup()
+    wallet()
+    store.handleMessage({ type: 'wallet', data: {
+      networkKey: 'other', readState: state(), items: [{ ...identity, ...available }]
+    } })
+    expect(store.walletNetworkKey).toBe('network')
+    const missing = { ...state(), walletReady: undefined }
+    store.handleMessage({ type: 'chainstatus', data: missing })
+    expect(store.chainReadState?.walletReady).toBe(false)
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    wallet()
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
+  })
+
+  it('merges explicit non-default node status and keeps newer broadcasts', () => {
+    const { store, state, status } = setup()
+    store.connected = true
+    store.nodes = [{
+      id: 42, name: 'node', hostId: 1, status: '', color: '', isDraft: false,
+      host: {
+        type: 'local', hostname: '', sshUser: '', sshPort: 22, sshPemPath: '',
+        cardanoCliPath: '', cardanoNodePath: '', nodeHomePath: '', jcliPath: null
+      }
+    }]
+    store.requestNodeIndexStatus(42)
+    const requestId = store.nodeIndexRequests[42]
+    const other = state('syncing', true, '9007199254740994', 'other')
+    store.handleMessage({ type: 'node_chainstatus', data: {
+      requestId, nodeId: 42, readState: other, replay: { networkKey: 'other' }
+    } })
+    expect(store.networkReadStates.other).toEqual(other)
+    expect(store.nodeIndexStatus[42].readState).toEqual(other)
+    status(state('incomplete', false, '9007199254740995', 'other'))
+    store.requestNodeIndexStatus(42)
+    store.handleMessage({ type: 'node_chainstatus', data: {
+      requestId: store.nodeIndexRequests[42], nodeId: 42, readState: other, replay: { networkKey: 'other' }
+    } })
+    expect(store.nodeIndexStatus[42].readState?.generation).toBe('9007199254740995')
+    expect(store.networkReadStates.other.walletReady).toBe(false)
+  })
+
+  it('retains saved entries on refresh errors', () => {
     const { store, wallet } = setup()
     store.handleMessage({ type: 'createwalletentry', exception: { message: 'Save rejected' } })
     expect(store.toastError?.message).toBe('Save rejected')
     wallet()
     store.handleMessage({ type: 'wallet', exception: { message: 'Database failed' } })
-    expect(store.walletItems).toEqual([])
+    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
     expect(store.toastError?.message).toBe('Database failed')
+    wallet()
+    expect(store.walletItems).toEqual([{ ...identity, ...available }])
   })
 })

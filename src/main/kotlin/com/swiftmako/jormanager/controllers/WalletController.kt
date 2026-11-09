@@ -98,11 +98,12 @@ class WalletController
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                         val networkKey = cardanoRepository.networkKey(defaultNode)
-                        val items = runBlocking { walletUtils.getWalletItems(magicString, era) }
-                        check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey) { "Wallet target changed" }
+                        val result = runBlocking { walletUtils.getWalletItems(magicString, era) }
+                        check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey &&
+                            result.networkKey == networkKey) { "Wallet target changed" }
                         SocketResponse.Success(
                             type = "wallet",
-                            data = WalletResult(items, networkKey)
+                            data = result
                         )
                     } ?: throw IOException("Error finding shelley genesis file!")
                 } ?: throw IOException("Error finding default node!")
@@ -151,33 +152,20 @@ class WalletController
                 }
                 val fromWalletEntry = fromWalletEntries.first()
 
-                val feePayerWalletEntry =
-                    if (request.isClaim) {
-                        calculateClaimRewardsFeePayer(
-                            defaultHost,
-                            defaultHostConnection,
-                            magicString,
-                            socketPath,
-                            era,
-                            request.toAccounts.map { it.account },
-                            BigInteger.ZERO
-                        )
-                    } else {
-                        fromWalletEntry
-                    }
+                val payerCandidates = if (request.isClaim) request.toAccounts.mapNotNull { it.account }
+                    .filter { it > 0 }.map { id ->
+                        walletRepository.findByIdOrNull(id) ?: throw IOException("Wallet entry id $id not found!")
+                    }.filter { it.paymentSkey != null } else listOf(fromWalletEntry)
+                val snapshot = walletUtils.getUtxoSnapshot(defaultHost, defaultNode, defaultHostConnection,
+                    magicString, socketPath, era, (fromWalletEntries + payerCandidates).map { it.paymentAddr }.toSet())
+                val feePayerWalletEntry = if (request.isClaim) payerCandidates.firstOrNull {
+                    snapshot.utxosByAddress[it.paymentAddr].orEmpty().sumByBigInteger { utxo -> utxo.lovelace } >= BigInteger("1000000")
+                } ?: throw IOException("No Account found capable of covering the claim fee!") else fromWalletEntry
 
                 val dummyTxFee = "1000000".toBigInteger() // 1 ada
                 val dummyTokenKeepFee = "1500000".toBigInteger() // 1.5 ada
                 val baseAmount = sortedMapOf<String, BigInteger>()
-                val utxos =
-                    walletUtils.getUtxos(
-                        defaultHost,
-                        defaultHostConnection,
-                        magicString,
-                        socketPath,
-                        era,
-                        feePayerWalletEntry.paymentAddr
-                    )
+                val utxos = snapshot.utxosByAddress[feePayerWalletEntry.paymentAddr].orEmpty()
                 log.debug { "YYYY Utxos: $utxos" }
                 val transaction = StringBuilder()
                 transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
@@ -233,7 +221,8 @@ class WalletController
                         magicString,
                         socketPath,
                         era,
-                        fromWalletEntry
+                        fromWalletEntry,
+                        snapshot,
                     )
 
                 val paymentAddressLovelace = utxosToSpend.sumByBigInteger { it.lovelace }
@@ -249,7 +238,8 @@ class WalletController
                             magicString,
                             socketPath,
                             era,
-                            entry
+                            entry,
+                            snapshot,
                         )
                     }
                 } else {
@@ -419,6 +409,7 @@ class WalletController
                         socketPath,
                         era,
                         utxosToSpend,
+                        snapshot,
                     )
                 val fee =
                     if (request.isClaim) {
@@ -440,15 +431,9 @@ class WalletController
                 var tokenKeepFee = BigInteger.ZERO
                 if (request.isClaim) {
                     // Make sure the fee payer still has enough to cover now that we know the amount
-                    calculateClaimRewardsFeePayer(
-                        defaultHost,
-                        defaultHostConnection,
-                        magicString,
-                        socketPath,
-                        era,
-                        request.toAccounts.map { it.account },
-                        lovelace
-                    )
+                    require(utxos.sumByBigInteger { it.lovelace } >= BigInteger("1000000") + lovelace) {
+                        "Selected account cannot cover the claim fee"
+                    }
                     tokenFees.addAll(request.toAccounts.map { BigInteger.ZERO })
                 } else {
                     // Calculate any token fees
@@ -850,36 +835,6 @@ class WalletController
                 SocketResponse.Error(type = "deletewalletentry", exception = e)
             }
 
-
-        /**
-         * The first account with at least 1 Ada (1m lovelace) is the fee payer
-         */
-        private fun calculateClaimRewardsFeePayer(
-            host: Host,
-            hostConnection: HostConnection,
-            magicString: String,
-            socketPath: String,
-            era: String,
-            toAccounts: List<Long?>,
-            txFee: BigInteger,
-        ): WalletEntry {
-            toAccounts.filterNotNull().forEach { id ->
-                if (id > 0) {
-                    walletRepository.findByIdOrNull(id)?.let { walletEntry ->
-                        if (walletEntry.paymentSkey != null) {
-                            val lovelace =
-                                walletUtils
-                                    .getUtxos(host, hostConnection, magicString, socketPath, era, walletEntry.paymentAddr)
-                                    .sumByBigInteger { it.lovelace }
-                            if (lovelace >= BigInteger("1000000") + txFee) {
-                                return walletEntry
-                            }
-                        }
-                    } ?: throw IOException("Wallet entry id $id not found!")
-                }
-            }
-            throw IOException("No Account found capable of covering the claim fee!")
-        }
 
         companion object {
             // Maximum number of native assets to put into a single UTxO
