@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useJorManagerStore } from '@/stores/jormanager'
-import Stomp, { type Client } from 'webstomp-client'
 
 vi.mock('sockjs-client', () => ({ default: vi.fn() }))
 
@@ -361,174 +360,16 @@ describe('store/jormanager - getters', () => {
   })
 })
 
-describe('wallet coverage availability', () => {
-  const identity = {
-    id: 101, name: 'Imported payment', type: 'payment', paymentAddr: 'addr_test_payment',
-    hasPaymentKeys: true, stakingAddr: null
-  }
-  const unknown = {
-    paymentAddrUtxoCount: null, paymentAddrLovelace: null, stakingAddrRegistered: null,
-    stakingAddrLovelace: null, nativeAssetMap: null
-  }
-  const available = {
-    paymentAddrUtxoCount: 1, paymentAddrLovelace: '9007199254740993', stakingAddrRegistered: false,
-    stakingAddrLovelace: '0', nativeAssetMap: { asset: '18446744073709551615' }
-  }
-  function setup() {
+describe('wallet responses', () => {
+  it('keeps exact balances without chain-readiness state and preserves them on errors', () => {
     setActivePinia(createPinia())
     const store = useJorManagerStore()
-    vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
-    const state = (status = 'complete', walletReady = true, generation = '9007199254740993', networkKey = 'network') =>
-      ({ networkKey, status, walletReady, generation, reason: null, observedTip: null, lastCompletePoint: null })
-    const status = (readState = state()) => store.handleMessage({ type: 'chainstatus', data: readState })
-    const wallet = (readState = state(), item: typeof available | typeof unknown = available) => store.handleMessage({
-      type: 'wallet', data: { networkKey: readState.networkKey, readState, items: [{ ...identity, ...item }] }
-    })
-    return { store, state, status, wallet }
-  }
-
-  it('keeps metadata and nulls while initially unavailable', () => {
-    const { store, state, wallet } = setup()
-    store.handleMessage({ type: 'createwalletentry', data: 'Saved imported entry' })
-    wallet(state('syncing', false), unknown)
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    expect(store.toastSuccess).not.toBeNull()
-    expect(store.toastError).toBeNull()
-    expect(store.paymentSelectOptions()).toEqual([{ value: 101, text: 'Imported payment - Unavailable' }])
-    expect(store.feeAccountOptions(0n)).toEqual([])
-  })
-
-  it('recovers initial catch-up and a new session only after readiness', () => {
-    const { store, state, status, wallet } = setup()
-    wallet(state('syncing', false), unknown)
-    wallet(state('complete', true))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    status(state('syncing', false, '9007199254740994'))
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet(state('complete', true, '9007199254740994'))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-  })
-
-  it('retains exact balances and reviews through ordinary following and refresh', () => {
-    const { store, state, status, wallet } = setup()
-    wallet()
-    const count = store.networkInvalidations.network ?? 0
-    expect(store.walletItems[0].paymentAddrLovelace).toBe('9007199254740993')
-    expect(store.walletItems[0].nativeAssetMap).toEqual({ asset: '18446744073709551615' })
-    status(state('syncing'))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    expect(store.networkInvalidations.network ?? 0).toBe(count)
-    store.requestChainStatus('network')
-    expect(store.chainReadState?.walletReady).toBe(true)
-    const send = vi.mocked(store.sendMessage)
-    const calls = send.mock.calls.length
-    wallet(state('syncing'))
-    expect(send.mock.calls.length).toBe(calls)
-    status(state('complete'))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    expect(store.networkInvalidations.network ?? 0).toBe(count)
-  })
-
-  it('fences older generations and invalidates when a missed boundary advances generation', () => {
-    const { store, state, status, wallet } = setup()
-    wallet()
-    const old = state()
-    status(state('syncing', true, '9007199254740994'))
-    expect(store.networkInvalidations.network).toBe(1)
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet(old)
-    status(old)
-    expect(store.chainReadState?.generation).toBe('9007199254740994')
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet(state('syncing', true, '9007199254740994'))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    status(state('incomplete', false, '9007199254740995'))
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet(state('complete', true, '9007199254740994'))
-    expect(store.chainReadState?.walletReady).toBe(false)
-    wallet(state('complete', true, '9007199254740996'))
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-  })
-
-  it('rejects obsolete correlated responses and recovers from status errors in the same generation', () => {
-    const { store, state, wallet } = setup()
-    wallet()
-    store.requestChainStatus('network')
-    const requestId = store.chainStatusRequestId!
-    store.handleMessage({ type: 'chainstatus', data: { ...state('incomplete', false), requestId: 'old' } })
-    store.handleMessage({ type: 'chainstatus', data: { ...state('incomplete', false, '9007199254740993', 'other'), requestId } })
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    store.handleMessage({ type: 'chainstatus', exception: { message: 'Status failed', requestId, target: 'network' } })
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    expect(store.chainReadState).toBeNull()
-    store.handleMessage({ type: 'chainstatus', data: { ...state(), requestId } })
-    expect(store.chainReadState).toBeNull()
-    store.requestChainStatus('network')
-    store.handleMessage({ type: 'chainstatus', data: { ...state(), requestId: store.chainStatusRequestId } })
-    expect(store.chainReadState?.walletReady).toBe(true)
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet()
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-    store.invalidateAllNetworkObservations()
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet(state('complete', true, '9007199254740992'))
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet()
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-  })
-
-  it('fails closed on missing readiness and rejects wrong-network wallet snapshots', () => {
-    const { store, state, wallet } = setup()
-    wallet()
-    store.handleMessage({ type: 'wallet', data: {
-      networkKey: 'other', readState: state(), items: [{ ...identity, ...available }]
-    } })
-    expect(store.walletNetworkKey).toBe('network')
-    const missing = { ...state(), walletReady: undefined }
-    store.handleMessage({ type: 'chainstatus', data: missing })
-    expect(store.chainReadState?.walletReady).toBe(false)
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
-    wallet()
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
-  })
-
-  it('merges explicit non-default node status and keeps newer broadcasts', () => {
-    const { store, state, status } = setup()
-    store.connected = true
-    store.nodes = [{
-      id: 42, name: 'node', hostId: 1, status: '', color: '', isDraft: false,
-      host: {
-        type: 'local', hostname: '', sshUser: '', sshPort: 22, sshPemPath: '',
-        cardanoCliPath: '', cardanoNodePath: '', nodeHomePath: '', jcliPath: null
-      }
-    }]
-    store.requestNodeIndexStatus(42)
-    const requestId = store.nodeIndexRequests[42]
-    const other = state('syncing', true, '9007199254740994', 'other')
-    store.handleMessage({ type: 'node_chainstatus', data: {
-      requestId, nodeId: 42, readState: other, replay: { networkKey: 'other' }
-    } })
-    expect(store.networkReadStates.other).toEqual(other)
-    expect(store.nodeIndexStatus[42].readState).toEqual(other)
-    status(state('incomplete', false, '9007199254740995', 'other'))
-    store.requestNodeIndexStatus(42)
-    store.handleMessage({ type: 'node_chainstatus', data: {
-      requestId: store.nodeIndexRequests[42], nodeId: 42, readState: other, replay: { networkKey: 'other' }
-    } })
-    expect(store.nodeIndexStatus[42].readState?.generation).toBe('9007199254740995')
-    expect(store.networkReadStates.other.walletReady).toBe(false)
-  })
-
-  it('retains saved entries on refresh errors', () => {
-    const { store, wallet } = setup()
-    store.handleMessage({ type: 'createwalletentry', exception: { message: 'Save rejected' } })
-    expect(store.toastError?.message).toBe('Save rejected')
-    wallet()
+    const item = { id: 101, name: 'Payment', paymentAddress: 'addr', paymentAddrLovelace: '9007199254740993', stakingAddrLovelace: '0', nativeAssetMap: { asset: '18446744073709551615' } }
+    store.handleMessage({ type: 'wallet', data: [item] })
+    expect(store.walletItems).toEqual([item])
     store.handleMessage({ type: 'wallet', exception: { message: 'Database failed' } })
-    expect(store.walletItems).toEqual([{ ...identity, ...unknown }])
+    expect(store.walletItems).toEqual([item])
     expect(store.toastError?.message).toBe('Database failed')
-    wallet()
-    expect(store.walletItems).toEqual([{ ...identity, ...available }])
   })
 })
 
@@ -548,17 +389,18 @@ describe('direct transaction requests', () => {
     return { store, send }
   }
 
-  it('sends one direct wallet action and correlates its response', async () => {
+  it('sends direct wallet transactions and reports errors without locking', () => {
     const { store, send } = setup()
-    const request = { fromId: 1, txFee: '170000' }
-    const pending = store.submitWallet(id, 'send', request, 'secret')
-    expect(send).toHaveBeenCalledWith('/jormanager/walletsubmit', { requestId: id, kind: 'send', request, spendingPassword: 'secret' })
-    await expect(store.submitWallet(id, 'send', request, 'secret')).rejects.toThrow('already in flight')
-    store.handleMessage({ type: 'governancesubmit', data: result })
-    store.handleMessage({ type: 'walletsubmit', data: { ...result, requestId: 'another' } })
+    store.connected = true
+    const request = { fromId: 1, txFee: '170000', spendingPassword: 'secret' }
+    store.submitTransaction(request)
+    store.submitTransaction(request)
     expect(send).toHaveBeenCalledTimes(1)
-    store.handleMessage({ type: 'walletsubmit', data: result })
-    await expect(pending).resolves.toEqual(result)
+    expect(send).toHaveBeenCalledWith('/jormanager/submittransaction', request)
+    store.handleMessage({ type: 'submittransaction', exception: { message: 'Rejected' } })
+    expect(store.toastError?.message).toBe('Rejected')
+    store.submitTransaction(request)
+    expect(send).toHaveBeenCalledTimes(2)
   })
 
   it('sends governance directly and preserves a public failure code', async () => {
@@ -572,86 +414,39 @@ describe('direct transaction requests', () => {
 
   it('rejects invalid identifiers and mismatched targets without dispatching twice', async () => {
     const { store, send } = setup()
-    await expect(store.submitWallet('bad', 'send', {}, 'secret')).rejects.toThrow('Invalid request ID')
+    await expect(store.socketRequest('/test', 'test', { requestId: 'bad' })).rejects.toThrow('Invalid request ID')
     expect(send).not.toHaveBeenCalled()
     const pending = store.socketRequest('/jormanager/pool/retirement/submit', 'pool_retirement_submit', { requestId: id, nodeId: 5 })
     store.handleMessage({ type: 'pool_retirement_submit', data: { ...result, nodeId: 6 } })
     await expect(pending).rejects.toThrow('target')
-    const wallet = store.submitWallet(id, 'send', {}, 'secret')
-    store.handleMessage({ type: 'walletsubmit', data: { ...result, networkKey: 'other' } })
-    await expect(wallet).rejects.toThrow('target')
   })
 
-  it('times out without retrying and permits a later explicit request with the same ID', async () => {
-    vi.useFakeTimers()
-    try {
-      const { store, send } = setup()
-      const pending = store.submitWallet(id, 'send', {}, 'secret')
-      const rejected = expect(pending).rejects.toThrow('outcome may be uncertain')
-      await vi.advanceTimersByTimeAsync(60000)
-      await rejected
-      expect(send).toHaveBeenCalledTimes(1)
-      const retry = store.submitWallet(id, 'send', {}, 'secret')
-      expect(send).toHaveBeenCalledTimes(2)
-      store.handleMessage({ type: 'walletsubmit', data: result })
-      await expect(retry).resolves.toEqual(result)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
 
-  it('rejects pending requests on disconnect without replaying them', async () => {
+  it('does not dispatch while disconnected', () => {
     const { store, send } = setup()
-    let disconnected: (error: unknown) => void = () => {}
-    const client = {
-      connected: true,
-      connect: (_headers: unknown, _success: unknown, failure: (error: unknown) => void) => { disconnected = failure }
-    }
-    const over = vi.spyOn(Stomp, 'over').mockReturnValue(client as unknown as Client)
-    try {
-      store.connectToServer()
-      const pending = store.submitWallet(id, 'send', {}, 'secret')
-      const rejected = expect(pending).rejects.toThrow('Disconnected')
-      disconnected(new Error('connection lost'))
-      await rejected
-      expect(store.connected).toBe(false)
-      expect(send).toHaveBeenCalledTimes(1)
-    } finally {
-      over.mockRestore()
-    }
-  })
-
-  it('does not dispatch while disconnected', async () => {
-    const { store, send } = setup()
-    store.stompClient = null
-    await expect(store.submitWallet(id, 'send', {}, 'secret')).rejects.toThrow('Not connected')
+    store.connected = false
+    store.submitTransaction({})
     expect(send).not.toHaveBeenCalled()
   })
 })
 
 describe('fee estimates', () => {
-  it('accepts only matching exact fee responses for the current target and generation', () => {
+  it('accepts only matching exact fee responses', () => {
     setActivePinia(createPinia())
     const store = useJorManagerStore()
     store.connected = true
-    store.walletNetworkKey = 'network'
-    store.chainReadState = { networkKey: 'network', status: 'complete', reason: '', observedTip: null, lastCompletePoint: null, walletReady: true, generation: '1' }
     const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
     store.calculateSendAdaFees({ uuid: 'first' })
     store.calculateSendAdaFees({ uuid: 'second' })
     const data = { uuid: 'first', txFee: '9007199254740999', tokenKeepFee: '0', tokenLocked: '0', tokenFees: ['123'] }
     store.handleMessage({ type: 'calculatefee', data })
     expect(store.responseFeesUUID).toBe('')
-    store.chainReadState = { ...store.chainReadState, generation: '2' }
     store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second' } })
-    expect(store.responseFeesUUID).toBe('')
-    store.calculateSendAdaFees({ uuid: 'third' })
-    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'third' } })
     expect(store.txFee).toBe('9007199254740999')
-    expect(store.responseFeesUUID).toBe('third')
-    expect(send).toHaveBeenCalledTimes(3)
+    expect(store.responseFeesUUID).toBe('second')
+    expect(send).toHaveBeenCalledTimes(2)
     store.invalidateSendAdaFees()
-    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'third' } })
+    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second' } })
     expect(store.responseFeesUUID).toBe('')
   })
 })

@@ -9,8 +9,7 @@ import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
 import com.swiftmako.jormanager.nodeclient.protocols.fixtures.CatchupFixtures as F
 import com.swiftmako.jormanager.repositories.*
-import com.swiftmako.jormanager.services.PendingWalletState
-import com.swiftmako.jormanager.services.ReviewedTransactionIdentity
+import com.swiftmako.jormanager.services.SubmittedTransactionDecoder
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import io.mockk.*
 import java.math.BigInteger
@@ -33,7 +32,7 @@ class WalletFeeEstimatorTest {
         val nodes = mockk<NodeRepository>()
         val hosts = mockk<HostRepository>()
         val cardano = mockk<CardanoRepository>()
-        val protocols = mockk<ProtocolSnapshotRepository>()
+        val protocols = mockk<ProtocolParametersRepository>()
         val messages = mockk<SimpMessagingTemplate>()
         val genesis = mockk<JsonAdapter<GenesisShelley>>()
         val tip = mockk<JsonAdapter<QueryTip>>()
@@ -57,20 +56,16 @@ class WalletFeeEstimatorTest {
         every { genesis.fromJson(any<String>()) } returns mockk<GenesisShelley> { every { networkId } returns "mainnet"; every { networkMagic } returns 1L }
         every { tip.fromJson(any<String>()) } returns QueryTip("babbage", hash = "aa".repeat(32), slot = 100)
         every { cardano.getEra(any(), any(), any(), any()) } returns "babbage"
-        every { cardano.networkKey(any()) } returns "network"
-        every { cardano.evidence(any()) } returns CardanoRepository.EraEvidence("network", "babbage", "current", "host:1/node:1")
         every { protocols.query(any(), any(), any(), any(), any(), any()) } returns params
         val token = NativeAsset("01", policy, n(9))
         val input = Utxo("11".repeat(32), 0, n(9_007_199_254_900_000L), if (asset) listOf(token) else emptyList())
-        val snapshot = PendingWalletState.Snapshot(ChainReadState("network", "complete", null, null, null, true, "1"),
-            mapOf("source" to listOf(input)), emptyMap(), emptyMap())
-        every { wallets.getUtxoSnapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns snapshot
-        every { wallets.queryReferenceScriptSize(any(), any(), any(), any(), any(), any(), any()) } returns 0L
-        every { wallets.getWalletItem(any(), any(), any(), any(), any(), any(), any()) } returns mockk<WalletItem> { every { stakingAddrLovelace } returns n(2_000_000) }
+        every { wallets.getUtxos(any(), any(), any(), any(), any(), any()) } returns listOf(input)
+        every { wallets.queryReferenceScriptSize(any(), any(), any(), any(), any(), any()) } returns 0L
+        every { wallets.getWalletItem(any(), any(), any(), any(), any(), any()) } returns mockk<WalletItem> { every { stakingAddrLovelace } returns n(2_000_000) }
         val response = slot<Any>()
         every { messages.convertAndSend(any<String>(), capture(response)) } just Runs
         val builder = WalletTransactionBuilder(json)
-        val controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), messages, cardano, protocols, builder, json)
+        val controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), messages, cardano, protocols, mockk(), builder, json)
         val destinations = if (asset) listOf(ToAccountFeeRequest("$policy.01", -1, "destination", n(4)),
             ToAccountFeeRequest("ada", -1, "destination", n(1), if (percent) 100 else null))
             else listOf(ToAccountFeeRequest("ada", if (claim) 1 else -1, if (claim) "" else "destination", n(if (claim) 4_000_000 else 40_000_000), if (percent) 100 else null))
@@ -106,7 +101,7 @@ class WalletFeeEstimatorTest {
                         val body = F.map(listOf(F.integer(0) to F.array(F.input("11".repeat(32).hexToByteArray())),
                             F.integer(1) to F.array(outputs), F.integer(2) to F.integer(fee)))
                         val hex = F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte())).toHexString()
-                        id = ReviewedTransactionIdentity.decodeSubmitted(hex, "babbage").id
+                        id = SubmittedTransactionDecoder.decodeSubmitted(hex, "babbage").id
                         envelope = """{"cborHex":"$hex"}"""
                         ""
                     }

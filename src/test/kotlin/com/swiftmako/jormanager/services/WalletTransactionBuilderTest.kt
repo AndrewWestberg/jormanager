@@ -57,7 +57,7 @@ class WalletTransactionBuilderTest {
                             F.integer(1) to F.array(outs), F.integer(2) to F.integer(txFee)))
                         val encoded = F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte()))
                         val hex = encoded.toHexString()
-                        id = ReviewedTransactionIdentity.decodeSubmitted(hex, "babbage").id
+                        id = SubmittedTransactionDecoder.decodeSubmitted(hex, "babbage").id
                         envelope = """{"cborHex":"$hex"}"""
                         ""
                     }

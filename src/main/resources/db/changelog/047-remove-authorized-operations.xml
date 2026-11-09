@@ -1,0 +1,39 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="047-remove-authorized-operations" author="jormanager">
+        <sql><![CDATA[
+UPDATE pool_deployment_previews AS setup
+SET details = (setup.details::jsonb || jsonb_build_object(
+    'registrationState', 'submitted', 'transactionId', operation.tx_id
+) || CASE WHEN jsonb_typeof(operation.request_payload::jsonb -> 'publication') = 'object'
+    THEN jsonb_build_object('publication', operation.request_payload::jsonb -> 'publication')
+    ELSE '{}'::jsonb END)::text
+FROM authorized_operations AS operation, nodes AS node, files AS genesis, files AS config
+WHERE operation.id = setup.details::jsonb ->> 'registrationRequestId'
+  AND operation.operation = 'pool.register'
+  AND operation.state IN ('submitted', 'confirmed')
+  AND operation.request_payload::jsonb ->> 'nodeId' = setup.node_id::text
+  AND NULLIF(operation.request_payload::jsonb -> 'keyId', 'null'::jsonb)
+      IS NOT DISTINCT FROM NULLIF(setup.details::jsonb -> 'keyId', 'null'::jsonb)
+  AND node.id = setup.node_id
+  AND genesis.id = node.genesis_shelley_file_id AND config.id = node.config_file_id
+  AND operation.network_key = concat_ws(':',
+      genesis.content::jsonb ->> 'networkMagic', genesis.content::jsonb ->> 'systemStart',
+      encode(sha256(convert_to(genesis.content, 'UTF8')), 'hex'),
+      config.content::jsonb ->> 'RequiresNetworkMagic', coalesce(node.network_key_discriminator, '-'),
+      lower(config.content::jsonb ->> 'ByronGenesisHash'), lower(config.content::jsonb ->> 'ShelleyGenesisHash'),
+      coalesce(lower(config.content::jsonb ->> 'AlonzoGenesisHash'), '-'),
+      coalesce(lower(config.content::jsonb ->> 'ConwayGenesisHash'), '-'),
+      coalesce(lower(config.content::jsonb ->> 'DijkstraGenesisHash'), '-'));
+
+INSERT INTO transactions (id, txid, at)
+SELECT nextval('hibernate_sequence'), accepted.tx_id, 'unknown'
+FROM (SELECT DISTINCT tx_id FROM authorized_operations WHERE state IN ('submitted', 'confirmed')) AS accepted
+WHERE NOT EXISTS (SELECT 1 FROM transactions WHERE txid = accepted.tx_id);
+
+DROP TABLE authorized_operation_inputs;
+DROP TABLE authorized_operations;
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>

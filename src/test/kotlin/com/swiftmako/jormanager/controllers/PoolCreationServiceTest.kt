@@ -18,8 +18,11 @@ class PoolCreationServiceTest {
     private val eras = mockk<CardanoRepository>()
     private val keys = mockk<com.swiftmako.jormanager.repositories.LeiosKeyRepository>()
     private val walletUtils = mockk<com.swiftmako.jormanager.controllers.utils.WalletUtils>()
+    private val hosts = mockk<com.swiftmako.jormanager.repositories.HostRepository>()
+    private val host = com.swiftmako.jormanager.entities.Host(id = 2, type = "local", cardanoCliPath = "cardano-cli",
+        cardanoNodePath = "cardano-node", hostname = "", sshUser = "", nodeHomePath = "/nodes", jcliPath = null)
     private val jdbc = mockk<org.springframework.jdbc.core.JdbcTemplate>(relaxed = true)
-    private val service = PoolCreationService(nodes, mockk(), files, mockk(), mockk(), mockk(), walletUtils, mockk(), eras, mockk(), tools.jackson.databind.json.JsonMapper.builder().build(), jdbc, keys, mockk(), mockk(), mockk(), mockk())
+    private val service = PoolCreationService(nodes, hosts, files, mockk(), mockk(), mockk(), walletUtils, mockk(), eras, mockk(), tools.jackson.databind.json.JsonMapper.builder().build(), jdbc, keys, mockk(), mockk(), mockk(), mockk())
     private val observer = Node(id = 1, hostId = 2, color = "", type = "relay", processorThreads = 1, name = "observer",
         listen = "127.0.0.1", port = 3001, promPort = 12798, genesisByronFileId = 1, genesisShelleyFileId = 2,
         genesisAlonzoFileId = 3, genesisConwayFileId = 4, configFileId = 5, isDefault = true)
@@ -42,10 +45,10 @@ class PoolCreationServiceTest {
     }
 
     @Test
-    fun `uncertain conway registration is not replayed and never installs`() = uncertainRegistration("conway")
+    fun `unacknowledged conway registration never installs`() = uncertainRegistration("conway")
 
     @Test
-    fun `dijkstra reuses retained key and does not replay uncertain registration`() = uncertainRegistration("dijkstra")
+    fun `dijkstra reuses retained key after failed registration`() = uncertainRegistration("dijkstra")
 
     @Test
     fun `historical resume retains the node and key when submission is uncertain`() = uncertainRegistration("dijkstra", historical = true)
@@ -64,9 +67,9 @@ class PoolCreationServiceTest {
         val db = mockk<org.springframework.jdbc.core.JdbcTemplate>(relaxed = true)
         val manager = mockk<org.springframework.transaction.PlatformTransactionManager>(relaxed = true)
         val keyService = mockk<com.swiftmako.jormanager.services.LeiosKeyService>()
-        val registration = mockk<ReviewedPoolRegistrationController>()
+        val registration = mockk<PoolRegistrationController>()
         val installer = mockk<com.swiftmako.jormanager.services.PoolDeploymentService>()
-        val target = PoolCreationService(nodes, mockk(), files, mockk(), mockk(), mockk(), walletUtils, mockk(),
+        val target = PoolCreationService(nodes, hosts, files, mockk(), mockk(), mockk(), walletUtils, mockk(),
             eras, mockk(), mapper, db, keys, keyService, registration, installer, manager)
         val request = com.swiftmako.jormanager.model.CreateNodeRequest(
             requestId = java.util.UUID.randomUUID().toString(), resumeNodeId = if (historical) 3 else null,
@@ -84,9 +87,9 @@ class PoolCreationServiceTest {
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         var operationId = java.util.UUID.randomUUID().toString()
         var journalExists = !historical
-        var recorded = false
         var journalState = "prepared"
         var installed = false
+        var installAttempts = 0
         every { db.query(any<String>(), any<org.springframework.jdbc.core.RowMapper<Any>>(), *anyVararg()) } answers {
             val sql = firstArg<String>()
             val rowMapper = secondArg<org.springframework.jdbc.core.RowMapper<Any>>()
@@ -103,11 +106,6 @@ class PoolCreationServiceTest {
                 }
                 sql.contains("FROM pool_draft_config") && historical -> {
                     every { rs.getString(1) } returns if (changedSaved) """{"host":2,"name":"other"}""" else """{"host":2,"name":"pool"}"""
-                    listOf(requireNotNull(rowMapper.mapRow(rs, 0)))
-                }
-                sql.startsWith("SELECT state,tx_id") && recorded -> {
-                    every { rs.getString(1) } returns "submission_uncertain"
-                    every { rs.getString(2) } returns "a".repeat(64)
                     listOf(requireNotNull(rowMapper.mapRow(rs, 0)))
                 }
                 else -> emptyList()
@@ -131,7 +129,9 @@ class PoolCreationServiceTest {
         every { nodes.findById(3) } answers { Optional.of(if (installed) savedNode.copy(isDraft = false) else savedNode) }
         every { nodes.findDefault() } returns observer
         every { eras.networkKey(any()) } returns "network"
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", era, "current", "host:2/node:1")
+        every { hosts.findById(2) } returns Optional.of(host)
+        every { files.findById(2) } returns Optional.of(File(id = 2, name = "genesis.json", content = """{"networkId":"Mainnet"}"""))
+        every { eras.getEra(host, observer, "--mainnet", "--socket-path /nodes/observer/db/socket") } returns era
         if (era == "dijkstra") {
             every { keys.findByNetworkKeyAndPoolId("network", "pool") } returns listOf(
                 com.swiftmako.jormanager.entities.LeiosVotingKey(id = 9, networkKey = "network", poolId = "pool",
@@ -139,12 +139,12 @@ class PoolCreationServiceTest {
                     preparedAt = java.time.Instant.now(), validationProvenance = "retained validated key"))
         }
         every { registration.execute(any()) } answers {
-            recorded = true
-            ReviewedPoolRegistrationController.Result(firstArg<ReviewedPoolRegistrationController.SubmitRequest>().requestId,
+            PoolRegistrationController.Result(firstArg<PoolRegistrationController.SubmitRequest>().requestId,
                 "a".repeat(64), "network", era, 3, "0", "0", "0", if (successful) "submitted" else "submission_uncertain", "register",
                 if (era == "dijkstra") 9 else null)
         }
         if (successful) every { installer.install(any(), any(), any(), any(), any()) } answers {
+            if (installAttempts++ == 0) throw IllegalStateException("fixture installation failure")
             installed = true
             journalState = "installed"
             com.swiftmako.jormanager.services.PoolDeploymentService.Result(3, "installed", null, null, "Installed", operationId)
@@ -157,13 +157,17 @@ class PoolCreationServiceTest {
             io.mockk.verify(exactly = 0) { db.update(match { it.startsWith("INSERT INTO pool_deployment_previews") }, *anyVararg()) }
             return
         }
-        repeat(2) {
-            if (successful) {
+        repeat(2) { attempt ->
+            if (successful && attempt == 1) {
                 assertThat((create.invoke(target, request) as Node).id).isEqualTo(3L)
             } else {
                 val failure = assertThrows<java.lang.reflect.InvocationTargetException> { create.invoke(target, request) }
-                assertThat(failure.cause).isInstanceOf(PoolCreationFailure::class.java)
-                assertThat(failure.cause?.message).contains("submission_uncertain")
+                if (successful) {
+                    assertThat(failure.cause).isInstanceOf(PoolCreationFailure::class.java)
+                } else {
+                    assertThat(failure.cause).isInstanceOf(IllegalArgumentException::class.java)
+                    assertThat(failure.cause?.message).contains("not acknowledged")
+                }
             }
         }
         val changed = assertThrows<java.lang.reflect.InvocationTargetException> { create.invoke(target, request.copy(color = "different")) }
@@ -171,13 +175,13 @@ class PoolCreationServiceTest {
         fingerprint = "different"
         val tampered = assertThrows<java.lang.reflect.InvocationTargetException> { create.invoke(target, request) }
         assertThat(tampered.cause?.message).contains("Request ID already used")
-        io.mockk.verify(exactly = 1) { registration.execute(match { it.keyId == if (era == "dijkstra") 9L else null }) }
+        io.mockk.verify(exactly = if (successful) 1 else 2) { registration.execute(match { it.keyId == if (era == "dijkstra") 9L else null }) }
         val savedDetails = mapper.readTree(details)
         assertThat(savedDetails.path("registrationRequestId").asString()).isNotEmpty()
         if (era == "dijkstra") assertThat(savedDetails.path("keyId").asLong()).isEqualTo(9L)
         if (historical) io.mockk.verify(exactly = 1) { db.update(match { it.startsWith("INSERT INTO pool_deployment_previews") }, *anyVararg()) }
         io.mockk.verify(exactly = 0) { keyService.prepare(any(), any(), any()) }
-        io.mockk.verify(exactly = if (successful) 1 else 0) { installer.install(any(), any(), any(), any(), any()) }
+        io.mockk.verify(exactly = if (successful) 2 else 0) { installer.install(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -190,26 +194,12 @@ class PoolCreationServiceTest {
             id = 9, networkKey = "network", poolId = "pool", publicKey = ByteArray(96), proof = ByteArray(48),
             signingFileId = 7, preparedAt = java.time.Instant.now(), validationProvenance = "retained validated key")
         every { keys.findByNetworkKeyAndPoolId("network", "pool") } returns listOf(retained)
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", "dijkstra", "current", "host:2/node:1")
+        every { hosts.findById(2) } returns Optional.of(host)
+        every { files.findById(2) } returns Optional.of(File(id = 2, name = "genesis.json", content = """{"networkId":"Mainnet"}"""))
+        every { eras.getEra(host, observer, "--mainnet", "--socket-path /nodes/observer/db/socket") } returns "dijkstra"
         assertThat(service.context(PoolSetupContextRequest("request", 3)).keys.map { it.keyId }).containsExactly(9L)
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", "conway", "current", "host:2/node:1")
+        every { eras.getEra(host, observer, "--mainnet", "--socket-path /nodes/observer/db/socket") } returns "conway"
         assertThat(service.context(PoolSetupContextRequest("request", 3)).keys).isEmpty()
     }
 
-    @Test
-    fun `context requires current matching observer evidence for both supported eras`() {
-        every { nodes.findById(3) } returns Optional.of(draft)
-        every { nodes.findDefault() } returns observer
-        every { eras.networkKey(any()) } returns "network"
-        every { files.findById(5) } returns Optional.of(File(id = 5, name = "config.json", content = "{}"))
-        every { keys.findByNetworkKeyAndPoolId("network", "pool") } returns emptyList()
-        for (era in listOf("conway", "dijkstra")) {
-            every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", era, "current", "host:2/node:1")
-            assertThat(service.context(PoolSetupContextRequest("request", 3)).networkKey).isEqualTo("network")
-        }
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", "dijkstra", "stale", "host:2/node:1")
-        assertThrows<IllegalArgumentException> { service.context(PoolSetupContextRequest("request", 3)) }
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("other", "conway", "current", "host:2/node:1")
-        assertThrows<IllegalArgumentException> { service.context(PoolSetupContextRequest("request", 3)) }
-    }
 }

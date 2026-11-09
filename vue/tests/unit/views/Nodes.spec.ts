@@ -61,9 +61,9 @@ describe('direct pool actions', () => {
     emitter.off('show-spending-password-modal', prompt)
   })
 
-  it('does not dispatch a retirement if coverage changes during the password prompt', async () => {
+  it('dispatches retirement without wallet coverage readiness', async () => {
     const { store, state } = setup()
-    const socket = vi.spyOn(store, 'socketRequest')
+    const socket = vi.spyOn(store, 'socketRequest').mockRejectedValue(new Error('Rejected'))
     const prompt = vi.fn()
     emitter.on('show-spending-password-modal', prompt)
     state.openRetireModal(1)
@@ -75,7 +75,7 @@ describe('direct pool actions', () => {
     store.networkInvalidations.test = 1
     emitter.emit('confirm-spending-password-with-action', { action: request.action, originalData: request.data, password: 'secret' })
     await flushPromises()
-    expect(socket).not.toHaveBeenCalled()
+    expect(socket).toHaveBeenCalledWith('/jormanager/pool/retirement/submit', 'pool_retirement_submit', expect.objectContaining({ nodeId: 1, spendingPassword: 'secret' }))
     emitter.off('show-spending-password-modal', prompt)
   })
 

@@ -1,7 +1,6 @@
 package com.swiftmako.jormanager.model
 
 import com.google.common.truth.Truth.assertThat
-import com.swiftmako.jormanager.controllers.ReviewedWalletController
 import java.math.BigInteger
 import org.junit.jupiter.api.Test
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration
@@ -15,7 +14,7 @@ class JsonMessageContractTest {
     private val maximumCoin = BigInteger("18446744073709551615")
 
     @Test
-    fun walletAmountsRemainExactStringsAndUnavailableBalanceRemainsNull() = withJson { mapper, converter ->
+    fun walletAmountsRemainExactStrings() = withJson { mapper, converter ->
         val wallet = WalletItem(1, "wallet", "payment", "address", true, 1, maximumCoin, "stake", true, maximumCoin, mapOf("asset" to maximumCoin))
         val message = requireNotNull(converter.toMessage(wallet, null))
         val json = mapper.readTree(message.payload as ByteArray)
@@ -23,21 +22,6 @@ class JsonMessageContractTest {
         assertDecimalString(json["stakingAddrLovelace"], maximumCoin)
         assertDecimalString(json["nativeAssetMap"]["asset"], maximumCoin)
 
-        val unavailableWallet = wallet.copy(paymentAddrUtxoCount = null, paymentAddrLovelace = null,
-            stakingAddrRegistered = null, stakingAddrLovelace = null, nativeAssetMap = null)
-        val state = ChainReadState("network", "incomplete", null, null, null, false, Long.MAX_VALUE.toString())
-        val unavailable = requireNotNull(converter.toMessage(WalletResult(listOf(unavailableWallet), "network", state), null))
-        val result = mapper.readTree(unavailable.payload as ByteArray)
-        assertThat(result["networkKey"].stringValue()).isEqualTo("network")
-        assertThat(result["readState"]["networkKey"].stringValue()).isEqualTo("network")
-        assertThat(result["readState"]["generation"].stringValue()).isEqualTo("9223372036854775807")
-        assertThat(result["readState"]["walletReady"].booleanValue()).isFalse()
-        val item = result["items"][0]
-        listOf("paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddrRegistered", "stakingAddrLovelace", "nativeAssetMap")
-            .forEach { assertThat(item[it].isNull).isTrue() }
-        assertThat(item.propertyNames()).containsExactly("id", "name", "type", "paymentAddr", "hasPaymentKeys",
-            "paymentAddrUtxoCount", "paymentAddrLovelace", "stakingAddr", "stakingAddrRegistered",
-            "stakingAddrLovelace", "nativeAssetMap")
     }
 
     @Test
@@ -73,13 +57,6 @@ class JsonMessageContractTest {
         assertThat(json.has("signingKey")).isFalse()
     }
 
-    @Test
-    fun directRequestsAcceptJsonTreesWithoutNarrowingMetadataIntegers() = withJson { _, converter ->
-        val input = """{"requestId":"submit","kind":"send","request":{"txFee":"0","metadata":{"counter":18446744073709551615}},"spendingPassword":"synthetic-password"}"""
-        val request = converter.fromMessage(GenericMessage(input.toByteArray()), ReviewedWalletController.SubmitRequest::class.java) as ReviewedWalletController.SubmitRequest
-        assertThat(request.request["metadata"]["counter"].isIntegralNumber).isTrue()
-        assertThat(request.request["metadata"]["counter"].bigIntegerValue()).isEqualTo(maximumCoin)
-    }
 
     private fun assertDecimalString(node: JsonNode, expected: BigInteger) {
         assertThat(node.isString).isTrue()

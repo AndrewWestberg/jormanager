@@ -55,14 +55,16 @@ class PoolDeploymentService(
         c.commandArgs(listOf("sha256sum", path)).trim().substringBefore(' ').also { require(it.matches(Regex("[0-9a-f]{64}"))) }
     } else "absent"
 
-    private fun context(nodeId: Long, keyId: Long?, registrationRequestId: String?): Context {
+    private fun context(nodeId: Long, keyId: Long?): Context {
         val n = requireNotNull(nodes.findByIdOrNull(nodeId)); require(n.isDraft && !n.isDeleted && n.type in setOf("core", "pool"))
         val host = requireNotNull(hosts.findByIdOrNull(n.hostId)); val observer = requireNotNull(nodes.findDefault())
         val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
         val network = eras.networkKey(n); require(!observer.isDraft && !observer.isDeleted && eras.networkKey(observer) == network)
-        val evidence = eras.evidence(observer)
-        val era = requireNotNull(evidence.era)
-        require(evidence.freshness == "current" && era in setOf("dijkstra", "conway") && evidence.networkKey == network && evidence.source == "host:${observerHost.id}/node:${observer.id}")
+        val genesis = json.readTree(file(observer.genesisShelleyFileId).content)
+        val flags = if (genesis.path("networkId").asString().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
+        val socket = safe("${observerHost.nodeHomePath}/${observer.name}/db/socket")
+        val era = eras.getEra(observerHost, observer, flags.joinToString(" "), "--socket-path $socket")
+        require(era in setOf("dijkstra", "conway"))
         val snapshot = snapshots.findByNodeId(nodeId).single()
         val encoded = json.readTree(snapshot.assetsJson)
         val assets = encoded.properties().associate { it.key to Base64.getDecoder().decode(it.value.asString()) }
@@ -79,25 +81,9 @@ class PoolDeploymentService(
         val pool = requireNotNull(n.poolId)
         if (key != null) require(key.networkKey == network && key.poolId == pool && key.signingFileId != null && key.validationProvenance.isNotBlank() && key.publicKey.size == 96 && key.proof.size == 48)
         val config = file(n.configFileId).content
-        val registrations = if (registrationRequestId != null) {
-            jdbc.query("SELECT request_payload FROM authorized_operations WHERE id=? AND network_key=? AND operation='pool.register' AND state IN ('submitted','confirmed')",
-                { rs, _ -> rs.getString(1) }, registrationRequestId, network)
-        } else {
-            jdbc.query("SELECT request_payload FROM authorized_operations WHERE network_key=? AND operation='pool.register' AND state='confirmed'",
-                { rs, _ -> rs.getString(1) }, network)
-        }
-        require(registrations.any { payload -> json.readTree(payload).let {
-            it.path("nodeId").asLong(-1) == nodeId &&
-                (if (keyId == null) it.path("keyId").isNull else it.path("keyId").asLong(-1) == keyId) &&
-                it.path("poolId").asString() == pool
-        } }) { "Matching acknowledged registration required" }
-        val genesis = json.readTree(file(observer.genesisShelleyFileId).content)
-        val flags = if (genesis.path("networkId").asString().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
-        val socket = safe("${observerHost.nodeHomePath}/${observer.name}/db/socket")
         val oc = HostConnection(observerHost, observer)
         fun query(vararg args: String) = json.readTree(oc.commandArgs(listOf(safe(observerHost.cardanoCliPath), era, "query") + args + flags + listOf("--socket-path", socket, "--output-json")))
         val tip = query("tip").path("slot").takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong() ?: error("Tip slot unavailable")
-        require(eras.evidence(observer) == evidence) { "Era evidence changed" }
         val parent = if (n.type == "pool") requireNotNull(n.parentId?.let(nodes::findByIdOrNull)).also {
             require(!it.isDeleted && !it.isDraft && it.type == "core" && it.hostId == n.hostId && eras.networkKey(it) == network)
         } else null
@@ -136,7 +122,7 @@ class PoolDeploymentService(
             "$folder/${parent.name}.kes.skey", "$folder/${parent.name}.vrf.skey", "$folder/${parent.name}.node.opcert")
             .joinToString("|") { "$it:${remoteHash(connection, it)}" } + "|" +
             listOf(parent.kesSKeyId, parent.vrfSKeyId, parent.opcertId).joinToString("|") { "$it:${hash(file(it).content)}" }
-        val fingerprint = hash(json.writeValueAsString(n) + "|" + (key?.let(::publicHash) ?: "no-bls") + "|" + relevant + "|" + existing + "|" + evidence.generation + "|" + assets.entries.sortedBy { it.key }.joinToString("|") { it.key + ":" + MessageDigest.getInstance("SHA-256").digest(it.value).toHexString() })
+        val fingerprint = hash(json.writeValueAsString(n) + "|" + (key?.let(::publicHash) ?: "no-bls") + "|" + relevant + "|" + existing + "|" + assets.entries.sortedBy { it.key }.joinToString("|") { it.key + ":" + MessageDigest.getInstance("SHA-256").digest(it.value).toHexString() })
         return Context(n, host, observer, observerHost, key, parent, connection, network, folder, startup, systemd, assets, era, config, fingerprint, tip)
     }
 
@@ -157,8 +143,9 @@ class PoolDeploymentService(
         check(row[3] in setOf("prepared", "registered")) {
             "Installation outcome requires host and operational certificate counter inspection before retrying"
         }
-        val registrationRequestId = details.path("registrationRequestId").takeIf { it.isString }?.asString()
-        val c = context(nodeId, keyId, registrationRequestId)
+        require(details.path("registrationState").asString() in setOf("submitted", "confirmed") &&
+            details.path("transactionId").asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Acknowledged registration required" }
+        val c = context(nodeId, keyId)
         require(row[1] == c.node.hostId.toString())
         val n = c.node; val connection = c.connection
         val kes = walletUtils.getSKeyContent(file(n.kesSKeyId), spendingPassword)
@@ -175,7 +162,7 @@ class PoolDeploymentService(
         var counterPersisted = false
         var certificatePersisted = false
         try {
-            require(context(nodeId, keyId, registrationRequestId).fingerprint == c.fingerprint)
+            require(context(nodeId, keyId).fingerprint == c.fingerprint)
             connection.commandWriteSecret("$prefix.cold", cold)
             if (bls != null) {
                 connection.commandWriteSecret("$prefix.bls", bls)

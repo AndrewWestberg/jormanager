@@ -16,6 +16,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import io.mockk.mockk
 import liquibase.command.CommandScope
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
@@ -39,7 +40,7 @@ class GenesisRecoveryIntegrationTest {
     private val databaseName = "jormanager_test_genesis_" + UUID.randomUUID().toString().replace("-", "")
     private var isolatedUrl: String? = null
     private var database: Database? = null
-    private val coordinator = ChainIngestionCoordinator(mock(BatchEffectProjector::class.java), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel())
+    private val coordinator = ChainIngestionCoordinator(mock(BatchEffectProjector::class.java), mock(SimpMessagingTemplate::class.java), Configuration().getRefreshWalletChannel(), mockk<LedgerDao>(relaxed = true))
     private val genesisHash = "11".repeat(32)
     private val funds = listOf(
         DecodedGenesisOutput(ByteArray(32) { 1 }, byteArrayOf(0x60) + ByteArray(28) { 2 }, BigInteger.valueOf(900)),
@@ -193,23 +194,19 @@ class GenesisRecoveryIntegrationTest {
     }
 
     @Test
-    fun committedCoverageEnablesWalletReadsAndFailureRevokesThem() {
+    fun committedCoverageTracksReadinessAndFailureRevokesIt() {
         val network = "wallet-coverage"
         coordinator.registerNetwork(network, genesisHash, funds)
         val address = transaction {
             (LedgerUtxosTable innerJoin LedgerTable).selectAll().where { LedgerUtxosTable.networkKey eq network }
                 .single { it[LedgerUtxosTable.txId] == funds[0].txId.toHexString() }[LedgerTable.address]
         }
-        val wallet = LedgerDao(coordinator)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot("missing-wallet-network", setOf(address)) }
         assertThat(coordinator.status("missing-wallet-network").walletReady).isFalse()
         assertThat(coordinator.status("missing-wallet-network").generation).isEqualTo("0")
         assertThat(coordinator.status(network).walletReady).isFalse()
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
         val other = "wallet-coverage-other"
         coordinator.registerNetwork(other, genesisHash, funds)
         val generation = coordinator.beginSession(network)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
         val complete = block(network, 59)
         transaction {
             SyncStatesTable.update({ SyncStatesTable.network eq network }) { it[completeInclusion] = complete }
@@ -217,11 +214,9 @@ class GenesisRecoveryIntegrationTest {
         coordinator.observeTip(network, ChainPoint("59", ByteArray(32) { 59 }.toHexString()), generation)
         assertThat(coordinator.status(network).walletReady).isTrue()
         assertThat(coordinator.status(other).walletReady).isFalse()
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(other, setOf(address)) }
-        assertThat(wallet.querySnapshot(network, setOf(address)).utxosByAddress.getValue(address).single().lovelace).isEqualTo(funds[0].coin)
+        assertThat(LedgerRepository.queryUtxos(network, setOf(address)).getValue(address).single().lovelace).isEqualTo(funds[0].coin)
         coordinator.boundaryFailure(network, "Requested block unavailable", generation)
         assertThat(coordinator.status(network).walletReady).isFalse()
         assertThat(coordinator.generation(network)).isEqualTo(generation + 1)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
     }
 }

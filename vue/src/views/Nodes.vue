@@ -198,7 +198,6 @@
       :cancel-title="poolConfigStep === 1 ? 'Cancel' : 'Back'"
       @cancel.prevent="handleCancelPoolConfig"
     >
-      <p class="text-warning">Changing the owner set replaces all current owners.</p>
       <div v-if="poolConfigStep === 1">
         <h5>Account Config</h5>
         <BFormGroup label="Fees Account" label-cols-md="2">
@@ -493,7 +492,7 @@ const editRelaysForm = ref({
   nodeId: 0,
   relays: [] as Relay[]
 })
-type PoolChangeRequest = { requestId: string; nodeId: number; feePayerAccountId: number; action: 'update'; keyId: null; changes: Record<string, unknown>; metadata?: unknown; networkKey: string; generation: number }
+type PoolChangeRequest = { requestId: string; nodeId: number; feePayerAccountId: number; action: 'update'; keyId: null; changes: Record<string, unknown>; metadata?: unknown }
 const replacePoolOwners = ref(false)
 const selectedPoolOwners = ref<number[]>([])
 const changePoolReward = ref(false)
@@ -505,37 +504,25 @@ let poolRequestId = generateUUID()
 let retirementRequestId = generateUUID()
 watch([editPoolConfigForm, editMetadataForm, editRelaysForm, replacePoolOwners, selectedPoolOwners, changePoolReward, poolChangeFeeAccount],
   () => { poolRequestId = generateUUID() }, { deep: true, flush: 'sync' })
-function chainUnavailable(networkKey: string) {
-  const state = store.networkReadStates[networkKey]
-  return !store.connected || state?.networkKey !== networkKey || state.walletReady !== true
-}
-function nodeChainUnavailable(nodeId: number) {
-  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
-  return !networkKey || chainUnavailable(networkKey)
+function nodeChainUnavailable(_nodeId: number) {
+  return !store.connected
 }
 function requestPoolChange(nodeId: number, feePayerAccountId: number | null, changes: Record<string, unknown>, metadata?: unknown) {
   if (feePayerAccountId == null || poolChangeBusy.value) {
     store.toastError = { title: 'Pool update', message: 'Select a fee payer account.' }
     return
   }
-  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
-  if (!networkKey || nodeChainUnavailable(nodeId)) {
-    store.toastError = { title: 'Pool update', message: 'Wallet coverage is unavailable for this node network.' }
-    return
-  }
-  const data: PoolChangeRequest = JSON.parse(JSON.stringify({ requestId: poolRequestId, nodeId, feePayerAccountId, action: 'update', keyId: null, changes, metadata, networkKey, generation: store.networkInvalidations[networkKey] ?? 0 }))
+  if (nodeChainUnavailable(nodeId)) return
+  const data: PoolChangeRequest = JSON.parse(JSON.stringify({ requestId: poolRequestId, nodeId, feePayerAccountId, action: 'update', keyId: null, changes, metadata }))
   emitter.emit('show-spending-password-modal', { action: 'submit-pool-change', data })
 }
 
 async function submitPoolChange(request: PoolChangeRequest, password: string) {
-  if (poolChangeBusy.value || !(showPoolConfigModal.value || showRelaysModal.value || showMetadataModal.value) || request.requestId !== poolRequestId || nodeChainUnavailable(request.nodeId) ||
-      store.nodeIndexStatus[request.nodeId]?.readState?.networkKey !== request.networkKey ||
-      (store.networkInvalidations[request.networkKey] ?? 0) !== request.generation) return
+  if (poolChangeBusy.value || !(showPoolConfigModal.value || showRelaysModal.value || showMetadataModal.value) || request.requestId !== poolRequestId || nodeChainUnavailable(request.nodeId)) return
   poolChangeBusy.value = true
   try {
-    const { networkKey, generation: _generation, ...payload } = request
-    const result = await store.socketRequest<PoolRegistrationResult>('/jormanager/leios/registration/submit', 'leios_registration_submitted', { ...payload, spendingPassword: password })
-    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId || result.networkKey !== networkKey || result.action !== 'update') throw new Error('Submission target does not match')
+    const result = await store.socketRequest<PoolRegistrationResult>('/jormanager/leios/registration/submit', 'leios_registration_submitted', { ...request, spendingPassword: password })
+    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId || result.action !== 'update') throw new Error('Submission target does not match')
     if (!['submitted', 'confirmed'].includes(result.state)) throw new Error(`Transaction outcome: ${result.state}`)
     if (poolRequestId === request.requestId) {
       showPoolConfigModal.value = false
@@ -792,28 +779,23 @@ function openRetireModal(nodeId: number) {
 
 function requestRetirement() {
   const { id: nodeId, retireFeesAccount: feePayerAccountId, retireEpoch } = retirePoolForm.value
-  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
-  if (retirementBusy.value || !networkKey || nodeChainUnavailable(nodeId)) return
+  if (retirementBusy.value || nodeChainUnavailable(nodeId)) return
   if (feePayerAccountId === null || !/^[1-9]\d*$/.test(String(retireEpoch))) {
     retirementError.value = 'Select a fee account and a valid retirement epoch.'
     return
   }
   emitter.emit('show-spending-password-modal', { action: 'submit-pool-retirement', data: {
-    requestId: retirementRequestId, nodeId, feePayerAccountId, retireEpoch: String(retireEpoch),
-    networkKey, generation: store.networkInvalidations[networkKey] ?? 0
+    requestId: retirementRequestId, nodeId, feePayerAccountId, retireEpoch: String(retireEpoch)
   } })
 }
 
-async function submitRetirement(request: { requestId: string; nodeId: number; feePayerAccountId: number; retireEpoch: string; networkKey: string; generation: number }, password: string) {
-  if (retirementBusy.value || !showRetireModal.value || request.requestId !== retirementRequestId || nodeChainUnavailable(request.nodeId) ||
-      store.nodeIndexStatus[request.nodeId]?.readState?.networkKey !== request.networkKey ||
-      (store.networkInvalidations[request.networkKey] ?? 0) !== request.generation) return
+async function submitRetirement(request: { requestId: string; nodeId: number; feePayerAccountId: number; retireEpoch: string }, password: string) {
+  if (retirementBusy.value || !showRetireModal.value || request.requestId !== retirementRequestId || nodeChainUnavailable(request.nodeId)) return
   retirementBusy.value = true
   retirementError.value = ''
   try {
-    const { networkKey, generation: _generation, ...payload } = request
-    const result = await store.socketRequest<PoolRetirementResult>('/jormanager/pool/retirement/submit', 'pool_retirement_submit', { ...payload, spendingPassword: password })
-    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId || result.networkKey !== networkKey) throw new Error('Submission target does not match')
+    const result = await store.socketRequest<PoolRetirementResult>('/jormanager/pool/retirement/submit', 'pool_retirement_submit', { ...request, spendingPassword: password })
+    if (result.requestId !== request.requestId || result.nodeId !== request.nodeId) throw new Error('Submission target does not match')
     if (!['submitted', 'confirmed'].includes(result.state)) throw new Error(`Transaction outcome: ${result.state}`)
     if (retirementRequestId === request.requestId) {
       showRetireModal.value = false

@@ -97,11 +97,8 @@ class WalletMonitor
                             ?: throw IOException("Host not found for default node")
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
                         val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
-                        val networkKey = cardanoRepository.networkKey(defaultNode)
                         if (magicString.isNotBlank() && era.isNotBlank()) {
                             val result = walletUtils.getWalletItems(magicString, era)
-                            check(nodeRepository.findDefault()?.id == defaultNode.id && cardanoRepository.networkKey(defaultNode) == networkKey &&
-                                result.networkKey == networkKey) { "Wallet target changed" }
                             webSocketTemplate.convertAndSend(
                                 "/topic/messages",
                                 SocketResponse.Success(type = "wallet", data = result)
@@ -114,7 +111,7 @@ class WalletMonitor
                             try {
                                 webSocketTemplate.convertAndSend(
                                     "/topic/messages",
-                                    SocketResponse.Error("wallet", IOException("Wallet state is unavailable; refresh after synchronization"))
+                                    SocketResponse.Error("wallet", e)
                                 )
                             } catch (failure: Exception) {
                                 if (failure is CancellationException) throw failure

@@ -75,6 +75,15 @@ class PoolDeploymentServiceTest {
         assertThrows<IllegalArgumentException> { service.install(42, 8, id, "password", "sudo") }
         verify(exactly = 0) { nodes.findById(any()) }
     }
+
+    @Test
+    fun `unacknowledged registration cannot install`() {
+        for (state in listOf("submission_uncertain", "not_submitted")) {
+            journal("prepared", """{"keyId":7,"registrationState":"$state","transactionId":"${"a".repeat(64)}"}""")
+            assertThrows<IllegalArgumentException> { service.install(42, 7, id, "password", "sudo") }
+        }
+        verify(exactly = 0) { nodes.findById(any()) }
+    }
 }
 
 class RemotePoolDeploymentServiceTest {
@@ -101,7 +110,7 @@ class RemotePoolDeploymentServiceTest {
     private val service = PoolDeploymentService(nodes, hosts, files, mockk(), mockk(), eras, configs,
         wallet, snapshots, mockk<NodeController>(), jdbc, json, MutableSharedFlow())
     private var state = "registered"
-    private var details = """{"intent":{"name":"pool"},"registrationRequestId":"registration","keyId":null}"""
+    private var details = """{"intent":{"name":"pool"},"registrationRequestId":"registration","keyId":null,"registrationState":"submitted","transactionId":"${"a".repeat(64)}"}"""
     private val records = mutableMapOf<Long, File>()
     private val remote = mutableMapOf<String, String>()
     private val commands = mutableListOf<List<String>>()
@@ -139,12 +148,10 @@ class RemotePoolDeploymentServiceTest {
         every { wallet.isValidSpendingPassword("password") } returns true
         every { wallet.getSKeyContent(any(), "password") } answers { firstArg<File>().content }
         every { eras.networkKey(any()) } returns "network"
-        every { eras.evidence(observer) } returns CardanoRepository.EraEvidence("network", "conway", "current", "host:3/node:1")
+        every { eras.getEra(host, observer, "--testnet-magic 42", "--socket-path /nodes/observer/db/socket") } returns "conway"
         every { jdbc.query(match { it.contains("FROM pool_deployment_previews") }, any<RowMapper<List<String>>>(), *anyVararg()) } answers {
             listOf(listOf("42", "3", details, state))
         }
-        every { jdbc.query(match { it.contains("FROM authorized_operations") }, any<RowMapper<String>>(), *anyVararg()) } returns
-            listOf("""{"nodeId":42,"keyId":null,"poolId":"pool-id"}""")
         every { jdbc.update(any<String>(), *anyVararg()) } answers {
             val sql = firstArg<String>()
             val args = secondArg<Array<out Any?>>()

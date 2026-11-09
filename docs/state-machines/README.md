@@ -2,19 +2,21 @@
 
 Status: **design proposals, not implemented or approved**. This documentation records the implicit state machines found in the codebase and evaluates explicit replacements. It does not authorize runtime, database, API, or frontend changes.
 
+The wallet reservation framework and durable era approvals described by the original inventory have been removed. The [wallet submission note](reviewed-transactions.md) and [era query note](era-evidence.md) describe the replacement; other proposals remain historical, unapproved designs rather than current wallet contracts.
+
 The [frontend inventory](frontend.md) is deliberately deferred. Backend proposals are separate because their authority, persistence, failure modes, and useful Kotlin representations differ. They are not parts of one proposed global state-machine framework.
 
 ## Backend decisions
 
 | Machine | Recommended explicit representation | Why this boundary matters |
 | --- | --- | --- |
-| [Reviewed transactions](reviewed-transactions.md) | Sealed durable operation state, exhaustive command handling, explicit persistence/wire mapping | Authorization, signed bytes, input reservations, broadcast uncertainty, inclusion and rollback must remain coherent. |
+| [Wallet transactions](reviewed-transactions.md) | Implemented direct CLI submission with success-only in-memory change | Rejected attempts do not create persistent spend locks. |
 | [Pool draft deployment](pool-deployment.md) | Durable attempt with sealed outcome and recovery checkpoints | Certificate issuance and host mutation cannot be atomic with database updates; uncertain effects require inspection, not retry. |
 | [Leios key installation](leios-key-installation.md) | Separate durable installation attempt and typed host evidence | Installed, loaded, registered and adopted are different facts; shared producer files require exclusive mutation ownership. |
 | [Chain synchronization](chain-synchronization.md) | Readiness enum and explicit transitions over the locked durable snapshot | Keep ledger projection, rollback, coverage and session fencing in the same database authority. |
 | [Queued block-fetch validity](block-fetch-validity.md) | Refine existing protocol substates and expose ownership-transfer operations | Bounded queues, exact permit release and durable generation checks matter more than a new per-block object hierarchy. |
 | [Block-production adjudication](block-adjudication.md) | Status enum, pure classifier and concurrency-safe writer boundaries | Make classification policy visible without inventing stronger network identity or reorg guarantees. |
-| [Current-era evidence](era-evidence.md) | Sealed cache-load lifecycle, immutable evidence and separately named generations | Refresh ownership, invalidation and late responses must not turn stale evidence into authorization. |
+| [Current-era queries](era-evidence.md) | Implemented direct node query with latest in-memory observation | The CLI-reported era selects transaction syntax. |
 | [Capability qualification](capability-qualification.md) | Sealed effective validation result over stored attestation and current inputs | This is principally a derived validity judgment, not a persistent lifecycle worth turning into an FSM engine. |
 | [Monitor and connection supervision](connection-supervision.md) | Explicit service/worker lifetimes, typed control events and owned coroutine scopes | Cancellation, teardown, replacement and observation ownership need precise boundaries; sampling itself can remain a loop. |
 
@@ -31,7 +33,7 @@ The [frontend inventory](frontend.md) is deliberately deferred. Backend proposal
 
 These designs share evidence but not a universal `generation`. Distinguish network chain-delivery generation, era-change generation, local query revision, optional durable query ticket, connection attempt identity, and frontend invalidation counter. Giving them separate names/types prevents a valid token in one subsystem from becoming authority in another.
 
-`OperationConfirmationsTable` maps to the same `authorized_operations` table as the JPA entity. Any reviewed-operation cutover must include the coordinator's confirmation/rollback writes in the chain transaction; there is not a separate confirmation store to synchronize asynchronously.
+Migration 047 retires the shared authorization tables after preserving accepted setup receipts and transaction-ID history. Chain ingestion no longer writes operation confirmations or reservations.
 
 Existing database and external status spellings should be retained through deliberate mappings unless a separately approved contract migration changes them. Internal state classes are not automatically JSON schemas. A proposed `InspectionRequired` state must not become a new frontend status by accident: the frontend remains deferred, and existing uncertain/error responses must remain conservative.
 
@@ -41,7 +43,7 @@ Other policy changes are explicitly separated from representational changes: blo
 
 ## Suggested implementation order, if approved later
 
-Start with reviewed-transaction typing and its shared chain writers because money/authorization is the strongest invariant. Host deployment and key-installation recovery should then be designed together at the shared producer-resource boundary, without merging their different operation semantics. Cache/effective-capability typing and chain-readiness typing can proceed independently once their evidence contracts are fixed. Connection supervision and fetch ownership each need focused cancellation/concurrency tests. Block adjudication can gain a small enum/classifier independently, while identity/reorg policy remains a separate decision.
+Host deployment and key-installation proposals concern their shared producer-resource boundary. Chain-readiness, connection supervision and fetch ownership remain separate from ordinary wallet submission. This inventory does not propose reintroducing wallet reviews, reservations or durable era approvals.
 
 This is a risk-based recommendation, not a scheduled roadmap. The frontend document remains inventory-only. Each backend note names current sources, proposed ownership, crash/recovery limits, migration surface and behavioral checks required for a future implementation.
 

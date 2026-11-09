@@ -15,6 +15,7 @@ import java.math.BigInteger
 @Service
 class WalletTransactionBuilder(private val json: ObjectMapper) {
     data class Output(val address: String, val lovelace: BigInteger, val nativeAssets: List<NativeAsset> = emptyList())
+    data class CliBody(val textEnvelope: String, val txId: String)
 
     fun build(
         host: Host, connection: HostConnection, era: String, inputs: List<Utxo>, outputs: List<Output>,
@@ -23,7 +24,7 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
         validUntil: Long? = null, protocolParameters: String, protocolPath: String, witnessCount: Int, bodyPath: String,
         referenceScriptSize: Long = 0,
         outputsForFee: ((BigInteger) -> List<Output>)? = null,
-    ): ReviewedWalletOperations.CliBody {
+    ): CliBody {
         val eraNumber = QueryTip(era).eraNumber
         require(eraNumber in QueryTip.ERA_SHELLEY..QueryTip.ERA_DIJKSTRA) { "Unsupported transaction era" }
         require(inputs.isNotEmpty() && witnessCount > 0 && changeAddress.isNotBlank()) { "Invalid transaction inputs or witnesses" }
@@ -111,7 +112,7 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
             if (requiredFee <= fee) {
                 val text = connection.commandReadFile(bodyPath)
                 val cbor = json.readTree(text).path("cborHex").asString()
-                val decoded = ReviewedTransactionIdentity.decodeSubmitted(cbor, era)
+                val decoded = SubmittedTransactionDecoder.decodeSubmitted(cbor, era)
                 if (change.signum() != 0 || changeAssets.isNotEmpty()) {
                     require(change >= minimum(finalOutputs.last())) { "Insufficient change ADA; reduce the requested amount or add funds" }
                 }
@@ -137,7 +138,7 @@ class WalletTransactionBuilder(private val json: ObjectMapper) {
                 require(BigInteger.valueOf(envelopeSize) <= maxTxSize) { "Transaction exceeds maximum transaction size" }
                 val txId = command("txid", "--tx-body-file", bodyPath, "--output-text").trim().lowercase()
                 require(txId == decoded.id) { "CLI transaction ID does not match transaction body" }
-                return ReviewedWalletOperations.CliBody(text, txId)
+                return CliBody(text, txId)
             }
             fee = fee.max(requiredFee)
         }

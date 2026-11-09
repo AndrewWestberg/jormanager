@@ -10,6 +10,7 @@ import com.swiftmako.jormanager.model.DecodedTransactionBatch
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DecodedGenesisOutput
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.LeiosContentResolver
 import com.swiftmako.jormanager.repositories.LedgerRepository
+import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.tables.*
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.jdbc.*
@@ -28,6 +29,7 @@ class ChainIngestionCoordinator(
     private val projector: BatchEffectProjector,
     private val messages: SimpMessagingTemplate,
     @param:Qualifier("refreshWalletChannel") private val walletRefresh: MutableStateFlow<Long?>,
+    private val walletLedger: LedgerDao,
 ) {
     private val lastProgressNotification = ConcurrentHashMap<String, Long>()
     private val liveWalletGenerations = ConcurrentHashMap<String, Long>()
@@ -119,7 +121,6 @@ class ChainIngestionCoordinator(
         check(decoded.perasCertificate == null) { "Peras content is disabled for this network baseline" }
         check(decoded.leiosCertificate == null || resolvedLeios != null) { "Certified closure is unavailable" }
         check(decoded.leiosCertificate != null || resolvedLeios == null) { "Unexpected certified content" }
-        var operationChanged = false
         val caughtUp = transaction {
             val state = lock(networkKey)
             check(state[SyncStatesTable.generation] == generation) { "Discarded old-generation block fetch" }
@@ -182,46 +183,6 @@ class ChainIngestionCoordinator(
             }
             decoded.transactions.forEachIndexed { position, batch -> projector.apply(context, batch, position, "direct", ordinal++) }
             projector.flushHistory(context)
-            val batches = HashMap<String, DecodedTransactionBatch>(decoded.transactions.size + (resolvedLeios?.entries?.size ?: 0))
-            decoded.transactions.forEach { batches[it.parent.bodyId.toHexString()] = it }
-            resolvedLeios?.entries?.forEach { batches[it.batch.parent.bodyId.toHexString()] = it.batch }
-            if (batches.isNotEmpty()) {
-                OperationConfirmationsTable.select(OperationConfirmationsTable.id, OperationConfirmationsTable.txId, OperationConfirmationsTable.signedBatch).where {
-                    (OperationConfirmationsTable.network eq networkKey) and
-                        (OperationConfirmationsTable.txId inList batches.keys) and OperationConfirmationsTable.signedBatch.isNotNull()
-                }.forUpdate().forEach { operation ->
-                    val txId = operation[OperationConfirmationsTable.txId]
-                    val batch = batches.getValue(txId)
-                    if (ReviewedTransactionIdentity.matches(era, requireNotNull(operation[OperationConfirmationsTable.signedBatch]), batch)) {
-                        OperationConfirmationsTable.update({ (OperationConfirmationsTable.network eq networkKey) and (OperationConfirmationsTable.txId eq txId) }) {
-                            it[OperationConfirmationsTable.state] = if (batch.isValid == true) "confirmed" else "phase2_failed"
-                            it[OperationConfirmationsTable.hash] = hash.toHexString()
-                            it[OperationConfirmationsTable.slot] = slot.toBigDecimal()
-                            it[OperationConfirmationsTable.height] = height.toBigDecimal()
-                        }
-                        val batchId = (TransactionMembersTable innerJoin TransactionBatchesTable)
-                            .select(TransactionMembersTable.batch).where {
-                                (TransactionBatchesTable.inclusion eq id) and TransactionMembersTable.parent.isNull() and
-                                    (TransactionMembersTable.txId eq batch.parent.bodyId)
-                            }.single()[TransactionMembersTable.batch]
-                        val consumed = (InputOccurrencesTable innerJoin TransactionMembersTable)
-                            .select(InputOccurrencesTable.txId, InputOccurrencesTable.index).where {
-                                (TransactionMembersTable.batch eq batchId) and InputOccurrencesTable.effective
-                            }.map { it[InputOccurrencesTable.txId].toHexString() to it[InputOccurrencesTable.index] }.toSet()
-                        val operationId = operation[OperationConfirmationsTable.id]
-                        OperationInputsTable.selectAll().where {
-                            (OperationInputsTable.network eq networkKey) and (OperationInputsTable.operationId eq operationId)
-                        }.forEach { reservation ->
-                            val reference = reservation[OperationInputsTable.txId] to reservation[OperationInputsTable.index]
-                            if (reference !in consumed) OperationInputsTable.deleteWhere {
-                                (network eq networkKey) and (OperationInputsTable.operationId eq operationId) and
-                                    (OperationInputsTable.txId eq reference.first) and (index eq reference.second)
-                            }
-                        }
-                        operationChanged = true
-                    }
-                }
-            }
             ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) { it[complete] = true }
             val caughtUp = state[SyncStatesTable.observedHash]?.contentEquals(hash) == true && state[SyncStatesTable.observedSlot] == slot.toBigDecimal()
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
@@ -230,8 +191,10 @@ class ChainIngestionCoordinator(
             caughtUp
         }
         if (caughtUp) markWalletReady(networkKey, generation)
-        if (operationChanged) refreshWallet()
-        publish(networkKey, refresh = !operationChanged)
+        walletLedger.confirmed(networkKey, slot,
+            decoded.transactions.map { it.parent.bodyId.toHexString() } +
+                resolvedLeios?.entries.orEmpty().map { it.batch.parent.bodyId.toHexString() })
+        publish(networkKey, refresh = true)
     }
 
     class ReplayRequiredException : IllegalStateException("Re-establish intersection from complete retained history")
@@ -259,9 +222,6 @@ class ChainIngestionCoordinator(
                         it[DerivedAccountGovernanceStatesTable.value] = value; it[inclusion] = requireNotNull(change[ReversibleChangesTable.priorInclusion]); it[member] = change[ReversibleChangesTable.priorMember]
                     } }
                 }
-                OperationConfirmationsTable.update({ (OperationConfirmationsTable.network eq networkKey) and (OperationConfirmationsTable.hash eq current!![ChainInclusionsTable.hash].toHexString()) }) {
-                    it[OperationConfirmationsTable.state] = "rolled_back"; it[OperationConfirmationsTable.hash] = null; it[slot] = null; it[height] = null
-                }
                 ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) { it[complete] = false; it[adopted] = false }
                 val previous = current[ChainInclusionsTable.previousHash]
                 current = previous?.let { hash -> ChainInclusionsTable.selectAll().where { (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.hash eq hash) and ChainInclusionsTable.adopted }.singleOrNull() }
@@ -276,6 +236,7 @@ class ChainIngestionCoordinator(
         refreshWallet()
         publish(networkKey, force = true)
         if (outcome.second) throw ReplayRequiredException()
+        walletLedger.rollback(networkKey, point?.slot?.toBigInteger())
         return outcome.first
     }
 

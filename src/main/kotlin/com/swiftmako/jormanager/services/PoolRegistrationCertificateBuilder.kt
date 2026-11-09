@@ -14,7 +14,7 @@ import com.swiftmako.jormanager.repositories.LeiosKeyRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.Blake2b
-import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
+import com.swiftmako.jormanager.repositories.ProtocolParametersRepository
 import com.swiftmako.jormanager.utils.CborSpans
 import java.math.BigInteger
 import java.net.URI
@@ -35,7 +35,7 @@ class PoolRegistrationCertificateBuilder(
     private val keys: LeiosKeyRepository,
     private val walletUtils: WalletUtils,
     private val eras: CardanoRepository,
-    private val snapshots: ProtocolSnapshotRepository,
+    private val snapshots: ProtocolParametersRepository,
     private val jdbc: JdbcTemplate,
 ) {
     data class Result(val certPath: String, val signingFileIds: List<Long>, val targetPublicKey: String?, val deposit: BigInteger, val cleanupPaths: List<String>,

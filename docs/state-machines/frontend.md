@@ -2,6 +2,8 @@
 
 Status: **inventory only; deferred**. No frontend refactor is proposed or scheduled by this document. The backend notes in this directory are design proposals, not implemented changes.
 
+Historical inventory from before the minimal-wallet cutover. The wallet review/reconciliation components and generation-gated submission described below have been removed; use the [current wallet workflow](../dijkstra-upgrade-guide.md#pool-setup-and-ordinary-transaction-actions) for implemented behavior.
+
 This records the five frontend machine families identified in the source investigation. Several components implement variants of the same family. Named server statuses are not themselves implicit; the implicit part is the orchestration around them using flags, nullable reviews, request IDs, generation counters, and watchers.
 
 ## 1. Node provisioning wizard

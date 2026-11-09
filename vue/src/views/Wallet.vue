@@ -119,7 +119,6 @@
               >
                 <font-awesome-icon :icon="['fas', 'unlink']" />
               </span>
-              <BButton v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === true && (item as any).type === 'stake'" size="sm" variant="outline-primary" class="ms-2" @click="delegateStakingAddress((item as any).name)">Delegate</BButton>
             </div>
             <div v-else class="text-center">---</div>
           </template>
@@ -167,12 +166,11 @@
       :title="stakingAddressModalTitle"
       :no-close-on-backdrop="true"
       size="lg"
-      @hidden="resetStakingReview"
+      @hidden="resetStaking"
     >
-      <div v-if="stakingError" class="alert alert-danger" role="alert">{{ stakingError }}</div>
       <template #footer>
         <BButton variant="secondary" @click="showStakingModal = false">Close</BButton>
-        <BButton variant="primary" :disabled="stakingBusy || !stakingFeesAccountState || !chainReady || (stakingAddressForm.isDelegation && !stakingAddressForm.poolId.trim())" @click="reviewStaking">Submit</BButton>
+        <BButton variant="primary" :disabled="stakingBusy || !store.connected || !stakingFeesAccountState" @click="confirmStaking">Submit</BButton>
       </template>
       <fieldset :disabled="stakingBusy">
       <BFormGroup
@@ -194,9 +192,6 @@
         <BFormInvalidFeedback id="staking-fees-account-live-feedback">
           Account must hold enough to pay fees and/or deposit.
         </BFormInvalidFeedback>
-      </BFormGroup>
-      <BFormGroup v-if="stakingAddressForm.isDelegation" label="Pool ID" label-cols-md="2">
-        <BFormInput v-model="stakingAddressForm.poolId" placeholder="pool1… or pool key hash" />
       </BFormGroup>
       </fieldset>
     </BModal>
@@ -224,15 +219,13 @@ import {
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
-import { hex2ascii, generateUUID } from '@/utils/filters'
+import { hex2ascii } from '@/utils/filters'
 import AddWalletEntryWizard from '@/components/AddWalletEntryWizard.vue'
 import SendAdaModal from '@/components/SendAdaModal.vue'
 import type { WalletItem } from '@/types'
 
 const store = useJorManagerStore()
 const { walletItems } = storeToRefs(store)
-const chainReady = computed(() => store.connected && !!store.walletNetworkKey &&
-  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.walletReady === true)
 const emitter = useEventBus()
 
 const showAddWalletEntryWizard = ref(false)
@@ -242,78 +235,43 @@ const filter = ref<string>('')
 const filterOn = ref<string[]>(['name', 'type', 'paymentAddr', 'stakingAddr'])
 const selectedClaimIds = ref<Set<number>>(new Set())
 const pendingAction = ref<string | null>(null)
-const stakingError = ref('')
-const stakingBusy = ref(false)
-let stakingGeneration = 0
-let stakingRequestId = ''
-function stakingSignature() { return JSON.stringify(stakingAddressForm.value) }
-function stakingTargetReady() {
-  const form = stakingAddressForm.value
-  const item = walletItems.value.find(entry => entry.id === form.id)
-  return !!item && balanceReady(item) &&
-    (form.isDelegation ? item.type === 'stake' && item.stakingAddrRegistered === true :
-      item.stakingAddrRegistered === !form.isRegistration)
-}
+const stakingBusy = computed(() => store.stakingSubmitting)
 
-function resetStakingReview() {
-  stakingGeneration++
-  stakingRequestId = ''
-  stakingBusy.value = false
-  stakingError.value = ''
+function resetStaking() {
   stakingAddressForm.value.stakingFeesAccount = null
 }
 
-function reviewStaking() {
-  if (stakingBusy.value || !chainReady.value || !stakingTargetReady() || !stakingFeesAccountState.value ||
-      (stakingAddressForm.value.isDelegation && !stakingAddressForm.value.poolId.trim())) return
-  stakingRequestId ||= generateUUID()
-  const form = stakingAddressForm.value
-  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-stake', data: {
-    requestId: stakingRequestId, signature: stakingSignature(), generation: stakingGeneration,
-    networkKey: store.walletNetworkKey, chainGeneration: store.chainReadState?.generation,
-    request: { id: form.id, stakingFeesAccount: form.stakingFeesAccount,
-      ...(form.isDelegation ? { poolId: form.poolId.trim() } : { isRegistration: form.isRegistration }) }
-  } })
+function confirmStaking() {
+  if (stakingBusy.value || !store.connected || !stakingTargetReady() || !stakingFeesAccountState.value) return
+  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-stake' })
 }
 
-async function submitStaking(data: { password: string; originalData: unknown }) {
-  const pending = data.originalData as { requestId: string; signature: string; generation: number; networkKey: string | null; chainGeneration: string | undefined; request: unknown }
-  if (stakingBusy.value || !showStakingModal.value || !chainReady.value || !stakingTargetReady() || !stakingFeesAccountState.value ||
-      pending.generation !== stakingGeneration || pending.requestId !== stakingRequestId ||
-      pending.signature !== stakingSignature() || pending.networkKey !== store.walletNetworkKey ||
-      pending.chainGeneration !== store.chainReadState?.generation) return
-  stakingBusy.value = true
-  stakingError.value = ''
-  try {
-    const result = await store.submitWallet(pending.requestId, 'stake', pending.request, data.password)
-    if (result.state !== 'submitted' && result.state !== 'confirmed') {
-      throw new Error(`Transaction ${result.txId}: ${result.state}`)
-    }
-    if (pending.generation === stakingGeneration) {
-      store.toastInfo = { title: 'Transaction submitted', message: result.txId }
-      showStakingModal.value = false
-    }
-  } catch (e) {
-    if (pending.generation === stakingGeneration) stakingError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    if (pending.generation === stakingGeneration) stakingBusy.value = false
-  }
+function stakingTargetReady() {
+  const form = stakingAddressForm.value
+  const item = walletItems.value.find(entry => entry.id === form.id)
+  return !!item && item.stakingAddrRegistered === !form.isRegistration
 }
+
+function submitStaking(data: { password: string }) {
+  if (stakingBusy.value || !showStakingModal.value || !store.connected || !stakingTargetReady() || !stakingFeesAccountState.value) return
+  store.updateStakingAddress({ ...stakingAddressForm.value, spendingPassword: data.password })
+}
+
+watch(() => store.toastSuccess, toast => {
+  if (toast?.title === 'Update Staking Address') showStakingModal.value = false
+})
 
 const stakingAddressForm = ref({
   id: -1,
   stakingFeesAccount: null as number | null,
-  isRegistration: false,
-  isDelegation: false,
-  poolId: ''
+  isRegistration: false
 })
-watch(stakingSignature, () => { stakingRequestId = '' }, { flush: 'sync' })
 
 const fields = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'type', label: 'Item Type', sortable: true },
   { key: 'paymentAddr', label: 'Payment Address' },
-  { key: 'paymentAddrLovelace', label: 'Balance', class: 'text-right' },
+  { key: 'paymentAddrLovelace', label: 'Balance', class: 'text-right', sortable: true },
   { key: 'stakingAddr', label: 'Reward Address' },
   { key: 'stakingAddrLovelace', label: 'Rewards' },
   { key: 'edit', label: '' }
@@ -331,7 +289,7 @@ function positive(value: unknown): boolean {
 }
 
 function balanceReady(item: WalletItem): boolean {
-  return chainReady.value && item.paymentAddrLovelace !== null
+  return store.connected && item.paymentAddrLovelace !== null
 }
 
 function canSend(item: WalletItem): boolean {
@@ -352,7 +310,7 @@ function formatAda(value: unknown): string {
 
 const stakingFeesAccountState = computed(() => stakingFeesOptions.value.some(option => option.value === stakingAddressForm.value.stakingFeesAccount))
 const stakingFeesOptions = computed(() => walletItems.value
-  .filter(item => chainReady.value && item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
+  .filter(item => item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
   .map(item => ({ value: item.id, text: `${item.name} - ${formatAda(item.paymentAddrLovelace)}` }))
   .sort((a, b) => a.text.localeCompare(b.text)))
 
@@ -383,9 +341,6 @@ watch(filter, () => {
   selectedClaimIds.value = new Set()
 })
 
-watch(chainReady, ready => {
-  if (!ready) selectedClaimIds.value = new Set()
-})
 
 watch(() => store.connected, connected => {
   if (connected) store.fetchWalletItems()
@@ -472,7 +427,6 @@ function registerStakingAddress(name: string) {
   const item = findWalletItemByName(name)
   if (!item || !balanceReady(item) || item.stakingAddrRegistered !== false) return
   stakingAddressForm.value.id = item.id
-  stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = true
   stakingAddressModalTitle.value = 'Register Staking Address'
   showStakingModal.value = true
@@ -482,19 +436,8 @@ function deregisterStakingAddress(name: string) {
   const item = findWalletItemByName(name)
   if (!item || !balanceReady(item) || item.stakingAddrRegistered !== true) return
   stakingAddressForm.value.id = item.id
-  stakingAddressForm.value.isDelegation = false
   stakingAddressForm.value.isRegistration = false
   stakingAddressModalTitle.value = 'Deregister Staking Address (note: Ensure any 500 ada pool deposits have already been refunded)'
-  showStakingModal.value = true
-}
-
-function delegateStakingAddress(name: string) {
-  const item = findWalletItemByName(name)
-  if (!item || !balanceReady(item) || item.stakingAddrRegistered !== true || item.type !== 'stake') return
-  stakingAddressForm.value.id = item.id
-  stakingAddressForm.value.isDelegation = true
-  stakingAddressForm.value.poolId = ''
-  stakingAddressModalTitle.value = 'Delegate Staking Address'
   showStakingModal.value = true
 }
 

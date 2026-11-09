@@ -16,7 +16,7 @@
           </BButton>
           <div>
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
-            <BButton variant="primary" :disabled="reviewing || !walletReady || !sourcesReady || !feeReady" @click="reviewSend">{{ reviewing ? 'Submitting…' : 'Send' }}</BButton>
+            <BButton variant="primary" :disabled="reviewing || !store.connected || !sourcesReady || !feeReady" @click="reviewSend">{{ reviewing ? 'Submitting…' : 'Send' }}</BButton>
           </div>
         </div>
       </template>
@@ -273,11 +273,8 @@ const { walletItems } = storeToRefs(store)
 const emitter = useEventBus()
 
 const isVisible = ref(false)
-const reviewing = ref(false)
+const reviewing = computed(() => store.walletSubmitting)
 const reviewError = ref('')
-let reviewGeneration = 0
-let requestId = ''
-let pendingSignature = ''
 
 function formSignature() {
   const form = formSendAda.value
@@ -285,7 +282,7 @@ function formSignature() {
 }
 
 function reviewSend() {
-  if (reviewing.value || !walletReady.value || !sourcesReady.value || !feeReady.value) return
+  if (reviewing.value || !store.connected || !sourcesReady.value || !feeReady.value) return
   if (!metadataState.value || formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) {
     reviewError.value = 'Complete all payment entries and correct any invalid metadata.'
     return
@@ -300,58 +297,34 @@ function reviewSend() {
     reviewError.value = 'Every payment must have a positive exact amount.'
     return
   }
-  requestId ||= generateUUID()
-  pendingSignature = formSignature()
-  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-send', data: {
-    requestId, signature: pendingSignature, generation: reviewGeneration,
-    networkKey: sourceNetworkKey.value, chainGeneration: store.chainReadState?.generation, feeUUID: store.responseFeesUUID,
-    kind: formSendAda.value.isClaim ? 'withdraw' : 'send',
-    request: { fromId: formSendAda.value.fromId, fromIds: [...formSendAda.value.fromIds],
-      toAccounts: outputs, isClaim: formSendAda.value.isClaim, metadata: formSendAda.value.metadata, txFee: store.txFee }
-  } })
+  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-send' })
 }
 
-async function onPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
-  if (data.action !== 'submit-wallet-send' || reviewing.value) return
-  const pending = data.originalData as { requestId: string; signature: string; generation: number; networkKey: string | null; chainGeneration: string | undefined; feeUUID: string; kind: string; request: unknown }
-  if (!isVisible.value || !walletReady.value || !sourcesReady.value || !feeReady.value || pending.generation !== reviewGeneration ||
-      pending.requestId !== requestId || pending.signature !== pendingSignature || pending.signature !== formSignature() ||
-      pending.networkKey !== store.walletNetworkKey || pending.chainGeneration !== store.chainReadState?.generation || pending.feeUUID !== store.responseFeesUUID ||
-      !metadataState.value || formSendAda.value.toAccounts.some((entry, index) =>
-        headerVariant(index, entry) !== 'success' ||
-        String(calculateSpent(index + 1).amount[entry.currency] || 0n) !==
-          (pending.request as { toAccounts: { amount: string }[] }).toAccounts[index]?.amount) ||
-      (pending.request as { txFee: string }).txFee !== store.txFee) return
-  pendingSignature = ''
-  const generation = reviewGeneration
-  reviewing.value = true
-  reviewError.value = ''
-  try {
-    const result = await store.submitWallet(pending.requestId, pending.kind, pending.request, data.password)
-    if (result.state !== 'submitted' && result.state !== 'confirmed') {
-      throw new Error(`Transaction ${result.txId}: ${result.state}`)
-    }
-    if (generation === reviewGeneration) {
-      store.toastInfo = { title: 'Transaction submitted', message: result.txId }
-      isVisible.value = false
-    }
-  } catch (e) {
-    if (generation === reviewGeneration) {
-      reviewError.value = e instanceof Error ? e.message : String(e)
-      if ((e as { code?: string })?.code === 'FEE_CHANGED') prepareCalculateSendAdaFees()
-    }
-  } finally {
-    if (generation === reviewGeneration) reviewing.value = false
-  }
+function onPasswordConfirmed(data: { action: string; password: string }) {
+  if (data.action !== 'submit-wallet-send' || reviewing.value || !isVisible.value ||
+      !store.connected || !sourcesReady.value || !feeReady.value || !metadataState.value ||
+      formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) return
+  const toAccounts = formSendAda.value.toAccounts.map((entry, index) => ({
+    currency: entry.currency,
+    account: entry.destination === 'account' ? entry.account : -1,
+    address: entry.destination === 'address' ? entry.address : '',
+    type: entry.type,
+    amount: String(calculateSpent(index + 1).amount[entry.currency] || 0n),
+    percent: entry.percent,
+    tokenFee: store.tokenFees[index] || '0'
+  }))
+  store.submitTransaction({
+    spendingPassword: data.password, fromId: formSendAda.value.fromId,
+    fromIds: [...formSendAda.value.fromIds], isClaim: formSendAda.value.isClaim,
+    txFee: store.txFee, tokenKeepFee: store.tokenKeepFee, toAccounts, metadata: formSendAda.value.metadata
+  })
 }
+
+watch(() => store.toastSuccess, toast => {
+  if (toast?.title === 'Ada Sent') isVisible.value = false
+})
 const remainingLovelace = ref(0n)
-const sourceNetworkKey = ref<string | null>(null)
-const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
-  store.walletNetworkKey === sourceNetworkKey.value &&
-  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState?.walletReady === true)
-const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID &&
-  store.feeTarget?.networkKey === store.walletNetworkKey &&
-  store.feeTarget?.generation === store.chainReadState?.generation)
+const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID)
 
 const formSendAda = ref({
   fromId: null as number | null,
@@ -363,10 +336,7 @@ const formSendAda = ref({
   metadataError: null as string | null,
   valid: false
 })
-watch(formSignature, () => {
-  requestId = ''
-  scheduleFeeCalculation()
-}, { flush: 'sync' })
+watch(formSignature, scheduleFeeCalculation, { flush: 'sync' })
 const fromWalletItems = computed(() => formSendAda.value.fromIds
   .map(id => walletItems.value.find(item => item.id === id))
   .filter((item): item is NonNullable<typeof item> => item != null))
@@ -463,10 +433,6 @@ const metadataOpen = ref(false)
 
 // Methods
 function clearFormSendAda() {
-  reviewGeneration++
-  requestId = ''
-  pendingSignature = ''
-  reviewing.value = false
   reviewError.value = ''
   formSendAda.value = {
     fromId: null,
@@ -478,7 +444,6 @@ function clearFormSendAda() {
     metadataError: null,
     valid: false,
   }
-  sourceNetworkKey.value = null
   openIndex.value = 0
   metadataOpen.value = false
   store.invalidateSendAdaFees()
@@ -502,7 +467,6 @@ function createEmptyToAccount(): ToAccount {
 
 function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
   clearFormSendAda()
-  sourceNetworkKey.value = store.walletNetworkKey
   formSendAda.value.fromId = walletItem.id
   formSendAda.value.fromIds = [walletItem.id]
   formSendAda.value.isClaim = isClaim
@@ -513,7 +477,6 @@ function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
 
 function showMultiClaimModal(items: WalletItemRef[]) {
   clearFormSendAda()
-  sourceNetworkKey.value = store.walletNetworkKey
   formSendAda.value.fromId = items[0].id
   formSendAda.value.fromIds = items.map(item => item.id)
   formSendAda.value.isClaim = true
@@ -757,7 +720,7 @@ function scheduleFeeCalculation() {
 
 function prepareCalculateSendAdaFees() {
   store.invalidateSendAdaFees()
-  if (!isVisible.value || !walletReady.value || !sourcesReady.value || !metadataState.value ||
+  if (!isVisible.value || !store.connected || !sourcesReady.value || !metadataState.value ||
       formSendAda.value.toAccounts.some(entry => !currencyState(entry.currency) || !destinationState(entry.destination) ||
         !accountState(entry) || !addressState(entry) || !typeState(entry.type) ||
         (entry.type === 'amount' && (parseAmount(entry.amount, entry.currency) ?? 0n) <= 0n) ||
@@ -777,10 +740,7 @@ function prepareCalculateSendAdaFees() {
   })
 }
 
-watch(() => JSON.stringify([walletItems.value, store.connected, store.walletNetworkKey,
-  store.chainReadState?.networkKey, store.chainReadState?.generation, store.chainReadState?.walletReady,
-  store.walletNetworkKey && store.networkInvalidations[store.walletNetworkKey]]),
-  scheduleFeeCalculation, { flush: 'sync' })
+watch(() => JSON.stringify([walletItems.value, store.connected]), scheduleFeeCalculation, { flush: 'sync' })
 
 function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
   if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {

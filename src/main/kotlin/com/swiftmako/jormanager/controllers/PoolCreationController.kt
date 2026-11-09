@@ -94,7 +94,7 @@ class PoolCreationService(
     private val jdbc: JdbcTemplate,
     private val keys: LeiosKeyRepository,
     private val keyService: LeiosKeyService,
-    private val registration: ReviewedPoolRegistrationController,
+    private val registration: PoolRegistrationController,
     private val installer: PoolDeploymentService,
     transactionManager: PlatformTransactionManager,
 ) {
@@ -109,6 +109,15 @@ class PoolCreationService(
     }, argument).firstOrNull()
     private fun journalForRequest(id: String) = journal("SELECT * FROM pool_deployment_previews WHERE request_id=?", id)
     private fun journalForNode(id: Long) = journal("SELECT * FROM pool_deployment_previews WHERE node_id=? ORDER BY created_at DESC", id)
+
+    private fun observerEra(observer: Node): String {
+        val host = requireNotNull(hosts.findByIdOrNull(observer.hostId))
+        val genesis = json.readTree(requireNotNull(files.findByIdOrNull(observer.genesisShelleyFileId)).content)
+        val magic = if (genesis.path("networkId").asString().equals("mainnet", true)) "--mainnet"
+            else "--testnet-magic ${genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) }}"
+        return eras.getEra(host, observer, magic, "--socket-path ${host.nodeHomePath}/${observer.name}/db/socket")
+            .also { require(it in setOf("conway", "dijkstra")) }
+    }
 
     private fun intent(request: CreateNodeRequest): ObjectNode {
         val result = json.valueToTree<ObjectNode>(mapOf(
@@ -219,11 +228,9 @@ class PoolCreationService(
         }
         val observer = requireNotNull(nodes.findDefault())
         val network = eras.networkKey(node)
-        val evidence = eras.evidence(observer)
-        require(!observer.isDraft && !observer.isDeleted && eras.networkKey(observer) == network &&
-            evidence.freshness == "current" && evidence.networkKey == network &&
-            evidence.source == "host:${observer.hostId}/node:${observer.id}" && evidence.era in setOf("conway", "dijkstra"))
-        val keyId = if (evidence.era == "dijkstra") {
+        require(!observer.isDraft && !observer.isDeleted && eras.networkKey(observer) == network)
+        val era = observerEra(observer)
+        val keyId = if (era == "dijkstra") {
             val selectedId = requireNotNull(transaction.execute {
                 val locked = requireNotNull(journal("SELECT * FROM pool_deployment_previews WHERE id=? FOR UPDATE", row.id))
                 val available = keys.findByNetworkKeyAndPoolId(network, requireNotNull(node.poolId))
@@ -247,51 +254,21 @@ class PoolCreationService(
             require(request.keyId == null && !row.details.path("keyId").isIntegralNumber)
             null
         }
-        var registrationId = row.details.path("registrationRequestId").takeIf { it.isString }?.asString()
-        var prior = registrationId?.let { id -> jdbc.query("SELECT state,tx_id FROM authorized_operations WHERE id=?", { rs, _ -> rs.getString(1) to rs.getString(2) }, id).singleOrNull() }
-        if (registrationId == null && request.resumeNodeId != null) {
-            val confirmed = jdbc.query("SELECT id,request_payload,tx_id FROM authorized_operations WHERE network_key=? AND operation='pool.register' AND state='confirmed'",
-                { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, network).filter { (_, payload, _) ->
-                    val saved = json.readTree(payload)
-                    saved.path("nodeId").asLong(-1) == row.nodeId &&
-                        (if (keyId == null) saved.path("keyId").isNull || saved.path("keyId").isMissingNode else saved.path("keyId").asLong(-1) == keyId)
-                }.singleOrNull()
-            if (confirmed != null) {
-                registrationId = confirmed.first
-                prior = "confirmed" to confirmed.third
-                row.details.put("registrationRequestId", registrationId)
-                saveDetails(row)
-            }
-        }
-        if (prior?.first in setOf("not_submitted", "expired")) {
-            registrationId = null
-            prior = null
-        }
-        if (registrationId == null) {
-            registrationId = UUID.randomUUID().toString()
-            row.details.put("registrationRequestId", registrationId)
-            saveDetails(row)
-        }
-        val outcome = if (prior != null && prior.first != "previewed") prior else try {
-            val result = registration.execute(ReviewedPoolRegistrationController.SubmitRequest(registrationId, row.nodeId,
+        val registrationId = row.details.path("registrationRequestId").takeIf { it.isString }?.asString()
+            ?: UUID.randomUUID().toString().also { row.details.put("registrationRequestId", it); saveDetails(row) }
+        val savedTxId = row.details.path("transactionId").takeIf { it.isString }?.asString()
+        val outcome = if (savedTxId != null && row.details.path("registrationState").asString() in setOf("submitted", "confirmed")) {
+            "submitted" to savedTxId
+        } else {
+            val result = registration.execute(PoolRegistrationController.SubmitRequest(registrationId, row.nodeId,
                 requireNotNull(request.registrationFeesAccount), keyId, "register", metadata = request.metadata,
                 spendingPassword = request.spendingPassword))
-            result.state to result.txId
-        } catch (e: Exception) {
-            val recorded = jdbc.query("SELECT state,tx_id FROM authorized_operations WHERE id=?", { rs, _ -> rs.getString(1) to rs.getString(2) }, registrationId).singleOrNull()
-            if (recorded != null) throw PoolCreationFailure("Registration transaction ${recorded.second} is ${recorded.first}.", if (recorded.first in setOf("not_submitted", "expired")) "retry" else "wait")
-            throw e
-        }
-        row.details.put("registrationState", outcome.first)
-        row.details.put("transactionId", outcome.second)
-        jdbc.query("SELECT request_payload FROM authorized_operations WHERE id=?", { rs, _ -> rs.getString(1) }, registrationId)
-            .singleOrNull()?.let { payload ->
-                json.readTree(payload).path("publication").takeIf { it.isObject }?.let { row.details.set("publication", it) }
-            }
-        saveDetails(row)
-        if (outcome.first !in setOf("submitted", "confirmed")) {
-            throw PoolCreationFailure("Registration transaction ${outcome.second} is ${outcome.first}.",
-                if (outcome.first in setOf("not_submitted", "expired")) "retry" else "wait")
+            require(result.state == "submitted") { "Registration transaction ${result.txId} was not acknowledged" }
+            row.details.put("registrationState", "submitted")
+            row.details.put("transactionId", result.txId)
+            result.publication?.let { row.details.set("publication", json.valueToTree(it)) }
+            saveDetails(row)
+            "submitted" to result.txId
         }
         jdbc.update("UPDATE pool_deployment_previews SET state='registered' WHERE id=? AND state='prepared'", row.id)
         val result = try {
@@ -311,14 +288,12 @@ class PoolCreationService(
         require(!observer.isDeleted && !observer.isDraft)
         val network = eras.networkKey(node)
         require(eras.networkKey(observer) == network)
-        val evidence = eras.evidence(observer)
-        require(evidence.freshness == "current" && evidence.era in setOf("dijkstra", "conway") && evidence.networkKey == network &&
-            evidence.source == "host:${observer.hostId}/node:${observer.id}")
+        val era = observerEra(observer)
         val config = requireNotNull(files.findByIdOrNull(node.configFileId)).content
         val row = journalForNode(request.nodeId)?.takeIf { it.details.path("intent").isObject }
         val saved = jdbc.query("SELECT request_json FROM pool_draft_config WHERE node_id=?", { rs, _ -> rs.getString(1) }, request.nodeId).singleOrNull()
         val intent = row?.details?.path("intent")?.takeIf { it.isObject } ?: saved?.let { json.readTree(it) } ?: json.createObjectNode()
-        val available = if (evidence.era == "dijkstra") keys.findByNetworkKeyAndPoolId(network, requireNotNull(node.poolId))
+        val available = if (era == "dijkstra") keys.findByNetworkKeyAndPoolId(network, requireNotNull(node.poolId))
             .filter { it.signingFileId != null && it.publicKey.size == 96 && it.proof.size == 48 &&
                 it.validationProvenance.isNotBlank() }
             .map { PoolSetupKey(requireNotNull(it.id), it.publicKey.toHexString()) } else emptyList()
@@ -344,12 +319,8 @@ class PoolCreationService(
         val host = requireNotNull(hosts.findByIdOrNull(request.hostId))
         val observer = requireNotNull(nodes.findDefault())
         require(!observer.isDeleted && !observer.isDraft)
-        val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
         val network = eras.networkKey(observer)
-        val evidence = eras.evidence(observer)
-        val selectedEra = requireNotNull(evidence.era)
-        require(evidence.freshness == "current" && selectedEra in setOf("conway", "dijkstra") &&
-            evidence.networkKey == network && evidence.source == "host:${observerHost.id}/node:${observer.id}")
+        val selectedEra = observerEra(observer)
         val connection = HostConnection(host)
         val parent = if (request.type == "pool") {
             val node = requireNotNull(request.parentId?.let { nodes.findByIdOrNull(it) })
@@ -439,10 +410,6 @@ class PoolCreationService(
             require(counterItems.size == 2 && counterItems[0].integer().signum() >= 0 && counterItems[1].payload().contentEquals(keyBytes(cold.second)))
             val poolId = run("stake-pool", "id", "--cold-verification-key-file", "$directory/cold.vkey", "--output-hex").trim().lowercase()
             require(poolId.matches(Regex("[0-9a-f]{56}")))
-            val currentEvidence = eras.evidence(observer)
-            require(currentEvidence.freshness == "current" && currentEvidence.era == selectedEra &&
-                currentEvidence.networkKey == network && currentEvidence.generation == evidence.generation &&
-                currentEvidence.source == evidence.source) { "Observer evidence changed during key preparation" }
             val prefix = "pool-draft-${UUID.randomUUID()}"
             fun save(name: String, content: String) = requireNotNull(files.save(File(name = "$prefix-$name", content = content)).id)
             fun saveSecret(name: String, content: String) = save(name, walletUtils.encryptSKeyContent(content, request.spendingPassword))

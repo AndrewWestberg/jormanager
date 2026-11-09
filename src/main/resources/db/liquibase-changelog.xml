@@ -51,5 +51,6 @@
     <include file="changelog/044-dijkstra-ledger.xml" relativeToChangelogFile="true"/>
     <include file="changelog/045-dijkstra-provisioning.xml" relativeToChangelogFile="true"/>
     <include file="changelog/046-node-selected-files.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/047-remove-authorized-operations.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

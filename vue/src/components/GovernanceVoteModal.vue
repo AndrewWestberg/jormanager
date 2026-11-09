@@ -124,8 +124,7 @@ const nodeVotes = ref<Record<number, 'YES' | 'NO' | 'ABSTAIN'>>({})
 const feesAccountId = ref<number | null>(null)
 const reviewError = ref('')
 const busy = ref(false)
-const walletReady = computed(() => store.connected && !!store.walletNetworkKey &&
-  store.chainReadState?.networkKey === store.walletNetworkKey && store.chainReadState.walletReady === true)
+const walletReady = computed(() => store.connected)
 let reviewGeneration = 0
 let requestId = ''
 function formSignature() {
@@ -140,7 +139,6 @@ function reviewVote() {
   requestId ||= generateUUID()
   emitter.emit('show-spending-password-modal', { action: 'submit-governance-vote', data: {
     requestId, signature: formSignature(), generation: reviewGeneration,
-    networkKey: store.walletNetworkKey, chainGeneration: store.chainReadState?.generation,
     request: { govActionId: govActionId.value.trim(),
       votes: coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] })),
       feesAccountId: feesAccountId.value, rationale: rationale.value.trim() || null }
@@ -149,10 +147,9 @@ function reviewVote() {
 
 async function onPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   if (data.action !== 'submit-governance-vote' || busy.value) return
-  const pending = data.originalData as { requestId: string; signature: string; generation: number; networkKey: string | null; chainGeneration: string | undefined; request: unknown }
+  const pending = data.originalData as { requestId: string; signature: string; generation: number; request: unknown }
   if (!props.modelValue || !walletReady.value || pending.generation !== reviewGeneration ||
       pending.requestId !== requestId || pending.signature !== formSignature() ||
-      pending.networkKey !== store.walletNetworkKey || pending.chainGeneration !== store.chainReadState?.generation ||
       !feeAccountOptions.value.some(option => option.value === feesAccountId.value) ||
       !coreNodes.value.length ||
       JSON.stringify(coreNodes.value.map(node => ({ nodeId: node.id, vote: nodeVotes.value[node.id!] }))) !==
