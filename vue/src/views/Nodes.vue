@@ -224,6 +224,7 @@
       :no-close-on-backdrop="true"
       @ok.prevent="handleSavePoolConfig"
       :ok-title="poolConfigStep === 1 ? 'Review' : 'Preview transaction'"
+      :ok-disabled="poolConfigStep !== 1 && nodeChainUnavailable(editPoolConfigForm.nodeId)"
       :cancel-title="poolConfigStep === 1 ? 'Cancel' : 'Back'"
       @cancel.prevent="handleCancelPoolConfig"
     >
@@ -316,6 +317,7 @@
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveMetadata"
       ok-title="Preview transaction"
+      :ok-disabled="nodeChainUnavailable(editMetadataForm.nodeId)"
     >
       <p>Supply an already published metadata URL and its verified 32-byte hash. Existing content fields below are informational and are not uploaded by this review.</p>
       <BFormGroup label="Fees Account"><BFormSelect v-model="poolChangeFeeAccount" :options="feeAccountOptions" /></BFormGroup>
@@ -354,6 +356,7 @@
       :no-close-on-backdrop="true"
       @ok.prevent="handleSaveRelays"
       :ok-title="relaysStep === 1 ? 'Review' : 'Preview transaction'"
+      :ok-disabled="relaysStep !== 1 && nodeChainUnavailable(editRelaysForm.nodeId)"
       :cancel-title="relaysStep === 1 ? 'Cancel' : 'Back'"
       @cancel.prevent="handleCancelRelays"
     >
@@ -413,10 +416,10 @@
         <BFormGroup v-if="(poolChangeReview.state === 'previewed' && !poolChangeUncertain && !poolChangeStale) || canReconcilePoolChange" label="Spending password">
           <BFormInput v-model="poolChangePassword" type="password" autocomplete="current-password" />
         </BFormGroup>
-        <BButton v-if="poolChangeReview.state === 'previewed' && !poolChangeUncertain && !poolChangeStale" variant="success" :disabled="poolChangeBusy || !poolChangePassword" @click="submitPoolChange">Approve and submit reviewed transaction</BButton>
+        <BButton v-if="poolChangeReview.state === 'previewed' && !poolChangeUncertain && !poolChangeStale" variant="success" :disabled="poolChangeBusy || !poolChangePassword || chainUnavailable(poolChangeReview.networkKey)" @click="submitPoolChange">Approve and submit reviewed transaction</BButton>
         <div v-if="canReconcilePoolChange" class="mt-2">
           <p>Reconciliation checks chain and mempool status; it does not resubmit the transaction.</p>
-          <BButton variant="warning" :disabled="poolChangeBusy || !poolChangePassword" @click="reconcilePoolChange">Authorize reconciliation</BButton>
+          <BButton variant="warning" :disabled="poolChangeBusy || !poolChangePassword || !chainComplete(poolChangeReview.networkKey)" @click="reconcilePoolChange">Authorize reconciliation</BButton>
         </div>
       </template>
       <p v-if="poolChangeError" class="text-danger">{{ poolChangeError }}</p>
@@ -462,7 +465,7 @@
         />
       </BFormGroup>
       <p class="text-muted">The refund, if any, occurs at retirement and is not an immediate balance increase.</p>
-      <BButton variant="outline-info" :disabled="retirementBusy" @click="reviewRetirement">Review retirement</BButton>
+      <BButton variant="outline-info" :disabled="retirementBusy || nodeChainUnavailable(retirePoolForm.id)" @click="reviewRetirement">Review retirement</BButton>
       </template>
       <div v-else>
         <h5>Review retirement consequences</h5>
@@ -480,10 +483,10 @@
           <BFormInput v-model="retirementPassword" type="password" autocomplete="current-password" />
         </BFormGroup>
         <BButton v-if="retirementReview.state === 'previewed' && !retirementUncertain && !retirementStale" variant="success"
-          :disabled="retirementBusy || !retirementPassword" @click="submitRetirement">Approve and submit reviewed retirement</BButton>
+          :disabled="retirementBusy || !retirementPassword || chainUnavailable(retirementReview.networkKey)" @click="submitRetirement">Approve and submit reviewed retirement</BButton>
         <div v-if="canReconcileRetirement" class="mt-2">
           <p>Reconciliation checks chain and mempool status; it does not resubmit the transaction.</p>
-          <BButton variant="warning" :disabled="retirementBusy || !retirementPassword" @click="reconcileRetirement">Authorize reconciliation</BButton>
+          <BButton variant="warning" :disabled="retirementBusy || !retirementPassword || !chainComplete(retirementReview.networkKey)" @click="reconcileRetirement">Authorize reconciliation</BButton>
         </div>
         <BButton v-if="!retirementUncertain && retirementReview.state === 'previewed'" class="ms-2" variant="outline-secondary"
           :disabled="retirementBusy" @click="retirementReview = null; retirementPassword = ''">Change details</BButton>
@@ -591,8 +594,16 @@ watch(() => poolChangeReview.value ? store.networkInvalidations[poolChangeReview
 }, { flush: 'sync' })
 const reconciliationStates = ['signing', 'submission_uncertain', 'submitted', 'rolled_back', 'confirmed', 'phase2_failed']
 function chainUnavailable(networkKey: string) {
-  return !store.connected || (store.walletNetworkKey === networkKey &&
-    (store.chainReadState?.networkKey !== networkKey || store.chainReadState.status !== 'complete'))
+  const state = store.networkReadStates[networkKey]
+  return !store.connected || state?.networkKey !== networkKey || state.walletReady !== true
+}
+function chainComplete(networkKey: string) {
+  const state = store.networkReadStates[networkKey]
+  return store.connected && state?.networkKey === networkKey && state.status === 'complete'
+}
+function nodeChainUnavailable(nodeId: number) {
+  const networkKey = store.nodeIndexStatus[nodeId]?.readState?.networkKey
+  return !networkKey || chainUnavailable(networkKey)
 }
 watch(() => poolChangeReview.value && chainUnavailable(poolChangeReview.value.networkKey), unavailable => {
   if (unavailable) poolChangeStale.value = true
@@ -605,13 +616,17 @@ function requestPoolChange(nodeId: number, feePayerAccountId: number | null, cha
     store.toastError = { title: 'Pool review', message: 'Select a fee payer account.' }
     return
   }
+  if (nodeChainUnavailable(nodeId)) {
+    store.toastError = { title: 'Pool review', message: 'Wallet coverage is unavailable for this node network.' }
+    return
+  }
   emitter.emit('show-spending-password-modal', {
     action: 'preview-pool-change', data: { nodeId, feePayerAccountId, changes }
   })
 }
 
 async function previewPoolChange(request: PoolChangeRequest, password: string) {
-  if (poolChangeBusy.value) return
+  if (poolChangeBusy.value || nodeChainUnavailable(request.nodeId)) return
   poolChangeBusy.value = true
   poolChangeError.value = ''
   poolChangeReview.value = null
@@ -622,7 +637,8 @@ async function previewPoolChange(request: PoolChangeRequest, password: string) {
     const result = await store.socketRequest<PoolChangeReview>('/jormanager/leios/registration/preview', 'leios_registration_preview', {
       ...request, keyId: null, action: 'update', spendingPassword: password
     })
-    if (result.nodeId !== request.nodeId || result.feePayerAccountId !== request.feePayerAccountId) throw new Error('Preview target does not match')
+    if (result.nodeId !== request.nodeId || result.feePayerAccountId !== request.feePayerAccountId ||
+        result.networkKey !== store.nodeIndexStatus[request.nodeId]?.readState?.networkKey) throw new Error('Preview target does not match')
     poolChangeReview.value = result
     poolChangeStale.value = (store.networkInvalidations[result.networkKey] ?? 0) !== (invalidations[result.networkKey] ?? 0) || chainUnavailable(result.networkKey)
     showPoolConfigModal.value = false
@@ -638,7 +654,7 @@ async function previewPoolChange(request: PoolChangeRequest, password: string) {
 
 async function submitPoolChange() {
   const review = poolChangeReview.value
-  if (!review || !poolChangePassword.value || poolChangeBusy.value || poolChangeUncertain.value || poolChangeStale.value) return
+  if (!review || !poolChangePassword.value || poolChangeBusy.value || poolChangeUncertain.value || poolChangeStale.value || chainUnavailable(review.networkKey)) return
   const password = poolChangePassword.value
   poolChangePassword.value = ''
   poolChangeBusy.value = true
@@ -662,7 +678,7 @@ async function submitPoolChange() {
 
 async function reconcilePoolChange() {
   const review = poolChangeReview.value
-  if (!review || !canReconcilePoolChange.value || !poolChangePassword.value || poolChangeBusy.value) return
+  if (!review || !canReconcilePoolChange.value || !poolChangePassword.value || poolChangeBusy.value || !chainComplete(review.networkKey)) return
   const password = poolChangePassword.value
   poolChangePassword.value = ''
   poolChangeBusy.value = true
@@ -976,6 +992,7 @@ function openRetireModal(nodeId: number) {
 }
 
 async function reviewRetirement() {
+  if (nodeChainUnavailable(retirePoolForm.value.id)) return
   if (retirementBusy.value || retirePoolForm.value.retireFeesAccount === null ||
       !Number.isSafeInteger(Number(retirePoolForm.value.retireEpoch)) || Number(retirePoolForm.value.retireEpoch) <= 0) {
     retirementError.value = 'Select a fee account and a valid retirement epoch.'
@@ -990,6 +1007,8 @@ async function reviewRetirement() {
         nodeId: retirePoolForm.value.id, feePayerAccountId: retirePoolForm.value.retireFeesAccount,
         retireEpoch: String(retirePoolForm.value.retireEpoch)
       })
+    if (result.nodeId !== retirePoolForm.value.id || result.feePayerAccountId !== retirePoolForm.value.retireFeesAccount ||
+        result.networkKey !== store.nodeIndexStatus[retirePoolForm.value.id]?.readState?.networkKey) throw new Error('Review target does not match')
     retirementReview.value = result
     retirementStale.value = (store.networkInvalidations[result.networkKey] ?? 0) !== (invalidations[result.networkKey] ?? 0) || chainUnavailable(result.networkKey)
   } catch (error) {
@@ -1001,7 +1020,7 @@ async function reviewRetirement() {
 
 async function submitRetirement() {
   const review = retirementReview.value
-  if (!review || !retirementPassword.value || retirementBusy.value || retirementUncertain.value || retirementStale.value) return
+  if (!review || !retirementPassword.value || retirementBusy.value || retirementUncertain.value || retirementStale.value || chainUnavailable(review.networkKey)) return
   const password = retirementPassword.value
   retirementPassword.value = ''
   retirementBusy.value = true
@@ -1025,7 +1044,7 @@ async function submitRetirement() {
 
 async function reconcileRetirement() {
   const review = retirementReview.value
-  if (!review || !canReconcileRetirement.value || !retirementPassword.value || retirementBusy.value) return
+  if (!review || !canReconcileRetirement.value || !retirementPassword.value || retirementBusy.value || !chainComplete(review.networkKey)) return
   const password = retirementPassword.value
   retirementPassword.value = ''
   retirementBusy.value = true

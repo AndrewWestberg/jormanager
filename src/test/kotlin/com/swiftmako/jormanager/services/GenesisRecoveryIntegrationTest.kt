@@ -200,17 +200,28 @@ class GenesisRecoveryIntegrationTest {
             (LedgerUtxosTable innerJoin LedgerTable).selectAll().where { LedgerUtxosTable.networkKey eq network }
                 .single { it[LedgerUtxosTable.txId] == funds[0].txId.toHexString() }[LedgerTable.address]
         }
-        val wallet = LedgerDao()
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos("missing-wallet-network", address) }
+        val wallet = LedgerDao(coordinator)
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot("missing-wallet-network", setOf(address)) }
+        assertThat(coordinator.status("missing-wallet-network").walletReady).isFalse()
+        assertThat(coordinator.status("missing-wallet-network").generation).isEqualTo("0")
+        assertThat(coordinator.status(network).walletReady).isFalse()
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
+        val other = "wallet-coverage-other"
+        coordinator.registerNetwork(other, genesisHash, funds)
         val generation = coordinator.beginSession(network)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos(network, address) }
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
         val complete = block(network, 59)
         transaction {
             SyncStatesTable.update({ SyncStatesTable.network eq network }) { it[completeInclusion] = complete }
         }
         coordinator.observeTip(network, ChainPoint("59", ByteArray(32) { 59 }.toHexString()), generation)
-        assertThat(wallet.queryUtxos(network, address).single().lovelace).isEqualTo(funds[0].coin)
+        assertThat(coordinator.status(network).walletReady).isTrue()
+        assertThat(coordinator.status(other).walletReady).isFalse()
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(other, setOf(address)) }
+        assertThat(wallet.querySnapshot(network, setOf(address)).utxosByAddress.getValue(address).single().lovelace).isEqualTo(funds[0].coin)
         coordinator.boundaryFailure(network, "Requested block unavailable", generation)
-        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.queryUtxos(network, address) }
+        assertThat(coordinator.status(network).walletReady).isFalse()
+        assertThat(coordinator.generation(network)).isEqualTo(generation + 1)
+        assertThrows(LedgerDao.WalletIndexUnavailableException::class.java) { wallet.querySnapshot(network, setOf(address)) }
     }
 }

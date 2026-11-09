@@ -32,19 +32,22 @@ function setup() {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useJorManagerStore()
+  store.connected = true
   vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
   const wrapper = mount(Wallet, {
     attachTo: document.body,
     global: { plugins: [pinia, createBootstrap()], components: { FontAwesomeIcon }, directives: { 'b-tooltip': vBTooltip } }
   })
   cleanups.push(() => wrapper.unmount())
-  function status(status: string, reason = 'Following adopted chain') {
-    store.handleMessage({ type: 'chainstatus', data: {
-      networkKey: 'wallet-import-smoke', status, reason, observedTip: null, lastCompletePoint: null
-    } })
+  let generation = 1
+  let readState = { networkKey: 'wallet-import-smoke', status: 'syncing', reason: 'Following adopted chain', observedTip: null, lastCompletePoint: null, walletReady: false, generation: '1' }
+  function status(status: string, reason = 'Following adopted chain', walletReady = status === 'complete') {
+    if (!walletReady && readState.walletReady) generation++
+    readState = { ...readState, status, reason, walletReady, generation: String(generation) }
+    store.handleMessage({ type: 'chainstatus', data: readState })
   }
   function wallet(items: object[]) {
-    store.handleMessage({ type: 'wallet', data: { networkKey: 'wallet-import-smoke', items } })
+    store.handleMessage({ type: 'wallet', data: { networkKey: 'wallet-import-smoke', items, readState } })
   }
   return { store, wrapper, status, wallet }
 }
@@ -75,9 +78,6 @@ describe('Wallet indexed balance availability', () => {
     expect(table.findAll(actions)).toHaveLength(0)
     wallet(completeItems)
     await nextTick()
-    expect(table.findAll(actions)).toHaveLength(0)
-    status('complete')
-    await nextTick()
     expect(table.text()).toContain('₳9007199254.740993')
     expect(table.text()).toContain('₳10.000000')
     expect(table.text()).toContain('₳1.000000')
@@ -86,6 +86,12 @@ describe('Wallet indexed balance availability', () => {
     expect(table.text()).toContain('Delegate')
     expect(wrapper.find('.alert-warning').exists()).toBe(false)
     await table.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('Claim Selected (1)')
+    status('syncing', 'Following adopted chain', true)
+    await nextTick()
+    expect(table.text()).toContain('₳9007199254.740993')
+    expect(table.findAll('[data-icon="hand-holding-usd"]')).toHaveLength(2)
+    expect(wrapper.find('.alert-warning').exists()).toBe(false)
     expect(wrapper.text()).toContain('Claim Selected (1)')
 
     // A queued click must not use values invalidated before Vue updates the DOM.
@@ -100,16 +106,16 @@ describe('Wallet indexed balance availability', () => {
     expect(table.text()).toContain('Unavailable')
     expect(wrapper.text()).not.toContain('Claim Selected')
     expect(document.querySelector('.modal.show')).toBeNull()
-    wallet(completeItems)
     status('complete')
+    wallet(completeItems)
     await nextTick()
     expect((table.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
   })
 
   it('does not mistake unknown registration or known zero rewards for eligible actions', async () => {
     const { wrapper, status, wallet } = setup()
-    wallet([{ ...completeItems[1], stakingAddrRegistered: null, stakingAddrLovelace: '0' }])
     status('complete')
+    wallet([{ ...completeItems[1], stakingAddrRegistered: null, stakingAddrLovelace: '0' }])
     await nextTick()
     const table = wrapper.get('table')
     expect(table.find('[data-icon="unlink"]').exists()).toBe(false)
@@ -123,10 +129,27 @@ describe('Wallet indexed balance availability', () => {
     expect(table.find('[data-icon="hand-holding-usd"]').exists()).toBe(false)
   })
 
+  it('requires a connected matching ready network', async () => {
+    const { store, wrapper, status, wallet } = setup()
+    status('complete')
+    wallet(completeItems)
+    await nextTick()
+    expect(wrapper.find('.alert-warning').exists()).toBe(false)
+    store.chainReadState = { ...store.chainReadState!, networkKey: 'other' }
+    await nextTick()
+    expect(wrapper.find('.alert-warning').exists()).toBe(true)
+    expect(wrapper.findAll(actions)).toHaveLength(0)
+    store.chainReadState = { ...store.chainReadState!, networkKey: 'wallet-import-smoke' }
+    store.connected = false
+    await nextTick()
+    expect(wrapper.find('.alert-warning').exists()).toBe(true)
+    expect(wrapper.findAll(actions)).toHaveLength(0)
+  })
+
   it('shows unknown destination balances in the actual Send modal', async () => {
     const { wrapper, status, wallet } = setup()
-    wallet([completeItems[0], { ...identities[1], ...unknown }])
     status('complete')
+    wallet([completeItems[0], { ...identities[1], ...unknown }])
     await nextTick()
     await wrapper.get('table [data-icon="hand-holding-usd"]').trigger('click')
     await flushPromises()

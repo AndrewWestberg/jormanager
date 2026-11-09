@@ -32,8 +32,13 @@ class NetworkChainSession(
             permits.release()
         }
     }
+    @Synchronized
     fun rollback(point: ChainPoint?) {
         generation = coordinator.rollback(networkKey, point, generation)
     }
-    fun close() { requests.close() }
+    @Synchronized
+    fun close() {
+        requests.close()
+        coordinator.endSession(networkKey, generation)
+    }
 }

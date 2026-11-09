@@ -34,7 +34,9 @@ class TransactionController(
     fun chainStatus(request: Query): SocketResponse<Any> = respond("chainstatus", request) {
         val coverage = replay.inspect(request.networkKey)
         val status = coverage.readState
-        mapOf("requestId" to request.requestId, "networkKey" to status.networkKey, "status" to status.status, "reason" to status.reason, "observedTip" to status.observedTip, "lastCompletePoint" to status.lastCompletePoint, "replay" to coverage)
+        mapOf("requestId" to request.requestId, "networkKey" to status.networkKey, "status" to status.status,
+            "reason" to status.reason, "observedTip" to status.observedTip, "lastCompletePoint" to status.lastCompletePoint,
+            "walletReady" to status.walletReady, "generation" to status.generation, "replay" to coverage)
     }
 
     @MessageMapping("/node/chainstatus")

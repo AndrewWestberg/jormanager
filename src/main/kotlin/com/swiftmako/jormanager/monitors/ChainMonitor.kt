@@ -93,6 +93,7 @@ class ChainMonitor(
         while (currentCoroutineContext().isActive) {
             var mux: Mux? = null
             var session: NetworkChainSession? = null
+            var cancelled = false
             val selector = ActorSelectorManager(currentCoroutineContext())
             try {
                 val host = requireNotNull(hostRepository.findByIdOrNull(node.hostId))
@@ -126,6 +127,7 @@ class ChainMonitor(
                     mux = connectionMux
                     connectionMux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
                     coroutineScope {
+                        var executionFailure: Throwable? = null
                         try {
                             cardanoRepository.reestablishTarget(host, node)
                             val active = requireNotNull(session)
@@ -137,20 +139,45 @@ class ChainMonitor(
                                 BlockFetchProtocol(active, leios, this),
                                 leios,
                             )
+                        } catch (failure: Throwable) {
+                            executionFailure = failure
+                            throw failure
                         } finally {
-                            connectionMux.shutdownGracefully()
+                            try {
+                                connectionMux.shutdownGracefully()
+                            } catch (failure: Throwable) {
+                                val original = executionFailure
+                                if (original == null) throw failure
+                                original.addSuppressed(failure)
+                            }
                         }
                     }
                 }
-            } catch (e: CancellationException) { throw e }
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            }
             catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
                 log.warn(e) { "Chain observer failed for network $key" }
                 try { session?.let { coordinator.boundaryFailure(key, e.message ?: "Chain connection failed", it.generation) } }
-                catch (failure: Exception) { log.warn(failure) { "Unable to record chain failure" } }
+                catch (failure: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    log.warn(failure) { "Unable to record chain failure" }
+                }
             } finally {
-                mux?.shutdownGracefully()
-                session?.close()
-                selector.close()
+                try {
+                    try {
+                        mux?.shutdownGracefully()
+                    } finally {
+                        try { session?.close() } finally { selector.close() }
+                    }
+                } catch (failure: Throwable) {
+                    if (!cancelled) {
+                        currentCoroutineContext().ensureActive()
+                        throw failure
+                    }
+                }
             }
             delay(10_000)
         }

@@ -14,12 +14,13 @@
       <BFormInput id="review-password" v-model="password" type="password" autocomplete="current-password" />
     </BFormGroup>
     <div v-if="error" class="alert alert-danger mt-2" role="alert">{{ error }}</div>
-    <BButton v-if="review.state === 'previewed' && !uncertain && !stale" variant="success" :disabled="busy || !password || !chainComplete" @click="submit">Authorize and submit</BButton>
+    <BButton v-if="review.state === 'previewed' && !uncertain && !stale" variant="success" :disabled="busy || !password || !walletReady" @click="submit">Authorize and submit</BButton>
     <div v-if="canReconcile" class="mt-2">
       <p>Reconciliation checks the complete authorized transaction, chain state and mempool. It never resubmits the transaction.</p>
-      <BButton variant="warning" :disabled="busy || !password" @click="reconcile">Authorize reconciliation</BButton>
+      <p v-if="!chainComplete" class="text-warning">Reconciliation requires complete chain coverage for this network.</p>
+      <BButton variant="warning" :disabled="busy || !password || !chainComplete" @click="reconcile">Authorize reconciliation</BButton>
     </div>
-    <p v-if="review.state === 'previewed' && !chainComplete" class="text-warning">Current complete chain state for this network is required before authorization.</p>
+    <p v-if="review.state === 'previewed' && !walletReady" class="text-warning">Usable wallet coverage for this network is required before authorization.</p>
     <BButton class="ms-2" variant="secondary" :disabled="busy" @click="emit('close')">{{ review.state === 'previewed' && !uncertain ? 'Change details' : 'Close' }}</BButton>
   </section>
 </template>
@@ -34,37 +35,42 @@ import type { WalletReview } from '@/types'
 const props = defineProps<{ review: WalletReview; governance?: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'submitted', review: WalletReview): void }>()
 const store = useJorManagerStore()
-const chainComplete = computed(() => store.connected && store.chainReadState?.status === 'complete' && store.chainReadState.networkKey === props.review.networkKey)
+const matchingState = computed(() => store.walletNetworkKey === props.review.networkKey && store.chainReadState?.networkKey === props.review.networkKey ? store.chainReadState : null)
+const walletReady = computed(() => store.connected && matchingState.value?.walletReady === true)
+const chainComplete = computed(() => store.connected && matchingState.value?.status === 'complete')
 const password = ref('')
 const busy = ref(false)
 const uncertain = ref(false)
 const error = ref('')
-const stale = ref(!chainComplete.value)
+const stale = ref(!walletReady.value)
 watch(() => store.networkInvalidations[props.review.networkKey] ?? 0, (value, oldValue) => {
   if (value !== oldValue) stale.value = true
 }, { flush: 'sync' })
-watch(() => !store.connected || (store.walletNetworkKey === props.review.networkKey &&
-  (store.chainReadState?.networkKey !== props.review.networkKey || store.chainReadState.status !== 'complete')), unavailable => {
-  if (unavailable) stale.value = true
+watch(walletReady, ready => {
+  if (!ready) stale.value = true
+}, { flush: 'sync' })
+watch(() => matchingState.value?.generation, (value, oldValue) => {
+  if (value !== oldValue) stale.value = true
 }, { flush: 'sync' })
 watch(() => [props.review.previewId, props.review.networkKey], () => {
-  stale.value = !chainComplete.value
+  stale.value = !walletReady.value
 })
 const canReconcile = computed(() => uncertain.value || (stale.value && props.review.state !== 'previewed') || ['signing', 'submission_uncertain', 'submitted', 'rolled_back', 'confirmed', 'phase2_failed'].includes(props.review.state))
 
 async function reconcile() {
-  if (busy.value || !password.value || !canReconcile.value) return
+  if (busy.value || !password.value || !canReconcile.value || !chainComplete.value) return
   busy.value = true
   error.value = ''
   const secret = password.value
   password.value = ''
   const networkKey = props.review.networkKey
   const invalidation = store.networkInvalidations[networkKey] ?? 0
+  const generation = matchingState.value?.generation
   try {
     const result = await store.reconcileWallet(props.review.previewId, secret)
     if (result.previewId !== props.review.previewId || result.txId !== props.review.txId || result.networkKey !== props.review.networkKey) throw new Error('Reconciliation response target did not match the review')
     uncertain.value = false
-    stale.value = (store.networkInvalidations[networkKey] ?? 0) !== invalidation || !chainComplete.value
+    stale.value = (store.networkInvalidations[networkKey] ?? 0) !== invalidation || generation !== matchingState.value?.generation || !walletReady.value
     emit('submitted', { ...props.review, state: result.state, reason: result.reason })
   } catch (e) {
     error.value = `${e instanceof Error ? e.message : String(e)}. Reconciliation outcome may be uncertain; inspect the transaction before retrying.`
@@ -74,7 +80,7 @@ async function reconcile() {
   }
 }
 async function submit() {
-  if (busy.value || !password.value || !chainComplete.value || stale.value) return
+  if (busy.value || !password.value || !walletReady.value || stale.value || uncertain.value || props.review.state !== 'previewed') return
   busy.value = true
   error.value = ''
   const secret = password.value
@@ -84,7 +90,7 @@ async function submit() {
   try {
     const result = await store.submitReviewedWallet(props.review.previewId, secret, props.governance)
     if (result.previewId !== props.review.previewId || result.txId !== props.review.txId || result.networkKey !== props.review.networkKey) throw new Error('Submission response target did not match the review')
-    if ((store.networkInvalidations[networkKey] ?? 0) !== invalidation || !chainComplete.value) stale.value = true
+    if ((store.networkInvalidations[networkKey] ?? 0) !== invalidation || !walletReady.value) stale.value = true
     emit('submitted', result)
   } catch (e) {
     error.value = `${e instanceof Error ? e.message : String(e)}. Submission outcome may be uncertain; check the transaction before retrying.`

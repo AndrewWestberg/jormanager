@@ -14,4 +14,6 @@ data class ChainReadState(
     val reason: String?,
     val observedTip: ChainPoint?,
     val lastCompletePoint: ChainPoint?,
+    val walletReady: Boolean,
+    val generation: String,
 )

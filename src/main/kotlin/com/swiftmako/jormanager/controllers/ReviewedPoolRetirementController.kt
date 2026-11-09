@@ -19,7 +19,9 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.CardanoCapabilities
+import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
+import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
 import java.math.BigInteger
@@ -43,6 +45,7 @@ class ReviewedPoolRetirementController(
     private val capabilities: CardanoCapabilities,
     private val walletUtils: WalletUtils,
     private val reviewed: ReviewedWalletOperations,
+    private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
     private val protocolSnapshots: ProtocolSnapshotRepository,
     private val jdbc: JdbcTemplate,
@@ -58,7 +61,7 @@ class ReviewedPoolRetirementController(
         val parameterFingerprint: String, val stateFingerprint: String)
     private data class Target(val observer: Node, val pool: Node, val host: Host, val connection: HostConnection,
         val era: String, val network: List<String>, val magic: String, val socket: String)
-    private data class Observation(val parameters: String, val utxo: JsonNode, val poolState: JsonNode,
+    private data class Observation(val parameters: String, val snapshot: PendingWalletState.Snapshot, val poolState: JsonNode,
         val evidence: ReviewedWalletOperations.Evidence)
 
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -90,14 +93,11 @@ class ReviewedPoolRetirementController(
         val era = eras.getEra(host, observer, magic, socket)
         return Target(observer, pool, host, HostConnection(host, observer), era, network, magic, socket)
     }
-    private fun cmd(t: Target, args: List<String>): String {
-        require(args.all { it.matches(Regex("[A-Za-z0-9_./+:#=-]+( [A-Za-z0-9_./+:#=-]+)*")) }) { "Unsafe CLI argument" }
-        return t.connection.command(if (t.host.isRemote) args.map { if (' ' in it) "'$it'" else it } else args).trim()
-    }
+    private fun cmd(t: Target, args: List<String>): String = t.connection.commandArgs(args).trim()
     private fun query(t: Target, vararg args: String): String = cmd(t,
         listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
             listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json"))
-    private fun observe(t: Target, payerId: Long, epoch: Long, payload: String): Observation {
+    private fun observe(t: Target, payerId: Long, epoch: Long, payload: String, excludingOperationId: String? = null): Observation {
         capabilities.requireOperation(t.host, t.observer, "pool.retire")
         val payer = requireNotNull(wallets.findByIdOrNull(payerId)) { "Fee payer not found" }
         require(!payer.deleted && payer.paymentSkey != null) { "Fee payer cannot sign" }
@@ -121,12 +121,17 @@ class ReviewedPoolRetirementController(
         require(entry.value.isObject && entry.value.path("deposit").isIntegralNumber) {
             "Pool registration or deposit unavailable"
         }
-        val utxo = json.readTree(query(t, "utxo", "--address", payer.paymentAddr))
-        val state = json.writeValueAsString(listOf(poolState, utxo, current))
+        val snapshot = walletUtils.getUtxoSnapshot(t.host, t.observer, t.connection, t.magic, t.socket, t.era,
+            setOf(payer.paymentAddr), excludingOperationId)
+        val state = json.writeValueAsString(listOf(poolState, canonicalWalletInputs(snapshot, payer.paymentAddr),
+            snapshot.readState.generation, payer.paymentAddr, payer.paymentSkey?.id, payer.paymentSkey?.content?.let(::digest),
+            payer.paymentVkey?.id, payer.paymentVkey?.content, t.pool.coreSKeyId,
+            digest(requireNotNull(files.findByIdOrNull(t.pool.coreSKeyId)).content), t.pool.coreVKeyId,
+            requireNotNull(files.findByIdOrNull(t.pool.coreVKeyId)).content, current))
         val e = eras.evidence(t.observer)
         check(e.freshness == "current" && e.era == t.era && e.source == "host:${t.host.id}/node:${t.observer.id}") { "Current era unavailable" }
-        return Observation(parameters, utxo, poolState, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
-            digest("${e.networkKey}|${e.era}|${e.generation}|pool.retire|${t.host.id}|${t.observer.id}")))
+        return Observation(parameters, snapshot, poolState, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
+            digest("${e.networkKey}|${e.era}|${e.generation}|pool.retire|${t.host.id}|${t.observer.id}"), snapshot.readState.generation))
     }
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
@@ -173,21 +178,24 @@ class ReviewedPoolRetirementController(
         ensureNoPending(t, input.requestId)
         val initial = observe(t, input.feePayerAccountId, epoch, "pending")
         val payer = requireNotNull(wallets.findByIdOrNull(input.feePayerAccountId))
-        val utxos = walletUtils.getUtxos(t.host, t.connection, t.magic, t.socket, t.era, payer.paymentAddr)
-        require(utxos.isNotEmpty() && utxos.all { initial.utxo.has("${it.hash}#${it.ix}") }) { "Confirmed fee payer inputs unavailable" }
+        val utxos = initial.snapshot.utxosByAddress[payer.paymentAddr].orEmpty()
+        require(utxos.isNotEmpty()) { "Available fee payer inputs unavailable" }
         val prefix = "/tmp/jormanager-pool-review-${UUID.randomUUID()}"
         val key = "$prefix.vkey"; val cert = "$prefix.cert"; val body = "$prefix.body"
+        val protocolPath = "$prefix.protocol.json"
         try {
             t.connection.commandWriteFile(key, requireNotNull(files.findByIdOrNull(t.pool.coreVKeyId)).content)
             cmd(t, listOf(t.host.cardanoCliPath, t.era, "stake-pool", "deregistration-certificate", "--cold-verification-key-file", key,
                 "--epoch", input.retireEpoch, "--out-file", cert))
-            val args = mutableListOf(t.host.cardanoCliPath, t.era, "transaction", "build", "--witness-override", "2")
-            args += t.network; args += listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket")
-            utxos.forEach { args += listOf("--tx-in", "${it.hash}#${it.ix}") }
-            args += listOf("--certificate-file", cert, "--change-address", payer.paymentAddr, "--out-file", body)
-            cmd(t, args)
-            val envelope = t.connection.commandReadFile(body)
-            val txid = cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "txid", "--tx-body-file", body, "--output-text"))
+            t.connection.commandWriteFile(protocolPath, initial.parameters)
+            val built = builder.build(
+                host = t.host, connection = t.connection, era = t.era, inputs = utxos,
+                outputs = emptyList(), changeAddress = payer.paymentAddr,
+                extraArgs = listOf("--certificate-file", cert),
+                protocolParameters = initial.parameters, protocolPath = protocolPath,
+                witnessCount = 2, bodyPath = body
+            )
+            val envelope = built.textEnvelope
             val payload = json.writeValueAsString(mapOf("kind" to "pool.retire", "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
                 "feePayerAccountId" to input.feePayerAccountId, "retireEpoch" to input.retireEpoch, "poolState" to exact(initial.poolState)))
             val after = observe(t, input.feePayerAccountId, epoch, payload)
@@ -195,9 +203,9 @@ class ReviewedPoolRetirementController(
                 initial.evidence.capabilityFingerprint == after.evidence.capabilityFingerprint) { "Pool state changed; review again" }
             ensureNoPending(t, input.requestId)
             return result(reviewed.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), t.host, t.observer,
-                "pool.retire", after.evidence, payload, ReviewedWalletOperations.CliBody(envelope, txid), requireNotNull(bodyField(envelope, 2)),
+                "pool.retire", after.evidence, payload, built, requireNotNull(bodyField(envelope, 2)),
                 BigInteger.ZERO, BigInteger.ZERO, bodyField(envelope, 8)?.longValueExact(), bodyField(envelope, 3)?.longValueExact())), input.requestId)
-        } finally { cmd(t, listOf("rm", "-f", key, cert, body)) }
+        } finally { cmd(t, listOf("rm", "-f", key, cert, body, protocolPath)) }
     }
 
     @MessageMapping("/pool/retirement/submit")
@@ -222,7 +230,7 @@ class ReviewedPoolRetirementController(
         ensureNoPending(t, record.id)
         var envelope = ""
         val saved = reviewed.submit(input.previewId, t.host, t.observer,
-            evidence = { observe(t, payerId, epoch, record.requestPayload).evidence },
+            evidence = { operation -> observe(t, payerId, epoch, record.requestPayload, operation.id).evidence },
             sign = { operation ->
                 val payer = requireNotNull(wallets.findByIdOrNull(payerId))
                 val keys = listOf(requireNotNull(payer.paymentSkey), requireNotNull(files.findByIdOrNull(t.pool.coreSKeyId)))

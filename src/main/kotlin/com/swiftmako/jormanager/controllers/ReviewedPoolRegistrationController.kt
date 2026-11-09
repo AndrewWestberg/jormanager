@@ -19,8 +19,10 @@ import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.CardanoCapabilities
+import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.PoolRegistrationCertificateBuilder
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
+import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
 import java.math.BigInteger
@@ -45,6 +47,7 @@ class ReviewedPoolRegistrationController(
     private val walletUtils: WalletUtils,
     private val certificates: PoolRegistrationCertificateBuilder,
     private val reviewed: ReviewedWalletOperations,
+    private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
     private val jdbc: JdbcTemplate,
 ) {
@@ -62,7 +65,7 @@ class ReviewedPoolRegistrationController(
         val changes: JsonNode, val effects: JsonNode, val parameterFingerprint: String, val stateFingerprint: String)
     private data class Target(val observer: Node, val pool: Node, val host: Host, val connection: HostConnection,
         val era: String, val network: List<String>, val magic: String, val socket: String)
-    private data class Observation(val parameters: String, val utxo: JsonNode, val poolState: JsonNode,
+    private data class Observation(val parameters: String, val snapshot: PendingWalletState.Snapshot, val poolState: JsonNode,
         val stakeStates: Map<Long, JsonNode>, val evidence: ReviewedWalletOperations.Evidence)
 
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -90,15 +93,13 @@ class ReviewedPoolRegistrationController(
         val era = eras.getEra(host, observer, magic, socket)
         return Target(observer, pool, host, HostConnection(host, observer), era, network, magic, socket)
     }
-    private fun cmd(t: Target, args: List<String>): String {
-        require(args.all { it.matches(Regex("[A-Za-z0-9_./+:#=-]+( [A-Za-z0-9_./+:#=-]+)*")) }) { "Unsafe CLI argument" }
-        return t.connection.command(if (t.host.isRemote) args.map { if (' ' in it) "'$it'" else it } else args).trim()
-    }
+    private fun cmd(t: Target, args: List<String>): String = t.connection.commandArgs(args).trim()
     private fun query(t: Target, vararg args: String): String = cmd(t,
         listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
             listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json"))
     private fun operation(action: String) = if (action == "register") "pool.register" else "pool.update"
-    private fun observe(t: Target, payerId: Long, action: String, payload: String, stakeIds: List<Long> = emptyList()): Observation {
+    private fun observe(t: Target, payerId: Long, action: String, payload: String, stakeIds: List<Long> = emptyList(),
+        excludingOperationId: String? = null): Observation {
         val op = operation(action)
         capabilities.requireOperation(t.host, t.observer, op)
         val payer = requireNotNull(wallets.findByIdOrNull(payerId)) { "Fee payer not found" }
@@ -129,10 +130,12 @@ class ReviewedPoolRegistrationController(
                 "Pool has no future scheduled retirement"
             }
         }
-        val utxo = json.readTree(query(t, "utxo", "--address", payer.paymentAddr))
+        val snapshot = walletUtils.getUtxoSnapshot(t.host, t.observer, t.connection, t.magic, t.socket, t.era,
+            setOf(payer.paymentAddr), excludingOperationId)
         val draft = if (t.pool.isDraft) jdbc.query("SELECT request_json FROM pool_draft_config WHERE node_id=?", { rs, _ -> rs.getString(1) }, t.pool.id).singleOrNull()
             ?: throw IllegalStateException("Draft configuration unavailable") else ""
-        val keyFiles = listOf(t.pool.coreVKeyId, t.pool.vrfVKeyId).map { id -> requireNotNull(files.findByIdOrNull(id)).content }
+        val keyFiles = listOf(t.pool.coreVKeyId, t.pool.vrfVKeyId).map { id -> listOf(id, requireNotNull(files.findByIdOrNull(id)).content) }
+        val coldSigner = listOf(t.pool.coreSKeyId, digest(requireNotNull(files.findByIdOrNull(t.pool.coreSKeyId)).content))
         val owners = listOf(t.pool.ownerStakingAccountId, t.pool.rewardsStakingAccountId).map { id ->
             val account = requireNotNull(wallets.findByIdOrNull(id)); requireNotNull(account.stakingVkey).content
         }
@@ -144,14 +147,17 @@ class ReviewedPoolRegistrationController(
         }
         val stakeKeys = stakeIds.distinct().sorted().map { id ->
             val account = requireNotNull(wallets.findByIdOrNull(id))
-            listOf(id, account.stakingAddr, account.stakingVkey?.content, account.stakingSkey?.id)
+            listOf(id, account.stakingAddr, account.stakingVkey?.id, account.stakingVkey?.content,
+                account.stakingSkey?.id, account.stakingSkey?.content?.let(::digest))
         }
-        val state = json.writeValueAsString(listOf(poolState, utxo, draft, keyFiles, owners, stakeStates, stakeKeys, currentEpoch,
+        val state = json.writeValueAsString(listOf(poolState, canonicalWalletInputs(snapshot, payer.paymentAddr),
+            snapshot.readState.generation, payer.paymentAddr, payer.paymentSkey?.id, payer.paymentSkey?.content?.let(::digest),
+            payer.paymentVkey?.id, payer.paymentVkey?.content, draft, keyFiles, coldSigner, owners, stakeStates, stakeKeys, currentEpoch,
             t.pool.poolId, t.pool.poolPledge?.toString(), t.pool.poolCost?.toString(), t.pool.poolMargin))
         val e = eras.evidence(t.observer)
         check(e.freshness == "current" && e.era == t.era && e.source == "host:${t.host.id}/node:${t.observer.id}") { "Current era unavailable" }
-        return Observation(parameters, utxo, poolState, stakeStates, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
-            digest("${e.networkKey}|${e.era}|${e.generation}|$op|${t.host.id}|${t.observer.id}")))
+        return Observation(parameters, snapshot, poolState, stakeStates, ReviewedWalletOperations.Evidence(digest(payload), digest(parameters), digest(state),
+            digest("${e.networkKey}|${e.era}|${e.generation}|$op|${t.host.id}|${t.observer.id}"), snapshot.readState.generation))
     }
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
@@ -201,10 +207,10 @@ class ReviewedPoolRegistrationController(
         if (!t.era.equals("dijkstra", true)) require(input.keyId == null) { "Voting key is not valid for this era" }
         val initial = observe(t, input.feePayerAccountId, input.action, "pending")
         val payer = requireNotNull(wallets.findByIdOrNull(input.feePayerAccountId))
-        val utxos = walletUtils.getUtxos(t.host, t.connection, t.magic, t.socket, t.era, payer.paymentAddr)
-        require(utxos.isNotEmpty() && utxos.all { initial.utxo.has("${it.hash}#${it.ix}") }) { "Confirmed fee payer inputs unavailable" }
+        require(initial.snapshot.utxosByAddress[payer.paymentAddr].orEmpty().isNotEmpty()) { "Available fee payer inputs unavailable" }
         val prefix = "/tmp/jormanager-pool-registration-${UUID.randomUUID()}"
         val body = "$prefix.body"
+        val protocolPath = "$prefix.protocol.json"
         val cert = certificates.build(t.host, t.observer, t.pool, t.era, t.network, initial.poolState,
             input.action, input.keyId, input.spendingPassword, prefix, input.changes)
         val extraPaths = mutableListOf<String>()
@@ -215,6 +221,16 @@ class ReviewedPoolRegistrationController(
                 initial.evidence.capabilityFingerprint == unchanged.evidence.capabilityFingerprint) { "Pool state changed; review again" }
             val stakeIds = (cert.ownerAccountIds + cert.rewardAccountId).distinct().sorted()
             val beforeStake = observe(t, input.feePayerAccountId, input.action, "pending", stakeIds)
+            check(initial.evidence.parameterFingerprint == beforeStake.evidence.parameterFingerprint &&
+                initial.evidence.capabilityFingerprint == beforeStake.evidence.capabilityFingerprint &&
+                initial.poolState == beforeStake.poolState &&
+                initial.snapshot.readState.generation == beforeStake.snapshot.readState.generation &&
+                canonicalWalletInputs(initial.snapshot, payer.paymentAddr) == canonicalWalletInputs(beforeStake.snapshot, payer.paymentAddr)) {
+                "Fee payer inputs changed; review again"
+            }
+            val expectedPoolDeposit = if (beforeStake.poolState.isEmpty)
+                json.readTree(beforeStake.parameters).path("stakePoolDeposit").asString().toBigInteger() else BigInteger.ZERO
+            check(cert.deposit == expectedPoolDeposit) { "Pool deposit changed; review again" }
             val signers = cert.signingFileIds.toMutableSet()
             val registrationCerts = mutableListOf<String>()
             val delegationCerts = mutableListOf<String>()
@@ -252,14 +268,17 @@ class ReviewedPoolRegistrationController(
                 }
             }
             val signingIds = signers.sorted()
-            val args = mutableListOf(t.host.cardanoCliPath, t.era, "transaction", "build", "--witness-override", (signingIds.size + 1).toString())
-            args += t.network; args += listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket")
-            utxos.forEach { args += listOf("--tx-in", "${it.hash}#${it.ix}") }
-            (registrationCerts + cert.certPath + delegationCerts).forEach { args += listOf("--certificate-file", it) }
-            args += listOf("--change-address", payer.paymentAddr, "--out-file", body)
-            cmd(t, args)
-            val envelope = t.connection.commandReadFile(body)
-            val txid = cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "txid", "--tx-body-file", body, "--output-text"))
+            t.connection.commandWriteFile(protocolPath, beforeStake.parameters)
+            val built = builder.build(
+                host = t.host, connection = t.connection, era = t.era,
+                inputs = beforeStake.snapshot.utxosByAddress[payer.paymentAddr].orEmpty(),
+                outputs = emptyList(), changeAddress = payer.paymentAddr,
+                deposits = cert.deposit + stakeDeposit,
+                extraArgs = (registrationCerts + cert.certPath + delegationCerts).flatMap { listOf("--certificate-file", it) },
+                protocolParameters = beforeStake.parameters, protocolPath = protocolPath,
+                witnessCount = signingIds.size + 1, bodyPath = body
+            )
+            val envelope = built.textEnvelope
             val effects = exact(json.readTree(cmd(t, listOf(t.host.cardanoCliPath, "debug", "transaction", "view", "--tx-body-file", body, "--output-json"))))
             val payload = json.writeValueAsString(mapOf("kind" to operation(input.action), "nodeId" to input.nodeId, "poolId" to t.pool.poolId,
                 "keyId" to input.keyId, "feePayerAccountId" to input.feePayerAccountId, "action" to input.action,
@@ -270,9 +289,9 @@ class ReviewedPoolRegistrationController(
                 beforeStake.evidence.capabilityFingerprint == after.evidence.capabilityFingerprint) { "Pool or stake state changed; review again" }
             ensureNoPending(t, input.requestId)
             return result(reviewed.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), t.host, t.observer,
-                operation(input.action), after.evidence, payload, ReviewedWalletOperations.CliBody(envelope, txid), requireNotNull(bodyField(envelope, 2)),
+                operation(input.action), after.evidence, payload, built, requireNotNull(bodyField(envelope, 2)),
                 cert.deposit + stakeDeposit, BigInteger.ZERO, bodyField(envelope, 8)?.longValueExact(), bodyField(envelope, 3)?.longValueExact())), input.requestId)
-        } finally { cmd(t, listOf("rm", "-f", body) + cert.cleanupPaths + extraPaths) }
+        } finally { cmd(t, listOf("rm", "-f", body, protocolPath) + cert.cleanupPaths + extraPaths) }
     }
     @MessageMapping("/leios/registration/submit")
     @SendTo("/topic/messages")
@@ -292,7 +311,7 @@ class ReviewedPoolRegistrationController(
         ensureNoPending(t, record.id)
         var envelope = ""
         val saved = reviewed.submit(input.previewId, t.host, t.observer,
-            evidence = { observe(t, payerId, action, record.requestPayload, p.path("stakeAccountIds").values().map { it.asLong() }).evidence },
+            evidence = { operation -> observe(t, payerId, action, record.requestPayload, p.path("stakeAccountIds").values().map { it.asLong() }, operation.id).evidence },
             sign = { operation ->
                 val payer = requireNotNull(wallets.findByIdOrNull(payerId))
                 val signingFiles = listOf(requireNotNull(payer.paymentSkey)) + p.path("signingFileIds").values().map {

@@ -18,8 +18,11 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolSnapshotRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.services.CardanoCapabilities
+import com.swiftmako.jormanager.services.PendingWalletState
 import com.swiftmako.jormanager.services.ReviewedWalletOperations
+import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpan
 import com.swiftmako.jormanager.utils.CborSpans
@@ -30,6 +33,13 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.stereotype.Controller
+
+internal fun canonicalWalletInputs(snapshot: PendingWalletState.Snapshot, address: String): List<Any> =
+    snapshot.utxosByAddress[address].orEmpty().sortedWith(compareBy({ it.hash }, { it.ix })).map { utxo ->
+        listOf(utxo.hash, utxo.ix, utxo.lovelace.toString(),
+            utxo.nativeAssets.sortedWith(compareBy({ it.policy }, { it.name }))
+                .map { listOf(it.policy, it.name, it.amount.toString()) })
+    }
 
 /** Review and submit use the same persisted CLI body; the password is never part of a review. */
 @Controller
@@ -44,6 +54,7 @@ class ReviewedWalletController(
     private val capabilities: CardanoCapabilities,
     private val walletUtils: WalletUtils,
     private val reviewed: ReviewedWalletOperations,
+    private val builder: WalletTransactionBuilder,
     private val operations: AuthorizedOperationRepository,
 ) {
     data class ReviewRequest(val requestId: String, val kind: String, val request: JsonNode)
@@ -57,7 +68,9 @@ class ReviewedWalletController(
         val networkKey: String, val state: String, val reason: String)
     private data class Target(val node: Node, val host: Host, val connection: HostConnection, val era: String,
         val magic: String, val socket: String, val networkArgs: List<String>)
-    private data class Observation(val parameters: String, val state: String, val evidence: ReviewedWalletOperations.Evidence)
+    private data class Sources(val payer: WalletEntry, val stakes: List<WalletEntry>, val snapshot: PendingWalletState.Snapshot)
+    private data class Observation(val parameters: String, val state: String, val evidence: ReviewedWalletOperations.Evidence,
+        val sources: Sources)
 
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -88,40 +101,46 @@ class ReviewedWalletController(
         "stake" -> if (request.hasNonNull("poolId")) "wallet_stake_delegation" else if (request.path("isRegistration").asBoolean()) "wallet_stake_registration" else "wallet_stake_deregistration"
         else -> throw IllegalArgumentException("Unknown wallet operation")
     }
-    private fun sources(t: Target, kind: String, request: JsonNode): Pair<WalletEntry, List<WalletEntry>> {
-        if (kind == "stake") return entry(request.path("stakingFeesAccount").asLong()) to listOf(entry(request.path("id").asLong()))
-        val from = ids(request).map(::entry)
+    private fun sources(t: Target, kind: String, request: JsonNode, excludingOperationId: String? = null): Sources {
+        val from = if (kind == "stake") listOf(entry(request.path("id").asLong())) else ids(request).map(::entry)
         require(from.isNotEmpty())
-        if (kind == "send") return from.first() to emptyList()
-        // Prefer a funded receiving account; the choice is included in the state fingerprint.
-        val candidates = (request.path("toAccounts").mapNotNull { it.path("account").asLong().takeIf { id -> id > 0 } }.distinct().map(::entry) + from)
-            .distinctBy { it.id }.filter { it.paymentSkey != null }
+        val candidates = when (kind) {
+            "stake" -> listOf(entry(request.path("stakingFeesAccount").asLong()))
+            "send" -> listOf(from.first())
+            else -> (request.path("toAccounts").mapNotNull { it.path("account").asLong().takeIf { id -> id > 0 } }.distinct().map(::entry) + from)
+                .distinctBy { it.id }.filter { it.paymentSkey != null }
+        }
+        require(candidates.isNotEmpty()) { "No withdrawal fee payer signing key" }
+        val snapshot = walletUtils.getUtxoSnapshot(t.host, t.node, t.connection, t.magic, t.socket, t.era,
+            candidates.map { it.paymentAddr }.toSet(), excludingOperationId)
         val payer = candidates.maxByOrNull { candidate ->
-            walletUtils.getUtxos(t.host, t.connection, t.magic, t.socket, t.era, candidate.paymentAddr)
-                .fold(BigInteger.ZERO) { sum, utxo -> sum + utxo.lovelace }
-        } ?: throw IllegalArgumentException("No withdrawal fee payer signing key")
-        return payer to from
+            snapshot.utxosByAddress[candidate.paymentAddr].orEmpty().fold(BigInteger.ZERO) { sum, utxo -> sum + utxo.lovelace }
+        }!!
+        return Sources(payer, if (kind == "send") emptyList() else from, snapshot)
     }
-    private fun observe(t: Target, kind: String, request: JsonNode, payload: String): Observation {
+    private fun observe(t: Target, kind: String, request: JsonNode, payload: String, excludingOperationId: String? = null): Observation {
         val op = operation(kind, request)
         capabilities.requireOperation(t.host, t.node, op)
-        val (payer, stakes) = sources(t, kind, request)
+        val sources = sources(t, kind, request, excludingOperationId)
+        val (payer, stakes) = sources
         val params = protocolSnapshots.query(t.host, t.node, t.connection, t.era, t.magic, t.socket)
-        val utxo = query(t, "utxo", "--address", payer.paymentAddr)
         val stake = stakes.map { requireNotNull(it.stakingAddr) }.map { query(t, "stake-address-info", "--address", it) }
         val identities = (listOf(payer) + stakes).map {
-            listOf(it.id, it.paymentAddr, it.paymentSkey?.id, it.paymentVkey?.content,
-                it.stakingAddr, it.stakingSkey?.id, it.stakingVkey?.content)
+            listOf(it.id, it.paymentAddr, it.paymentSkey?.id, it.paymentSkey?.content?.let(::digest), it.paymentVkey?.id, it.paymentVkey?.content,
+                it.stakingAddr, it.stakingSkey?.id, it.stakingSkey?.content?.let(::digest), it.stakingVkey?.id, it.stakingVkey?.content)
         }
         val destinations = request.path("toAccounts").mapNotNull {
             it.path("account").asLong().takeIf { id -> id > 0 }?.let { id -> entry(id).let { account -> listOf(account.id, account.paymentAddr) } }
         }
-        val state = json.writeValueAsString(listOf(json.readTree(utxo), stake.map { json.readTree(it) }, identities, destinations))
+        val state = json.writeValueAsString(listOf(canonicalWalletInputs(sources.snapshot, payer.paymentAddr),
+            sources.snapshot.readState.generation, stake.map { json.readTree(it) },
+            stakes.map { sources.snapshot.reservedRewardWithdrawals[requireNotNull(it.stakingAddr)] ?: BigInteger.ZERO }, identities, destinations))
         val e = eras.evidence(t.node)
         check(e.freshness == "current" && e.era == t.era && e.source == "host:${t.host.id}/node:${t.node.id}") { "Current era unavailable" }
         val capability = capabilities.capability(t.host, t.node, op)
         return Observation(params, state, ReviewedWalletOperations.Evidence(digest(payload), digest(params), digest(state),
-            digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, t.host.id, t.node.id, capability)))))
+            digest(json.writeValueAsString(listOf(e.networkKey, e.era, e.generation, t.host.id, t.node.id, capability))),
+            sources.snapshot.readState.generation), sources)
     }
     private fun bodyField(body: String, key: Int): BigInteger? {
         val bytes = json.readTree(body).path("cborHex").asString().hexToByteArray()
@@ -209,21 +228,18 @@ class ReviewedWalletController(
         }
         val t = target()
         val observation = observe(t, input.kind, input.request, payload)
-        val (payer, stakes) = sources(t, input.kind, input.request)
-        val utxos = walletUtils.getUtxos(t.host, t.connection, t.magic, t.socket, t.era, payer.paymentAddr)
-        val liveUtxos = json.readTree(observation.state).first()
-        check(utxos.all { liveUtxos.has("${it.hash}#${it.ix}") }) { "Confirmed wallet inputs differ from the target node; wait for synchronization" }
-        require(utxos.isNotEmpty()) { "Fee payer has no confirmed inputs" }
+        val (payer, stakes, snapshot) = observation.sources
+        val utxos = snapshot.utxosByAddress[payer.paymentAddr].orEmpty()
+        require(utxos.isNotEmpty()) { "Fee payer has no available inputs" }
         val prefix = "/tmp/jormanager-review-${UUID.randomUUID()}"
         val bodyPath = "$prefix.body"
         val paramsPath = "$prefix.params"
         val cleanup = mutableListOf(bodyPath, paramsPath)
         try {
             t.connection.commandWriteFile(paramsPath, observation.parameters)
-            val args = mutableListOf(t.host.cardanoCliPath, t.era, "transaction", "build", "--witness-override", (1 + stakes.size).toString())
-            args += t.networkArgs
-            args += listOf("--socket-path", "${t.host.nodeHomePath}/${t.node.name}/db/socket")
-            utxos.forEach { args += listOf("--tx-in", "${it.hash}#${it.ix}") }
+            val args = mutableListOf<String>()
+            val outputs = mutableListOf<WalletTransactionBuilder.Output>()
+            var withdrawals = BigInteger.ZERO
             var deposit = BigInteger.ZERO
             var refund = BigInteger.ZERO
             if (input.kind == "stake") {
@@ -252,7 +268,10 @@ class ReviewedWalletController(
             } else {
                 if (input.kind == "withdraw") stakes.forEach { stake ->
                     val info = walletUtils.getStakeAddressInfo(t.host, t.connection, t.magic, t.socket, t.era, requireNotNull(stake.stakingAddr)).single()
-                    args += listOf("--withdrawal", "${stake.stakingAddr}+${info.rewardAccountBalance}")
+                    val available = (info.rewardAccountBalance -
+                        (snapshot.reservedRewardWithdrawals[requireNotNull(stake.stakingAddr)] ?: BigInteger.ZERO)).max(BigInteger.ZERO)
+                    withdrawals += available
+                    args += listOf("--withdrawal", "${stake.stakingAddr}+$available")
                 }
                 val groups = input.request.path("toAccounts").groupBy { destination ->
                     val account = destination.path("account").asLong()
@@ -278,7 +297,10 @@ class ReviewedWalletController(
                             .split(Regex("\\s+")).first { it.all(Char::isDigit) }.toBigInteger()
                         ada = ada.max(minimum)
                     }
-                    args += listOf("--tx-out", output(ada))
+                    outputs += WalletTransactionBuilder.Output(address, ada, assets.map { (unit, amount) ->
+                        val parts = unit.split(".", limit = 2)
+                        NativeAsset(parts.getOrElse(1) { "" }, parts[0], amount)
+                    })
                 }
                 val metadata = input.request.path("metadata")
                 if (metadata.isString && metadata.asString().isNotBlank()) {
@@ -287,10 +309,11 @@ class ReviewedWalletController(
                     t.connection.commandWriteFile(file, metadata.asString()); args += listOf("--metadata-json-file", file)
                 }
             }
-            args += listOf("--change-address", payer.paymentAddr, "--out-file", bodyPath)
-            cmd(t, args)
-            val body = t.connection.commandReadFile(bodyPath)
-            val txId = cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "txid", "--tx-body-file", bodyPath, "--output-text"))
+            val built = builder.build(t.host, t.connection, t.era, utxos, outputs, payer.paymentAddr,
+                withdrawals = withdrawals, deposits = deposit, refunds = refund, extraArgs = args,
+                protocolParameters = observation.parameters, protocolPath = paramsPath,
+                witnessCount = 1 + stakes.size, bodyPath = bodyPath)
+            val body = built.textEnvelope
             val fee = requireNotNull(bodyField(body, 2))
             val from = bodyField(body, 8)?.longValueExact(); val until = bodyField(body, 3)?.longValueExact()
             val view = if (t.era in setOf("shelley", "allegra", "mary", "alonzo", "babbage")) historicalView(body)
@@ -301,7 +324,7 @@ class ReviewedWalletController(
                 after.evidence.stateFingerprint == observation.evidence.stateFingerprint &&
                 after.evidence.capabilityFingerprint == observation.evidence.capabilityFingerprint) { "Wallet state changed while building; review again" }
             return result(reviewed.preview(ReviewedWalletOperations.Preview(input.requestId, UUID.randomUUID().toString(), t.host, t.node,
-                operation(input.kind, input.request), after.evidence, finalPayload, ReviewedWalletOperations.CliBody(body, txId), fee, deposit, refund, from, until)), input.requestId)
+                operation(input.kind, input.request), after.evidence, finalPayload, built, fee, deposit, refund, from, until)), input.requestId)
         } finally { cmd(t, listOf("rm", "-f") + cleanup) }
     }
 
@@ -359,9 +382,9 @@ class ReviewedWalletController(
         val t = target(record.nodeId)
         var signedEnvelope = ""
         val result = reviewed.submit(input.previewId, t.host, t.node,
-            evidence = { observe(t, kind, request, record.requestPayload).evidence },
+            evidence = { operation -> observe(t, kind, request, record.requestPayload, operation.id).evidence },
             sign = { saved ->
-                val (payer, stakes) = sources(t, kind, request)
+                val (payer, stakes) = sources(t, kind, request, saved.id)
                 val prefix = "/tmp/jormanager-sign-${UUID.randomUUID()}"
                 val body = "$prefix.body"; val signed = "$prefix.signed"; val keys = mutableListOf<String>()
                 try {
