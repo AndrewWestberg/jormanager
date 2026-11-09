@@ -49,9 +49,9 @@ describe('direct key registration', () => {
     emitter.off('show-spending-password-modal', prompt)
   })
 
-  it('does not dispatch after readiness changes while prompting', async () => {
+  it('dispatches registration without wallet coverage readiness', async () => {
     const { store, state } = setup()
-    const socket = vi.spyOn(store, 'socketRequest')
+    const socket = vi.spyOn(store, 'socketRequest').mockRejectedValue(new Error('Rejected'))
     const prompt = vi.fn()
     emitter.on('show-spending-password-modal', prompt)
     state.registrationAction = 'cancel'
@@ -61,7 +61,7 @@ describe('direct key registration', () => {
     store.networkInvalidations.test = 1
     emitter.emit('confirm-spending-password-with-action', { action: request.action, originalData: request.data, password: 'secret' })
     await flushPromises()
-    expect(socket).not.toHaveBeenCalled()
+    expect(socket).toHaveBeenCalledWith('/jormanager/leios/registration/submit', 'leios_registration_submitted', expect.objectContaining({ nodeId: 1, action: 'cancel', spendingPassword: 'secret' }))
     emitter.off('show-spending-password-modal', prompt)
   })
 })

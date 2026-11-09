@@ -152,13 +152,9 @@ let registrationRequestId = generateUUID()
 watch([registrationAction, registrationKeyId, registrationPayer, () => props.nodeId], () => {
   registrationRequestId = generateUUID()
 }, { flush: 'sync' })
-function walletReady(networkKey: string) {
-  const state = store.networkReadStates[networkKey]
-  return store.connected && state?.networkKey === networkKey && state.walletReady === true
-}
 const canSubmitRegistration = computed(() => !!node.value && store.connected && !store.leiosStatusError && !pending.value && !registrationBusy.value &&
   ['dijkstra', 'conway'].includes(status.value?.era ?? '') && !!status.value?.target?.networkKey &&
-  walletReady(status.value.target.networkKey) && registrationPayer.value != null &&
+  registrationPayer.value != null &&
   (status.value.era === 'conway' || registrationAction.value === 'cancel' || registrationKeyId.value != null))
 
 function requestRegistration() {
@@ -175,8 +171,7 @@ function requestRegistration() {
 
 async function submitRegistration(request: RegistrationRequest, password: string) {
   if (!canSubmitRegistration.value || request.requestId !== registrationRequestId || request.nodeId !== props.nodeId ||
-      request.hostId !== node.value?.hostId || request.poolId !== (node.value?.poolId ?? null) || request.era !== status.value?.era || request.networkKey !== status.value?.target?.networkKey ||
-      (store.networkInvalidations[request.networkKey] ?? 0) !== request.generation) return
+      request.hostId !== node.value?.hostId || request.poolId !== (node.value?.poolId ?? null) || request.era !== status.value?.era || request.networkKey !== status.value?.target?.networkKey) return
   registrationBusy.value = true
   registrationError.value = ''
   try {

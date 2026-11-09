@@ -169,24 +169,3 @@ object NetworkGenesisTable : Table("network_genesis") {
     override val primaryKey = PrimaryKey(network)
 }
 
-/** Exposed view of the existing durable authorization records. */
-object OperationConfirmationsTable : Table("authorized_operations") {
-    val id = text("id")
-    val era = text("era")
-    val validFrom = long("valid_from").nullable()
-    val validUntil = long("valid_until").nullable()
-    val network = text("network_key")
-    val txId = text("tx_id")
-    val state = text("state")
-    val signedBatch = text("signed_batch").nullable()
-    val hash = text("confirmation_hash").nullable()
-    val slot = decimal("confirmation_slot", 20, 0).nullable()
-    val height = decimal("confirmation_height", 20, 0).nullable()
-}
-
-object OperationInputsTable : Table("authorized_operation_inputs") {
-    val operationId = text("operation_id")
-    val network = text("network_key")
-    val txId = text("input_tx_id")
-    val index = integer("input_index")
-}
