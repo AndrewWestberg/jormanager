@@ -530,6 +530,7 @@ async function submitPoolChange(request: PoolChangeRequest, password: string) {
       showMetadataModal.value = false
       poolRequestId = generateUUID()
     }
+    store.requestNodes()
     store.toastSuccess = { title: 'Pool update submitted', message: result.txId }
   } catch (error) {
     store.toastError = { title: 'Pool update failed', message: error instanceof Error ? error.message : String(error) }
@@ -585,7 +586,7 @@ const rewardsAccountOptions = computed(() => store.rewardsSelectOptions())
 
 // Check if there are any core/pool nodes (non-relay)
 const hasCoreNodes = computed(() => {
-  return nodes.value.some((node) => (node as any).type !== 'relay')
+  return nodes.value.some((node) => (node as any).type !== 'relay' && !(node as any).isDraft && !(node as any).isDeleted)
 })
 
 const fields = [
@@ -612,7 +613,8 @@ function openColorModal(nodeId: number, currentColor: string) {
 }
 
 function handleSaveColor() {
-  emitter.emit('show-spending-password-modal', { action: 'update-color', data: editColorForm.value })
+  store.updateNodeColor({ id: editColorForm.value.nodeId, color: editColorForm.value.color })
+  showColorModal.value = false
 }
 
 function openPoolConfigModal(nodeId: number) {
@@ -834,10 +836,6 @@ function addPool(parentId: number) {
 
 function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: any }) {
   switch (data.action) {
-    case 'update-color':
-      store.updateNodeColor({ ...data.originalData, spendingPassword: data.password })
-      showColorModal.value = false
-      break
     case 'submit-pool-change':
       void submitPoolChange(data.originalData as PoolChangeRequest, data.password)
       break

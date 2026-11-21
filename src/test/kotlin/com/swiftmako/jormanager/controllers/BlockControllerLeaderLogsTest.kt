@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.messaging.simp.SimpMessagingTemplate
@@ -184,6 +185,28 @@ class BlockControllerLeaderLogsTest {
         assertThat(result.finalDrainCounts).isEmpty()
     }
 
+    @Test
+    fun `excludes draft deleted blank-poolId and other-network nodes from leaderlogs`() {
+        val result =
+            calculate(
+                visibleProcessors = 2,
+                era = "Conway",
+                extraNodes = { base ->
+                    listOf(
+                        base.copy(id = 10, name = "draft-pool", poolId = "draft-pool-id", isDefault = false, isDraft = true, vrfSKeyId = -1),
+                        base.copy(id = 11, name = "blank-pool", poolId = "", isDefault = false, vrfSKeyId = -1),
+                        base.copy(id = 12, name = "deleted-pool", poolId = "deleted-pool-id", isDefault = false, isDeleted = true, vrfSKeyId = -1),
+                        base.copy(id = 13, name = "other-net-pool", poolId = "other-net-pool-id", isDefault = false, genesisShelleyFileId = 999, vrfSKeyId = -1),
+                    )
+                },
+            )
+
+        assertThat(result.errors).isEmpty()
+        assertThat(result.events.last()).isEqualTo("complete")
+        assertThat(result.saved.map { it.pool }.distinct()).containsExactly("synthetic")
+        assertPendingBlocks(result.saved, FIRST_SLOT)
+    }
+
     private fun assertPendingBlocks(blocks: List<Block>, firstSlot: Long) {
         blocks.forEach {
             assertThat(it.pool).isEqualTo("synthetic")
@@ -222,6 +245,7 @@ class BlockControllerLeaderLogsTest {
         multiPool: Boolean = false,
         overlapping: Boolean = false,
         repositoryFailure: RuntimeException? = null,
+        extraNodes: (Node) -> List<Node> = { emptyList() },
     ): Result {
         val blockRepository = mockk<BlockRepository>()
         val nodeRepository = mockk<NodeRepository>()
@@ -254,7 +278,7 @@ class BlockControllerLeaderLogsTest {
             genesisByronFileId = 1, genesisShelleyFileId = 2, genesisAlonzoFileId = 3,
             genesisConwayFileId = 4, configFileId = 5, poolId = POOL_ID, isDefault = true, vrfSKeyId = 6,
         )
-        val nodes = if (multiPool) {
+        val baseNodes = if (multiPool) {
             listOf(
                 node,
                 node.copy(id = 2, name = "second-pool", poolId = "$POOL_ID-second", isDefault = false, vrfSKeyId = 7),
@@ -264,6 +288,11 @@ class BlockControllerLeaderLogsTest {
         } else {
             listOf(node)
         }
+        val nodes = baseNodes + extraNodes(node)
+        val activePoolNodes =
+            nodes.filter {
+                !it.isDeleted && !it.isDraft && !it.poolId.isNullOrBlank() && it.genesisShelleyFileId == node.genesisShelleyFileId
+            }
         val byron = File(id = 1, name = "byron", content =
             """{"startTime":0,"protocolConsts":{"k":1},"blockVersionData":{"slotDuration":1000}}""")
         val shelley = File(id = 2, name = "shelley", content =
@@ -271,7 +300,8 @@ class BlockControllerLeaderLogsTest {
         val syntheticKey = schedule(FIRST_SLOT)["vrfSkeyHex"].asString()
         val keyFile = File(id = 6, name = "public-synthetic-vrf", content =
             """{"type":"VrfSigningKey_PraosVRF","description":"Public all-zero-seed test key","cborHex":"5840$syntheticKey"}""")
-        val poolSnapshots = nodes.map { requireNotNull(it.poolId) }.distinct().joinToString(",") {
+        val expectedPoolIds = activePoolNodes.map { requireNotNull(it.poolId) }.distinct()
+        val poolSnapshots = expectedPoolIds.joinToString(",") {
             """"$it":{"stakeSet":$stakeSet,"stakeMark":$stakeMark,"stakeGo":0}"""
         }
         val stakeJson = """{"pools":{$poolSnapshots},"total":{"stakeSet":3,"stakeMark":3,"stakeGo":3}}"""
@@ -291,12 +321,13 @@ class BlockControllerLeaderLogsTest {
             if (overlapping && key.id == 7L && reads == 2) secondRequestPreloaded.countDown()
             key.content
         }
+        every { cardanoRepository.networkKey(any()) } answers { "network:${firstArg<Node>().genesisShelleyFileId}" }
         every { cardanoRepository.getEra(any(), any(), any(), any()) } returns era.lowercase()
         every { blockRepository.findByPoolAndSlot(any(), any()) } answers {
             poolLookups.incrementAndGet()
             val pool = firstArg<String>()
             val slot = secondArg<Long>()
-            if (slot == FIRST_SLOT + EPOCH_LENGTH - 1 && pool == nodes.last().name) {
+            if (slot == FIRST_SLOT + EPOCH_LENGTH - 1 && pool == activePoolNodes.last().name) {
                 lastSlotChecks.incrementAndGet()
             }
             repositoryFailure?.let { throw it }
@@ -349,7 +380,16 @@ class BlockControllerLeaderLogsTest {
             every { anyConstructed<HostConnection>().command(any<String>()) } answers {
                 when {
                     "query tip" in firstArg<String>() -> """{"era":"$era","slot":${FIRST_SLOT + 100}}"""
-                    "query stake-snapshot" in firstArg<String>() -> stakeJson
+                    "query stake-snapshot" in firstArg<String>() -> {
+                        val snapshotCmd = firstArg<String>()
+                        val queriedPools =
+                            Regex("--stake-pool-id\\s+([^\\s]+)")
+                                .findAll(snapshotCmd)
+                                .map { it.groupValues[1] }
+                                .toList()
+                        assertThat(queriedPools).isEqualTo(expectedPoolIds)
+                        stakeJson
+                    }
                     "query protocol-parameters" in firstArg<String>() -> protocolJson
                     else -> error("Unexpected external command: ${firstArg<String>()}")
                 }

@@ -10,7 +10,14 @@ afterEach(() => { wrappers.splice(0).forEach(item => item.unmount()); vi.restore
 type NodeState = {
   poolChangeFeeAccount: number | null
   editMetadataForm: { name: string }
+  editColorForm: { nodeId: number; color: string }
+  editRelaysForm: { nodeId: number; relays: { addr: string; port: number }[] }
   retirePoolForm: { retireFeesAccount: number | null; retireEpoch: string | number }
+  showColorModal: boolean
+  hasCoreNodes: boolean
+  openColorModal: (nodeId: number, currentColor: string) => void
+  handleSaveColor: () => void
+  openRelaysModal: (nodeId: number) => void
   openMetadataModal: (nodeId: number) => void
   handleSaveMetadata: () => void
   openRetireModal: (nodeId: number) => void
@@ -35,6 +42,87 @@ function setup() {
 }
 
 describe('direct pool actions', () => {
+  it('saves node color directly without prompting for spending password', () => {
+    const { store, state } = setup()
+    const updateColor = vi.spyOn(store, 'updateNodeColor').mockImplementation(() => {})
+    const prompt = vi.fn()
+    emitter.on('show-spending-password-modal', prompt)
+    try {
+      state.openColorModal(1, '#112233')
+      expect(state.showColorModal).toBe(true)
+      state.editColorForm.color = '#abcdef'
+      state.handleSaveColor()
+      expect(updateColor).toHaveBeenCalledWith({ id: 1, color: '#abcdef' })
+      expect(state.showColorModal).toBe(false)
+      expect(prompt).not.toHaveBeenCalled()
+    } finally {
+      emitter.off('show-spending-password-modal', prompt)
+    }
+  })
+
+  it('pre-populates relays modal from node relays and refreshes nodes after pool update succeeds', async () => {
+    const { store, state } = setup()
+    store.nodes = [{
+      id: 1,
+      name: 'pool',
+      type: 'core',
+      hostId: 2,
+      relays: [{ id: 9, nodeId: 1, addr: 'relay1.pool.test', port: 3001 }, { id: 10, nodeId: 1, addr: '1.2.3.4', port: 3002 }]
+    }] as unknown as typeof store.nodes
+    state.openRelaysModal(1)
+    expect(state.editRelaysForm.relays).toEqual([
+      { addr: 'relay1.pool.test', port: 3001 },
+      { addr: '1.2.3.4', port: 3002 }
+    ])
+
+    const requestNodes = vi.spyOn(store, 'requestNodes').mockImplementation(() => {})
+    const prompt = vi.fn()
+    emitter.on('show-spending-password-modal', prompt)
+    try {
+      state.openMetadataModal(1)
+      store.editorMetadata = {
+        nodeId: 1,
+        metadata: { ticker: 'POOL', name: 'Pool', description: 'desc', homepage: 'https://pool.test' },
+        extendedMetadata: { info: { location: 'here', social: { twitterHandle: 'pool' } } }
+      }
+      await flushPromises()
+      state.poolChangeFeeAccount = 7
+      state.handleSaveMetadata()
+      const pending = prompt.mock.calls[0][0]
+      vi.spyOn(store, 'socketRequest').mockResolvedValue({
+        requestId: pending.data.requestId,
+        nodeId: 1,
+        action: 'update',
+        state: 'submitted',
+        txId: 'tx123'
+      })
+      emitter.emit('confirm-spending-password-with-action', {
+        action: pending.action,
+        originalData: pending.data,
+        password: 'secret'
+      })
+      await flushPromises()
+      expect(requestNodes).toHaveBeenCalled()
+    } finally {
+      emitter.off('show-spending-password-modal', prompt)
+    }
+  })
+
+  it('excludes draft, deleted, and relay nodes from hasCoreNodes', () => {
+    const { store, state } = setup()
+    store.nodes = [
+      { id: 1, name: 'relay-1', type: 'relay', hostId: 2 },
+      { id: 2, name: 'draft-core', type: 'core', hostId: 2, isDraft: true },
+      { id: 3, name: 'deleted-pool', type: 'pool', hostId: 2, isDeleted: true }
+    ] as unknown as typeof store.nodes
+    expect(state.hasCoreNodes).toBe(false)
+
+    store.nodes = [
+      ...store.nodes,
+      { id: 4, name: 'active-pool', type: 'pool', hostId: 2, isDraft: false, isDeleted: false }
+    ] as unknown as typeof store.nodes
+    expect(state.hasCoreNodes).toBe(true)
+  })
   it('submits editable metadata after one password and retains its id after failure', async () => {
     const { store, state } = setup()
     const socket = vi.spyOn(store, 'socketRequest').mockRejectedValue(new Error('connection lost'))
