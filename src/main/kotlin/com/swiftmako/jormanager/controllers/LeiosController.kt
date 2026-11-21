@@ -101,8 +101,12 @@ class LeiosController(
         require(request.target.networkKey == null || request.target.networkKey == network)
         val target = Target(request.target.hostId, request.target.nodeId, pool, network)
         val era = try {
-            val observer = if (node.isDraft) nodes.findDefault() else node
-            observer?.takeIf { !it.isDeleted && !it.isDraft && eras.networkKey(it) == network }?.let {
+            val observer = when {
+                node.isDraft -> nodes.findDefault()
+                node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault()
+                else -> node
+            }
+            observer?.takeIf { !it.isDeleted && !it.isDraft && it.type != "pool" && eras.networkKey(it) == network }?.let {
                 val evidence = eras.evidence(it)
                 evidence.era.takeIf { _ -> evidence.freshness == "current" && evidence.networkKey == network &&
                     evidence.source == "host:${it.hostId}/node:${it.id}" }

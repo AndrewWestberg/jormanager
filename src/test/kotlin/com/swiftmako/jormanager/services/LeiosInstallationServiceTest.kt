@@ -232,9 +232,9 @@ class LeiosInstallationServiceTest {
             assertThat(singleJson.path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
             assertThat(remote.keys.any { it.startsWith("/nodes/core/leios-7.skey.jormanager-backup-") }).isTrue()
 
-            // Re-installing rotated key when [prior, current] array is active keeps 2-key array without duplicates
-            val priorEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"AA".repeat(32)}"}"""
-            val currentUpperEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"01".repeat(32).uppercase()}"}"""
+            // Re-installing rotated key when [prior, current] array is active keeps 2-key array without duplicates even when description and hex case differ
+            val priorEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Prior CLI key","cborHex":"5820${"AA".repeat(32)}"}"""
+            val currentUpperEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Different description","cborHex":"5820${"01".repeat(32).uppercase()}"}"""
             remote["/nodes/core/leios-7.skey"] = "[$priorEnvelope,$currentUpperEnvelope]"
             row = null
             state = ""
@@ -260,6 +260,146 @@ class LeiosInstallationServiceTest {
                 assertThat(error.disposition).isEqualTo("retry")
                 assertThat(remote.containsKey("/nodes/core/leios-7.skey")).isFalse()
             }
+        } finally { unmockkConstructor(HostConnection::class) }
+    }
+
+    @Test fun `bulk child pool installs and rotates BLS keys across PR 6749 shapes using parent producer era evidence`() {
+        setup()
+        try {
+            val mapper = ObjectMapper()
+            val childPool = node.copy(
+                id = 3,
+                parentId = 2,
+                type = "pool",
+                name = "child",
+                poolId = "child-pool",
+                vrfSKeyId = 12,
+            )
+            val childKey1 = LeiosVotingKey(
+                id = 17,
+                networkKey = "network",
+                poolId = "child-pool",
+                publicKey = ByteArray(96) { 1 },
+                proof = ByteArray(48),
+                signingFileId = 8,
+                preparedAt = Instant.now(),
+                validationProvenance = "fixture",
+            )
+            val childKey2 = LeiosVotingKey(
+                id = 18,
+                networkKey = "network",
+                poolId = "child-pool",
+                publicKey = ByteArray(96) { 5 },
+                proof = ByteArray(48),
+                signingFileId = 180,
+                preparedAt = Instant.now(),
+                validationProvenance = "fixture",
+            )
+            val childKey3 = LeiosVotingKey(
+                id = 19,
+                networkKey = "network",
+                poolId = "child-pool",
+                publicKey = ByteArray(96) { 6 },
+                proof = ByteArray(48),
+                signingFileId = 190,
+                preparedAt = Instant.now(),
+                validationProvenance = "fixture",
+            )
+            val childVrf = """{"type":"VrfSigningKey_PraosVRF","cborHex":"5840${"cc".repeat(64)}"}"""
+            val parentVrf = """{"type":"VrfSigningKey_PraosVRF","cborHex":"5840${"dd".repeat(64)}"}"""
+            val opcert = """{"type":"NodeOperationalCertificate","cborHex":"8200"}"""
+            val kes = """{"type":"KesSigningKey_ed25519_kes_2^6","cborHex":"5840${"ee".repeat(64)}"}"""
+            val parentBls = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"ff".repeat(32)}"}"""
+            val secret2 = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Key 2","cborHex":"5820${"05".repeat(32)}"}"""
+            val secret3 = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Key 3","cborHex":"5820${"06".repeat(32)}"}"""
+            val parentEntry = "[$opcert,$parentVrf,$kes,$parentBls]"
+
+            every { nodes.findById(3) } returns Optional.of(childPool)
+            every { eras.networkKey(childPool) } returns "network"
+            every { eras.evidence(childPool) } throws AssertionError("Bulk child pool has no socket; must check producer era evidence")
+            every { keys.findById(17) } returns Optional.of(childKey1)
+            every { keys.findById(18) } returns Optional.of(childKey2)
+            every { keys.findById(19) } returns Optional.of(childKey3)
+            every { files.findById(12) } returns Optional.of(File(12, "child.vrf.skey", childVrf))
+            every { files.findById(180) } returns Optional.of(File(180, "key-18", secret2))
+            every { files.findById(190) } returns Optional.of(File(190, "key-19", secret3))
+            every { wallet.getSKeyContent(match { it.id == 12L }, "password") } returns childVrf
+            every { wallet.getSKeyContent(match { it.id == 180L }, "password") } returns secret2
+            every { wallet.getSKeyContent(match { it.id == 190L }, "password") } returns secret3
+
+            remote["/nodes/core/startNode.sh"] = "--config /nodes/core/config.json --bulk-credentials-file /nodes/core/credentials.json"
+            val childTarget = LeiosController.Target(1, 3, "child-pool", "network")
+
+            // 1. PR #6749 initial shapes: 3-tuple, null, and empty array [] all populate entry[3] cleanly as a single envelope
+            for ((label, initialChildEntry) in listOf(
+                "3-tuple" to "[$opcert,$childVrf,$kes]",
+                "null" to "[$opcert,$childVrf,$kes,null]",
+                "empty-array" to "[$opcert,$childVrf,$kes,[]]",
+            )) {
+                row = null
+                state = ""
+                remote["/nodes/core/credentials.json"] = "[$parentEntry,$initialChildEntry]"
+                val result = service.install(LeiosInstallRequest("bulk-init-$label", childTarget, 17, "password"))
+                assertThat(result.state).isEqualTo("installed")
+
+                val updated = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
+                assertThat(updated.size()).isEqualTo(2)
+                // Parent entry in credentials.json is untouched
+                assertThat(updated[0][3].path("cborHex").asString()).isEqualTo("5820${"ff".repeat(32)}")
+                // Child entry[3] is a single BLS envelope object (no empty entries left behind)
+                assertThat(updated[1].size()).isEqualTo(4)
+                assertThat(updated[1][3].isObject).isTrue()
+                assertThat(updated[1][3].path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
+            }
+
+            // 2. Single-envelope deduplication by cborHex (even when description and hex case differ)
+            val key1DifferentDesc = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"CLI generated","cborHex":"5820${"01".repeat(32).uppercase()}"}"""
+            remote["/nodes/core/credentials.json"] = "[$parentEntry,[$opcert,$childVrf,$kes,$key1DifferentDesc]]"
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("bulk-dedup-single", childTarget, 17, "password"))
+            val afterSingleDedup = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
+            assertThat(afterSingleDedup[1][3].isObject).isTrue()
+            assertThat(afterSingleDedup[1][3].path("cborHex").asString().lowercase()).isEqualTo("5820${"01".repeat(32)}")
+
+            // 3. Rotate from single envelope -> 2-key array [key1, key2]
+            var activePublicByte = 5
+            every {
+                anyConstructed<HostConnection>().command(match<List<String>> { it.firstOrNull() == "cat" && it.getOrNull(1)?.endsWith(".vkey") == true })
+            } answers { """{"cborHex":"5860${"%02x".format(activePublicByte).repeat(96)}"}""" }
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("bulk-rotate-2", childTarget, 18, "password"))
+            val afterRotate2 = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
+            assertThat(afterRotate2[1][3].isArray).isTrue()
+            assertThat((0 until afterRotate2[1][3].size()).map { afterRotate2[1][3][it].path("cborHex").asString().lowercase() }).containsExactly(
+                "5820${"01".repeat(32)}",
+                "5820${"05".repeat(32)}",
+            ).inOrder()
+
+            // 4. Re-installing key2 with different description against envelope array does not duplicate
+            val key2AltDesc = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Alt description","cborHex":"5820${"05".repeat(32).uppercase()}"}"""
+            remote["/nodes/core/credentials.json"] = "[$parentEntry,[$opcert,$childVrf,$kes,[$key1DifferentDesc,$key2AltDesc]]]"
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("bulk-dedup-array", childTarget, 18, "password"))
+            val afterArrayDedup = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
+            assertThat(afterArrayDedup[1][3].isArray).isTrue()
+            assertThat(afterArrayDedup[1][3].size()).isEqualTo(2)
+
+            // 5. Rotate from 2-key array -> 3-key array [key1, key2, key3]
+            activePublicByte = 6
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("bulk-rotate-3", childTarget, 19, "password"))
+            val afterRotate3 = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
+            assertThat(afterRotate3[1][3].isArray).isTrue()
+            assertThat((0 until afterRotate3[1][3].size()).map { afterRotate3[1][3][it].path("cborHex").asString().lowercase() }).containsExactly(
+                "5820${"01".repeat(32)}",
+                "5820${"05".repeat(32)}",
+                "5820${"06".repeat(32)}",
+            ).inOrder()
+            assertThat(remote.keys.any { it.startsWith("/nodes/core/credentials.json.jormanager-backup-") }).isTrue()
         } finally { unmockkConstructor(HostConnection::class) }
     }
 }
