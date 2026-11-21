@@ -161,4 +161,105 @@ class LeiosInstallationServiceTest {
             assertThat(commands).isEmpty()
         } finally { unmockkConstructor(HostConnection::class) }
     }
+
+    @Test fun `fresh singleton install writes single BLS envelope object and configures shelley-bls-key`() {
+        setup()
+        try {
+            service.install(request)
+            val installedJson = ObjectMapper().readTree(remote.getValue("/nodes/core/leios-7.skey"))
+            assertThat(installedJson.isObject).isTrue()
+            assertThat(installedJson.path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
+            assertThat(remote.getValue("/nodes/core/startNode.sh")).contains("--shelley-bls-key /nodes/core/leios-7.skey")
+        } finally { unmockkConstructor(HostConnection::class) }
+    }
+
+    @Test fun `singleton rotation preserves active BLS key envelopes alongside rotated key in deduplicated array`() {
+        setup()
+        try {
+            val mapper = ObjectMapper()
+            val priorSecret = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"aa".repeat(32)}"}"""
+            remote["/nodes/core/leios-5.skey"] = priorSecret
+            remote["/nodes/core/startNode.sh"] = "--shelley-bls-key /nodes/core/leios-5.skey \\\n  --shelley-operational-certificate cert"
+
+            service.install(request)
+
+            // Prior key file remains untouched for rollback safety while new file contains [prior, rotated]
+            assertThat(remote["/nodes/core/leios-5.skey"]).isEqualTo(priorSecret)
+            val rotatedArray = mapper.readTree(remote.getValue("/nodes/core/leios-7.skey"))
+            assertThat(rotatedArray.isArray).isTrue()
+            assertThat(rotatedArray.size()).isEqualTo(2)
+            assertThat(rotatedArray[0].path("cborHex").asString()).isEqualTo("5820${"aa".repeat(32)}")
+            assertThat(rotatedArray[1].path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
+            assertThat(remote.getValue("/nodes/core/startNode.sh")).contains("--shelley-bls-key /nodes/core/leios-7.skey")
+            assertThat(remote.keys.any { it.startsWith("/nodes/core/startNode.sh.jormanager-backup-") }).isTrue()
+
+            // Rotating a third key onto the existing 2-key array preserves all three in order
+            row = null
+            state = ""
+            val thirdPublicKey = ByteArray(96) { 3 }
+            val thirdKey = LeiosVotingKey(id = 9, networkKey = "network", poolId = "pool", publicKey = thirdPublicKey, proof = ByteArray(48), signingFileId = 10, preparedAt = Instant.now(), validationProvenance = "fixture")
+            val thirdSecret = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"bb".repeat(32)}"}"""
+            every { keys.findById(9) } returns Optional.of(thirdKey)
+            every { files.findById(10) } returns Optional.of(File(10, "key-9", thirdSecret))
+            every { wallet.getSKeyContent(match { it.id == 10L }, "password") } returns thirdSecret
+            every { anyConstructed<HostConnection>().command(match<List<String>> { it.firstOrNull() == "cat" && it.getOrNull(1)?.endsWith(".vkey") == true }) } returns """{"cborHex":"5860${"03".repeat(96)}"}"""
+
+            service.install(LeiosInstallRequest("request-3", request.target, 9, "password"))
+
+            val chainedArray = mapper.readTree(remote.getValue("/nodes/core/leios-9.skey"))
+            assertThat(chainedArray.isArray).isTrue()
+            assertThat(chainedArray.size()).isEqualTo(3)
+            assertThat((0 until chainedArray.size()).map { chainedArray[it].path("cborHex").asString() }).containsExactly(
+                "5820${"aa".repeat(32)}",
+                "5820${"01".repeat(32)}",
+                "5820${"bb".repeat(32)}",
+            ).inOrder()
+            assertThat(remote.getValue("/nodes/core/startNode.sh")).contains("--shelley-bls-key /nodes/core/leios-9.skey")
+        } finally { unmockkConstructor(HostConnection::class) }
+    }
+
+    @Test fun `singleton idempotent re-install deduplicates by cborHex and preserves single object or active array`() {
+        setup()
+        try {
+            val mapper = ObjectMapper()
+            // Initial single-key install followed by re-install with a new requestId keeps single object
+            service.install(request)
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("request-reinstall-single", request.target, request.keyId, request.spendingPassword))
+            val singleJson = mapper.readTree(remote.getValue("/nodes/core/leios-7.skey"))
+            assertThat(singleJson.isObject).isTrue()
+            assertThat(singleJson.path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
+            assertThat(remote.keys.any { it.startsWith("/nodes/core/leios-7.skey.jormanager-backup-") }).isTrue()
+
+            // Re-installing rotated key when [prior, current] array is active keeps 2-key array without duplicates
+            val priorEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"AA".repeat(32)}"}"""
+            val currentUpperEnvelope = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"5820${"01".repeat(32).uppercase()}"}"""
+            remote["/nodes/core/leios-7.skey"] = "[$priorEnvelope,$currentUpperEnvelope]"
+            row = null
+            state = ""
+            service.install(LeiosInstallRequest("request-reinstall-array", request.target, request.keyId, request.spendingPassword))
+            val dedupedArray = mapper.readTree(remote.getValue("/nodes/core/leios-7.skey"))
+            assertThat(dedupedArray.isArray).isTrue()
+            assertThat(dedupedArray.size()).isEqualTo(2)
+        } finally { unmockkConstructor(HostConnection::class) }
+    }
+
+    @Test fun `singleton install rejects malformed or empty existing shelley-bls-key file before writing`() {
+        setup()
+        try {
+            remote["/nodes/core/startNode.sh"] = "--shelley-bls-key /nodes/core/leios-5.skey \\\n  --shelley-operational-certificate cert"
+            for (badExisting in listOf("[]", """{"type":"WrongType","cborHex":"5820${"aa".repeat(32)}"}""")) {
+                row = null
+                state = ""
+                commands.clear()
+                remote["/nodes/core/leios-5.skey"] = badExisting
+                val error = assertThrows<LeiosInstallationService.InstallationFailure> {
+                    service.install(LeiosInstallRequest("bad-${badExisting.hashCode()}", request.target, request.keyId, request.spendingPassword))
+                }
+                assertThat(error.disposition).isEqualTo("retry")
+                assertThat(remote.containsKey("/nodes/core/leios-7.skey")).isFalse()
+            }
+        } finally { unmockkConstructor(HostConnection::class) }
+    }
 }
