@@ -63,6 +63,16 @@ class LeiosInstallationService(
         require(values.all(::isValidBlsEnvelope)) { "Invalid existing BLS signing key" }
         return values
     }
+    private fun mergeBlsEnvelopes(existing: List<JsonNode>, added: JsonNode): List<JsonNode> {
+        val merged = mutableListOf<JsonNode>()
+        for (candidate in existing + listOf(added)) {
+            val hex = candidate.path("cborHex").asString()
+            if (merged.none { it.path("cborHex").asString().equals(hex, ignoreCase = true) }) {
+                merged.add(candidate)
+            }
+        }
+        return merged
+    }
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
     private fun checkedPath(path: String): String = path.also { require(safe.matches(it) && !it.startsWith("-") && !it.split('/').contains("..")) }
     private fun hashFile(connection: HostConnection, path: String): String {
@@ -84,9 +94,9 @@ class LeiosInstallationService(
         require(target.networkKey == null || target.networkKey == network)
         val key = requireNotNull(keys.findByIdOrNull(keyId))
         require(key.networkKey == network && key.poolId == pool && key.signingFileId != null)
-        val era = eras.evidence(node)
+        val era = eras.evidence(producer)
         require(era.freshness == "current" && era.era == "dijkstra" && era.networkKey == network &&
-            era.source == "host:${host.id}/node:${node.id}")
+            era.source == "host:${host.id}/node:${producer.id}")
         checkedPath(host.cardanoCliPath)
         val connection = HostConnection(host, producer)
         val folder = checkedPath("${host.nodeHomePath}/${producer.name}")
@@ -177,26 +187,30 @@ class LeiosInstallationService(
                     require(item.isArray && item.size() in 3..4 && item[1].path("cborHex").asString().isNotBlank())
                     if (item.size() == 4 && !item[3].isNull) {
                         val values = if (item[3].isArray) item[3].toList() else listOf(item[3])
-                        values.forEach { value ->
-                            require(value.isObject && value.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
-                                value.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}")))
-                        }
+                        require(values.all(::isValidBlsEnvelope))
                     }
                 }
                 val vrfSecret = walletUtils.getSKeyContent(requireNotNull(files.findByIdOrNull(c.node.vrfSKeyId)), request.spendingPassword)
                 val vrfHex = json.readTree(vrfSecret).path("cborHex").asString()
                 require(vrfHex.isNotBlank())
-                val matches = existing.filter { it.isArray && it.size() in 3..4 && it[1].path("cborHex").asString() == vrfHex }
+                val matches = existing.filter {
+                    it.isArray && it.size() in 3..4 && it[1].path("cborHex").asString().equals(vrfHex, ignoreCase = true)
+                }
                 require(matches.size == 1) { "Cannot identify the target pool in bulk credentials" }
                 val entry = matches.single() as ArrayNode
-                if (entry.size() == 3) entry.add(envelope)
-                else if (entry[3].isNull) entry.set(3, envelope)
-                else {
-                    val old = entry[3]
-                    val array = if (old.isArray) (old as ArrayNode).deepCopy() else json.createArrayNode().add(old)
-                    if (array.none { it == envelope }) array.add(envelope)
-                    entry.set(3, array)
+                val existingBls = when {
+                    entry.size() == 3 || entry[3].isNull -> emptyList()
+                    entry[3].isArray -> entry[3].toList()
+                    else -> listOf(entry[3])
                 }
+                val merged = mergeBlsEnvelopes(existingBls, envelope)
+                val updatedBls: JsonNode =
+                    if (merged.size == 1) {
+                        merged.single()
+                    } else {
+                        json.createArrayNode().apply { merged.forEach(::add) }
+                    }
+                if (entry.size() == 3) entry.add(updatedBls) else entry.set(3, updatedBls)
                 val oldStage = "/tmp/jormanager-leios-backup-${UUID.randomUUID()}"
                 try {
                     connection.commandWriteSecret(oldStage, oldContent)
@@ -208,11 +222,12 @@ class LeiosInstallationService(
                 val existingEnvelopes = if (c.existingCredential != null && connection.commandFileExists(c.existingCredential)) {
                     parseBlsEnvelopes(json.readTree(connection.command(listOf("cat", c.existingCredential))))
                 } else emptyList()
-                val merged = LinkedHashMap<String, JsonNode>()
-                existingEnvelopes.forEach { merged.putIfAbsent(it.path("cborHex").asString().lowercase(), it) }
-                merged.putIfAbsent(envelope.path("cborHex").asString().lowercase(), envelope)
-                if (merged.size == 1) secret
-                else json.writeValueAsString(json.createArrayNode().apply { merged.values.forEach(::add) })
+                val merged = mergeBlsEnvelopes(existingEnvelopes, envelope)
+                when {
+                    existingEnvelopes.isEmpty() -> secret
+                    merged.size == 1 -> json.writeValueAsString(merged.single())
+                    else -> json.writeValueAsString(json.createArrayNode().apply { merged.forEach(::add) })
+                }
             }
             val staged = "/tmp/jormanager-leios-install-${UUID.randomUUID()}"
             val adjacent = "${c.credential}.jormanager-stage-${UUID.randomUUID()}"

@@ -31,9 +31,13 @@ class LeiosObservationService(
     private val json: ObjectMapper,
 ) {
     fun refresh(host: Host, node: Node): PoolKeyObservation? {
-        val observer = if (node.isDraft) nodes.findDefault() ?: return null else node
-        val queryHost = if (node.isDraft) hosts.findByIdOrNull(observer.hostId) ?: return null else host
-        if (observer.isDeleted || observer.isDraft || eras.networkKey(node) != eras.networkKey(observer)) return null
+        val observer = when {
+            node.isDraft -> nodes.findDefault() ?: return null
+            node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault() ?: return null
+            else -> node
+        }
+        val queryHost = if (node.isDraft || node.type == "pool") hosts.findByIdOrNull(observer.hostId) ?: return null else host
+        if (observer.isDeleted || observer.isDraft || observer.type == "pool" || eras.networkKey(node) != eras.networkKey(observer)) return null
         val era = eras.evidence(observer)
         if (era.freshness != "current" || era.era != "dijkstra" || era.networkKey != eras.networkKey(observer) ||
             era.source != "host:${queryHost.id}/node:${observer.id}") return null
