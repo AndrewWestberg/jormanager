@@ -112,7 +112,9 @@ class LeiosController(
         }
         val refreshed = try { observationService.refresh(host, node) } catch (_: Exception) { null }
         val observation = refreshed ?: observations.findFirstByNetworkKeyAndPoolIdOrderByObservedAtDesc(network, pool)
-        val installed = installations.findByNodeIdAndHostIdOrderByObservedAtDesc(request.target.nodeId, request.target.hostId).groupBy { it.keyId }
+        val allInstalled = installations.findByNodeIdAndHostIdOrderByObservedAtDesc(request.target.nodeId, request.target.hostId)
+        val latestInstallation = allInstalled.firstOrNull()
+        val installed = allInstalled.groupBy { it.keyId }
         val current = observation?.currentPublicKey?.toHexString()
         val future = observation?.futurePublicKey?.toHexString()
         fun registration(hex: String) = observation?.takeIf { hex == current || hex == future }?.let {
@@ -129,7 +131,17 @@ class LeiosController(
         val views = keys.findByNetworkKeyAndPoolId(network, pool).map { key ->
             val hex = key.publicKey.toHexString()
             val installation = installed[key.id]?.firstOrNull()?.let {
-                Installation(it.state, it.installedFingerprint, it.loadedFingerprint, it.permissionResult, it.observedAt.toString(), true, it.sanitizedError)
+                val isLatestInstallation = latestInstallation != null &&
+                    if (it.id != null || latestInstallation.id != null) {
+                        it.id == latestInstallation.id
+                    } else {
+                        it === latestInstallation
+                    }
+                val stale = refreshed == null ||
+                    !isLatestInstallation ||
+                    it.state != "installed" ||
+                    (it.loadedFingerprint != null && it.loadedFingerprint != it.installedFingerprint)
+                Installation(it.state, it.installedFingerprint, it.loadedFingerprint, it.permissionResult, it.observedAt.toString(), stale, it.sanitizedError)
             }
             KeyView(key.id, hex, key.proof.toHexString(), true, registration(hex), eligibility(hex), installation)
         }.toMutableList()
