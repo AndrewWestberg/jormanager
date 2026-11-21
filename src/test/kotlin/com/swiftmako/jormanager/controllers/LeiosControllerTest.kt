@@ -247,4 +247,76 @@ class LeiosControllerTest {
             .data.keys.single().installation!!
         assertThat(offline.stale).isTrue()
     }
+
+    @Test
+    fun `bulk child pool status resolves era observer to parent core producer and falls back to default node`() {
+        val childPool = node.copy(
+            id = 3,
+            parentId = 2,
+            type = "pool",
+            name = "child",
+            poolId = "child-pool",
+            isDefault = false,
+        )
+        val childKey = LeiosVotingKey(
+            id = 30,
+            networkKey = "network",
+            poolId = "child-pool",
+            publicKey = ByteArray(96) { 7 },
+            proof = ByteArray(48) { 8 },
+            signingFileId = 300,
+            preparedAt = Instant.parse("2026-11-03T00:00:00Z"),
+            validationProvenance = "fixture",
+        )
+        val childObservation = PoolKeyObservation(
+            id = 3,
+            networkKey = "network",
+            poolId = "child-pool",
+            observedAt = Instant.parse("2026-11-20T00:00:00Z"),
+            chainSlot = BigDecimal.TEN,
+            chainHash = ByteArray(32) { 9 },
+            currentPublicKey = childKey.publicKey,
+            effectiveEpoch = BigDecimal.ONE,
+        )
+
+        every { nodes.findById(3) } returns Optional.of(childPool)
+        every { eras.networkKey(childPool) } returns "network"
+        every { eras.evidence(childPool) } throws AssertionError("Bulk child pool has no era evidence of its own")
+        every { observationService.refresh(host, childPool) } returns childObservation
+        every { observations.findFirstByNetworkKeyAndPoolIdOrderByObservedAtDesc("network", "child-pool") } returns childObservation
+        every { keys.findByNetworkKeyAndPoolId("network", "child-pool") } returns listOf(childKey)
+        every { installations.findByNodeIdAndHostIdOrderByObservedAtDesc(3, 1) } returns listOf(
+            KeyInstallation(
+                id = 70,
+                keyId = 30,
+                nodeId = 3,
+                hostId = 1,
+                configurationFingerprint = "cfg-child",
+                installedFingerprint = "fp-30",
+                loadedFingerprint = null,
+                permissionResult = "operator:600",
+                state = "installed",
+                observedAt = Instant.parse("2026-11-20T03:00:00Z"),
+            ),
+        )
+
+        val childRequest = LeiosController.StatusRequest("req-child", LeiosController.Target(1, 3, "child-pool", "network"))
+        val response = controller.status(childRequest) as SocketResponse.Success<LeiosController.Status>
+        assertThat(response.data.era).isEqualTo("dijkstra")
+        assertThat(response.data.keys.single().installation?.stale).isFalse()
+
+        // Fallback to default node when parentId is null
+        val orphanChildPool = childPool.copy(id = 4, parentId = null)
+        every { nodes.findById(4) } returns Optional.of(orphanChildPool)
+        every { nodes.findDefault() } returns node
+        every { eras.networkKey(orphanChildPool) } returns "network"
+        every { eras.evidence(orphanChildPool) } throws AssertionError("Bulk child pool has no era evidence of its own")
+        every { observationService.refresh(host, orphanChildPool) } returns childObservation
+        every { installations.findByNodeIdAndHostIdOrderByObservedAtDesc(4, 1) } returns emptyList()
+
+        val fallbackResponse = controller.status(
+            LeiosController.StatusRequest("req-child-fallback", LeiosController.Target(1, 4, "child-pool", "network")),
+        ) as SocketResponse.Success<LeiosController.Status>
+        assertThat(fallbackResponse.data.era).isEqualTo("dijkstra")
+    }
 }
