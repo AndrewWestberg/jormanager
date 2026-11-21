@@ -3,14 +3,146 @@ package com.swiftmako.jormanager.services
 import java.net.URI
 import java.sql.DriverManager
 import java.util.UUID
+import liquibase.changelog.ChangeLogParameters
 import liquibase.command.CommandScope
 import liquibase.database.DatabaseFactory
+import liquibase.database.OfflineConnection
 import liquibase.database.jvm.JdbcConnection
+import liquibase.parser.ChangeLogParserFactory
+import liquibase.resource.ClassLoaderResourceAccessor
+import liquibase.sqlgenerator.SqlGeneratorFactory
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 class AuthorizedOperationMigrationTest {
+    @Test
+    fun `changelog 048 is registered after 047 and generates drops for unused dijkstra tables and columns`() {
+        val accessor = ClassLoaderResourceAccessor()
+        val database =
+            DatabaseFactory.getInstance().findCorrectDatabaseImplementation(
+                OfflineConnection("offline:postgresql", accessor),
+            )
+        val master =
+            ChangeLogParserFactory
+                .getInstance()
+                .getParser("db/liquibase-changelog.xml", accessor)
+                .parse("db/liquibase-changelog.xml", ChangeLogParameters(database), accessor)
+
+        val paths = master.changeSets.map { it.filePath }
+        val index047 = paths.indexOfLast { it.endsWith("047-remove-authorized-operations.xml") }
+        val index048 = paths.indexOfFirst { it.endsWith("048-remove-unused-dijkstra-tables.xml") }
+        assertTrue(index047 >= 0, "Expected 047 changelog in master changelog")
+        assertTrue(index048 > index047, "Expected 048 changelog to be registered after 047")
+
+        val sql =
+            master.changeSets
+                .filter { it.filePath.endsWith("048-remove-unused-dijkstra-tables.xml") }
+                .flatMap { changeSet ->
+                    changeSet.changes.flatMap { change ->
+                        SqlGeneratorFactory.getInstance().generateSql(change, database).map { it.toSql() }
+                    }
+                }.joinToString("\n")
+
+        assertTrue(sql.contains("nodes_configuration_bundle_fk"), sql)
+        assertTrue(sql.contains("configuration_bundle_id"), sql)
+        assertTrue(sql.contains("bundle_id"), sql)
+        listOf(
+            "network_reconfiguration_reviews",
+            "network_configuration_bundles",
+            "host_qualified_operations",
+            "qualified_operations",
+            "era_observations",
+        ).forEach { table ->
+            assertTrue(sql.contains(table), "Expected SQL to drop $table, got:\n$sql")
+        }
+    }
+
+    @Test
+    fun `migration 048 drops unused dijkstra tables and columns while preserving nodes and snapshots`() {
+        val url = System.getenv("JORMANAGER_TEST_DATABASE_URL")
+        assumeTrue(!url.isNullOrBlank(), "Set JORMANAGER_TEST_DATABASE_URL to a disposable local PostgreSQL database")
+        val target = URI(requireNotNull(url).removePrefix("jdbc:"))
+        require(target.scheme == "postgresql" && target.host in setOf("localhost", "127.0.0.1") &&
+            target.path.matches(Regex("/jormanager_test_[a-zA-Z0-9_]+")))
+        val name = "jormanager_test_migration_" + UUID.randomUUID().toString().replace("-", "")
+        val sibling = "jdbc:" + URI(target.scheme, target.userInfo, target.host, target.port, "/$name", target.query, null)
+        var created = false
+        try {
+            DriverManager.getConnection(url).use { it.createStatement().use { s -> s.execute("CREATE DATABASE $name") } }
+            created = true
+            DriverManager.getConnection(sibling).use { connection ->
+                connection.createStatement().use { s ->
+                    s.execute(
+                        """
+                        CREATE TABLE network_configuration_bundles (id varchar(64) PRIMARY KEY);
+                        CREATE TABLE network_reconfiguration_reviews (id varchar(64) PRIMARY KEY, bundle_id varchar(64) REFERENCES network_configuration_bundles(id));
+                        CREATE TABLE nodes (
+                            id bigint PRIMARY KEY,
+                            name text NOT NULL,
+                            configuration_bundle_id varchar(64),
+                            CONSTRAINT nodes_configuration_bundle_fk FOREIGN KEY (configuration_bundle_id) REFERENCES network_configuration_bundles(id)
+                        );
+                        CREATE TABLE node_configuration_snapshots (
+                            id varchar(64) PRIMARY KEY,
+                            node_id bigint NOT NULL REFERENCES nodes(id),
+                            bundle_id varchar(64) REFERENCES network_configuration_bundles(id)
+                        );
+                        CREATE TABLE qualified_operations (operation_key varchar(255) PRIMARY KEY);
+                        CREATE TABLE host_qualified_operations (id bigint PRIMARY KEY);
+                        CREATE TABLE era_observations (id bigint PRIMARY KEY, node_id bigint REFERENCES nodes(id));
+                        INSERT INTO network_configuration_bundles VALUES ('bundle-1');
+                        INSERT INTO network_reconfiguration_reviews VALUES ('review-1', 'bundle-1');
+                        INSERT INTO nodes VALUES (1, 'core-1', 'bundle-1');
+                        INSERT INTO node_configuration_snapshots VALUES ('snap-1', 1, 'bundle-1');
+                        INSERT INTO qualified_operations VALUES ('op-1');
+                        INSERT INTO host_qualified_operations VALUES (1);
+                        INSERT INTO era_observations VALUES (1, 1);
+                        """.trimIndent(),
+                    )
+                }
+                val migration = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
+                CommandScope("update")
+                    .addArgumentValue("database", migration)
+                    .addArgumentValue("changelogFile", "db/changelog/048-remove-unused-dijkstra-tables.xml")
+                    .execute()
+                connection.createStatement().use { s ->
+                    fun value(sql: String): String? = s.executeQuery(sql).use { rs -> assertTrue(rs.next()); rs.getString(1) }
+                    assertEquals(
+                        "0",
+                        value(
+                            """
+                            SELECT count(*) FROM information_schema.tables
+                            WHERE table_schema='public'
+                              AND table_name IN (
+                                'network_reconfiguration_reviews',
+                                'network_configuration_bundles',
+                                'host_qualified_operations',
+                                'qualified_operations',
+                                'era_observations'
+                              )
+                            """.trimIndent(),
+                        ),
+                    )
+                    assertEquals(
+                        "0",
+                        value(
+                            """
+                            SELECT count(*) FROM information_schema.columns
+                            WHERE table_schema='public'
+                              AND ((table_name='nodes' AND column_name='configuration_bundle_id')
+                                OR (table_name='node_configuration_snapshots' AND column_name='bundle_id'))
+                            """.trimIndent(),
+                        ),
+                    )
+                    assertEquals("core-1", value("SELECT name FROM nodes WHERE id=1"))
+                    assertEquals("snap-1", value("SELECT id FROM node_configuration_snapshots WHERE node_id=1"))
+                }
+            }
+        } finally {
+            if (created) DriverManager.getConnection(url).use { it.createStatement().use { s -> s.execute("DROP DATABASE $name WITH (FORCE)") } }
+        }
+    }
     @Test
     fun `preserves acknowledged receipts and history without retaining replay data`() {
         val url = System.getenv("JORMANAGER_TEST_DATABASE_URL")

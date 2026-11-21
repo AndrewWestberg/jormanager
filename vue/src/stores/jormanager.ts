@@ -648,13 +648,6 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.toastError = { title: 'Update Color Error', message: message.exception!.message }
           }
           break
-        case 'updatepoolconfig':
-          if (message.data) {
-            this.toastSuccess = { title: 'Update Pool Config...', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Update Pool Config Error', message: message.exception!.message }
-          }
-          break
         case 'leaderlogs':
           if (message.data) {
             this.toastSuccess = { title: 'Leader Logs', message: message.data as string }
@@ -667,28 +660,6 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.editorMetadata = message.data
           } else {
             this.toastError = { title: 'Metadata Fetch Error', message: message.exception!.message }
-          }
-          break
-        case 'updatemetadata':
-          if (message.data) {
-            this.toastSuccess = { title: 'Update Metadata...', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Update Metadata Error', message: message.exception!.message }
-          }
-          break
-        case 'editrelays':
-          if (message.data) {
-            this.toastSuccess = { title: 'Edit Relays...', message: message.data as string }
-          } else {
-            this.toastError = { title: 'Edit Relays Error', message: message.exception!.message }
-          }
-          break
-        case 'retirepool':
-          if (message.data) {
-            this.toastSuccess = { title: 'Retire Pool...', message: message.data as string }
-            this.toastWarn = { title: 'Retire Pool', message: 'Pool has been left running intentionally. You should stop it and disable systemd scripts manually after retirement.' }
-          } else {
-            this.toastError = { title: 'Retire Pool Error', message: message.exception!.message }
           }
           break
       }
@@ -1071,23 +1042,6 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     updateNodeColor(updateColorForm: unknown) {
       this.sendMessage('/jormanager/updatenodecolor', updateColorForm)
-    },
-
-    updatePoolConfig(editPoolForm: unknown) {
-      this.sendMessage('/jormanager/updatepoolconfig', editPoolForm)
-    },
-
-    updateMetadata(editMetadataForm: unknown) {
-      this.sendMessage('/jormanager/updatemetadata', editMetadataForm)
-    },
-
-
-    sendEditRelays(editRelaysForm: unknown) {
-      this.sendMessage('/jormanager/editrelays', editRelaysForm)
-    },
-
-    sendRetirePool(retirePoolForm: unknown) {
-      this.sendMessage('/jormanager/retirepool', retirePoolForm)
     },
   }
 })

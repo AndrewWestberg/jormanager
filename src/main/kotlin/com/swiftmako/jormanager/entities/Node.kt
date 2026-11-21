@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.SequenceGenerator
 import jakarta.persistence.Table
+import jakarta.persistence.Transient
 import java.math.BigInteger
 
 @Entity
@@ -106,4 +107,7 @@ data class Node(
     @Column(name = "is_draft", nullable = false)
     @get:JsonProperty("isDraft")
     val isDraft: Boolean = false,
+    @Transient
+    @get:JsonProperty("relays")
+    val relays: List<Relay> = emptyList(),
 )

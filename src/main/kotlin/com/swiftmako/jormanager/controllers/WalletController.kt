@@ -324,10 +324,15 @@ class WalletController
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                        val prefix = "/tmp/jormanager-wallet-${UUID.randomUUID()}"
+                        val pskeyPath = "$prefix.pskey"
+                        val pvkeyPath = "$prefix.pvkey"
+                        val sskeyPath = "$prefix.sskey"
+                        val svkeyPath = "$prefix.svkey"
+                        val regcertPath = "$prefix.regcert"
                         try {
                             val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                             val protocolParamsJson = protocolSnapshots.query(defaultHost, defaultNode, defaultHostConnection, era, magicString, socketPath)
-                            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
                             val protocolParameters =
                                 protocolParamsAdapter.fromJson(protocolParamsJson)
                                     ?: throw IOException("Invalid protocol params!")
@@ -336,10 +341,11 @@ class WalletController
                                 when {
                                     request.generateKeys -> {
                                         defaultHostConnection.command(
-                                            "${defaultHost.cardanoCliPath} $era address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey"
+                                            "${defaultHost.cardanoCliPath} $era address key-gen --verification-key-file $pvkeyPath --signing-key-file $pskeyPath"
                                         )
-                                        val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
-                                        val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
+                                        defaultHostConnection.commandArgs(listOf("chmod", "600", pskeyPath))
+                                        val paymentSKey = defaultHostConnection.commandReadFile(pskeyPath)
+                                        val paymentVKey = defaultHostConnection.commandReadFile(pvkeyPath)
                                         Pair(paymentSKey, paymentVKey)
                                     }
 
@@ -374,10 +380,11 @@ class WalletController
                             val (sskeyContent, svkeyContent) =
                                 if (request.generateKeys) {
                                     defaultHostConnection.command(
-                                        "${defaultHost.cardanoCliPath} $era stake-address key-gen --verification-key-file /tmp/jormanager-svkey --signing-key-file /tmp/jormanager-sskey"
+                                        "${defaultHost.cardanoCliPath} $era stake-address key-gen --verification-key-file $svkeyPath --signing-key-file $sskeyPath"
                                     )
-                                    val stakingSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-sskey")
-                                    val stakingVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-svkey")
+                                    defaultHostConnection.commandArgs(listOf("chmod", "600", sskeyPath))
+                                    val stakingSKey = defaultHostConnection.commandReadFile(sskeyPath)
+                                    val stakingVKey = defaultHostConnection.commandReadFile(svkeyPath)
                                     Pair(stakingSKey, stakingVKey)
                                 } else {
                                     Pair(request.stakingSKey!!, request.stakingVKey!!)
@@ -399,14 +406,20 @@ class WalletController
                                 )
 
                             if (pvkeyContent != null) {
-                                defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", pvkeyContent)
+                                defaultHostConnection.commandWriteFile(pvkeyPath, pvkeyContent)
                             }
-                            defaultHostConnection.commandWriteFile("/tmp/jormanager-svkey", svkeyContent)
+                            defaultHostConnection.commandWriteFile(svkeyPath, svkeyContent)
+                            val depositArg =
+                                if (era.lowercase() in setOf("conway", "dijkstra")) {
+                                    "--key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} "
+                                } else {
+                                    ""
+                                }
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} $era stake-address registration-certificate --key-reg-deposit-amt ${protocolParameters.stakeAddressDeposit} --staking-verification-key-file /tmp/jormanager-svkey --out-file /tmp/jormanager-regcert"
+                                    "${defaultHost.cardanoCliPath} $era stake-address registration-certificate ${depositArg}--staking-verification-key-file $svkeyPath --out-file $regcertPath"
                                 ).trim()
-                            val regcertContent = defaultHostConnection.commandReadFile("/tmp/jormanager-regcert")
+                            val regcertContent = defaultHostConnection.commandReadFile(regcertPath)
                             val savedRegcertFile =
                                 fileRepository.save(
                                     File(
@@ -421,13 +434,13 @@ class WalletController
                                 } else {
                                     defaultHostConnection
                                         .command(
-                                            "${defaultHost.cardanoCliPath} $era address build --payment-verification-key-file /tmp/jormanager-pvkey --staking-verification-key-file /tmp/jormanager-svkey $magicString"
+                                            "${defaultHost.cardanoCliPath} $era address build --payment-verification-key-file $pvkeyPath --staking-verification-key-file $svkeyPath $magicString"
                                         ).trim()
                                 }
                             val stakingAddr =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era stake-address build --staking-verification-key-file /tmp/jormanager-svkey $magicString"
+                                        "${defaultHost.cardanoCliPath} $era stake-address build --staking-verification-key-file $svkeyPath $magicString"
                                     ).trim()
                             WalletEntry(
                                 name = request.name,
@@ -441,8 +454,8 @@ class WalletController
                                 stakingRegCert = savedRegcertFile
                             )
                         } finally {
-                            defaultHostConnection.command(
-                                "rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey /tmp/jormanager-sskey /tmp/jormanager-svkey /tmp/jormanager-regcert"
+                            defaultHostConnection.commandArgs(
+                                listOf("rm", "-f", pskeyPath, pvkeyPath, sskeyPath, svkeyPath, regcertPath)
                             )
                         }
                     } ?: throw IOException("Host not found for default node!")
@@ -462,15 +475,19 @@ class WalletController
                     hostRepository.findByIdOrNull(defaultNode.hostId)?.let { defaultHost ->
                         val defaultHostConnection = HostConnection(defaultHost, defaultNode)
                         val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                        val prefix = "/tmp/jormanager-wallet-${UUID.randomUUID()}"
+                        val pskeyPath = "$prefix.pskey"
+                        val pvkeyPath = "$prefix.pvkey"
                         try {
                             val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                             val (skeyContent, vkeyContent) =
                                 if (request.generateKeys) {
                                     defaultHostConnection.command(
-                                        "${defaultHost.cardanoCliPath} $era address key-gen --verification-key-file /tmp/jormanager-pvkey --signing-key-file /tmp/jormanager-pskey"
+                                        "${defaultHost.cardanoCliPath} $era address key-gen --verification-key-file $pvkeyPath --signing-key-file $pskeyPath"
                                     )
-                                    val paymentSKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pskey")
-                                    val paymentVKey = defaultHostConnection.commandReadFile("/tmp/jormanager-pvkey")
+                                    defaultHostConnection.commandArgs(listOf("chmod", "600", pskeyPath))
+                                    val paymentSKey = defaultHostConnection.commandReadFile(pskeyPath)
+                                    val paymentVKey = defaultHostConnection.commandReadFile(pvkeyPath)
                                     Pair(paymentSKey, paymentVKey)
                                 } else {
                                     Pair(request.paymentSKey!!, request.paymentVKey!!)
@@ -491,11 +508,11 @@ class WalletController
                                     )
                                 )
 
-                            defaultHostConnection.commandWriteFile("/tmp/jormanager-pvkey", vkeyContent)
+                            defaultHostConnection.commandWriteFile(pvkeyPath, vkeyContent)
                             val paymentAddr =
                                 defaultHostConnection
                                     .command(
-                                        "${defaultHost.cardanoCliPath} $era address build --payment-verification-key-file /tmp/jormanager-pvkey $magicString"
+                                        "${defaultHost.cardanoCliPath} $era address build --payment-verification-key-file $pvkeyPath $magicString"
                                     ).trim()
                             WalletEntry(
                                 name = request.name,
@@ -505,7 +522,7 @@ class WalletController
                                 paymentVkey = savedPaymentVKeyFile
                             )
                         } finally {
-                            defaultHostConnection.command("rm -f /tmp/jormanager-pskey /tmp/jormanager-pvkey")
+                            defaultHostConnection.commandArgs(listOf("rm", "-f", pskeyPath, pvkeyPath))
                         }
                     } ?: throw IOException("Host not found for default node!")
                 } ?: throw IOException("Genesis file for default node not found!")
