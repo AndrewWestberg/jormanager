@@ -312,6 +312,7 @@ class NodeControllerTest {
             every { hostId } returns 1L
             every { id } returns 2L
             every { name } returns "pool"
+            every { type } returns NodeController.NODE_TYPE_CORE
             every { poolId } returns "pool1fixture"
             every { isDraft } returns false
             every { isDeleted } returns false
@@ -357,6 +358,127 @@ class NodeControllerTest {
                 createTarget(fixture.client(), hostRepository = hosts, fileRepository = files,
                     walletUtils = wallet, cardanoRepository = eras).publishPoolMetadata(node, metadata, "password")
             }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
+    }
+
+    @Test
+    fun publishPoolMetadataResolvesParentOrDefaultObserverAndObserverHostForBulkChildAndDraftPools() {
+        val observerHost =
+            Host(
+                id = 2L,
+                type = "local",
+                cardanoCliPath = "/opt/observer/cardano-cli",
+                cardanoNodePath = "/opt/observer/cardano-node",
+                hostname = "observer-host",
+                sshUser = "operator",
+                nodeHomePath = "/srv/observer",
+                jcliPath = null,
+            )
+        val baseNode =
+            Node(
+                id = 10L,
+                hostId = 2L,
+                color = "#000000",
+                type = NodeController.NODE_TYPE_CORE,
+                processorThreads = 2,
+                name = "parent-core",
+                listen = "127.0.0.1",
+                port = 3001,
+                promPort = 12798,
+                genesisByronFileId = 1L,
+                genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = false,
+            )
+        val defaultObserver = baseNode.copy(id = 1L, name = "default-relay", type = NodeController.NODE_TYPE_RELAY, isDefault = true)
+        val childWithParent =
+            baseNode.copy(
+                id = 20L,
+                hostId = 99L,
+                name = "bulk-child",
+                type = NodeController.NODE_TYPE_POOL,
+                parentId = 10L,
+                poolId = "pool1child",
+                isDraft = false,
+            )
+        val childWithoutParent = childWithParent.copy(id = 21L, parentId = null, poolId = "pool1orphan")
+        val draftPool =
+            baseNode.copy(
+                id = 22L,
+                hostId = 99L,
+                name = "draft-pool",
+                type = NodeController.NODE_TYPE_CORE,
+                poolId = "pool1draft",
+                isDraft = true,
+            )
+        val nodes =
+            mockk<NodeRepository> {
+                every { findById(10L) } returns Optional.of(baseNode)
+                every { findDefault() } returns defaultObserver
+            }
+        val hosts =
+            mockk<HostRepository> {
+                every { findById(2L) } returns Optional.of(observerHost)
+            }
+        val eras =
+            mockk<CardanoRepository> {
+                every { networkKey(any()) } returns "dijkstra-net"
+                every { evidence(baseNode) } returns
+                    CardanoRepository.EraEvidence("dijkstra-net", "dijkstra", "current", "host:2/node:10", generation = 1)
+                every { evidence(defaultObserver) } returns
+                    CardanoRepository.EraEvidence("dijkstra-net", "dijkstra", "current", "host:2/node:1", generation = 1)
+            }
+        val wallet =
+            mockk<WalletUtils> {
+                every { isValidSpendingPassword("password") } returns true
+            }
+        val metadata = com.swiftmako.jormanager.model.Metadata("POOL", "Pool", "Description", "https://example.org", null)
+
+        mockkConstructor(HostConnection::class)
+        try {
+            val cliInvocations = mutableListOf<List<String>>()
+            val fixture = RationaleHttpFixture(key = "pool.json")
+            every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } returns ""
+            every { anyConstructed<HostConnection>().commandArgs(any()) } answers {
+                val args = firstArg<List<String>>()
+                if ("metadata-hash" in args) {
+                    cliInvocations += args
+                    com.swiftmako.jormanager.utils.Blake2b.hash256(checkNotNull(fixture.uploadedBytes))
+                        .joinToString("") { "%02x".format(it) }
+                } else {
+                    ""
+                }
+            }
+
+            val target =
+                createTarget(
+                    fixture.client(),
+                    nodeRepository = nodes,
+                    hostRepository = hosts,
+                    walletUtils = wallet,
+                    cardanoRepository = eras,
+                )
+
+            val childResult = target.publishPoolMetadata(childWithParent, metadata, "password")
+            val fallbackResult = target.publishPoolMetadata(childWithoutParent, metadata, "password")
+            val draftResult = target.publishPoolMetadata(draftPool, metadata, "password")
+
+            assertThat(childResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
+            assertThat(fallbackResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
+            assertThat(draftResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
+            assertThat(cliInvocations).hasSize(3)
+            cliInvocations.forEach { args ->
+                assertThat(args.take(4)).containsExactly("/opt/observer/cardano-cli", "dijkstra", "stake-pool", "metadata-hash").inOrder()
+            }
+            verify(exactly = 1) { eras.evidence(baseNode) }
+            verify(exactly = 2) { eras.evidence(defaultObserver) }
+            verify(exactly = 0) { eras.evidence(childWithParent) }
+            verify(exactly = 0) { eras.evidence(childWithoutParent) }
+            verify(exactly = 0) { eras.evidence(draftPool) }
         } finally {
             unmockkConstructor(HostConnection::class)
         }
@@ -597,6 +719,39 @@ class NodeControllerTest {
 
         assertThat(script).contains("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
         assertThat(script).contains("--shelley-operational-certificate ${'$'}{SHELLEY_OPCERT}")
+        assertThat(script).doesNotContain("--bulk-credentials-file")
+    }
+
+    @Test
+    fun renderManualStartupScriptUsesBulkCredentialsForPoolRewrite() {
+        val target = createTarget()
+
+        val withTracing =
+            target.renderManualStartupScript(
+                request = createRequest(NodeController.NODE_TYPE_CORE, name = "core1"),
+                startupNodeType = NodeController.NODE_TYPE_POOL,
+                host = testHost,
+                tracingHost = "0.0.0.0",
+                tracingPort = 12790,
+            )
+        val withoutTracing =
+            target.renderManualStartupScript(
+                request = createRequest(NodeController.NODE_TYPE_CORE, name = "core1"),
+                startupNodeType = NodeController.NODE_TYPE_POOL,
+                host = testHost,
+                tracingHost = "0.0.0.0",
+                tracingPort = null,
+            )
+
+        assertThat(withTracing).contains("--bulk-credentials-file ${'$'}{BULK_CREDENTIALS}")
+        assertThat(withTracing).contains("--tracer-socket-network-accept ${'$'}{TRACING_HOST}:${'$'}{TRACING_PORT}")
+        assertThat(withTracing).doesNotContain("--shelley-kes-key")
+        assertThat(withTracing).doesNotContain("--shelley-vrf-key")
+        assertThat(withTracing).doesNotContain("--shelley-operational-certificate")
+
+        assertThat(withoutTracing).contains("--bulk-credentials-file ${'$'}{BULK_CREDENTIALS}")
+        assertThat(withoutTracing).doesNotContain("--tracer-socket-network-accept")
+        assertThat(withoutTracing).doesNotContain("--shelley-operational-certificate")
     }
 
     @Test
