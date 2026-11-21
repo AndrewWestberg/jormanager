@@ -24,9 +24,7 @@ import com.swiftmako.jormanager.services.PoolRegistrationCertificateBuilder
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
-import java.math.BigDecimal
 import java.math.BigInteger
-import java.math.RoundingMode
 import java.util.UUID
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
@@ -123,33 +121,6 @@ class PoolRegistrationController(
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
 
-    private fun formatMarginDecimal(margin: JsonNode): String {
-        val decimal =
-            when {
-                margin.isNumber -> margin.decimalValue()
-                margin.isString -> {
-                    val raw = margin.asString().trim()
-                    if ('/' in raw) {
-                        val parts = raw.split('/', limit = 2)
-                        val numerator = BigDecimal(parts[0].trim())
-                        val denominator = BigDecimal(parts[1].trim())
-                        require(denominator.compareTo(BigDecimal.ZERO) > 0) { "Invalid pool margin" }
-                        numerator.divide(denominator, 18, RoundingMode.HALF_UP)
-                    } else {
-                        raw.toBigDecimalOrNull() ?: return raw
-                    }
-                }
-                margin.isObject -> {
-                    val numerator = BigDecimal(margin.path("numerator").asString().trim())
-                    val denominator = BigDecimal(margin.path("denominator").asString().trim())
-                    require(denominator.compareTo(BigDecimal.ZERO) > 0) { "Invalid pool margin" }
-                    numerator.divide(denominator, 18, RoundingMode.HALF_UP)
-                }
-                else -> throw IllegalArgumentException("Invalid pool margin")
-            }
-        return if (decimal.compareTo(BigDecimal.ZERO) == 0) "0" else decimal.stripTrailingZeros().toPlainString()
-    }
-
     private fun parseRelays(poolNodeId: Long, relaysNode: JsonNode): List<Relay> {
         if (relaysNode.isNull || !relaysNode.isArray) return emptyList()
         return relaysNode.values().mapNotNull { entry ->
@@ -196,7 +167,10 @@ class PoolRegistrationController(
                 require(it.isIntegralNumber && it.canConvertToLong() && it.asLong() > 0) { "Invalid reward account" }
             }
             changes.get("relays")?.let { require(it.isArray || it.isNull) { "Invalid pool relays" } }
-            changes.get("margin")?.let { require(it.isObject || it.isNumber || it.isString) { "Invalid pool margin" } }
+            changes.get("margin")?.let {
+                val margin = if (it.isNumber) it.decimalValue().toPlainString() else if (it.isString) it.asString() else ""
+                require(margin.matches(Regex("0|1|0\\.[0-9]+|1\\.0+"))) { "Invalid pool margin" }
+            }
         }
         return ledger.withSubmissionLock { submit(input) }
     }
@@ -296,7 +270,9 @@ class PoolRegistrationController(
                 ledger.recordSubmitted(t.host, t.observer, t.era, built.txId, envelope)
                 val updatedPledge = changes.get("pledge")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolPledge
                 val updatedCost = changes.get("cost")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolCost
-                val updatedMargin = changes.get("margin")?.takeUnless { it.isNull }?.let(::formatMarginDecimal) ?: t.pool.poolMargin
+                val updatedMargin = changes.get("margin")?.takeUnless { it.isNull }?.let {
+                    if (it.isNumber) it.decimalValue().toPlainString() else it.asString()
+                } ?: t.pool.poolMargin
                 nodes.save(
                     t.pool.copy(
                         poolPledge = updatedPledge,
