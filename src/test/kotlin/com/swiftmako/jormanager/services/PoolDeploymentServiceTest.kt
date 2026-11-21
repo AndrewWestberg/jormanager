@@ -282,4 +282,76 @@ class RemotePoolDeploymentServiceTest {
             unmockkConstructor(HostConnection::class)
         }
     }
+
+    @Test
+    fun `existing bulk credentials accept PR 6749 fourth slot forms`() {
+        val validBls1 =
+            """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"BLS Signing Key","cborHex":"5820${"ab".repeat(32)}"}"""
+        val validBls2 =
+            """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"BLS Signing Key","cborHex":"5820${"CD".repeat(32)}"}"""
+        val allowedForms =
+            listOf(
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},null]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},[]]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},$validBls1]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},[$validBls1,$validBls2]]]""",
+            )
+
+        for (existingCredentials in allowedForms) {
+            state = "registered"
+            details = """{"intent":{"name":"pool"},"registrationRequestId":"registration","keyId":null,"registrationState":"submitted","transactionId":"${"a".repeat(64)}"}"""
+            records.clear()
+            remote.clear()
+            commands.clear()
+            savedNodes.clear()
+            setup()
+            try {
+                remote["/nodes/parent/credentials.json"] = existingCredentials
+                val result = service.install(42, null, id, "password", "sudo")
+                assertThat(result.state).isEqualTo("installed")
+                val updated = json.readTree(remote.getValue("/nodes/parent/credentials.json"))
+                assertThat(updated.size()).isEqualTo(2)
+                assertThat(updated[0]).isEqualTo(json.readTree(existingCredentials)[0])
+                assertThat(updated[1][1].path("cborHex").asString()).isEqualTo("key14")
+            } finally {
+                unmockkConstructor(HostConnection::class)
+            }
+        }
+    }
+
+    @Test
+    fun `existing bulk credentials reject malformed fourth slot cleanly before issuing opcert`() {
+        val validBls =
+            """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"","cborHex":"5820${"ab".repeat(32)}"}"""
+        val malformedForms =
+            listOf(
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},"/nodes/parent/bls.skey"]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},{"type":"WrongKeyType","cborHex":"5820${"ab".repeat(32)}"}]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","cborHex":"deadbeef"}]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},[null]]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},[$validBls,{"type":"Bad","cborHex":"5820${"ab".repeat(32)}"}]]]""",
+                """[[{"cert":"old"},{"cborHex":"old-vrf"},{"cborHex":"old-kes"},null,null]]""",
+            )
+
+        for (malformedCredentials in malformedForms) {
+            state = "registered"
+            details = """{"intent":{"name":"pool"},"registrationRequestId":"registration","keyId":null,"registrationState":"submitted","transactionId":"${"a".repeat(64)}"}"""
+            records.clear()
+            remote.clear()
+            commands.clear()
+            savedNodes.clear()
+            setup()
+            try {
+                remote["/nodes/parent/credentials.json"] = malformedCredentials
+                assertThrows<IllegalArgumentException> {
+                    service.install(42, null, id, "password", "sudo")
+                }
+                assertThat(commands.count { "issue-op-cert" in it }).isEqualTo(0)
+                assertThat(state).isEqualTo("registered")
+                assertThat(remote.getValue("/nodes/parent/credentials.json")).isEqualTo(malformedCredentials)
+            } finally {
+                unmockkConstructor(HostConnection::class)
+            }
+        }
+    }
 }
