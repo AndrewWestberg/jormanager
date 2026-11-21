@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.DijkstraBlockDec
 import com.swiftmako.jormanager.nodeclient.protocols.blockfetch.ByronBlockDecoder
 import com.swiftmako.jormanager.utils.CborSpans
 import com.muquit.libsodiumjna.SodiumLibrary
+import com.swiftmako.jormanager.ktx.elementToBigInteger
 import com.swiftmako.jormanager.ktx.elementToByteArray
 import com.swiftmako.jormanager.ktx.elementToHexString
 import com.swiftmako.jormanager.ktx.elementToLong
@@ -28,6 +29,7 @@ object MsgRollForwardAdapter {
             0x4C.toByte() // 'L'
         }
     private const val ERA_BABBAGE = 5L
+    private const val ERA_DIJKSTRA = 7L
 //    private var tipDone = false
 
     fun fromCborArray(cborArray: CborArray, byronEpochSlots: Long? = null): Optional<MsgRollForward> {
@@ -36,7 +38,8 @@ object MsgRollForwardAdapter {
 
             // parse wrappedHeader
             val headerCborArray = cborArray.elementAt(1) as CborArray
-            val blockEra = headerCborArray.elementToLong(0)
+            val blockEra = headerCborArray.elementToBigInteger(0).longValueExact()
+            require(blockEra in 0L..ERA_DIJKSTRA) { "Unsupported block era: $blockEra" }
             if (blockEra == 0L) {
                 val nested = headerCborArray.elementAt(1) as CborArray
                 val context = nested.elementAt(0) as CborArray
@@ -53,7 +56,7 @@ object MsgRollForwardAdapter {
                 ))
             }
             val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
-            if (blockEra == 7L) {
+            if (blockEra == ERA_DIJKSTRA) {
                 val header = DijkstraBlockDecoder.decodeHeader(wrappedBlockHeaderBytes)
                 val blockVrf = header.vrfResult.toHexString()
                 val tip = cborArray.elementAt(2) as CborArray

@@ -96,9 +96,15 @@ class CardanoRepository(
         val entry = entries.computeIfAbsent(entryKey(key, node)) { Entry(key) }
         return synchronized(entry) {
             try {
-                val tip = requireNotNull(queryTipAdapter.fromJson(HostConnection(host, node).commandArgs(
-                    listOf(host.cardanoCliPath, "query", "tip") + magicString.split(" ") + socketPath.split(" ") + "--output-json"
-                ))) { "Node tip unavailable" }
+                val magicArgs = magicString.split(Regex("\\s+")).filter { it.isNotBlank() }
+                val socketArgs = socketPath.split(Regex("\\s+")).filter { it.isNotBlank() }
+                val connection = HostConnection(host, node)
+                val tipJson = try {
+                    connection.commandArgs(listOf(host.cardanoCliPath, "latest", "query", "tip") + magicArgs + socketArgs + "--output-json")
+                } catch (_: Exception) {
+                    connection.commandArgs(listOf(host.cardanoCliPath, "query", "tip") + magicArgs + socketArgs + "--output-json")
+                }
+                val tip = requireNotNull(queryTipAdapter.fromJson(tipJson)) { "Node tip unavailable" }
                 val era = tip.era?.lowercase()
                 require(era in setOf("byron", "shelley", "allegra", "mary", "alonzo", "babbage", "conway", "dijkstra")) { "Unknown node era" }
                 val generation = entry.evidence.generation + if (entry.evidence.era != era) 1 else 0

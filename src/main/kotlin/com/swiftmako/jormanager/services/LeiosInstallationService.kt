@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.services
 
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ArrayNode
 import com.swiftmako.jormanager.controllers.LeiosController
@@ -45,8 +46,23 @@ class LeiosInstallationService(
         val installedFingerprint: String?, val intent: String, val state: String)
     private data class Context(val host: Host, val node: Node, val producer: Node, val key: LeiosVotingKey,
         val target: LeiosController.Target, val connection: HostConnection, val startup: String, val credential: String,
-        val systemd: Boolean, val bulk: Boolean, val fingerprint: String)
+        val existingCredential: String?, val systemd: Boolean, val bulk: Boolean, val fingerprint: String)
     private val safe = Regex("[A-Za-z0-9_./-]+")
+    private val shelleyBlsKeyOption = Regex("--shelley-bls-key\\s+([^\\s\\\\]+)")
+    private val blsCborHex = Regex("5820[0-9a-fA-F]{64}")
+    private fun isValidBlsEnvelope(node: JsonNode): Boolean =
+        node.isObject &&
+            node.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" &&
+            node.path("cborHex").asString().matches(blsCborHex)
+    private fun parseBlsEnvelopes(node: JsonNode): List<JsonNode> {
+        val values = when {
+            node.isObject -> listOf(node)
+            node.isArray && !node.isEmpty -> node.toList()
+            else -> throw IllegalArgumentException("Invalid existing BLS signing key")
+        }
+        require(values.all(::isValidBlsEnvelope)) { "Invalid existing BLS signing key" }
+        return values
+    }
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
     private fun checkedPath(path: String): String = path.also { require(safe.matches(it) && !it.startsWith("-") && !it.split('/').contains("..")) }
     private fun hashFile(connection: HostConnection, path: String): String {
@@ -86,11 +102,16 @@ class LeiosInstallationService(
         val bulk = text.contains("--bulk-credentials-file")
         require(bulk || text.contains("--shelley-operational-certificate")) { "Unsupported producer startup configuration" }
         require(node.type != "pool" || bulk) { "Pool child requires bulk credentials" }
+        val existingCredential = if (!bulk && text.contains("--shelley-bls-key")) {
+            val matches = shelleyBlsKeyOption.findAll(text).toList()
+            require(matches.size == 1) { "Unsupported producer startup configuration" }
+            checkedPath(matches.single().groupValues[1])
+        } else null
         val credential = checkedPath(if (bulk) "$folder/credentials.json" else "$folder/leios-${key.id}.skey")
-        val paths = listOf(startup, "$folder/env", "$folder/config.json", credential).map(::checkedPath)
+        val paths = (listOf(startup, "$folder/env", "$folder/config.json", credential) + listOfNotNull(existingCredential)).distinct().map(::checkedPath)
         val fingerprint = digest(paths.joinToString("\n") { "$it:${hashFile(connection, it)}" }.toByteArray())
         return Context(host, node, producer, key, LeiosController.Target(target.hostId, target.nodeId, pool, network), connection,
-            startup, credential, systemd, bulk, fingerprint)
+            startup, credential, existingCredential, systemd, bulk, fingerprint)
     }
     private fun journal(requestId: String): Journal? = jdbc.query(
         "SELECT id,node_id,host_id,key_id,installed_fingerprint,disruption,state FROM leios_install_previews WHERE request_id=?",
@@ -183,10 +204,25 @@ class LeiosInstallationService(
                     connection.command(listOf("cp", oldStage, "${c.credential}.jormanager-backup-$id"))
                 } finally { connection.command(listOf("rm", "-f", oldStage)) }
                 json.writeValueAsString(existing)
-            } else secret
+            } else {
+                val existingEnvelopes = if (c.existingCredential != null && connection.commandFileExists(c.existingCredential)) {
+                    parseBlsEnvelopes(json.readTree(connection.command(listOf("cat", c.existingCredential))))
+                } else emptyList()
+                val merged = LinkedHashMap<String, JsonNode>()
+                existingEnvelopes.forEach { merged.putIfAbsent(it.path("cborHex").asString().lowercase(), it) }
+                merged.putIfAbsent(envelope.path("cborHex").asString().lowercase(), envelope)
+                if (merged.size == 1) secret
+                else json.writeValueAsString(json.createArrayNode().apply { merged.values.forEach(::add) })
+            }
             val staged = "/tmp/jormanager-leios-install-${UUID.randomUUID()}"
             val adjacent = "${c.credential}.jormanager-stage-${UUID.randomUUID()}"
             try {
+                if (!c.bulk && connection.commandFileExists(c.credential)) {
+                    val backupCredential = "${c.credential}.jormanager-backup-$id"
+                    writesStarted = true
+                    connection.command(listOf("cp", c.credential, backupCredential))
+                    connection.command(listOf("chmod", "600", backupCredential))
+                }
                 connection.commandWriteSecret(staged, content)
                 writesStarted = true
                 connection.command(listOf("cp", staged, adjacent))
