@@ -7,6 +7,7 @@ import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.entities.Relay
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.model.Metadata
 import com.swiftmako.jormanager.ktx.hexToByteArray
@@ -17,16 +18,20 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolParametersRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.PoolRegistrationCertificateBuilder
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpans
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.math.RoundingMode
 import java.util.UUID
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.SendTo
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 
 @Controller
@@ -43,6 +48,8 @@ class PoolRegistrationController(
     private val builder: WalletTransactionBuilder,
     private val ledger: LedgerDao,
     private val nodeController: NodeController,
+    private val relayRepository: RelayRepository,
+    private val messages: SimpMessagingTemplate,
 ) {
     data class SubmitRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long,
         val keyId: Long? = null, val action: String, val changes: JsonNode? = null,
@@ -115,6 +122,57 @@ class PoolRegistrationController(
     }
     private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
         .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
+
+    private fun formatMarginDecimal(margin: JsonNode): String {
+        val decimal =
+            when {
+                margin.isNumber -> margin.decimalValue()
+                margin.isString -> {
+                    val raw = margin.asString().trim()
+                    if ('/' in raw) {
+                        val parts = raw.split('/', limit = 2)
+                        val numerator = BigDecimal(parts[0].trim())
+                        val denominator = BigDecimal(parts[1].trim())
+                        require(denominator.compareTo(BigDecimal.ZERO) > 0) { "Invalid pool margin" }
+                        numerator.divide(denominator, 18, RoundingMode.HALF_UP)
+                    } else {
+                        raw.toBigDecimalOrNull() ?: return raw
+                    }
+                }
+                margin.isObject -> {
+                    val numerator = BigDecimal(margin.path("numerator").asString().trim())
+                    val denominator = BigDecimal(margin.path("denominator").asString().trim())
+                    require(denominator.compareTo(BigDecimal.ZERO) > 0) { "Invalid pool margin" }
+                    numerator.divide(denominator, 18, RoundingMode.HALF_UP)
+                }
+                else -> throw IllegalArgumentException("Invalid pool margin")
+            }
+        return if (decimal.compareTo(BigDecimal.ZERO) == 0) "0" else decimal.stripTrailingZeros().toPlainString()
+    }
+
+    private fun parseRelays(poolNodeId: Long, relaysNode: JsonNode): List<Relay> {
+        if (relaysNode.isNull || !relaysNode.isArray) return emptyList()
+        return relaysNode.values().mapNotNull { entry ->
+            when {
+                entry.has("single host address") && !entry.path("single host address").isNull -> {
+                    val address = entry.path("single host address")
+                    val ipv4 = address.path("IPv4").takeIf { it.isString }?.asString()?.takeIf { it.isNotBlank() }
+                    val ipv6 = address.path("IPv6").takeIf { it.isString }?.asString()?.takeIf { it.isNotBlank() }
+                    val addr = requireNotNull(ipv4 ?: ipv6) { "Invalid pool relay address" }
+                    Relay(nodeId = poolNodeId, addr = addr, port = address.path("port").asInt())
+                }
+                entry.has("single host name") && !entry.path("single host name").isNull -> {
+                    val single = entry.path("single host name")
+                    Relay(nodeId = poolNodeId, addr = single.path("dnsName").asString(), port = single.path("port").asInt())
+                }
+                entry.has("multi host name") && !entry.path("multi host name").isNull -> {
+                    val multi = entry.path("multi host name")
+                    Relay(nodeId = poolNodeId, addr = multi.path("dnsName").asString(), port = multi.path("port").asInt(0))
+                }
+                else -> null
+            }
+        }
+    }
 
     @Synchronized
     fun execute(input: SubmitRequest): Result {
@@ -236,11 +294,31 @@ class PoolRegistrationController(
                 cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", signed) + t.network +
                     listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket"))
                 ledger.recordSubmitted(t.host, t.observer, t.era, built.txId, envelope)
-                publication?.let {
-                    nodes.save(t.pool.copy(metadataUrl = it.url, extendedMetadataUrl = it.extendedUrl,
-                        itnPrivateKeyId = it.itnPrivateKeyId ?: t.pool.itnPrivateKeyId,
-                        itnPublicKeyId = it.itnPublicKeyId ?: t.pool.itnPublicKeyId))
+                val updatedPledge = changes.get("pledge")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolPledge
+                val updatedCost = changes.get("cost")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolCost
+                val updatedMargin = changes.get("margin")?.takeUnless { it.isNull }?.let(::formatMarginDecimal) ?: t.pool.poolMargin
+                nodes.save(
+                    t.pool.copy(
+                        poolPledge = updatedPledge,
+                        poolCost = updatedCost,
+                        poolMargin = updatedMargin,
+                        ownerStakingAccountId = cert.ownerAccountIds.firstOrNull() ?: t.pool.ownerStakingAccountId,
+                        rewardsStakingAccountId = cert.rewardAccountId,
+                        metadataUrl = publication?.url ?: t.pool.metadataUrl,
+                        extendedMetadataUrl = publication?.extendedUrl ?: t.pool.extendedMetadataUrl,
+                        itnPrivateKeyId = publication?.itnPrivateKeyId ?: t.pool.itnPrivateKeyId,
+                        itnPublicKeyId = publication?.itnPublicKeyId ?: t.pool.itnPublicKeyId,
+                    )
+                )
+                if (changes.has("relays")) {
+                    val poolNodeId = requireNotNull(t.pool.id)
+                    relayRepository.deleteAll(relayRepository.findByNodeId(poolNodeId))
+                    val newRelays = parseRelays(poolNodeId, changes.path("relays"))
+                    if (newRelays.isNotEmpty()) {
+                        relayRepository.saveAll(newRelays)
+                    }
                 }
+                messages.convertAndSend("/topic/messages", SocketResponse.Success("nodes", nodeController.activeNodesWithRelays()))
                 return Result(input.requestId, built.txId, eras.networkKey(t.observer), t.era, input.nodeId,
                     requireNotNull(bodyField(built.textEnvelope, 2)).toString(), (cert.deposit + stakeDeposit).toString(),
                     "0", "submitted", input.action, input.keyId, publication)

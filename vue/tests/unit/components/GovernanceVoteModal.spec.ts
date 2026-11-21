@@ -46,4 +46,26 @@ describe('governance submission', () => {
     emitter.off('show-spending-password-modal', prompt)
     wrapper.unmount()
   })
+
+  it('excludes draft, deleted, and relay nodes from voting pool checkboxes', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useJorManagerStore()
+    store.connected = true
+    const host = { type: 'local', hostname: 'localhost', sshUser: '', sshPort: 22, sshPemPath: '', cardanoCliPath: '/bin/cardano-cli', cardanoNodePath: '/bin/cardano-node', nodeHomePath: '/node', jcliPath: null }
+    store.nodes = [
+      { id: 1, name: 'ActivePool', type: 'core', poolId: 'pool1', color: '#000', status: 'Running', isDraft: false, host },
+      { id: 2, name: 'DraftPool', type: 'pool', poolId: 'pool2', color: '#111', status: 'Stopped', isDraft: true, host },
+      { id: 3, name: 'DeletedPool', type: 'core', poolId: 'pool3', color: '#222', status: 'Stopped', isDraft: false, isDeleted: true, host } as any,
+      { id: 4, name: 'RelayNode', type: 'relay', poolId: '', color: '#333', status: 'Running', isDraft: false, host }
+    ]
+    const wrapper = mount(GovernanceVoteModal, { props: { modelValue: true }, attachTo: document.body, global: { plugins: [pinia, createBootstrap()], stubs: { FontAwesomeIcon: true } } })
+    await flushPromises()
+    const modal = document.querySelector('.modal') as HTMLElement
+    expect(modal.textContent).toContain('ActivePool')
+    expect(modal.textContent).not.toContain('DraftPool')
+    expect(modal.textContent).not.toContain('DeletedPool')
+    expect(modal.textContent).not.toContain('RelayNode')
+    wrapper.unmount()
+  })
 })

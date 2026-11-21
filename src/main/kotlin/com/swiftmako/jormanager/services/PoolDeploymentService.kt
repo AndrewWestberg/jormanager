@@ -22,6 +22,9 @@ import com.swiftmako.jormanager.repositories.NodeConfigurationSnapshotRepository
 import com.swiftmako.jormanager.utils.CborSpans
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 import java.util.Base64
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -172,7 +175,8 @@ class PoolDeploymentService(
             }
             connection.commandWriteFile("$prefix.counter", file(n.coreCounterId).content)
             connection.commandWriteFile("$prefix.kes.vkey", file(n.kesVKeyId).content)
-            val periods = json.readTree(file(n.genesisShelleyFileId).content).path("slotsPerKESPeriod").asLong()
+            val shelleyGenesis = json.readTree(file(n.genesisShelleyFileId).content)
+            val periods = shelleyGenesis.path("slotsPerKESPeriod").asLong()
             require(periods > 0 && c.tipSlot >= 0)
             connection.commandArgs(listOf(safe(c.host.cardanoCliPath), c.era, "node", "issue-op-cert", "--hot-kes-verification-key-file", "$prefix.kes.vkey", "--cold-signing-key-file", "$prefix.cold", "--operational-certificate-issue-counter", "$prefix.counter", "--kes-period", (c.tipSlot / periods).toString(), "--out-file", "$prefix.opcert"))
             val counter = connection.commandReadFile("$prefix.counter")
@@ -273,7 +277,24 @@ class PoolDeploymentService(
                     } finally { connection.commandArgs(listOf("rm", "-f", temp)) }
                 }
             }
-            val savedNode = nodes.save(n.copy(isDraft = false, opcertId = certId))
+            val maxKesEvolutions = shelleyGenesis.path("maxKESEvolutions").asLong(0L)
+            val slotLengthSec = shelleyGenesis.path("slotLength").asDouble(0.0)
+            val (kesExpireTimeSec, kesExpireDate) =
+                if (maxKesEvolutions > 0L && slotLengthSec > 0.0) {
+                    val expireSec = Instant.now().epochSecond + (maxKesEvolutions * periods * slotLengthSec).toLong()
+                    expireSec to KES_EXPIRE_DATE_FORMATTER.format(Instant.ofEpochSecond(expireSec))
+                } else {
+                    n.kesExpireTimeSec to n.kesExpireDate
+                }
+            val savedNode =
+                nodes.save(
+                    n.copy(
+                        isDraft = false,
+                        opcertId = certId,
+                        kesExpireTimeSec = kesExpireTimeSec,
+                        kesExpireDate = kesExpireDate,
+                    )
+                )
             val fingerprint = c.key?.let(::publicHash)
             if (c.key != null) installations.save(KeyInstallation(keyId = requireNotNull(keyId), nodeId = nodeId, hostId = n.hostId,
                 configurationFingerprint = c.fingerprint, installedFingerprint = fingerprint, permissionResult = "owner:600", state = "installed", observedAt = Instant.now()))
@@ -312,5 +333,10 @@ class PoolDeploymentService(
                 (!counterPersisted && it == "$prefix.counter") || (!certificatePersisted && it == "$prefix.opcert")
             })
         }
+    }
+
+    companion object {
+        private val KES_EXPIRE_DATE_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss 'UTC' yyyy", Locale.US).withZone(ZoneOffset.UTC)
     }
 }

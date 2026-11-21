@@ -1,0 +1,17 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="048-remove-unused-dijkstra-tables" author="jormanager">
+        <sql><![CDATA[
+ALTER TABLE nodes DROP CONSTRAINT IF EXISTS nodes_configuration_bundle_fk;
+ALTER TABLE nodes DROP COLUMN IF EXISTS configuration_bundle_id;
+ALTER TABLE node_configuration_snapshots DROP COLUMN IF EXISTS bundle_id;
+
+DROP TABLE IF EXISTS network_reconfiguration_reviews;
+DROP TABLE IF EXISTS network_configuration_bundles;
+DROP TABLE IF EXISTS host_qualified_operations;
+DROP TABLE IF EXISTS qualified_operations;
+DROP TABLE IF EXISTS era_observations;
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>
