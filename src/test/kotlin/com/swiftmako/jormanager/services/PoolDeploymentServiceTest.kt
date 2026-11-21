@@ -117,11 +117,13 @@ class RemotePoolDeploymentServiceTest {
     private var failCredentialInstall = false
     private var failStartup = false
     private var failCertificateSave = false
+    private var savedNodes = mutableListOf<Node>()
+    private var shelleyGenesisContent = """{"networkId":"testnet","networkMagic":42,"slotsPerKESPeriod":10}"""
 
     private fun hash(value: String): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
 
     private fun setup() {
-        val genesis = listOf("byron-genesis.json" to "{}", "shelley-genesis.json" to """{"networkId":"testnet","networkMagic":42,"slotsPerKESPeriod":10}""",
+        val genesis = listOf("byron-genesis.json" to "{}", "shelley-genesis.json" to shelleyGenesisContent,
             "alonzo-genesis.json" to "{}", "conway-genesis.json" to "{}")
         val assets = (genesis + listOf("config.json" to "{}", "topology.json" to "{}")).toMap()
         genesis.forEachIndexed { index, (_, content) -> records[index.toLong() + 1] = File(index.toLong() + 1, "genesis", content) }
@@ -136,7 +138,7 @@ class RemotePoolDeploymentServiceTest {
         every { nodes.findById(42) } returns Optional.of(draft)
         every { nodes.findById(2) } returns Optional.of(parent)
         every { nodes.findDefault() } returns observer
-        every { nodes.save(any<Node>()) } answers { firstArg() }
+        every { nodes.save(any<Node>()) } answers { firstArg<Node>().also { savedNodes += it } }
         every { hosts.findById(3) } returns Optional.of(host)
         every { files.findById(any()) } answers { Optional.ofNullable(records[firstArg<Long>()]) }
         every { files.save(any<File>()) } answers {
@@ -255,5 +257,29 @@ class RemotePoolDeploymentServiceTest {
             assertThat(service.install(42, null, id, "password", "sudo").state).isEqualTo("installed_startup_failed")
             assertThat(commands.count { "issue-op-cert" in it }).isEqualTo(1)
         } finally { unmockkConstructor(HostConnection::class) }
+    }
+
+    @Test
+    fun `successful installation persists kesExpireTimeSec and UTC kesExpireDate from shelley genesis`() {
+        shelleyGenesisContent =
+            """{"networkId":"testnet","networkMagic":42,"slotsPerKESPeriod":129600,"maxKESEvolutions":62,"slotLength":1}"""
+        setup()
+        try {
+            val beforeSec = java.time.Instant.now().epochSecond
+            val result = service.install(42, null, id, "password", "sudo")
+            val afterSec = java.time.Instant.now().epochSecond
+
+            assertThat(result.state).isEqualTo("installed")
+            val saved = savedNodes.single()
+            assertThat(saved.isDraft).isFalse()
+            assertThat(saved.opcertId).isEqualTo(99L)
+            val expectedDurationSec = 62L * 129_600L * 1L
+            assertThat(saved.kesExpireTimeSec).isAtLeast(beforeSec + expectedDurationSec)
+            assertThat(saved.kesExpireTimeSec).isAtMost(afterSec + expectedDurationSec)
+            assertThat(saved.kesExpireDate).isNotEqualTo("---")
+            assertThat(saved.kesExpireDate).contains("UTC")
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 }

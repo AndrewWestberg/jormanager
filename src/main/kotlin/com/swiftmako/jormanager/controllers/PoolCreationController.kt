@@ -54,7 +54,7 @@ class PoolCreationController(private val service: PoolCreationService, private v
         }
         try {
             val node = service.create(request)
-            messages.convertAndSend("/topic/messages", SocketResponse.Success("nodes", nodes.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }))
+            messages.convertAndSend("/topic/messages", SocketResponse.Success("nodes", nodeController.activeNodesWithRelays()))
             messages.convertAndSend("/topic/messages", SocketResponse.Success("createnode", com.swiftmako.jormanager.model.CreateNodeResult(request.requestId, requireNotNull(node.id), "${node.name} created successfully!")))
         } catch (e: PoolCreationFailure) {
             messages.convertAndSend("/topic/messages", SocketResponse.Error("createnode", SocketResponse.PublicFailure(

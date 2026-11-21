@@ -9,6 +9,7 @@ import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
+import com.swiftmako.jormanager.entities.Relay as RelayEntity
 import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.model.*
@@ -16,6 +17,7 @@ import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.NodeConfigurationFiles
 import com.swiftmako.jormanager.spring.config.Configuration
@@ -40,6 +42,7 @@ import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.messaging.simp.SimpMessagingTemplate
+import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import retrofit2.Retrofit
 
@@ -196,6 +199,7 @@ class NodeControllerTest {
     private fun createTarget(
         httpClient: OkHttpClient = OkHttpClient.Builder().build(),
         nodeRepository: NodeRepository = mockk(relaxed = true),
+        relayRepository: RelayRepository = mockk(relaxed = true),
         hostRepository: HostRepository = mockk(relaxed = true),
         fileRepository: FileRepository = mockk(relaxed = true),
         walletUtils: WalletUtils =
@@ -207,6 +211,7 @@ class NodeControllerTest {
         nodeConfigurationFiles: NodeConfigurationFiles = mockk(relaxed = true),
     ) = NodeController(
         nodeRepository = nodeRepository,
+        relayRepository = relayRepository,
         hostRepository = hostRepository,
         fileRepository = fileRepository,
         walletUtils = walletUtils,
@@ -218,7 +223,7 @@ class NodeControllerTest {
         shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
         byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
         metadataAdapter = config.getMetadataAdapter(moshi),
-        keyFileJsonAdapter = mockk(relaxed = true),
+        keyFileJsonAdapter = config.getKeyAdapter(moshi),
         cardanoRepository = cardanoRepository,
         nodeConfigurationFiles = nodeConfigurationFiles,
     )
@@ -849,11 +854,413 @@ class NodeControllerTest {
     }
 
     @Test
+    fun updateColorRequestAcceptsBothIdAndNodeIdAndNodeSerializesRelays() {
+        val mapper = jacksonObjectMapper()
+        val fromId = mapper.readValue("""{"id":5,"color":"#112233"}""", UpdateColorRequest::class.java)
+        val fromNodeId = mapper.readValue("""{"nodeId":5,"color":"#112233"}""", UpdateColorRequest::class.java)
+        assertThat(fromId).isEqualTo(UpdateColorRequest(id = 5L, color = "#112233"))
+        assertThat(fromNodeId).isEqualTo(UpdateColorRequest(id = 5L, color = "#112233"))
+
+        val node =
+            Node(
+                id = 5L,
+                hostId = 1L,
+                color = "#112233",
+                type = "core",
+                processorThreads = 2,
+                name = "core-1",
+                listen = "0.0.0.0",
+                port = 3001,
+                promPort = 12798,
+                genesisByronFileId = 1L,
+                genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = false,
+                relays = listOf(RelayEntity(id = 9L, nodeId = 5L, addr = "relay.pool.test", port = 3001)),
+            )
+        val tree = mapper.readTree(mapper.writeValueAsString(node))
+        assertThat(tree.path("relays").size()).isEqualTo(1)
+        assertThat(tree.path("relays")[0].path("addr").asString()).isEqualTo("relay.pool.test")
+        assertThat(tree.path("relays")[0].path("port").asInt()).isEqualTo(3001)
+    }
+
+    @Test
+    fun getNodesAndUpdateNodeColorAttachRelaysAndExcludeDeletedNodes() {
+        val nodeRepository = mockk<NodeRepository>()
+        val relayRepository = mockk<RelayRepository>()
+        val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+        var storedNode =
+            Node(
+                id = 5L,
+                hostId = 1L,
+                color = "#112233",
+                type = "core",
+                processorThreads = 2,
+                name = "core-1",
+                listen = "0.0.0.0",
+                port = 3001,
+                promPort = 12798,
+                genesisByronFileId = 1L,
+                genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = false,
+            )
+        val deletedNode = storedNode.copy(id = 6L, name = "deleted", isDeleted = true)
+        val relay = RelayEntity(id = 9L, nodeId = 5L, addr = "relay.pool.test", port = 3001)
+        val orphanRelay = RelayEntity(id = 10L, nodeId = 6L, addr = "deleted.pool.test", port = 3002)
+
+        every { nodeRepository.findAll(any<Sort>()) } answers { listOf(storedNode, deletedNode) }
+        every { nodeRepository.findById(5L) } answers { Optional.of(storedNode) }
+        every { nodeRepository.save(any<Node>()) } answers {
+            storedNode = firstArg()
+            storedNode
+        }
+        every { relayRepository.findAll() } returns listOf(relay, orphanRelay)
+
+        val target =
+            createTarget(
+                nodeRepository = nodeRepository,
+                relayRepository = relayRepository,
+                webSocketTemplate = webSocketTemplate,
+            )
+
+        val getResponse = target.getNodes() as SocketResponse.Success<List<Node>>
+        assertThat(getResponse.data).hasSize(1)
+        assertThat(getResponse.data.single().id).isEqualTo(5L)
+        assertThat(getResponse.data.single().relays).containsExactly(relay)
+
+        target.updateNodeColor(UpdateColorRequest(id = 5L, color = "#abcdef"))
+        assertThat(storedNode.color).isEqualTo("#abcdef")
+        verify(exactly = 1) {
+            webSocketTemplate.convertAndSend(
+                "/topic/messages",
+                match<SocketResponse.Success<List<Node>>> {
+                    it.type == "nodes" &&
+                        it.data.size == 1 &&
+                        it.data.single().color == "#abcdef" &&
+                        it.data.single().relays == listOf(relay)
+                },
+            )
+        }
+    }
+
+    @Test
+    fun rotateKesRejectsDraftDeletedRelayAndCrossNetworkNodesBeforeHostSideEffects() {
+        val nodeRepository = mockk<NodeRepository>()
+        val fileRepository = mockk<FileRepository>()
+        val cardanoRepository = mockk<CardanoRepository>()
+        val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+        val defaultNode =
+            Node(
+                id = 1L,
+                hostId = 1L,
+                color = "#000000",
+                type = "core",
+                processorThreads = 2,
+                name = "default-core",
+                listen = "127.0.0.1",
+                port = 3001,
+                promPort = 12798,
+                genesisByronFileId = 1L,
+                genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = true,
+            )
+        val cases =
+            mapOf(
+                10L to defaultNode.copy(id = 10L, name = "draft-core", isDefault = false, isDraft = true),
+                11L to defaultNode.copy(id = 11L, name = "deleted-core", isDefault = false, isDeleted = true),
+                12L to defaultNode.copy(id = 12L, name = "relay-node", isDefault = false, type = "relay"),
+                13L to defaultNode.copy(id = 13L, name = "other-net-core", isDefault = false, genesisShelleyFileId = 999L),
+            )
+
+        every { nodeRepository.findDefault() } returns defaultNode
+        every { nodeRepository.findById(any()) } answers { Optional.ofNullable(cases[firstArg<Long>()]) }
+        every { cardanoRepository.networkKey(any()) } answers { "network:${firstArg<Node>().genesisShelleyFileId}" }
+
+        val target =
+            createTarget(
+                nodeRepository = nodeRepository,
+                fileRepository = fileRepository,
+                cardanoRepository = cardanoRepository,
+                webSocketTemplate = webSocketTemplate,
+            )
+
+        for (nodeId in cases.keys) {
+            assertThrows<RuntimeException> {
+                target.rotateKes(RotateKesRequest(id = nodeId, spendingPassword = "secret"))
+            }
+        }
+        verify(exactly = 0) { fileRepository.findById(any()) }
+        verify(exactly = 0) { fileRepository.save(any()) }
+    }
+
+    @Test
+    fun rotateKesUsesTargetNodeGenesisUuidSecretPathsExcludesDraftChildPoolsAndBroadcastsNodes() {
+        val nodeRepository = mockk<NodeRepository>()
+        val relayRepository = mockk<RelayRepository>()
+        val hostRepository = mockk<HostRepository>()
+        val fileRepository = mockk<FileRepository>()
+        val cardanoRepository = mockk<CardanoRepository>()
+        val walletUtils = mockk<WalletUtils>()
+        val webSocketTemplate = mockk<SimpMessagingTemplate>(relaxed = true)
+
+        val host =
+            Host(
+                id = 1L,
+                type = "local",
+                cardanoCliPath = "/bin/cardano-cli",
+                cardanoNodePath = "/bin/cardano-node",
+                hostname = "localhost",
+                sshUser = "user",
+                nodeHomePath = "/nodes",
+                jcliPath = null,
+            )
+        // defaultNode intentionally points to non-existent genesis IDs (901/902) to prove rotateKes reads node's genesis!
+        val defaultNode =
+            Node(
+                id = 1L,
+                hostId = 1L,
+                color = "#000000",
+                type = "relay",
+                processorThreads = 2,
+                name = "default-relay",
+                listen = "127.0.0.1",
+                port = 3000,
+                promPort = 12789,
+                genesisByronFileId = 901L,
+                genesisShelleyFileId = 902L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = true,
+            )
+        var coreNode =
+            Node(
+                id = 10L,
+                hostId = 1L,
+                color = "#112233",
+                type = "core",
+                processorThreads = 4,
+                name = "core-1",
+                listen = "0.0.0.0",
+                port = 3001,
+                promPort = 12798,
+                genesisByronFileId = 1L,
+                genesisShelleyFileId = 2L,
+                genesisAlonzoFileId = 3L,
+                genesisConwayFileId = 4L,
+                configFileId = 5L,
+                isDefault = false,
+                coreSKeyId = 11L,
+                coreCounterId = 12L,
+                vrfSKeyId = 13L,
+                kesSKeyId = 14L,
+                kesVKeyId = 15L,
+                opcertId = 16L,
+            )
+        val activeChild =
+            coreNode.copy(
+                id = 20L,
+                name = "pool-active",
+                type = "pool",
+                parentId = 10L,
+                opcertId = 21L,
+                vrfSKeyId = 22L,
+                kesSKeyId = 23L,
+            )
+        val draftChild =
+            coreNode.copy(
+                id = 21L,
+                name = "pool-draft",
+                type = "pool",
+                parentId = 10L,
+                isDraft = true,
+                opcertId = -1L,
+                vrfSKeyId = 24L,
+                kesSKeyId = 25L,
+            )
+        val deletedChild =
+            coreNode.copy(
+                id = 22L,
+                name = "pool-deleted",
+                type = "pool",
+                parentId = 10L,
+                isDeleted = true,
+                opcertId = 26L,
+                vrfSKeyId = 27L,
+                kesSKeyId = 28L,
+            )
+        val relay = RelayEntity(id = 7L, nodeId = 10L, addr = "relay.core.test", port = 3001)
+
+        val files =
+            mutableMapOf(
+                1L to File(1L, "byron.json", """{"startTime":1506203091,"protocolConsts":{"k":2160},"blockVersionData":{"slotDuration":20000}}"""),
+                2L to File(2L, "shelley.json", """{"activeSlotsCoeff":0.05,"networkId":"Testnet","networkMagic":42,"slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2017-09-23T21:44:51Z","maxKESEvolutions":62}"""),
+                11L to File(11L, "core.skey", """{"type":"NodeOperationalCertificateIssueCounter","description":"","cborHex":"5820${"aa".repeat(32)}"}"""),
+                12L to File(12L, "core.counter", """{"type":"NodeOperationalCertificateIssueCounter","description":"","cborHex":"01"}"""),
+                13L to File(13L, "core.vrf.skey", """{"type":"VrfSigningKey_PraosVRF","description":"","cborHex":"5840${"bb".repeat(64)}"}"""),
+                14L to File(14L, "core.kes.skey", """{"type":"KesSigningKey_ed25519_kes_2^6","description":"","cborHex":"5820${"cc".repeat(32)}"}"""),
+                15L to File(15L, "core.kes.vkey", """{"type":"KesVerificationKey_ed25519_kes_2^6","description":"","cborHex":"5820${"dd".repeat(32)}"}"""),
+                16L to File(16L, "core.opcert", """{"type":"NodeOperationalCertificate","description":"","cborHex":"5820${"ee".repeat(32)}"}"""),
+                21L to File(21L, "child.opcert", """{"type":"NodeOperationalCertificate","description":"","cborHex":"5820${"21".repeat(32)}"}"""),
+                22L to File(22L, "child.vrf.skey", """{"type":"VrfSigningKey_PraosVRF","description":"","cborHex":"5840${"22".repeat(64)}"}"""),
+                23L to File(23L, "child.kes.skey", """{"type":"KesSigningKey_ed25519_kes_2^6","description":"","cborHex":"5820${"23".repeat(32)}"}"""),
+            )
+        var nextFileId = 100L
+
+        every { walletUtils.isValidSpendingPassword("secret") } returns true
+        every { walletUtils.getSKeyContent(any(), "secret") } answers { firstArg<File>().content }
+        every { walletUtils.encryptSKeyContent(any(), "secret") } answers { firstArg() }
+        every { nodeRepository.findDefault() } returns defaultNode
+        every { nodeRepository.findById(10L) } answers { Optional.of(coreNode) }
+        every { nodeRepository.findByParentId(10L) } returns listOf(activeChild, draftChild, deletedChild)
+        every { nodeRepository.findAll(any<Sort>()) } answers { listOf(defaultNode, coreNode, activeChild, draftChild, deletedChild) }
+        every { nodeRepository.save(any<Node>()) } answers {
+            coreNode = firstArg()
+            coreNode
+        }
+        every { relayRepository.findAll() } returns listOf(relay)
+        every { hostRepository.findById(1L) } returns Optional.of(host)
+        every { fileRepository.findById(any()) } answers {
+            val id = firstArg<Long>()
+            assertThat(id).isNotEqualTo(-1L)
+            assertThat(id).isNotIn(listOf(901L, 902L, 26L, 27L, 28L))
+            Optional.ofNullable(files[id])
+        }
+        every { fileRepository.save(any<File>()) } answers {
+            val incoming = firstArg<File>()
+            val saved = if (incoming.id == null) incoming.copy(id = nextFileId++) else incoming
+            files[requireNotNull(saved.id)] = saved
+            saved
+        }
+        every { cardanoRepository.networkKey(any()) } returns "same-network"
+        every { cardanoRepository.getEra(any(), any(), any(), any()) } returns "conway"
+
+        val secretWrites = mutableMapOf<String, String>()
+        val plainWrites = mutableMapOf<String, String>()
+        val remoteFiles = mutableMapOf<String, String>()
+        val commandArgsCalls = mutableListOf<List<String>>()
+
+        mockkConstructor(HostConnection::class)
+        try {
+            every { anyConstructed<HostConnection>().bashCommand(any(), any()) } returns "SSH connectivity verified"
+            every { anyConstructed<HostConnection>().commandFileExists(any()) } returns false
+            every { anyConstructed<HostConnection>().commandWriteSecret(any(), any()) } answers {
+                val path = firstArg<String>()
+                val content = secondArg<String>()
+                secretWrites[path] = content
+                remoteFiles[path] = content
+            }
+            every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } answers {
+                val path = firstArg<String>()
+                val content = secondArg<String>()
+                plainWrites[path] = content
+                remoteFiles[path] = content
+                ""
+            }
+            every { anyConstructed<HostConnection>().commandReadFile(any()) } answers {
+                remoteFiles.getValue(firstArg())
+            }
+            every { anyConstructed<HostConnection>().command(any<String>()) } answers {
+                val cmd = firstArg<String>()
+                when {
+                    "key-gen-KES" in cmd -> {
+                        val vkey = Regex("--verification-key-file\\s+([^\\s]+)").find(cmd)!!.groupValues[1]
+                        val skey = Regex("--signing-key-file\\s+([^\\s]+)").find(cmd)!!.groupValues[1]
+                        remoteFiles[vkey] = """{"type":"KesVerificationKey_ed25519_kes_2^6","description":"","cborHex":"5820${"ef".repeat(32)}"}"""
+                        remoteFiles[skey] = """{"type":"KesSigningKey_ed25519_kes_2^6","description":"","cborHex":"5820${"fe".repeat(32)}"}"""
+                        ""
+                    }
+                    "issue-op-cert" in cmd -> {
+                        val counter = Regex("--operational-certificate-issue-counter\\s+([^\\s]+)").find(cmd)!!.groupValues[1]
+                        val out = Regex("--out-file\\s+([^\\s]+)").find(cmd)!!.groupValues[1]
+                        remoteFiles[counter] = """{"type":"NodeOperationalCertificateIssueCounter","description":"","cborHex":"02"}"""
+                        remoteFiles[out] = """{"type":"NodeOperationalCertificate","description":"","cborHex":"5820${"99".repeat(32)}"}"""
+                        ""
+                    }
+                    cmd.startsWith("date --date=2017-") -> "1506203091"
+                    cmd == "date -u +%s" -> "1700000000"
+                    cmd.startsWith("date --date=@") -> "Sun Feb 01 00:00:00 UTC 2026"
+                    else -> ""
+                }
+            }
+            every { anyConstructed<HostConnection>().command(any<List<String>>()) } answers {
+                val args = firstArg<List<String>>()
+                if (args.firstOrNull() == "mv") {
+                    remoteFiles[args[3]] = remoteFiles.remove(args[2])!!
+                } else if (args.firstOrNull() == "rm") {
+                    args.drop(2).forEach(remoteFiles::remove)
+                }
+                ""
+            }
+            every { anyConstructed<HostConnection>().commandArgs(any()) } answers {
+                val args = firstArg<List<String>>()
+                commandArgsCalls += args
+                if (args.firstOrNull() == "rm") {
+                    args.drop(2).forEach(remoteFiles::remove)
+                }
+                ""
+            }
+
+            val target =
+                createTarget(
+                    nodeRepository = nodeRepository,
+                    relayRepository = relayRepository,
+                    hostRepository = hostRepository,
+                    fileRepository = fileRepository,
+                    walletUtils = walletUtils,
+                    webSocketTemplate = webSocketTemplate,
+                    cardanoRepository = cardanoRepository,
+                )
+
+            target.rotateKes(RotateKesRequest(id = 10L, spendingPassword = "secret"))
+
+            // Cold signing key was written via commandWriteSecret under /tmp/jormanager-kes-<uuid>.node.skey, never /tmp/core.*
+            assertThat(plainWrites.keys.none { it.endsWith(".node.skey") || it.startsWith("/tmp/core.") }).isTrue()
+            val coldSecretPath = secretWrites.keys.single { it.endsWith(".node.skey") }
+            assertThat(coldSecretPath).startsWith("/tmp/jormanager-kes-")
+
+            // Generated kes.skey received chmod 600 and all /tmp/jormanager-kes-* files were cleaned up
+            val chmodKes = commandArgsCalls.single { it.take(2) == listOf("chmod", "600") }[2]
+            assertThat(chmodKes).startsWith("/tmp/jormanager-kes-")
+            assertThat(chmodKes).endsWith(".kes.skey")
+            assertThat(remoteFiles.keys.filter { it.startsWith("/tmp/jormanager-kes-") }).isEmpty()
+
+            // Bulk credentials include core + active child pool (2 entries), excluding draft and deleted child pools
+            val bulkJson = objectMapper.readTree(remoteFiles.getValue("/nodes/core-1/credentials.json"))
+            assertThat(bulkJson.size()).isEqualTo(2)
+
+            // Nodes broadcast includes updated KES expiry and relays
+            assertThat(coreNode.kesExpireTimeSec).isEqualTo(1700000000L + 62L * 129600L)
+            verify(exactly = 1) {
+                webSocketTemplate.convertAndSend(
+                    "/topic/messages",
+                    match<SocketResponse.Success<List<Node>>> {
+                        it.type == "nodes" &&
+                            it.data.none { n -> n.isDeleted } &&
+                            it.data.single { n -> n.id == 10L }.relays == listOf(relay)
+                    },
+                )
+            }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
+    }
+
+    @Test
     @Disabled
     fun testCreateNode() {
         val target =
             NodeController(
                 nodeRepository = mockk(relaxed = true),
+                relayRepository = mockk(relaxed = true),
                 hostRepository =
                     mockk(relaxed = true) {
                         every { findByIdOrNull(1L) } returns

@@ -219,7 +219,18 @@ class BlockController
                     }
 
                     nodeRepository.findDefault()?.let { defaultNode ->
-                        val coreNodes = nodeRepository.findAll().filter { it.type != "relay" && !it.isDeleted }
+                        val defaultNetworkKey = cardanoRepository.networkKey(defaultNode)
+                        val coreNodes =
+                            nodeRepository.findAll().filter {
+                                it.type != "relay" &&
+                                    !it.isDeleted &&
+                                    !it.isDraft &&
+                                    !it.poolId.isNullOrBlank() &&
+                                    cardanoRepository.networkKey(it) == defaultNetworkKey
+                            }
+                        if (coreNodes.isEmpty()) {
+                            throw IOException("No active registered pools found for default node network!")
+                        }
                         fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)?.let { genesisShelleyFile ->
                             val genesisShelley = shelleyGenesisAdapter.fromJson(genesisShelleyFile.content)!!
                             val magicString =

@@ -481,6 +481,14 @@ describe('direct transaction requests', () => {
     store.submitTransaction({})
     expect(send).not.toHaveBeenCalled()
   })
+
+  it('does not expose retired pool STOMP actions that lack backend handlers', () => {
+    const { store } = setup()
+    expect('updatePoolConfig' in store).toBe(false)
+    expect('updateMetadata' in store).toBe(false)
+    expect('sendEditRelays' in store).toBe(false)
+    expect('sendRetirePool' in store).toBe(false)
+  })
 })
 
 describe('fee estimates', () => {

@@ -28,6 +28,7 @@ import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.services.NodeConfigurationFiles
 import com.swiftmako.jormanager.services.MetadataService
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
@@ -77,6 +78,7 @@ class NodeController
         private val keyFileJsonAdapter: JsonAdapter<Key>,
         private val cardanoRepository: CardanoRepository,
         private val nodeConfigurationFiles: NodeConfigurationFiles,
+        private val relayRepository: RelayRepository,
         // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
@@ -93,12 +95,19 @@ class NodeController
         private val rationaleUrlPattern =
             Regex("""https://cardanostakehouse\.com/(?:[A-Za-z0-9._~/-]|%[0-9A-Fa-f]{2})+""")
 
+        fun activeNodesWithRelays(): List<Node> {
+            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
+            if (nodes.isEmpty()) return emptyList()
+            val relaysByNodeId = relayRepository.findAll().groupBy { it.nodeId }
+            return nodes.map { node ->
+                node.copy(relays = node.id?.let { relaysByNodeId[it] }.orEmpty())
+            }
+        }
+
         @MessageMapping("/nodes")
         @SendTo("/topic/messages")
-        fun getNodes(): SocketResponse<List<Node>> {
-            val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
-            return SocketResponse.Success(type = "nodes", data = nodes)
-        }
+        fun getNodes(): SocketResponse<List<Node>> =
+            SocketResponse.Success(type = "nodes", data = activeNodesWithRelays())
 
 
         @MessageMapping("/restartnode")
@@ -141,8 +150,10 @@ class NodeController
                 nodeRepository.save(node.copy(color = request.color))
 
                 // send all to the client for ui updates
-                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+                webSocketTemplate.convertAndSend(
+                    "/topic/messages",
+                    SocketResponse.Success(type = "nodes", data = activeNodesWithRelays())
+                )
 
                 webSocketTemplate.convertAndSend(
                     "/topic/messages",
@@ -230,8 +241,10 @@ class NodeController
                     topologyFileId = input.topologyFileId, peerSnapshotFileId = input.peerSnapshotFileId,
                 ))
                 nodesChannel.tryEmit(savedNode)
-                val nodes = nodeRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).filter { !it.isDeleted }
-                webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "nodes", data = nodes))
+                webSocketTemplate.convertAndSend(
+                    "/topic/messages",
+                    SocketResponse.Success(type = "nodes", data = activeNodesWithRelays())
+                )
                 webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success("createnode",
                     com.swiftmako.jormanager.model.CreateNodeResult(input.requestId, requireNotNull(savedNode.id), "${input.name} created successfully!")))
             } catch (e: Throwable) {
@@ -252,9 +265,16 @@ class NodeController
                 if (!walletUtils.isValidSpendingPassword(request.spendingPassword)) {
                     throw IllegalArgumentException("Invalid spending password!")
                 }
+                val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Invalid node id: ${request.id}")
+                require(!node.isDraft && !node.isDeleted && node.type in setOf(NODE_TYPE_CORE, NODE_TYPE_POOL)) {
+                    "KES rotation requires an active core or pool node!"
+                }
                 val defaultNode = nodeRepository.findDefault() ?: throw IOException("Default node not found!")
+                require(!defaultNode.isDraft && !defaultNode.isDeleted && cardanoRepository.networkKey(node) == cardanoRepository.networkKey(defaultNode)) {
+                    "Node and default node are on different networks!"
+                }
                 val genesisFile =
-                    fileRepository.findByIdOrNull(defaultNode.genesisShelleyFileId)
+                    fileRepository.findByIdOrNull(node.genesisShelleyFileId)
                         ?: throw IOException("Genesis shelley not found!")
                 val genesisShelley = shelleyGenesisAdapter.fromJson(genesisFile.content)!!
                 val byronToShelleyEpochs = CardanoNetworkEpochs.byronToShelleyEpochs(genesisShelley)
@@ -266,7 +286,7 @@ class NodeController
                     }
 
                 val genesisByronFile =
-                    fileRepository.findByIdOrNull((defaultNode.genesisByronFileId))
+                    fileRepository.findByIdOrNull(node.genesisByronFileId)
                         ?: throw IOException("Genesis byron not found!")
                 val genesisByron = byronGenesisAdapter.fromJson(genesisByronFile.content)!!
 
@@ -274,7 +294,6 @@ class NodeController
                     hostRepository.findByIdOrNull(defaultNode.hostId)
                         ?: throw IOException("Default host not found!")
                 val defaultHostConnection = HostConnection(defaultHost, defaultNode)
-                val node = nodeRepository.findByIdOrNull(request.id) ?: throw IOException("Invalid node id: ${request.id}")
                 val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host not found!")
                 val hostConnection = HostConnection(host, node)
                 try {
@@ -283,6 +302,12 @@ class NodeController
                     throw IOException("Pre-flight check failed: Remote host is unreachable.", e)
                 }
                 val socketPath = "--socket-path ${defaultHost.nodeHomePath}/${defaultNode.name}/db/socket"
+                val prefix = "/tmp/jormanager-kes-${UUID.randomUUID()}"
+                val coldSkeyPath = "$prefix.node.skey"
+                val counterPath = "$prefix.node.counter"
+                val kesSkeyPath = "$prefix.kes.skey"
+                val kesVkeyPath = "$prefix.kes.vkey"
+                val opcertPath = "$prefix.node.opcert"
                 try {
                     val era = cardanoRepository.getEra(defaultHost, defaultNode, magicString, socketPath)
                     // fetch cold keys and vrf
@@ -290,12 +315,12 @@ class NodeController
                         fileRepository.findByIdOrNull(node.coreSKeyId)?.let { coreSKey ->
                             walletUtils.getSKeyContent(coreSKey, request.spendingPassword)
                         } ?: throw IOException("Could not find core skey!")
-                    defaultHostConnection.commandWriteFile("/tmp/core.node.skey", coreSKeyContent)
+                    defaultHostConnection.commandWriteSecret(coldSkeyPath, coreSKeyContent)
                     val coreCounter =
                         fileRepository.findByIdOrNull(node.coreCounterId)
                             ?: throw IOException("Could not find core counter!")
                     defaultHostConnection.commandWriteFile(
-                        "/tmp/core.node.counter",
+                        counterPath,
                         coreCounter.content
                     )
                     val vrfSKeyContent =
@@ -305,10 +330,11 @@ class NodeController
 
                     // generate new KES keys
                     defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} $era node key-gen-KES --verification-key-file /tmp/core.kes.vkey --signing-key-file /tmp/core.kes.skey"
+                        "${defaultHost.cardanoCliPath} $era node key-gen-KES --verification-key-file $kesVkeyPath --signing-key-file $kesSkeyPath"
                     )
-                    val kesSKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.skey")
-                    val kesVKeyContent = defaultHostConnection.commandReadFile("/tmp/core.kes.vkey")
+                    defaultHostConnection.commandArgs(listOf("chmod", "600", kesSkeyPath))
+                    val kesSKeyContent = defaultHostConnection.commandReadFile(kesSkeyPath)
+                    val kesVKeyContent = defaultHostConnection.commandReadFile(kesVkeyPath)
                     val kesSKey =
                         com.swiftmako.jormanager.entities.File(
                             name = "${node.name}.kes.skey",
@@ -368,9 +394,9 @@ class NodeController
                     )
 
                     defaultHostConnection.command(
-                        "${defaultHost.cardanoCliPath} $era node issue-op-cert --hot-kes-verification-key-file /tmp/core.kes.vkey --cold-signing-key-file /tmp/core.node.skey --operational-certificate-issue-counter /tmp/core.node.counter --kes-period $currentKESPeriod --out-file /tmp/core.node.opcert"
+                        "${defaultHost.cardanoCliPath} $era node issue-op-cert --hot-kes-verification-key-file $kesVkeyPath --cold-signing-key-file $coldSkeyPath --operational-certificate-issue-counter $counterPath --kes-period $currentKESPeriod --out-file $opcertPath"
                     )
-                    val opcertContent = defaultHostConnection.commandReadFile("/tmp/core.node.opcert")
+                    val opcertContent = defaultHostConnection.commandReadFile(opcertPath)
                     val opcertFile =
                         com.swiftmako.jormanager.entities.File(
                             name = "${node.name}.node.opcert",
@@ -381,41 +407,47 @@ class NodeController
                         fileRepository.save(oldOpcertFile.copy(name = "${oldOpcertFile.name}-${System.currentTimeMillis()}"))
                     }
 
-                    val coreCounterContent = defaultHostConnection.commandReadFile("/tmp/core.node.counter")
+                    val coreCounterContent = defaultHostConnection.commandReadFile(counterPath)
                     fileRepository.save(coreCounter.copy(content = coreCounterContent))
 
-                    nodeRepository.save(
-                        node.copy(
-                            kesSKeyId = kesSKeyId,
-                            kesVKeyId = kesVKeyId,
-                            opcertId = opcertId,
-                            kesExpireDate = kesExpireDate,
-                            kesExpireTimeSec = kesExpireTimeSec
+                    val updatedNode =
+                        nodeRepository.save(
+                            node.copy(
+                                kesSKeyId = kesSKeyId,
+                                kesVKeyId = kesVKeyId,
+                                opcertId = opcertId,
+                                kesExpireDate = kesExpireDate,
+                                kesExpireTimeSec = kesExpireTimeSec
+                            )
                         )
-                    )
 
                     // upload kes and opcert
                     // 13. Create and Save node information
                     val (coreNode, nodeFolder, isUpdateBulkCredentials) =
-                        if (node.type == "core") {
-                            val nodeFolder = "${host.nodeHomePath}${File.separator}${node.name}"
+                        if (updatedNode.type == "core") {
+                            val nodeFolder = "${host.nodeHomePath}${File.separator}${updatedNode.name}"
                             createKesVrfOpcert(
-                                node.name,
+                                updatedNode.name,
                                 kesSKeyContent,
                                 vrfSKeyContent,
                                 opcertContent,
                                 hostConnection,
                                 nodeFolder
                             )
-                            Triple(node, nodeFolder, nodeRepository.findByParentId(node.id!!).isNotEmpty())
+                            val hasActiveChildren =
+                                nodeRepository.findByParentId(updatedNode.id!!).any { !it.isDeleted && !it.isDraft }
+                            Triple(updatedNode, nodeFolder, hasActiveChildren)
                         } else {
                             // node.type == "pool"
                             val coreNode =
-                                nodeRepository.findByIdOrNull(node.parentId!!)
+                                nodeRepository.findByIdOrNull(updatedNode.parentId!!)
                                     ?: throw IOException("pool does not have a parent!")
+                            require(!coreNode.isDeleted && !coreNode.isDraft) {
+                                "Parent core node is unavailable!"
+                            }
                             val nodeFolder = "${host.nodeHomePath}${File.separator}${coreNode.name}"
                             createKesVrfOpcert(
-                                node.name,
+                                updatedNode.name,
                                 kesSKeyContent,
                                 vrfSKeyContent,
                                 opcertContent,
@@ -449,39 +481,47 @@ class NodeController
                                 )!!,
                             )
                         )
-                        // all child pools (including the one being updated
-                        nodeRepository.findByParentId(coreNode.id!!).forEach { pool ->
-                            credentials.add(
-                                mutableListOf(
-                                    keyFileJsonAdapter.fromJson(fileRepository.findByIdOrNull(pool.opcertId)!!.content)!!,
-                                    keyFileJsonAdapter.fromJson(
-                                        walletUtils.getSKeyContent(
-                                            fileRepository.findByIdOrNull(
-                                                pool.vrfSKeyId
-                                            )!!,
-                                            request.spendingPassword
-                                        )
-                                    )!!,
-                                    keyFileJsonAdapter.fromJson(
-                                        walletUtils.getSKeyContent(
-                                            fileRepository.findByIdOrNull(
-                                                pool.kesSKeyId
-                                            )!!,
-                                            request.spendingPassword
-                                        )
-                                    )!!,
+                        // all active child pools (including the one being updated)
+                        nodeRepository
+                            .findByParentId(coreNode.id!!)
+                            .filter { !it.isDeleted && !it.isDraft }
+                            .map { if (it.id == updatedNode.id) updatedNode else it }
+                            .forEach { pool ->
+                                credentials.add(
+                                    mutableListOf(
+                                        keyFileJsonAdapter.fromJson(fileRepository.findByIdOrNull(pool.opcertId)!!.content)!!,
+                                        keyFileJsonAdapter.fromJson(
+                                            walletUtils.getSKeyContent(
+                                                fileRepository.findByIdOrNull(
+                                                    pool.vrfSKeyId
+                                                )!!,
+                                                request.spendingPassword
+                                            )
+                                        )!!,
+                                        keyFileJsonAdapter.fromJson(
+                                            walletUtils.getSKeyContent(
+                                                fileRepository.findByIdOrNull(
+                                                    pool.kesSKeyId
+                                                )!!,
+                                                request.spendingPassword
+                                            )
+                                        )!!,
+                                    )
                                 )
-                            )
-                        }
+                            }
                         createBulkCredentials(hostConnection, nodeFolder, credentials)
                     }
                 } finally {
                     // cleanup
-                    defaultHostConnection.command(
-                        "rm -f /tmp/core.node.skey /tmp/core.node.counter /tmp/core.kes.skey /tmp/core.kes.vkey /tmp/core.node.opcert"
+                    defaultHostConnection.commandArgs(
+                        listOf("rm", "-f", coldSkeyPath, counterPath, kesSkeyPath, kesVkeyPath, opcertPath)
                     )
                 }
 
+                webSocketTemplate.convertAndSend(
+                    "/topic/messages",
+                    SocketResponse.Success(type = "nodes", data = activeNodesWithRelays())
+                )
                 webSocketTemplate.convertAndSend(
                     "/topic/messages",
                     SocketResponse.Success("rotatekes", "KES rotated successfully, restart node to activate!")
@@ -1329,14 +1369,6 @@ class NodeController
 
 
 
-        private fun requireSameNetwork(observer: Node, targetId: Long) {
-            val target = nodeRepository.findByIdOrNull(targetId) ?: throw IOException("Node $targetId not found")
-            require(cardanoRepository.networkKey(target) == cardanoRepository.networkKey(observer)) {
-                "Pool and observer are on different networks"
-            }
-        }
-
-
         private fun createNodeFolders(
             hostConnection: HostConnection,
             nodeFolder: String
@@ -1357,98 +1389,6 @@ class NodeController
             private const val TRACE_FORWARDER_CONN_QUEUE_SIZE = 64
             private const val TRACE_FORWARDER_DISCONN_QUEUE_SIZE = 128
             private const val TRACE_FORWARDER_MAX_RECONNECT_DELAY = 30
-            private val MARKUS_TRACE_OPTIONS_JSON =
-                """
-                {
-                  "": {
-                    "backends": [
-                      "Stdout MachineFormat",
-                      "PrometheusSimple 127.0.0.1 12798"
-                    ],
-                    "severity": "Notice"
-                  },
-                  "Version.NodeVersion": {
-                    "severity": "Info"
-                  },
-                  "Startup.DiffusionInit": {
-                    "severity": "Info"
-                  },
-                  "Resources": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0167
-                  },
-                  "ChainDB.LedgerEvent.Replay": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0668
-                  },
-                  "ChainDB.ImmDbEvent": {
-                    "severity": "Warning"
-                  },
-                  "ChainDB.ImmDbEvent.ChunkValidation.ValidatedChunk": {
-                    "severity": "Info"
-                  },
-                  "Net.ConnectionManager.Remote": {
-                    "severity": "Info"
-                  },
-                  "Net.PeerSelection": {
-                    "severity": "Info"
-                  },
-                  " Net.PeerSelection.Actions.ConnectionError": {
-                    "severity": "Silence"
-                  },
-                  "Net.InboundGovernor.Remote": {
-                    "severity": "Info"
-                  },
-                  "Net.InboundGovernor.Remote.InboundGovernorCounters": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0167
-                  },
-                  "Net.ErrorPolicy": {
-                    "severity": "Info"
-                  },
-                  "Net.AcceptPolicy.ConnectionRateLimiting": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0167
-                  },
-                  "Net.AcceptPolicy.ConnectionLimitResume": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0167
-                  },
-                  "ChainSync.Client": {
-                    "severity": "Warning"
-                  },
-                  "Forge.Loop": {
-                    "severity": "Info"
-                  },
-                  "Forge.Loop.NodeNotLeader": {
-                    "severity": "Silence"
-                  },
-                  "Forge.Loop.StartLeadershipCheck": {
-                    "severity": "Silence"
-                  },
-                  "Forge.StateInfo": {
-                    "severity": "Info",
-                    "maxFrequency": 0.0002783
-                  },
-                  "ChainDB.AddBlockEvent.SwitchedToAFork": {
-                    "severity": "Info"
-                  },
-                  "ChainDB.AddBlockEvent.AddedToCurrentChain": {
-                    "maxFrequency": 2.0
-                  },
-                  "ChainSync.Client.DownloadedHeader": {
-                    "severity": "Info",
-                    "maxFrequency": 14.0
-                  },
-                  "BlockFetch.Client.SendFetchRequest": {
-                    "severity": "Info"
-                  },
-                  "BlockFetch.Client.CompletedBlockFetch": {
-                    "severity": "Info",
-                    "maxFrequency": 4.0
-                  }
-                }
-                """.trimIndent()
             private val LEGACY_TRACING_KEYS_TO_REMOVE =
                 listOf(
                     "defaultBackends",
@@ -1462,10 +1402,6 @@ class NodeController
                     "hasEkg",
                     "hasEKG",
                     "hasPrometheus",
-                )
-            private val IP4_ADDRESS =
-                Regex(
-                    "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
                 )
         }
     }
