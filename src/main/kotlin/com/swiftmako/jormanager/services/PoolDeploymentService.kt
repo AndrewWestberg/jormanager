@@ -1,5 +1,6 @@
 package com.swiftmako.jormanager.services
 
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ArrayNode
 import com.swiftmako.jormanager.controllers.NodeController
@@ -58,6 +59,39 @@ class PoolDeploymentService(
         c.commandArgs(listOf("sha256sum", path)).trim().substringBefore(' ').also { require(it.matches(Regex("[0-9a-f]{64}"))) }
     } else "absent"
 
+    private fun isValidBlsSigningEnvelope(node: JsonNode): Boolean =
+        node.isObject &&
+            node.path("type").asString() == BLS_SIGNING_KEY_TYPE &&
+            node.path("cborHex").asString().matches(BLS_SIGNING_KEY_CBOR_HEX_REGEX)
+
+    private fun validateBulkCredentials(node: JsonNode): ArrayNode {
+        require(node is ArrayNode) { "Invalid existing bulk credentials" }
+        node.forEach { entry ->
+            require(entry.isArray && entry.size() in 3..4) { "Invalid existing bulk credential entry" }
+            require(entry[0].isObject && entry[1].isObject && entry[1].path("cborHex").asString().isNotBlank() && entry[2].isObject) {
+                "Invalid existing bulk credential entry"
+            }
+            if (entry.size() == 4 && !entry[3].isNull) {
+                val blsSlot = entry[3]
+                val envelopes = if (blsSlot.isArray) blsSlot.toList() else listOf(blsSlot)
+                envelopes.forEach { envelope ->
+                    require(isValidBlsSigningEnvelope(envelope)) { "Invalid BLS envelope in existing bulk credentials" }
+                }
+            }
+        }
+        return node
+    }
+
+    private fun parseAndValidateBulkCredentials(raw: String): ArrayNode {
+        val parsed =
+            try {
+                json.readTree(raw)
+            } catch (e: Exception) {
+                throw IllegalArgumentException("Invalid existing bulk credentials", e)
+            }
+        return validateBulkCredentials(parsed)
+    }
+
     private fun context(nodeId: Long, keyId: Long?): Context {
         val n = requireNotNull(nodes.findByIdOrNull(nodeId)); require(n.isDraft && !n.isDeleted && n.type in setOf("core", "pool"))
         val host = requireNotNull(hosts.findByIdOrNull(n.hostId)); val observer = requireNotNull(nodes.findDefault())
@@ -108,6 +142,11 @@ class PoolDeploymentService(
             }
             require(remoteHash(connection, "$folder/topology.json") == hash(assets.getValue("topology.json").toString(Charsets.UTF_8))) { "Parent topology changed" }
             require(connection.commandFileExists(requireNotNull(startup)))
+            val startupContent = connection.commandReadFile(startup)
+            if (startupContent.contains("--bulk-credentials-file")) {
+                require(connection.commandFileExists("$folder/credentials.json")) { "Existing bulk credentials file not found" }
+                parseAndValidateBulkCredentials(connection.commandReadFile("$folder/credentials.json"))
+            }
         }
         if (systemd) {
             val owner = connection.commandArgs(listOf("id", "-un")).trim()
@@ -228,7 +267,7 @@ class PoolDeploymentService(
                 val startupPath = requireNotNull(c.startup); val original = connection.commandReadFile(startupPath)
                 val credentialPath = "${c.folder}/credentials.json"
                 val credentials: ArrayNode = if (original.contains("--bulk-credentials-file")) {
-                    json.readTree(connection.commandReadFile(credentialPath)) as ArrayNode
+                    parseAndValidateBulkCredentials(connection.commandReadFile(credentialPath))
                 } else {
                     require(original.contains("--shelley-kes-key") && original.contains("--shelley-vrf-key") && original.contains("--shelley-operational-certificate"))
                     val p = c.parent
@@ -242,11 +281,12 @@ class PoolDeploymentService(
                     val parentEntry = json.createArrayNode().add(json.readTree(file(p.opcertId).content)).add(json.readTree(parentVrf)).add(json.readTree(parentKes))
                     if (original.contains("--shelley-bls-key")) {
                         val match = Regex("--shelley-bls-key\\s+([^\\s\\\\]+)").find(original) ?: error("Cannot identify parent BLS key")
-                        parentEntry.add(json.readTree(connection.commandReadFile(safe(match.groupValues[1]))))
+                        val parentBls = json.readTree(connection.commandReadFile(safe(match.groupValues[1])))
+                        require(isValidBlsSigningEnvelope(parentBls)) { "Invalid BLS envelope in existing bulk credentials" }
+                        parentEntry.add(parentBls)
                     }
-                    json.createArrayNode().add(parentEntry)
+                    validateBulkCredentials(json.createArrayNode().add(parentEntry))
                 }
-                require(credentials.all { it.isArray && it.size() in 3..4 })
                 val vrfHex = json.readTree(vrf).path("cborHex").asString(); require(vrfHex.isNotBlank() && credentials.none { it[1].path("cborHex").asString() == vrfHex })
                 val entry = json.createArrayNode().add(json.readTree(cert)).add(json.readTree(vrf)).add(json.readTree(kes))
                 if (blsJson != null) entry.add(blsJson)
@@ -336,6 +376,8 @@ class PoolDeploymentService(
     }
 
     companion object {
+        private const val BLS_SIGNING_KEY_TYPE = "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size"
+        private val BLS_SIGNING_KEY_CBOR_HEX_REGEX = Regex("5820[0-9a-fA-F]{64}")
         private val KES_EXPIRE_DATE_FORMATTER: DateTimeFormatter =
             DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss 'UTC' yyyy", Locale.US).withZone(ZoneOffset.UTC)
     }

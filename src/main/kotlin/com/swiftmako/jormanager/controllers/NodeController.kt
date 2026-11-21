@@ -679,14 +679,20 @@ class NodeController
             require(homepage.toByteArray(Charsets.UTF_8).size <= 64 &&
                 java.net.URI(homepage).let { it.scheme in setOf("http", "https") && !it.host.isNullOrBlank() }) { "Invalid homepage" }
             val pool = requireNotNull(node.poolId)
-            val host = requireNotNull(hostRepository.findByIdOrNull(node.hostId))
-            val observer = if (node.isDraft) requireNotNull(nodeRepository.findDefault()) else node
+            val observer =
+                when {
+                    node.isDraft -> requireNotNull(nodeRepository.findDefault())
+                    node.type == NODE_TYPE_POOL ->
+                        requireNotNull(node.parentId?.let(nodeRepository::findByIdOrNull) ?: nodeRepository.findDefault())
+                    else -> node
+                }
             require(!observer.isDeleted && !observer.isDraft && cardanoRepository.networkKey(observer) == cardanoRepository.networkKey(node))
+            val observerHost = requireNotNull(hostRepository.findByIdOrNull(observer.hostId))
             val evidence = cardanoRepository.evidence(observer)
-            require(evidence.freshness == "current" && evidence.source == "host:${observer.hostId}/node:${observer.id}")
+            require(evidence.freshness == "current" && evidence.source == "host:${observerHost.id ?: observer.hostId}/node:${observer.id}")
             val era = requireNotNull(evidence.era)
-            require(host.cardanoCliPath.matches(Regex("[A-Za-z0-9_./-]+")) && !host.cardanoCliPath.startsWith("-"))
-            val connection = HostConnection(host, node)
+            require(observerHost.cardanoCliPath.matches(Regex("[A-Za-z0-9_./-]+")) && !observerHost.cardanoCliPath.startsWith("-"))
+            val observerConnection = HostConnection(observerHost, observer)
             val prefix = "/tmp/jormanager-metadata-${UUID.randomUUID()}"
             val importedSecret = metadata.extended?.itn?.privateKey?.trim()?.takeIf { it.isNotEmpty() }
             val importedPublic = metadata.extended?.itn?.publicKey?.trim()?.takeIf { it.isNotEmpty() }
@@ -697,14 +703,27 @@ class NodeController
             val owner = importedPublic ?: node.itnPublicKeyId.takeIf { it >= 0 }?.let {
                 requireNotNull(fileRepository.findByIdOrNull(it)) { "ITN public key not found" }.content.trim()
             }
+            var itnConnection: HostConnection? = null
             try {
                 val witness = secret?.let {
-                    val jcli = requireNotNull(host.jcliPath) { "jcli is required for the ITN witness" }
+                    val itnHost =
+                        if (node.hostId == observer.hostId) {
+                            observerHost
+                        } else {
+                            hostRepository.findByIdOrNull(node.hostId)?.takeIf { h -> !h.jcliPath.isNullOrBlank() } ?: observerHost
+                        }
+                    val jcli = requireNotNull(itnHost.jcliPath) { "jcli is required for the ITN witness" }
                     require(jcli.matches(Regex("[A-Za-z0-9_./-]+")) && !jcli.startsWith("-")) { "Invalid jcli path" }
                     require(!owner.isNullOrBlank()) { "ITN public key is required" }
-                    connection.commandWriteFile("$prefix.pool", pool)
-                    connection.commandWriteSecret("$prefix.skey", it)
-                    connection.commandArgs(listOf(jcli, "key", "sign", "--secret-key", "$prefix.skey", "$prefix.pool")).trim()
+                    val conn =
+                        if (itnHost === observerHost || itnHost.id == observerHost.id) {
+                            observerConnection
+                        } else {
+                            HostConnection(itnHost, node).also { c -> itnConnection = c }
+                        }
+                    conn.commandWriteFile("$prefix.pool", pool)
+                    conn.commandWriteSecret("$prefix.skey", it)
+                    conn.commandArgs(listOf(jcli, "key", "sign", "--secret-key", "$prefix.skey", "$prefix.pool")).trim()
                         .also { value -> require(value.isNotBlank()) { "Empty ITN witness" } }
                 }
                 val info = metadata.extended?.info
@@ -735,8 +754,8 @@ class NodeController
                     }
                 check(actual.contentEquals(bytes)) { "Uploaded pool metadata differs from submitted document" }
                 val hash = Blake2b.hash256(bytes).toHexString()
-                connection.commandWriteFile("$prefix.json", primary)
-                val cliHash = connection.commandArgs(listOf(host.cardanoCliPath, era, "stake-pool", "metadata-hash",
+                observerConnection.commandWriteFile("$prefix.json", primary)
+                val cliHash = observerConnection.commandArgs(listOf(observerHost.cardanoCliPath, era, "stake-pool", "metadata-hash",
                     "--pool-metadata-file", "$prefix.json")).trim()
                 check(cliHash.equals(hash, true)) { "Pool metadata hash differs from CLI" }
                 val privateId = importedSecret?.let {
@@ -748,7 +767,8 @@ class NodeController
                 } ?: node.itnPublicKeyId.takeIf { it >= 0 }
                 return PublishedPoolMetadata(url, hash, extendedUrl, privateId, publicId)
             } finally {
-                connection.commandArgs(listOf("rm", "-f", "$prefix.pool", "$prefix.skey", "$prefix.json"))
+                itnConnection?.commandArgs(listOf("rm", "-f", "$prefix.pool", "$prefix.skey"))
+                observerConnection.commandArgs(listOf("rm", "-f", "$prefix.pool", "$prefix.skey", "$prefix.json"))
             }
         }
 
@@ -1226,7 +1246,7 @@ class NodeController
                     """.trimMargin()
                 }
 
-                else -> {
+                NODE_TYPE_CORE -> {
                     """
                 |#!/bin/bash
                 |OLDPWD=`pwd`
@@ -1243,6 +1263,29 @@ class NodeController
                 |  --shelley-kes-key ${'$'}{SHELLEY_KES_KEY} \
                 |  --shelley-vrf-key ${'$'}{SHELLEY_VRF_KEY} \
                 |  --shelley-operational-certificate ${'$'}{SHELLEY_OPCERT} \
+                $listenerLine
+                |  > ${request.name}.log 2>&1 &
+                |echo ${'$'}! > ${request.name}.pid
+                |cd ${'$'}OLDPWD
+                |echo "Started with logfile ${request.name}.log"
+                    """.trimMargin()
+                }
+
+                else -> {
+                    """
+                |#!/bin/bash
+                |OLDPWD=`pwd`
+                |cd ${host.nodeHomePath}/${request.name}
+                |source ${host.nodeHomePath}/${request.name}/env
+                |nohup ${host.cardanoNodePath} \
+                |  +RTS -N${request.processorThreads} -RTS run \
+                |  --topology ${'$'}{TOPOLOGY} \
+                |  --database-path ${'$'}{DATABASE_PATH} \
+                |  --socket-path ${'$'}{SOCKET_PATH} \
+                |  --host-addr ${'$'}{HOST_ADDR} \
+                |  --port ${'$'}{PORT} \
+                |  --config ${'$'}{CONFIG} \
+                |  --bulk-credentials-file ${'$'}{BULK_CREDENTIALS} \
                 $listenerLine
                 |  > ${request.name}.log 2>&1 &
                 |echo ${'$'}! > ${request.name}.pid
