@@ -88,6 +88,31 @@ class DirectPoolTransactionActionsTest {
     }
 
     @Test
+    fun registrationRejectsNonNumericPoolMargin() {
+        every { walletUtils.isValidSpendingPassword("secret") } returns true
+        val nonNumericMargins =
+            listOf(
+                """{"margin":{"numerator":3,"denominator":100}}""",
+                """{"margin":"3/100"}""",
+                """{"margin":"abc"}""",
+                """{"margin":1.5}""",
+                """{"margin":-0.01}""",
+            )
+        for (raw in nonNumericMargins) {
+            val input =
+                PoolRegistrationController.SubmitRequest(
+                    id,
+                    1,
+                    2,
+                    action = "update",
+                    changes = json.readTree(raw),
+                    spendingPassword = "secret",
+                )
+            assertThrows<IllegalArgumentException> { registration.execute(input) }
+        }
+    }
+
+    @Test
     fun publicationFailureStopsRegistrationBeforeCertificateOrSubmission() {
         val nodes = mockk<NodeRepository>()
         val hosts = mockk<HostRepository>()
@@ -339,7 +364,7 @@ class DirectPoolTransactionActionsTest {
                 {
                   "pledge": "500000000",
                   "cost": "345000000",
-                  "margin": {"numerator": 3, "denominator": 100},
+                  "margin": 0.03,
                   "rewardAccountId": 3,
                   "relays": [
                     {"single host address": {"port": 3001, "IPv4": "1.2.3.4", "IPv6": null}},
@@ -396,6 +421,15 @@ class DirectPoolTransactionActionsTest {
                     },
                 )
             }
+
+            val stringMarginInput =
+                input.copy(
+                    requestId = UUID.randomUUID().toString(),
+                    changes = json.readTree("""{"pledge":"500000000","cost":"345000000","margin":"0.04"}"""),
+                    metadata = null,
+                )
+            controller.execute(stringMarginInput)
+            assertThat(savedNodeSlot.captured.poolMargin).isEqualTo("0.04")
         } finally {
             unmockkConstructor(HostConnection::class)
         }
