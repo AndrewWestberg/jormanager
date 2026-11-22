@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "title": "SDK-Backed Transaction Planner Tasks",
+    "created": "2026-11-22",
+    "updated": "2026-11-22",
+    "version": "1.0.0",
+    "totalTasks": 6,
+    "prdReference": ".agent/plans/sdk-transaction-planner/sdk-transaction-planner-prd.md",
+    "description": "Implement SDK-backed Random-Improve coin selection, unfrack.it UTxO defragmentation, local min-ADA and fee calculation, and 16KB transaction size guardrails",
+    "sourceFiles": [
+      "build.gradle.kts",
+      "src/main/kotlin/com/swiftmako/jormanager/services/TransactionPlannerService.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/WalletController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "vue/src/views/Wallet.vue",
+      "vue/src/components/SendAdaModal.vue",
+      "vue/src/stores/jormanager.ts"
+    ],
+    "importantNote": "Never require private keys during planning; enforce <= maxTxSize (16KB) prior to node dispatch; maintain < 500ms selection for 1,000 UTxOs."
+  },
+  "phases": [
+    {
+      "id": "phase-0",
+      "name": "Runtime SDK Dependency & Planner Models",
+      "description": "Promote cardano-client-lib to runtime classpath and add planner domain/request/response models",
+      "riskLevel": "low",
+      "tasks": [
+        {
+          "id": "task-001",
+          "title": "Promote cardano-client-lib to implementation and add planner models",
+          "description": "Move cardano-client-lib to implementation in build.gradle.kts and create SelectionMode, TransactionPlan, and backward-compatible request/response fields",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 1.0,
+          "dependencies": [],
+          "targetPath": "build.gradle.kts",
+          "notes": "Promoted cardano-client-lib:0.7.3 to implementation and added SelectionMode, TransactionPlan, Conway default ProtocolParameters, and selectionMode/plan metrics fields."
+        }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "name": "Core TransactionPlannerService",
+      "description": "Implement SDK coin selection (Random-Improve + Largest-First fallback), Defragment mode, MinAdaCalculator, and local CBOR fee/size calculation",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-100",
+          "title": "Implement TransactionPlannerService",
+          "description": "Build local UTxO selection, multi-asset min-ADA calculation, iterative CBOR fee estimation, unfrack.it defragmentation, and 16KB size validation",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 3.0,
+          "dependencies": ["task-001"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/services/TransactionPlannerService.kt",
+          "notes": "Implemented Random-Improve default coin selection, Largest-First + net-unlocked-lovelace fallback, unfrack.it policy-aware defragmentation with binary-searched 16KB prefix packing, MinAdaCalculator, and FeeCalculationServiceImpl."
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Backend Controller Refactoring",
+      "description": "Replace greedy sweeps and remote dry-run CLI fee commands in WalletController and NodeController",
+      "riskLevel": "high",
+      "tasks": [
+        {
+          "id": "task-200",
+          "title": "Refactor WalletController to use TransactionPlannerService",
+          "description": "Update calculateTxFee, submitTransaction, and updateStakingAddress to use SDK planning and 16KB validation without CLI dry-runs",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": ["task-100"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/WalletController.kt",
+          "notes": "Eliminated remote calculate-min-fee, calculate-min-required-utxo, and dummy build-raw calls; enforced 16KB signed envelope check before submit."
+        },
+        {
+          "id": "task-201",
+          "title": "Refactor NodeController to use TransactionPlannerService",
+          "description": "Update createNode, updatePoolConfig, updateMetadata, editRelays, retirePool, and submitGovernanceVote to use Random-Improve coin selection and 16KB validation",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": ["task-100"],
+          "targetPath": "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+          "notes": "Refactored all 6 SPO and governance transaction endpoints via buildAdminTransactionCommand and validateSignedEnvelopeSize."
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Vue Defragmentation UI & Verification",
+      "description": "Expose Defragment UTxOs workflow in Vue UI and add comprehensive backend/frontend tests",
+      "riskLevel": "medium",
+      "tasks": [
+        {
+          "id": "task-300",
+          "title": "Add Defragment UTxOs UI in Wallet.vue and SendAdaModal.vue",
+          "description": "Add per-wallet Defragment UTxOs action, selection mode toggle, consolidation metrics preview, and store/type bindings",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 2.0,
+          "dependencies": ["task-200"],
+          "targetPath": "vue/src/components/SendAdaModal.vue",
+          "notes": "Added UTxO count badge and Defragment UTxOs action in Wallet.vue, Coin Selection radio group and live planned input/output + 16KB byte budget banner in SendAdaModal.vue."
+        },
+        {
+          "id": "task-301",
+          "title": "Add unit, integration, and 1,000-UTxO performance tests",
+          "description": "Verify Random-Improve, fallback, Defragment consolidation, 16KB limit enforcement, zero dry-run CLI queries, < 500ms performance, and Vue Vitest specs",
+          "status": "completed",
+          "priority": "high",
+          "estimatedHours": 2.5,
+          "dependencies": ["task-200", "task-201", "task-300"],
+          "targetPath": "src/test/kotlin/com/swiftmako/jormanager/services/TransactionPlannerServiceTest.kt",
+          "notes": "All 42 backend JUnit tests, 80 frontend Vitest tests, 1,000-UTxO < 500ms benchmark, bootJar packaging, and headless Chrome UI screenshots verified."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalPhases": 4,
+    "totalTasks": 6,
+    "estimatedTotalHours": 13.5,
+    "criticalPath": ["task-001", "task-100", "task-200", "task-300", "task-301"],
+    "keyFiles": [
+      "build.gradle.kts",
+      "src/main/kotlin/com/swiftmako/jormanager/services/TransactionPlannerService.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/WalletController.kt",
+      "src/main/kotlin/com/swiftmako/jormanager/controllers/NodeController.kt",
+      "vue/src/views/Wallet.vue",
+      "vue/src/components/SendAdaModal.vue"
+    ],
+    "riskAreas": [
+      "Preserving tokenLocked and tokenKeepFee semantics expected by SendAdaModal.vue",
+      "Handling synthetic non-bech32 addresses and empty protocol-parameters mocks in legacy unit tests"
+    ],
+    "testingNotes": "Run JUnit backend suite (including < 500ms 1,000-UTxO benchmark), Vitest frontend suite, and ./gradlew bootJar.",
+    "rollbackPlan": "Revert controller wiring and restore build.gradle.kts dependency scope."
+  }
+}

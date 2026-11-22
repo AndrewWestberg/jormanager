@@ -23,12 +23,66 @@
               variant="primary"
               @click="handleValidateAndSend"
               :disabled="requestFeesUUID !== responseFeesUUID"
-            >Send</BButton>
+            >{{ formSendAda.selectionMode === 'DEFRAGMENT' ? 'Defragment UTxOs' : 'Send' }}</BButton>
           </div>
         </div>
       </template>
       
       <BForm ref="sendAdaForm" @submit.stop.prevent="handleValidateAndSend">
+        <BCard
+          v-if="!formSendAda.isClaim"
+          no-body
+          class="mb-3 border border-secondary bg-dark"
+        >
+          <BCardBody class="py-2 px-3">
+            <BFormGroup
+              label="Coin Selection"
+              label-cols-md="3"
+              label-align-md="right"
+              class="mb-1"
+            >
+              <BFormRadioGroup
+                v-model="formSendAda.selectionMode"
+                @change="onSelectionModeChange"
+                class="pt-2"
+                data-testid="selection-mode-group"
+              >
+                <BFormRadio value="STANDARD" class="me-4">
+                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="me-1 text-primary" />
+                  Standard (Random-Improve)
+                </BFormRadio>
+                <BFormRadio value="DEFRAGMENT">
+                  <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" class="me-1 text-info" />
+                  Defragment UTxOs (Unfrack)
+                </BFormRadio>
+              </BFormRadioGroup>
+              <small class="text-muted d-block mt-1">
+                <span v-if="formSendAda.selectionMode === 'DEFRAGMENT'">
+                  Sweeps dust UTxOs and consolidates native tokens by policy into clean outputs within the 16 KB protocol limit.
+                </span>
+                <span v-else>
+                  Selects optimal UTxOs via Cardano SDK Random-Improve (with Largest-First fallback) to preserve wallet concurrency.
+                </span>
+              </small>
+            </BFormGroup>
+            <div
+              v-if="requestFeesUUID === responseFeesUUID && planInputCount > 0"
+              class="mt-2 pt-2 border-top border-secondary d-flex flex-wrap justify-content-between align-items-center small"
+              :class="formSendAda.selectionMode === 'DEFRAGMENT' ? 'text-info' : 'text-light'"
+              data-testid="tx-plan-summary"
+            >
+              <span>
+                <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" />
+                <strong>Planned UTxOs:</strong> {{ planInputCount }} input{{ planInputCount === 1 ? '' : 's' }} &rarr; {{ planOutputCount }} output{{ planOutputCount === 1 ? '' : 's' }}
+              </span>
+              <span>
+                <strong>Estimated Tx Size:</strong> {{ planEstimatedTxSize.toLocaleString() }} / 16,384 bytes
+                ({{ ((planEstimatedTxSize / 16384) * 100).toFixed(1) }}%)
+              </span>
+            </div>
+          </BCardBody>
+        </BCard>
+
         <div class="accordion" role="tablist">
           <BCard
             no-body
@@ -266,6 +320,7 @@ import {
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { lovelaceToAda, generateUUID } from '@/utils/filters'
+import type { SelectionMode } from '@/types'
 
 interface ToAccount {
   currency: string
@@ -288,7 +343,20 @@ interface WalletItemRef {
 }
 
 const store = useJorManagerStore()
-const { walletItems, txFee, tokenKeepFee, tokenFees, tokenLocked, minUTxOValue, requestFeesUUID, responseFeesUUID, toastSuccess } = storeToRefs(store)
+const {
+  walletItems,
+  txFee,
+  tokenKeepFee,
+  tokenFees,
+  tokenLocked,
+  planInputCount,
+  planOutputCount,
+  planEstimatedTxSize,
+  minUTxOValue,
+  requestFeesUUID,
+  responseFeesUUID,
+  toastSuccess
+} = storeToRefs(store)
 const emitter = useEventBus()
 
 const isVisible = ref(false)
@@ -307,6 +375,7 @@ const formSendAda = ref({
   fromIds: [] as number[],
   isClaim: false,
   isMultiClaim: false,
+  selectionMode: 'STANDARD' as SelectionMode,
   toAccounts: [] as ToAccount[],
   metadata: null as string | null,
   metadataError: null as string | null,
@@ -367,6 +436,8 @@ const modalTitle = computed(() => {
   let title = ''
   if (formSendAda.value.isMultiClaim) {
     title = `Claiming from ${fromWalletItems.value.length} addresses: `
+  } else if (formSendAda.value.selectionMode === 'DEFRAGMENT' && !formSendAda.value.isClaim) {
+    title = 'Defragmenting: '
   } else {
     title = (formSendAda.value.isClaim ? 'Claiming: ' : 'Sending: ')
   }
@@ -408,6 +479,7 @@ function clearFormSendAda() {
     fromIds: [],
     isClaim: false,
     isMultiClaim: false,
+    selectionMode: 'STANDARD',
     toAccounts: [createEmptyToAccount()],
     metadata: null,
     metadataError: null,
@@ -439,7 +511,36 @@ function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
   formSendAda.value.fromIds = [walletItem.id]
   formSendAda.value.isClaim = isClaim
   formSendAda.value.isMultiClaim = false
+  formSendAda.value.selectionMode = 'STANDARD'
   isVisible.value = true
+  prepareCalculateSendAdaFees()
+}
+
+function showDefragmentModal(walletItem: WalletItemRef) {
+  clearFormSendAda()
+  fromWalletItem.value = walletItem
+  formSendAda.value.fromId = walletItem.id
+  formSendAda.value.fromIds = [walletItem.id]
+  formSendAda.value.isClaim = false
+  formSendAda.value.isMultiClaim = false
+  formSendAda.value.selectionMode = 'DEFRAGMENT'
+  formSendAda.value.toAccounts = [
+    {
+      currency: 'ada',
+      destination: 'account',
+      account: walletItem.id,
+      address: '',
+      type: 'percent',
+      amount: null,
+      percent: 100,
+      tokenFee: 0
+    }
+  ]
+  isVisible.value = true
+  prepareCalculateSendAdaFees()
+}
+
+function onSelectionModeChange() {
   prepareCalculateSendAdaFees()
 }
 
@@ -740,6 +841,7 @@ function prepareCalculateSendAdaFees() {
     toAccounts,
     txOut: uniqueToAccounts + returnChangeTxOut,
     isClaim: formSendAda.value.isClaim,
+    selectionMode: formSendAda.value.isClaim ? 'STANDARD' : formSendAda.value.selectionMode,
     metadata: formSendAda.value.metadata,
     uuid: generateUUID()
   }
@@ -815,6 +917,7 @@ function passwordConfirmed(spendingPassword: string) {
     fromId: formSendAda.value.fromId!,
     fromIds: formSendAda.value.fromIds,
     isClaim: formSendAda.value.isClaim,
+    selectionMode: formSendAda.value.isClaim ? 'STANDARD' : formSendAda.value.selectionMode,
     txFee: txFee.value || 0,
     tokenKeepFee: tokenKeepFee.value || 0,
     toAccounts,
@@ -827,9 +930,11 @@ function onSpendingPasswordConfirmed(data: { action: string; password: string; o
   passwordConfirmed(data.password)
 }
 
-function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
+function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean; isDefragment?: boolean }) {
   if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {
     showMultiClaimModal(data.walletItems)
+  } else if (data.isDefragment && data.walletItem) {
+    showDefragmentModal(data.walletItem)
   } else if (data.walletItem) {
     showSendAdaModal(data.walletItem, data.isClaim)
   }

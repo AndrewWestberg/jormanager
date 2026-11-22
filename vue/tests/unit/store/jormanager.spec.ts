@@ -367,4 +367,57 @@ describe('store/jormanager - getters', () => {
       expect(store.blockHeightSeries[0].data).toEqual([[1000, 10], [2000, 11]])
     })
   })
+
+  describe('saveTxFee and invalidateSendAdaFees (SDK planner metadata)', () => {
+    it('stores selectionMode, inputCount, outputCount, and estimatedTxSize from fee response', () => {
+      const store = useJorManagerStore()
+
+      store.saveTxFee({
+        txFee: 342100,
+        tokenFees: [0],
+        tokenKeepFee: 1450000,
+        tokenLocked: 0,
+        selectionMode: 'DEFRAGMENT',
+        inputCount: 84,
+        outputCount: 4,
+        estimatedTxSize: 4920,
+        uuid: 'test-uuid-defrag'
+      })
+
+      expect(store.txFee).toBe(342100)
+      expect(store.tokenKeepFee).toBe(1450000)
+      expect(store.planSelectionMode).toBe('DEFRAGMENT')
+      expect(store.planInputCount).toBe(84)
+      expect(store.planOutputCount).toBe(4)
+      expect(store.planEstimatedTxSize).toBe(4920)
+      expect(store.responseFeesUUID).toBe('test-uuid-defrag')
+    })
+
+    it('defaults planner metadata cleanly when omitted and resets counts on invalidateSendAdaFees', () => {
+      const store = useJorManagerStore()
+
+      store.saveTxFee({
+        txFee: 175000,
+        tokenFees: [],
+        tokenKeepFee: 0,
+        tokenLocked: 0,
+        uuid: 'legacy-uuid'
+      })
+
+      expect(store.planSelectionMode).toBe('STANDARD')
+      expect(store.planInputCount).toBe(0)
+      expect(store.planOutputCount).toBe(0)
+      expect(store.planEstimatedTxSize).toBe(0)
+
+      store.planInputCount = 12
+      store.planOutputCount = 2
+      store.planEstimatedTxSize = 812
+      store.invalidateSendAdaFees()
+
+      expect(store.planInputCount).toBe(0)
+      expect(store.planOutputCount).toBe(0)
+      expect(store.planEstimatedTxSize).toBe(0)
+      expect(store.requestFeesUUID).not.toBe(store.responseFeesUUID)
+    })
+  })
 })

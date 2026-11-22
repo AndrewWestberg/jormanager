@@ -16,4 +16,12 @@ data class CalculateFeeResponse(
     val tokenLocked: BigInteger,
     @param:Json(name = "uuid")
     val uuid: String,
+    @param:Json(name = "selectionMode")
+    val selectionMode: String = "STANDARD",
+    @param:Json(name = "inputCount")
+    val inputCount: Int = 0,
+    @param:Json(name = "outputCount")
+    val outputCount: Int = 0,
+    @param:Json(name = "estimatedTxSize")
+    val estimatedTxSize: Int = 0,
 )

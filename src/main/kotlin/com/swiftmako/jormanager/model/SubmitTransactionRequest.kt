@@ -22,9 +22,12 @@ data class SubmitTransactionRequest(
     val isClaim: Boolean,
     @param:Json(name = "metadata")
     val metadata: String?,
+    @param:Json(name = "selectionMode")
+    val selectionMode: String = "STANDARD",
 ) {
     // Get all from IDs, preferring fromIds list if not empty, otherwise falling back to single fromId
     fun getEffectiveFromIds(): List<Long> = fromIds.ifEmpty { listOf(fromId) }
 
-    override fun toString(): String = "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata)"
+    override fun toString(): String =
+        "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata, selectionMode=$selectionMode)"
 }
