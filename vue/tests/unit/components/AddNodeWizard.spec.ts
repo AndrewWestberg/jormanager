@@ -15,7 +15,6 @@ type WizardState = {
   formNode: Record<string, unknown>
   validateStep1: () => boolean
   onComplete: () => Promise<void>
-  selectedKeyId: number | null
 }
 
 
@@ -84,23 +83,50 @@ describe('node file selection', () => {
     wrapper.unmount()
   })
 
-  it('requires selection among retained keys when resuming', async () => {
+  it('submits core creation without draft resume fields and closes wizard on success', async () => {
     const store = useJorManagerStore()
     store.connected = true
     vi.spyOn(store, 'requestHosts').mockImplementation(() => {})
     vi.spyOn(store, 'requestFileOptions').mockImplementation(() => {})
+    const socket = vi.spyOn(store, 'socketRequest').mockImplementation(async (_dest, _type, payload) => ({
+      requestId: payload.requestId as string,
+      nodeId: 42,
+      message: 'Pool created!'
+    }))
     const prompt = vi.fn()
     emitter.on('show-spending-password-modal', prompt)
-    const request = { host: 1, name: 'pool', type: 'core', listen: '0.0.0.0', port: 3001, processorThreads: 2, genesisByron: 1, genesisShelley: 2, genesisAlonzo: 3, genesisConway: 4, config: 6, topology: 7, registrationFeesAccount: 1, ownerStakingAccount: 2, rewardsStakingAccount: 3, poolPledge: 0, poolCost: 1, poolMargin: 0.05,
-      metadata: { ticker: 'POOL', name: 'Pool', description: 'Pool', homepage: 'https://pool.test', extended: { itn: {}, info: { icon64: 'https://pool.test/icon', logo: 'https://pool.test/logo' } } } }
-    const wrapper = shallowMount(AddNodeWizard, { props: { setupContext: { requestId: 'query', setupRequestId: 'saved', nodeId: 4, hostId: 1, networkKey: 'test', request, keyId: null, keys: [{ keyId: 1, publicKeyHex: 'aa' }, { keyId: 2, publicKeyHex: 'bb' }] } }, global: { stubs: ['font-awesome-icon'] } })
+    const wrapper = shallowMount(AddNodeWizard, { global: { stubs: ['font-awesome-icon'] } })
     const state = wrapper.vm as unknown as WizardState
+    Object.assign(state.formNode, {
+      host: 1, name: 'pool', type: 'core', listen: '0.0.0.0', port: 3001, processorThreads: 2,
+      genesisByron: 1, genesisShelley: 2, genesisAlonzo: 3, genesisConway: 4, config: 6, topology: 7,
+      registrationFeesAccount: 1, ownerStakingAccount: 2, rewardsStakingAccount: 3,
+      poolPledge: 0, poolCost: 340, poolMargin: 0.05,
+      metadata: {
+        ticker: 'POOL', name: 'Pool', description: 'Pool', homepage: 'https://pool.test',
+        extended: {
+          itn: { publicKey: null, privateKey: null },
+          info: {
+            icon64: 'https://pool.test/icon.png', logo: 'https://pool.test/logo.png', location: null,
+            social: { twitter: null, telegram: null, facebook: null, youtube: null, twitch: null, discord: null, github: null },
+            company: { name: null, addr: null, city: null, country: null, company_id: null, vat_id: null },
+            about: { me: null, server: null, company: null },
+            rss: null
+          },
+          telegramAdminHandle: null
+        }
+      }
+    })
     await nextTick()
     await state.onComplete()
-    expect(prompt).not.toHaveBeenCalled()
-    state.selectedKeyId = 2
-    await state.onComplete()
     expect(prompt).toHaveBeenCalledTimes(1)
+    emitter.emit('confirm-spending-password-with-action', { action: 'create-node', password: 'secret', originalData: prompt.mock.lastCall![0].data })
+    await flushPromises()
+    expect(socket).toHaveBeenCalledTimes(1)
+    const payload = socket.mock.calls[0][2]
+    expect(payload).not.toHaveProperty('resumeNodeId')
+    expect(payload).not.toHaveProperty('keyId')
+    expect(wrapper.emitted('hide-add-node-wizard')).toHaveLength(1)
     emitter.off('show-spending-password-modal', prompt)
     wrapper.unmount()
   })

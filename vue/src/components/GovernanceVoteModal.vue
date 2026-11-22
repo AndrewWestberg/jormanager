@@ -188,7 +188,7 @@ const nodeFields = [
 
 // Core nodes (no relays)
 const coreNodes = computed(() => {
-  return filter(nodes.value, (node) => (node as any).type !== 'relay' && !(node as any).isDraft && !(node as any).isDeleted)
+  return filter(nodes.value, (node) => (node as any).type !== 'relay' && !(node as any).isDeleted)
 })
 
 // Core nodes with vote state for table display

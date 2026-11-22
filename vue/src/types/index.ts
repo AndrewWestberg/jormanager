@@ -19,7 +19,6 @@ export interface Node {
   host: Host
   status: string
   color: string
-  isDraft: boolean
   [key: string]: unknown
 }
 

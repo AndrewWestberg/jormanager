@@ -53,5 +53,6 @@
     <include file="changelog/046-node-selected-files.xml" relativeToChangelogFile="true"/>
     <include file="changelog/047-remove-authorized-operations.xml" relativeToChangelogFile="true"/>
     <include file="changelog/048-remove-unused-dijkstra-tables.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/049-remove-draft-nodes.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

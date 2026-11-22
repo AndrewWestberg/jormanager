@@ -114,7 +114,9 @@ class NodeControllerTest {
         name: String = "tickr",
         processorThreads: Int = 8,
     ) = CreateNodeRequest(
-        requestId = java.util.UUID.randomUUID().toString(),
+        requestId = java.util.UUID
+            .randomUUID()
+            .toString(),
         color = "#0000FF",
         hostId = 1L,
         name = name,
@@ -314,7 +316,6 @@ class NodeControllerTest {
             every { name } returns "pool"
             every { type } returns NodeController.NODE_TYPE_CORE
             every { poolId } returns "pool1fixture"
-            every { isDraft } returns false
             every { isDeleted } returns false
             every { itnPrivateKeyId } returns -1L
             every { itnPublicKeyId } returns -1L
@@ -329,8 +330,13 @@ class NodeControllerTest {
             every { isValidSpendingPassword("password") } returns true
             every { encryptSKeyContent("private-secret", "password") } returns "encrypted-secret"
         }
-        val metadata = com.swiftmako.jormanager.model.Metadata("POOL", "Pool", "Description", "https://example.org",
-            Extended(Itn("public-key", "private-secret"), null, "admin", "verify"))
+        val metadata = com.swiftmako.jormanager.model.Metadata(
+            "POOL",
+            "Pool",
+            "Description",
+            "https://example.org",
+            Extended(Itn("public-key", "private-secret"), null, "admin", "verify")
+        )
         mockkConstructor(HostConnection::class)
         try {
             every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } returns ""
@@ -338,14 +344,21 @@ class NodeControllerTest {
             every { anyConstructed<HostConnection>().commandArgs(any()) } answers {
                 val args = firstArg<List<String>>()
                 when {
-                    "metadata-hash" in args -> com.swiftmako.jormanager.utils.Blake2b.hash256(checkNotNull(fixture.uploadedBytes))
-                        .joinToString("") { "%02x".format(it) }
+                    "metadata-hash" in args ->
+                        com.swiftmako.jormanager.utils.Blake2b
+                            .hash256(checkNotNull(fixture.uploadedBytes))
+                            .joinToString("") { "%02x".format(it) }
                     "sign" in args -> "witness"
                     else -> ""
                 }
             }
-            val result = createTarget(fixture.client(), hostRepository = hosts, fileRepository = files,
-                walletUtils = wallet, cardanoRepository = eras).publishPoolMetadata(node, metadata, "password")
+            val result = createTarget(
+                fixture.client(),
+                hostRepository = hosts,
+                fileRepository = files,
+                walletUtils = wallet,
+                cardanoRepository = eras
+            ).publishPoolMetadata(node, metadata, "password")
             assertThat(fixture.uploadCount).isEqualTo(2)
             val extended = jacksonObjectMapper().readTree(fixture.documents.first())
             assertThat(extended["itn"]["witness"].asString()).isEqualTo("witness")
@@ -355,8 +368,13 @@ class NodeControllerTest {
             verify { files.save(match { it.content == "encrypted-secret" }) }
             fixture.getBytes = { it + 0 }
             assertThrows<IllegalStateException> {
-                createTarget(fixture.client(), hostRepository = hosts, fileRepository = files,
-                    walletUtils = wallet, cardanoRepository = eras).publishPoolMetadata(node, metadata, "password")
+                createTarget(
+                    fixture.client(),
+                    hostRepository = hosts,
+                    fileRepository = files,
+                    walletUtils = wallet,
+                    cardanoRepository = eras
+                ).publishPoolMetadata(node, metadata, "password")
             }
         } finally {
             unmockkConstructor(HostConnection::class)
@@ -364,7 +382,7 @@ class NodeControllerTest {
     }
 
     @Test
-    fun publishPoolMetadataResolvesParentOrDefaultObserverAndObserverHostForBulkChildAndDraftPools() {
+    fun publishPoolMetadataResolvesParentOrDefaultObserverAndPreparedMaterialSkipsPrematureDbSaves() {
         val observerHost =
             Host(
                 id = 2L,
@@ -403,18 +421,9 @@ class NodeControllerTest {
                 type = NodeController.NODE_TYPE_POOL,
                 parentId = 10L,
                 poolId = "pool1child",
-                isDraft = false,
             )
         val childWithoutParent = childWithParent.copy(id = 21L, parentId = null, poolId = "pool1orphan")
-        val draftPool =
-            baseNode.copy(
-                id = 22L,
-                hostId = 99L,
-                name = "draft-pool",
-                type = NodeController.NODE_TYPE_CORE,
-                poolId = "pool1draft",
-                isDraft = true,
-            )
+        val files = mockk<FileRepository>()
         val nodes =
             mockk<NodeRepository> {
                 every { findById(10L) } returns Optional.of(baseNode)
@@ -436,7 +445,8 @@ class NodeControllerTest {
             mockk<WalletUtils> {
                 every { isValidSpendingPassword("password") } returns true
             }
-        val metadata = com.swiftmako.jormanager.model.Metadata("POOL", "Pool", "Description", "https://example.org", null)
+        val metadata = com.swiftmako.jormanager.model
+            .Metadata("POOL", "Pool", "Description", "https://example.org", null)
 
         mockkConstructor(HostConnection::class)
         try {
@@ -447,7 +457,8 @@ class NodeControllerTest {
                 val args = firstArg<List<String>>()
                 if ("metadata-hash" in args) {
                     cliInvocations += args
-                    com.swiftmako.jormanager.utils.Blake2b.hash256(checkNotNull(fixture.uploadedBytes))
+                    com.swiftmako.jormanager.utils.Blake2b
+                        .hash256(checkNotNull(fixture.uploadedBytes))
                         .joinToString("") { "%02x".format(it) }
                 } else {
                     ""
@@ -459,17 +470,25 @@ class NodeControllerTest {
                     fixture.client(),
                     nodeRepository = nodes,
                     hostRepository = hosts,
+                    fileRepository = files,
                     walletUtils = wallet,
                     cardanoRepository = eras,
                 )
 
             val childResult = target.publishPoolMetadata(childWithParent, metadata, "password")
             val fallbackResult = target.publishPoolMetadata(childWithoutParent, metadata, "password")
-            val draftResult = target.publishPoolMetadata(draftPool, metadata, "password")
+            val materialResult =
+                target.publishPoolMetadataMaterial(
+                    poolId = "pool1new",
+                    targetHostId = 99L,
+                    observer = defaultObserver,
+                    metadata = metadata,
+                    spendingPassword = "password",
+                )
 
             assertThat(childResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
             assertThat(fallbackResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
-            assertThat(draftResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
+            assertThat(materialResult.url).isEqualTo("https://cardanostakehouse.com/pool.json")
             assertThat(cliInvocations).hasSize(3)
             cliInvocations.forEach { args ->
                 assertThat(args.take(4)).containsExactly("/opt/observer/cardano-cli", "dijkstra", "stake-pool", "metadata-hash").inOrder()
@@ -478,7 +497,7 @@ class NodeControllerTest {
             verify(exactly = 2) { eras.evidence(defaultObserver) }
             verify(exactly = 0) { eras.evidence(childWithParent) }
             verify(exactly = 0) { eras.evidence(childWithoutParent) }
-            verify(exactly = 0) { eras.evidence(draftPool) }
+            verify(exactly = 0) { files.save(any()) }
         } finally {
             unmockkConstructor(HostConnection::class)
         }
@@ -554,7 +573,6 @@ class NodeControllerTest {
         }
     }
 
-
     @Test
     fun allocateTracingPortReturnsFirstFreePort() {
         val target = createTarget()
@@ -611,7 +629,13 @@ class NodeControllerTest {
     fun renderManagedConfigCreatesMissingTraceRoot() {
         val rendered = createTarget().renderManagedConfig("{}", "relay", "4", true, "127.0.0.1", 12789)
         val root = objectMapper.readTree(rendered)
-        assertThat(root.path("TraceOptions").path("").path("severity").asString()).isEqualTo("Notice")
+        assertThat(
+            root
+                .path("TraceOptions")
+                .path("")
+                .path("severity")
+                .asString()
+        ).isEqualTo("Notice")
         assertThat(root.path("ByronGenesisFile").asString()).isEqualTo("byron-genesis.json")
         assertThat(root.has("GenesisFile")).isFalse()
     }
@@ -619,13 +643,19 @@ class NodeControllerTest {
     @Test
     fun firstRelayInstallsSelectedFilesWithoutObserver() {
         val request = createRequest(NodeController.NODE_TYPE_RELAY).copy(
-            isDefault = true, configFileId = 5, topologyFileId = 6,
-            genesisDijkstraFileId = 7, peerSnapshotFileId = 8,
+            isDefault = true,
+            configFileId = 5,
+            topologyFileId = 6,
+            genesisDijkstraFileId = 7,
+            peerSnapshotFileId = 8,
         )
         val assets = mapOf(
-            "byron-genesis.json" to "byron", "shelley-genesis.json" to "shelley",
-            "alonzo-genesis.json" to "alonzo", "conway-genesis.json" to "conway",
-            "dijkstra-genesis.json" to "dijkstra", "config.json" to legacyConfigTemplate,
+            "byron-genesis.json" to "byron",
+            "shelley-genesis.json" to "shelley",
+            "alonzo-genesis.json" to "alonzo",
+            "conway-genesis.json" to "conway",
+            "dijkstra-genesis.json" to "dijkstra",
+            "config.json" to legacyConfigTemplate,
             "topology.json" to """{"peerSnapshotFile":"source.json"}""",
             "peer-snapshot.json" to "peer",
         ).mapValues { it.value.toByteArray() }
@@ -659,8 +689,14 @@ class NodeControllerTest {
             assertThat(written["$folder/peer-snapshot.json"]).isEqualTo("peer")
             assertThat(written["$folder/topology.json"]).isEqualTo(topology)
             assertThat(written["$folder/config.json"]).contains("byron-genesis.json")
-            verify { nodes.save(match { it.isDefault && it.configFileId == 5L && it.topologyFileId == 6L &&
-                it.genesisDijkstraFileId == 7L && it.peerSnapshotFileId == 8L }) }
+            verify {
+                nodes.save(
+                    match {
+                        it.isDefault && it.configFileId == 5L && it.topologyFileId == 6L &&
+                            it.genesisDijkstraFileId == 7L && it.peerSnapshotFileId == 8L
+                    }
+                )
+            }
         } finally {
             unmockkConstructor(HostConnection::class)
         }
@@ -894,19 +930,22 @@ class NodeControllerTest {
             root
                 .get("TraceOptions")
                 .get("Forge.Loop.AdoptedBlock")
-                .get("severity").asString()
+                .get("severity")
+                .asString()
         ).isEqualTo("Info")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
-                .get("severity").asString()
+                .get("severity")
+                .asString()
         ).isEqualTo("Silence")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("Resources")
-                .get("severity").asString()
+                .get("severity")
+                .asString()
         ).isEqualTo("Silence")
         assertThat(root.propertyNames().toList())
             .containsAtLeast(
@@ -971,13 +1010,15 @@ class NodeControllerTest {
             root
                 .get("TraceOptions")
                 .get("Forge.Loop.AdoptedBlock")
-                .get("severity").asString()
+                .get("severity")
+                .asString()
         ).isEqualTo("Info")
         assertThat(
             root
                 .get("TraceOptions")
                 .get("ChainDB.AddBlockEvent.AddedToCurrentChain")
-                .get("severity").asString()
+                .get("severity")
+                .asString()
         ).isEqualTo("Silence")
         val forwarder = root.get("TraceOptionForwarder")
         assertThat(forwarder).isNotNull()
@@ -1129,7 +1170,6 @@ class NodeControllerTest {
             )
         val cases =
             mapOf(
-                10L to defaultNode.copy(id = 10L, name = "draft-core", isDefault = false, isDraft = true),
                 11L to defaultNode.copy(id = 11L, name = "deleted-core", isDefault = false, isDeleted = true),
                 12L to defaultNode.copy(id = 12L, name = "relay-node", isDefault = false, type = "relay"),
                 13L to defaultNode.copy(id = 13L, name = "other-net-core", isDefault = false, genesisShelleyFileId = 999L),
@@ -1157,7 +1197,7 @@ class NodeControllerTest {
     }
 
     @Test
-    fun rotateKesUsesTargetNodeGenesisUuidSecretPathsExcludesDraftChildPoolsAndBroadcastsNodes() {
+    fun rotateKesUsesTargetNodeGenesisUuidSecretPathsExcludesDeletedChildPoolsAndBroadcastsNodes() {
         val nodeRepository = mockk<NodeRepository>()
         val relayRepository = mockk<RelayRepository>()
         val hostRepository = mockk<HostRepository>()
@@ -1230,17 +1270,6 @@ class NodeControllerTest {
                 vrfSKeyId = 22L,
                 kesSKeyId = 23L,
             )
-        val draftChild =
-            coreNode.copy(
-                id = 21L,
-                name = "pool-draft",
-                type = "pool",
-                parentId = 10L,
-                isDraft = true,
-                opcertId = -1L,
-                vrfSKeyId = 24L,
-                kesSKeyId = 25L,
-            )
         val deletedChild =
             coreNode.copy(
                 id = 22L,
@@ -1275,8 +1304,8 @@ class NodeControllerTest {
         every { walletUtils.encryptSKeyContent(any(), "secret") } answers { firstArg() }
         every { nodeRepository.findDefault() } returns defaultNode
         every { nodeRepository.findById(10L) } answers { Optional.of(coreNode) }
-        every { nodeRepository.findByParentId(10L) } returns listOf(activeChild, draftChild, deletedChild)
-        every { nodeRepository.findAll(any<Sort>()) } answers { listOf(defaultNode, coreNode, activeChild, draftChild, deletedChild) }
+        every { nodeRepository.findByParentId(10L) } returns listOf(activeChild, deletedChild)
+        every { nodeRepository.findAll(any<Sort>()) } answers { listOf(defaultNode, coreNode, activeChild, deletedChild) }
         every { nodeRepository.save(any<Node>()) } answers {
             coreNode = firstArg()
             coreNode
@@ -1388,7 +1417,7 @@ class NodeControllerTest {
             assertThat(chmodKes).endsWith(".kes.skey")
             assertThat(remoteFiles.keys.filter { it.startsWith("/tmp/jormanager-kes-") }).isEmpty()
 
-            // Bulk credentials include core + active child pool (2 entries), excluding draft and deleted child pools
+            // Bulk credentials include core + active child pool (2 entries), excluding deleted child pools
             val bulkJson = objectMapper.readTree(remoteFiles.getValue("/nodes/core-1/credentials.json"))
             assertThat(bulkJson.size()).isEqualTo(2)
 
@@ -1449,7 +1478,9 @@ class NodeControllerTest {
 
         val request =
             CreateNodeRequest(
-                requestId = java.util.UUID.randomUUID().toString(),
+                requestId = java.util.UUID
+                    .randomUUID()
+                    .toString(),
                 color = "#0000FF",
                 hostId = 1L,
                 name = "tickr",

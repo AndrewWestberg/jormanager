@@ -49,20 +49,52 @@ class PoolRegistrationController(
     private val relayRepository: RelayRepository,
     private val messages: SimpMessagingTemplate,
 ) {
-    data class SubmitRequest(val requestId: String, val nodeId: Long, val feePayerAccountId: Long,
-        val keyId: Long? = null, val action: String, val changes: JsonNode? = null,
-        val metadata: Metadata? = null, val spendingPassword: String) {
+    data class SubmitRequest(
+        val requestId: String,
+        val nodeId: Long,
+        val feePayerAccountId: Long,
+        val keyId: Long? = null,
+        val action: String,
+        val changes: JsonNode? = null,
+        val metadata: Metadata? = null,
+        val spendingPassword: String
+    ) {
         override fun toString() = "SubmitRequest(requestId=$requestId, nodeId=$nodeId, action=$action, spendingPassword='********')"
     }
-    data class Result(val requestId: String, val txId: String, val networkKey: String, val era: String,
-        val nodeId: Long, val fee: String, val deposit: String, val refund: String, val state: String,
-        val action: String, val keyId: Long?, val publication: NodeController.PublishedPoolMetadata? = null)
-    private data class Target(val observer: Node, val pool: Node, val host: Host, val connection: HostConnection,
-        val era: String, val network: List<String>, val magic: String, val socket: String)
-    private fun target(poolId: Long, observerId: Long? = null): Target {
+
+    data class Result(
+        val requestId: String,
+        val txId: String,
+        val networkKey: String,
+        val era: String,
+        val nodeId: Long,
+        val fee: String,
+        val deposit: String,
+        val refund: String,
+        val state: String,
+        val action: String,
+        val keyId: Long?,
+        val publication: NodeController.PublishedPoolMetadata? = null
+    )
+
+    private data class Target(
+        val observer: Node,
+        val pool: Node,
+        val host: Host,
+        val connection: HostConnection,
+        val era: String,
+        val network: List<String>,
+        val magic: String,
+        val socket: String
+    )
+
+    private fun target(
+        poolId: Long,
+        observerId: Long? = null
+    ): Target {
         val observer = requireNotNull(if (observerId == null) nodes.findDefault() else nodes.findByIdOrNull(observerId)) { "Observer not found" }
         val pool = requireNotNull(nodes.findByIdOrNull(poolId)) { "Pool not found" }
-        require(!observer.isDeleted && !observer.isDraft && !pool.isDeleted && !pool.poolId.isNullOrBlank()) { "Pool or observer unavailable" }
+        require(!observer.isDeleted && !pool.isDeleted && !pool.poolId.isNullOrBlank()) { "Pool or observer unavailable" }
         require(eras.networkKey(pool) == eras.networkKey(observer)) { "Pool and observer are on different networks" }
         val host = requireNotNull(hosts.findByIdOrNull(observer.hostId)) { "Observer host not found" }
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(observer.genesisShelleyFileId)).content)
@@ -76,39 +108,69 @@ class PoolRegistrationController(
         val era = eras.getEra(host, observer, magic, socket)
         return Target(observer, pool, host, HostConnection(host, observer), era, network, magic, socket)
     }
-    private fun cmd(t: Target, args: List<String>): String = t.connection.commandArgs(args).trim()
-    private fun query(t: Target, vararg args: String): String = cmd(t,
-        listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
-            listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json"))
+
+    private fun cmd(
+        t: Target,
+        args: List<String>
+    ): String = t.connection.commandArgs(args).trim()
+
+    private fun query(
+        t: Target,
+        vararg args: String
+    ): String =
+        cmd(
+            t,
+            listOf(t.host.cardanoCliPath, t.era, "query") + args + t.network +
+                listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket", "--output-json")
+        )
+
     private fun expiry(t: Target): Long {
         val tip = json.readTree(query(t, "tip"))
         val slot = tip.path("slot")
-        require(slot.isIntegralNumber && slot.canConvertToLong() && slot.asLong() >= 0 &&
-            tip.path("era").asString().equals(t.era, true) && tip.path("hash").asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Current slot unavailable" }
+        require(
+            slot.isIntegralNumber && slot.canConvertToLong() && slot.asLong() >= 0 &&
+                tip.path("era").asString().equals(t.era, true) && tip.path("hash").asString().matches(Regex("[0-9a-fA-F]{64}"))
+        ) { "Current slot unavailable" }
         return Math.addExact(slot.asLong(), 21600L)
     }
-    private fun observe(t: Target, payerId: Long, action: String): Pair<String, JsonNode> {
+
+    private fun observe(
+        t: Target,
+        payerId: Long,
+        action: String
+    ): Pair<String, JsonNode> {
         val payer = requireNotNull(wallets.findByIdOrNull(payerId)) { "Fee payer not found" }
         require(!payer.deleted && payer.paymentSkey != null) { "Fee payer cannot sign" }
         val parameters = parameters.query(t.host, t.observer, t.connection, t.era, t.magic, t.socket)
-        val poolState = json.reader().with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+        val poolState = json
+            .reader()
+            .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
             .readTree(query(t, "pool-state", "--stake-pool-id", requireNotNull(t.pool.poolId)))
         require(poolState.isObject && poolState.size() <= 1) { "Pool state unavailable" }
         val poolId = requireNotNull(t.pool.poolId)
-        val poolHash = if (poolId.startsWith("pool1")) Bech32.decode(poolId).let {
-            require(it.prefix == "pool" && it.bytes.size == 28)
-            it.bytes.toHexString()
-        } else poolId.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
+        val poolHash = if (poolId.startsWith("pool1")) {
+            Bech32.decode(poolId).let {
+                require(it.prefix == "pool" && it.bytes.size == 28)
+                it.bytes.toHexString()
+            }
+        } else {
+            poolId.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
+        }
         if (poolState.size() == 1) require(poolState.propertyNames().first().equals(poolHash, true)) { "Pool query returned a different target" }
-        if (t.pool.isDraft) require(poolState.isEmpty && action == "register") { "Draft pool is already registered or action is invalid" }
-        if (action != "register") require(poolState.size() == 1 && poolState.values().first().path("deposit").isIntegralNumber) {
-            "Registered pool state unavailable"
+        require(
+            poolState.size() == 1 && poolState
+                .values()
+                .first()
+                .path("deposit")
+                .isIntegralNumber
+        ) {
+            if (action == "register") "Existing pool registration unavailable" else "Registered pool state unavailable"
         }
-        if (action == "register" && !t.pool.isDraft) require(poolState.size() == 1 && poolState.values().first().path("deposit").isIntegralNumber) {
-            "Existing pool registration unavailable"
-        }
-        val currentEpoch = json.readTree(query(t, "tip")).path("epoch")
-            .takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong()
+        val currentEpoch = json
+            .readTree(query(t, "tip"))
+            .path("epoch")
+            .takeIf { it.isIntegralNumber && it.canConvertToLong() }
+            ?.asLong()
             ?: throw IllegalStateException("Current epoch unavailable")
         if (action == "cancel") {
             val retirement = poolState.values().first().path("retiring")
@@ -118,17 +180,44 @@ class PoolRegistrationController(
         }
         return parameters to poolState
     }
-    private fun bodyField(body: String, key: Int): BigInteger? = CborSpans.parse(json.readTree(body).path("cborHex").asString().hexToByteArray())
-        .array().first().entries().firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }?.second?.integer()
 
-    private fun parseRelays(poolNodeId: Long, relaysNode: JsonNode): List<Relay> {
+    private fun bodyField(
+        body: String,
+        key: Int
+    ): BigInteger? =
+        CborSpans
+            .parse(
+                json
+                    .readTree(body)
+                    .path("cborHex")
+                    .asString()
+                    .hexToByteArray()
+            ).array()
+            .first()
+            .entries()
+            .firstOrNull { it.first.integer() == BigInteger.valueOf(key.toLong()) }
+            ?.second
+            ?.integer()
+
+    private fun parseRelays(
+        poolNodeId: Long,
+        relaysNode: JsonNode
+    ): List<Relay> {
         if (relaysNode.isNull || !relaysNode.isArray) return emptyList()
         return relaysNode.values().mapNotNull { entry ->
             when {
                 entry.has("single host address") && !entry.path("single host address").isNull -> {
                     val address = entry.path("single host address")
-                    val ipv4 = address.path("IPv4").takeIf { it.isString }?.asString()?.takeIf { it.isNotBlank() }
-                    val ipv6 = address.path("IPv6").takeIf { it.isString }?.asString()?.takeIf { it.isNotBlank() }
+                    val ipv4 = address
+                        .path("IPv4")
+                        .takeIf { it.isString }
+                        ?.asString()
+                        ?.takeIf { it.isNotBlank() }
+                    val ipv6 = address
+                        .path("IPv6")
+                        .takeIf { it.isString }
+                        ?.asString()
+                        ?.takeIf { it.isNotBlank() }
                     val addr = requireNotNull(ipv4 ?: ipv6) { "Invalid pool relay address" }
                     Relay(nodeId = poolNodeId, addr = addr, port = address.path("port").asInt())
                 }
@@ -152,23 +241,37 @@ class PoolRegistrationController(
         require(input.action in setOf("register", "rotate", "cancel", "update")) { "Unsupported pool action" }
         require(input.changes == null || input.changes.isObject) { "Invalid pool changes" }
         require(input.changes?.has("metadata") != true) { "Client metadata anchors are not accepted" }
-        require(input.changes == null || input.changes.propertyNames().all {
-            it in setOf("pledge", "cost", "margin", "relays", "ownerAccountIds", "rewardAccountId")
-        }) { "Invalid pool changes" }
+        require(
+            input.changes == null || input.changes.propertyNames().all {
+                it in setOf("pledge", "cost", "margin", "relays", "ownerAccountIds", "rewardAccountId")
+            }
+        ) { "Invalid pool changes" }
         input.changes?.let { changes ->
             listOf("pledge", "cost").forEach { name ->
                 changes.get(name)?.let { require(it.asString().matches(Regex("0|[1-9][0-9]*"))) { "Invalid pool amount" } }
             }
             changes.get("ownerAccountIds")?.let {
-                require(it.isArray && it.size() > 0 && it.all { id -> id.isIntegralNumber && id.canConvertToLong() && id.asLong() > 0 } &&
-                    it.values().map { id -> id.asLong() }.distinct().size == it.size()) { "Invalid pool owners" }
+                require(
+                    it.isArray && it.size() > 0 && it.all { id -> id.isIntegralNumber && id.canConvertToLong() && id.asLong() > 0 } &&
+                        it
+                            .values()
+                            .map { id -> id.asLong() }
+                            .distinct()
+                            .size == it.size()
+                ) { "Invalid pool owners" }
             }
             changes.get("rewardAccountId")?.let {
                 require(it.isIntegralNumber && it.canConvertToLong() && it.asLong() > 0) { "Invalid reward account" }
             }
             changes.get("relays")?.let { require(it.isArray || it.isNull) { "Invalid pool relays" } }
             changes.get("margin")?.let {
-                val margin = if (it.isNumber) it.decimalValue().toPlainString() else if (it.isString) it.asString() else ""
+                val margin = if (it.isNumber) {
+                    it.decimalValue().toPlainString()
+                } else if (it.isString) {
+                    it.asString()
+                } else {
+                    ""
+                }
                 require(margin.matches(Regex("0|1|0\\.[0-9]+|1\\.0+"))) { "Invalid pool margin" }
             }
         }
@@ -189,8 +292,19 @@ class PoolRegistrationController(
         val prefix = "/tmp/jormanager-pool-registration-${UUID.randomUUID()}"
         val body = "$prefix.body"
         val protocolPath = "$prefix.protocol.json"
-        val cert = certificates.build(t.host, t.observer, t.pool, t.era, t.network, poolState,
-            input.action, input.keyId, input.spendingPassword, prefix, changes)
+        val cert = certificates.build(
+            t.host,
+            t.observer,
+            t.pool,
+            t.era,
+            t.network,
+            poolState,
+            input.action,
+            input.keyId,
+            input.spendingPassword,
+            prefix,
+            changes
+        )
         val extraPaths = mutableListOf<String>()
         try {
             val stakeIds = (cert.ownerAccountIds + cert.rewardAccountId).distinct().sorted()
@@ -200,14 +314,25 @@ class PoolRegistrationController(
                 val address = requireNotNull(account.stakingAddr) { "Stake address unavailable" }
                 json.readTree(query(t, "stake-address-info", "--address", address)).also { require(it.isArray && it.size() <= 1) }
             }
-            val expectedPoolDeposit = if (poolState.isEmpty)
-                json.readTree(protocol).path("stakePoolDeposit").asString().toBigInteger() else BigInteger.ZERO
+            val expectedPoolDeposit = if (poolState.isEmpty) {
+                json
+                    .readTree(protocol)
+                    .path("stakePoolDeposit")
+                    .asString()
+                    .toBigInteger()
+            } else {
+                BigInteger.ZERO
+            }
             check(cert.deposit == expectedPoolDeposit) { "Pool deposit does not match protocol parameters" }
             val signers = cert.signingFileIds.toMutableSet()
             val registrationCerts = mutableListOf<String>()
             val delegationCerts = mutableListOf<String>()
             var stakeDeposit = BigInteger.ZERO
-            val stakeDepositPerAccount = json.readTree(protocol).path("stakeAddressDeposit").asString().toBigInteger()
+            val stakeDepositPerAccount = json
+                .readTree(protocol)
+                .path("stakeAddressDeposit")
+                .asString()
+                .toBigInteger()
             stakeIds.forEach { accountId ->
                 val account = requireNotNull(wallets.findByIdOrNull(accountId))
                 if (requireNotNull(stakeStates[accountId]).isEmpty) {
@@ -215,9 +340,21 @@ class PoolRegistrationController(
                     val registration = "$prefix.stake-$accountId.cert"
                     extraPaths += listOf(vkey, registration)
                     t.connection.commandWriteFile(vkey, requireNotNull(account.stakingVkey).content)
-                    cmd(t, listOf(t.host.cardanoCliPath, t.era, "stake-address", "registration-certificate",
-                        "--stake-verification-key-file", vkey, "--key-reg-deposit-amt", stakeDepositPerAccount.toString(),
-                        "--out-file", registration))
+                    cmd(
+                        t,
+                        listOf(
+                            t.host.cardanoCliPath,
+                            t.era,
+                            "stake-address",
+                            "registration-certificate",
+                            "--stake-verification-key-file",
+                            vkey,
+                            "--key-reg-deposit-amt",
+                            stakeDepositPerAccount.toString(),
+                            "--out-file",
+                            registration
+                        )
+                    )
                     registrationCerts += registration
                     signers += requireNotNull(requireNotNull(account.stakingSkey).id)
                     stakeDeposit += stakeDepositPerAccount
@@ -233,8 +370,21 @@ class PoolRegistrationController(
                     val delegation = "$prefix.delegate-$accountId.cert"
                     extraPaths += listOf(vkey, delegation)
                     t.connection.commandWriteFile(vkey, requireNotNull(owner.stakingVkey).content)
-                    cmd(t, listOf(t.host.cardanoCliPath, t.era, "stake-address", "stake-delegation-certificate",
-                        "--stake-verification-key-file", vkey, "--cold-verification-key-file", cold, "--out-file", delegation))
+                    cmd(
+                        t,
+                        listOf(
+                            t.host.cardanoCliPath,
+                            t.era,
+                            "stake-address",
+                            "stake-delegation-certificate",
+                            "--stake-verification-key-file",
+                            vkey,
+                            "--cold-verification-key-file",
+                            cold,
+                            "--out-file",
+                            delegation
+                        )
+                    )
                     delegationCerts += delegation
                     signers += requireNotNull(requireNotNull(owner.stakingSkey).id)
                 }
@@ -242,13 +392,19 @@ class PoolRegistrationController(
             val signingIds = signers.sorted()
             t.connection.commandWriteFile(protocolPath, protocol)
             val built = builder.build(
-                host = t.host, connection = t.connection, era = t.era,
+                host = t.host,
+                connection = t.connection,
+                era = t.era,
                 inputs = inputs,
-                outputs = emptyList(), changeAddress = payer.paymentAddr,
+                outputs = emptyList(),
+                changeAddress = payer.paymentAddr,
                 deposits = cert.deposit + stakeDeposit,
                 extraArgs = (registrationCerts + cert.certPath + delegationCerts).flatMap { listOf("--certificate-file", it) },
-                protocolParameters = protocol, protocolPath = protocolPath,
-                witnessCount = signingIds.size + 1, bodyPath = body, validUntil = expiry(t),
+                protocolParameters = protocol,
+                protocolPath = protocolPath,
+                witnessCount = signingIds.size + 1,
+                bodyPath = body,
+                validUntil = expiry(t),
                 referenceScriptSize = walletUtils.queryReferenceScriptSize(t.host, t.connection, t.magic, t.socket, t.era, inputs)
             )
             val signed = "$prefix.signed"
@@ -256,20 +412,39 @@ class PoolRegistrationController(
             try {
                 val signingFiles = listOf(requireNotNull(payer.paymentSkey)) + signingIds.map { requireNotNull(files.findByIdOrNull(it)) }
                 signingFiles.forEachIndexed { i, file ->
-                    val path = "$prefix.$i.skey"; paths += path
+                    val path = "$prefix.$i.skey"
+                    paths += path
                     t.connection.commandWriteSecret(path, walletUtils.getSKeyContent(file, input.spendingPassword))
                 }
                 val args = mutableListOf(t.host.cardanoCliPath, t.era, "transaction", "sign", "--tx-body-file", body)
                 paths.forEach { args += listOf("--signing-key-file", it) }
-                args += t.network; args += listOf("--out-file", signed)
+                args += t.network
+                args += listOf("--out-file", signed)
                 cmd(t, args)
                 val envelope = t.connection.commandReadFile(signed)
-                require(json.readTree(envelope).path("cborHex").asString().isNotBlank())
-                cmd(t, listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", signed) + t.network +
-                    listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket"))
+                require(
+                    json
+                        .readTree(envelope)
+                        .path("cborHex")
+                        .asString()
+                        .isNotBlank()
+                )
+                cmd(
+                    t,
+                    listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", signed) + t.network +
+                        listOf("--socket-path", "${t.host.nodeHomePath}/${t.observer.name}/db/socket")
+                )
                 ledger.recordSubmitted(t.host, t.observer, t.era, built.txId, envelope)
-                val updatedPledge = changes.get("pledge")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolPledge
-                val updatedCost = changes.get("cost")?.takeUnless { it.isNull }?.asString()?.toBigInteger() ?: t.pool.poolCost
+                val updatedPledge = changes
+                    .get("pledge")
+                    ?.takeUnless { it.isNull }
+                    ?.asString()
+                    ?.toBigInteger() ?: t.pool.poolPledge
+                val updatedCost = changes
+                    .get("cost")
+                    ?.takeUnless { it.isNull }
+                    ?.asString()
+                    ?.toBigInteger() ?: t.pool.poolCost
                 val updatedMargin = changes.get("margin")?.takeUnless { it.isNull }?.let {
                     if (it.isNumber) it.decimalValue().toPlainString() else it.asString()
                 } ?: t.pool.poolMargin
@@ -295,19 +470,43 @@ class PoolRegistrationController(
                     }
                 }
                 messages.convertAndSend("/topic/messages", SocketResponse.Success("nodes", nodeController.activeNodesWithRelays()))
-                return Result(input.requestId, built.txId, eras.networkKey(t.observer), t.era, input.nodeId,
-                    requireNotNull(bodyField(built.textEnvelope, 2)).toString(), (cert.deposit + stakeDeposit).toString(),
-                    "0", "submitted", input.action, input.keyId, publication)
-            } finally { cmd(t, listOf("rm", "-f", signed) + paths) }
-        } finally { cmd(t, listOf("rm", "-f", body, protocolPath) + cert.cleanupPaths + extraPaths) }
+                return Result(
+                    input.requestId,
+                    built.txId,
+                    eras.networkKey(t.observer),
+                    t.era,
+                    input.nodeId,
+                    requireNotNull(bodyField(built.textEnvelope, 2)).toString(),
+                    (cert.deposit + stakeDeposit).toString(),
+                    "0",
+                    "submitted",
+                    input.action,
+                    input.keyId,
+                    publication
+                )
+            } finally {
+                cmd(t, listOf("rm", "-f", signed) + paths)
+            }
+        } finally {
+            cmd(t, listOf("rm", "-f", body, protocolPath) + cert.cleanupPaths + extraPaths)
+        }
     }
+
     @MessageMapping("/leios/registration/submit")
     @SendTo("/topic/messages")
-    fun submitMessage(input: SubmitRequest): SocketResponse<Result> = try {
-        SocketResponse.Success("leios_registration_submitted", execute(input))
-    } catch (e: Exception) {
-        SocketResponse.Error("leios_registration_submitted", SocketResponse.PublicFailure(e.javaClass.simpleName,
-            "Pool registration submission failed; inspect protected server diagnostics.", "leios_registration_submitted",
-            "retry", input.requestId))
-    }
+    fun submitMessage(input: SubmitRequest): SocketResponse<Result> =
+        try {
+            SocketResponse.Success("leios_registration_submitted", execute(input))
+        } catch (e: Exception) {
+            SocketResponse.Error(
+                "leios_registration_submitted",
+                SocketResponse.PublicFailure(
+                    e.javaClass.simpleName,
+                    "Pool registration submission failed; inspect protected server diagnostics.",
+                    "leios_registration_submitted",
+                    "retry",
+                    input.requestId
+                )
+            )
+        }
 }

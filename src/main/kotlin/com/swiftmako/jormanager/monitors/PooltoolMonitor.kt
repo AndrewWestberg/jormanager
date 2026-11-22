@@ -106,7 +106,7 @@ class PooltoolMonitor
             launch {
                 nodesChannel.collect { node ->
                     mutex.withLock {
-                        if (node.isDraft || node.type != "core") {
+                        if (node.type != "core") {
                             log.info("Skip pooltool monitoring for non-running or relay node: ${node.name}")
                             return@collect
                         }

@@ -32,38 +32,121 @@ class LeiosController(
     private val installations: KeyInstallationRepository,
     private val chainCoordinator: ChainIngestionCoordinator,
 ) {
-    data class Target(val hostId: Long, val nodeId: Long, val poolId: String? = null, val networkKey: String? = null)
-    data class StatusRequest(val requestId: String, val target: Target)
-    data class Point(val slot: String, val hash: String)
-    data class ReadState(val status: String, val asOf: String?, val observedPoint: Point?, val lastCompletePoint: Point?, val reasonCode: String, val affectedData: List<String>)
-    data class Registration(
-        val current: Boolean, val future: Boolean, val registrationEpoch: String?,
-        val effectiveEpoch: String?, val registrationEpochReason: String?, val scheduledRetirement: String?
+    data class Target(
+        val hostId: Long,
+        val nodeId: Long,
+        val poolId: String? = null,
+        val networkKey: String? = null
     )
-    data class Eligibility(val markEpoch: String?, val setEpoch: String?, val eligible: Boolean?, val selected: Boolean?, val expired: Boolean?)
-    data class Installation(val state: String, val installedFingerprint: String?, val loadedFingerprint: String?, val permissionResult: String?, val observedAt: String, val stale: Boolean, val error: String?)
-    data class KeyView(val keyId: Long?, val publicKeyHex: String, val proofOfPossessionHex: String?, val proofValidated: Boolean, val registration: Registration?, val eligibility: Eligibility?, val installation: Installation?)
-    data class Status(val requestId: String, val target: Target, val keys: List<KeyView>, val readState: ReadState, val era: String?)
-    data class KeyResult(val requestId: String, val target: Target, val key: KeyView)
-    private fun failure(type: String, requestId: String, message: String, disposition: String = "retry") = SocketResponse.Error(
-        type, SocketResponse.PublicFailure(
-            code = "LeiosOperationFailed", message = message, operation = type,
-            retryDisposition = disposition, requestId = requestId,
+
+    data class StatusRequest(
+        val requestId: String,
+        val target: Target
+    )
+
+    data class Point(
+        val slot: String,
+        val hash: String
+    )
+
+    data class ReadState(
+        val status: String,
+        val asOf: String?,
+        val observedPoint: Point?,
+        val lastCompletePoint: Point?,
+        val reasonCode: String,
+        val affectedData: List<String>
+    )
+
+    data class Registration(
+        val current: Boolean,
+        val future: Boolean,
+        val registrationEpoch: String?,
+        val effectiveEpoch: String?,
+        val registrationEpochReason: String?,
+        val scheduledRetirement: String?
+    )
+
+    data class Eligibility(
+        val markEpoch: String?,
+        val setEpoch: String?,
+        val eligible: Boolean?,
+        val selected: Boolean?,
+        val expired: Boolean?
+    )
+
+    data class Installation(
+        val state: String,
+        val installedFingerprint: String?,
+        val loadedFingerprint: String?,
+        val permissionResult: String?,
+        val observedAt: String,
+        val stale: Boolean,
+        val error: String?
+    )
+
+    data class KeyView(
+        val keyId: Long?,
+        val publicKeyHex: String,
+        val proofOfPossessionHex: String?,
+        val proofValidated: Boolean,
+        val registration: Registration?,
+        val eligibility: Eligibility?,
+        val installation: Installation?
+    )
+
+    data class Status(
+        val requestId: String,
+        val target: Target,
+        val keys: List<KeyView>,
+        val readState: ReadState,
+        val era: String?
+    )
+
+    data class KeyResult(
+        val requestId: String,
+        val target: Target,
+        val key: KeyView
+    )
+
+    private fun failure(
+        type: String,
+        requestId: String,
+        message: String,
+        disposition: String = "retry"
+    ) = SocketResponse.Error(
+        type,
+        SocketResponse.PublicFailure(
+            code = "LeiosOperationFailed",
+            message = message,
+            operation = type,
+            retryDisposition = disposition,
+            requestId = requestId,
         ),
     )
 
-
-    private fun keyOperation(request: LeiosKeyRequest, intent: String, responseType: String): SocketResponse<KeyResult> = try {
-        require(request.requestId.isNotBlank() && request.intent == intent)
-        val node = requireNotNull(nodes.findByIdOrNull(request.target.nodeId))
-        val host = requireNotNull(hosts.findByIdOrNull(request.target.hostId))
-        val key = keyService.prepare(request, host, node)
-        val target = Target(request.target.hostId, request.target.nodeId, key.poolId, key.networkKey)
-        SocketResponse.Success(responseType, KeyResult(request.requestId, target,
-            KeyView(key.id, key.publicKey.toHexString(), key.proof.toHexString(), true, null, null, null)))
-    } catch (_: Exception) {
-        failure(responseType, request.requestId, "Key operation failed; check the target and authorization")
-    }
+    private fun keyOperation(
+        request: LeiosKeyRequest,
+        intent: String,
+        responseType: String
+    ): SocketResponse<KeyResult> =
+        try {
+            require(request.requestId.isNotBlank() && request.intent == intent)
+            val node = requireNotNull(nodes.findByIdOrNull(request.target.nodeId))
+            val host = requireNotNull(hosts.findByIdOrNull(request.target.hostId))
+            val key = keyService.prepare(request, host, node)
+            val target = Target(request.target.hostId, request.target.nodeId, key.poolId, key.networkKey)
+            SocketResponse.Success(
+                responseType,
+                KeyResult(
+                    request.requestId,
+                    target,
+                    KeyView(key.id, key.publicKey.toHexString(), key.proof.toHexString(), true, null, null, null)
+                )
+            )
+        } catch (_: Exception) {
+            failure(responseType, request.requestId, "Key operation failed; check the target and authorization")
+        }
 
     @MessageMapping("/leios/key/prepare")
     @SendTo("/topic/messages")
@@ -75,116 +158,147 @@ class LeiosController(
 
     @MessageMapping("/leios/key/install")
     @SendTo("/topic/messages")
-    fun install(request: LeiosInstallRequest): SocketResponse<LeiosInstallationService.Result> = try {
-        SocketResponse.Success("leios_key_installation", installationService.install(request))
-    } catch (error: Exception) {
-        val safeReasons = setOf("Authorization required", "Invalid signing key", "Installation request ID belongs to another action",
-            "Installation request ID belongs to another target", "Installation target has changed",
-            "Producer service user differs from the credential owner", "Unsupported producer startup configuration",
-            "Pool child requires bulk credentials")
-        val message = if (error is LeiosInstallationService.InstallationFailure) error.message
-            else error.message?.takeIf { it in safeReasons }
-        failure("leios_key_installation", request.requestId, message ?: "Installation target or authorization is invalid",
-            (error as? LeiosInstallationService.InstallationFailure)?.disposition ?: "retry")
-    }
+    fun install(request: LeiosInstallRequest): SocketResponse<LeiosInstallationService.Result> =
+        try {
+            SocketResponse.Success("leios_key_installation", installationService.install(request))
+        } catch (error: Exception) {
+            val safeReasons = setOf(
+                "Authorization required",
+                "Invalid signing key",
+                "Installation request ID belongs to another action",
+                "Installation request ID belongs to another target",
+                "Installation target has changed",
+                "Producer service user differs from the credential owner",
+                "Unsupported producer startup configuration",
+                "Pool child requires bulk credentials"
+            )
+            val message = if (error is LeiosInstallationService.InstallationFailure) {
+                error.message
+            } else {
+                error.message?.takeIf { it in safeReasons }
+            }
+            failure(
+                "leios_key_installation",
+                request.requestId,
+                message ?: "Installation target or authorization is invalid",
+                (error as? LeiosInstallationService.InstallationFailure)?.disposition ?: "retry"
+            )
+        }
 
     @MessageMapping("/leios/status")
     @SendTo("/topic/messages")
-    fun status(request: StatusRequest): SocketResponse<Status> = try {
-        require(request.requestId.isNotBlank())
-        val node = requireNotNull(nodes.findByIdOrNull(request.target.nodeId))
-        val host = requireNotNull(hosts.findByIdOrNull(request.target.hostId))
-        require(!node.isDeleted && node.hostId == host.id && node.type in setOf("core", "pool"))
-        val pool = requireNotNull(node.poolId)
-        val network = eras.networkKey(node)
-        require(request.target.poolId == null || request.target.poolId == pool)
-        require(request.target.networkKey == null || request.target.networkKey == network)
-        val target = Target(request.target.hostId, request.target.nodeId, pool, network)
-        val era = try {
-            val observer = when {
-                node.isDraft -> nodes.findDefault()
-                node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault()
-                else -> node
-            }
-            observer?.takeIf { !it.isDeleted && !it.isDraft && it.type != "pool" && eras.networkKey(it) == network }?.let {
-                val evidence = eras.evidence(it)
-                evidence.era.takeIf { _ -> evidence.freshness == "current" && evidence.networkKey == network &&
-                    evidence.source == "host:${it.hostId}/node:${it.id}" }
-            }
-        } catch (_: Exception) {
-            null
-        }
-        val refreshed = try { observationService.refresh(host, node) } catch (_: Exception) { null }
-        val observation = refreshed ?: observations.findFirstByNetworkKeyAndPoolIdOrderByObservedAtDesc(network, pool)
-        val allInstalled = installations.findByNodeIdAndHostIdOrderByObservedAtDesc(request.target.nodeId, request.target.hostId)
-        val latestInstallation = allInstalled.firstOrNull()
-        val installed = allInstalled.groupBy { it.keyId }
-        val current = observation?.currentPublicKey?.toHexString()
-        val future = observation?.futurePublicKey?.toHexString()
-        fun registration(hex: String) = observation?.takeIf { hex == current || hex == future }?.let {
-            Registration(
-                hex == current, hex == future, it.registrationEpoch?.toPlainString(),
-                if (hex == current) it.effectiveEpoch?.toPlainString() else null,
-                if (it.registrationEpoch == null) "NODE_QUERY_EXPOSES_EFFECTIVE_EPOCH_ONLY" else null,
-                it.scheduledRetirement?.toPlainString()
-            )
-        }
-        fun eligibility(hex: String) = observation?.takeIf { hex == current }?.let {
-            Eligibility(it.markEpoch?.toPlainString(), it.setEpoch?.toPlainString(), it.eligible, it.selected, it.expired)
-        }
-        val views = keys.findByNetworkKeyAndPoolId(network, pool).map { key ->
-            val hex = key.publicKey.toHexString()
-            val installation = installed[key.id]?.firstOrNull()?.let {
-                val isLatestInstallation = latestInstallation != null &&
-                    if (it.id != null || latestInstallation.id != null) {
-                        it.id == latestInstallation.id
-                    } else {
-                        it === latestInstallation
+    fun status(request: StatusRequest): SocketResponse<Status> =
+        try {
+            require(request.requestId.isNotBlank())
+            val node = requireNotNull(nodes.findByIdOrNull(request.target.nodeId))
+            val host = requireNotNull(hosts.findByIdOrNull(request.target.hostId))
+            require(!node.isDeleted && node.hostId == host.id && node.type in setOf("core", "pool"))
+            val pool = requireNotNull(node.poolId)
+            val network = eras.networkKey(node)
+            require(request.target.poolId == null || request.target.poolId == pool)
+            require(request.target.networkKey == null || request.target.networkKey == network)
+            val target = Target(request.target.hostId, request.target.nodeId, pool, network)
+            val era = try {
+                val observer = when {
+                    node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault()
+                    else -> node
+                }
+                observer?.takeIf { !it.isDeleted && it.type != "pool" && eras.networkKey(it) == network }?.let {
+                    val evidence = eras.evidence(it)
+                    evidence.era.takeIf { _ ->
+                        evidence.freshness == "current" && evidence.networkKey == network &&
+                            evidence.source == "host:${it.hostId}/node:${it.id}"
                     }
-                val stale = refreshed == null ||
-                    !isLatestInstallation ||
-                    it.state != "installed" ||
-                    (it.loadedFingerprint != null && it.loadedFingerprint != it.installedFingerprint)
-                Installation(it.state, it.installedFingerprint, it.loadedFingerprint, it.permissionResult, it.observedAt.toString(), stale, it.sanitizedError)
+                }
+            } catch (_: Exception) {
+                null
             }
-            KeyView(key.id, hex, key.proof.toHexString(), true, registration(hex), eligibility(hex), installation)
-        }.toMutableList()
-        listOfNotNull(current, future).distinct().filter { hex -> views.none { it.publicKeyHex == hex } }.forEach { hex ->
-            views.add(KeyView(null, hex, null, false, registration(hex), eligibility(hex), null))
-        }
-        val point = observation?.let { o ->
-            val slot = o.chainSlot
-            val hash = o.chainHash
-            if (slot != null && hash != null) Point(slot.toPlainString(), hash.toHexString()) else null
-        }
-        val lastComplete = try {
-            chainCoordinator.status(network).lastCompletePoint?.let { Point(it.slot, it.hash) }
+            val refreshed = try {
+                observationService.refresh(host, node)
+            } catch (_: Exception) {
+                null
+            }
+            val observation = refreshed ?: observations.findFirstByNetworkKeyAndPoolIdOrderByObservedAtDesc(network, pool)
+            val allInstalled = installations.findByNodeIdAndHostIdOrderByObservedAtDesc(request.target.nodeId, request.target.hostId)
+            val latestInstallation = allInstalled.firstOrNull()
+            val installed = allInstalled.groupBy { it.keyId }
+            val current = observation?.currentPublicKey?.toHexString()
+            val future = observation?.futurePublicKey?.toHexString()
+
+            fun registration(hex: String) =
+                observation?.takeIf { hex == current || hex == future }?.let {
+                    Registration(
+                        hex == current,
+                        hex == future,
+                        it.registrationEpoch?.toPlainString(),
+                        if (hex == current) it.effectiveEpoch?.toPlainString() else null,
+                        if (it.registrationEpoch == null) "NODE_QUERY_EXPOSES_EFFECTIVE_EPOCH_ONLY" else null,
+                        it.scheduledRetirement?.toPlainString()
+                    )
+                }
+
+            fun eligibility(hex: String) =
+                observation?.takeIf { hex == current }?.let {
+                    Eligibility(it.markEpoch?.toPlainString(), it.setEpoch?.toPlainString(), it.eligible, it.selected, it.expired)
+                }
+            val views = keys
+                .findByNetworkKeyAndPoolId(network, pool)
+                .map { key ->
+                    val hex = key.publicKey.toHexString()
+                    val installation = installed[key.id]?.firstOrNull()?.let {
+                        val isLatestInstallation = latestInstallation != null &&
+                            if (it.id != null || latestInstallation.id != null) {
+                                it.id == latestInstallation.id
+                            } else {
+                                it === latestInstallation
+                            }
+                        val stale = refreshed == null ||
+                            !isLatestInstallation ||
+                            it.state != "installed" ||
+                            (it.loadedFingerprint != null && it.loadedFingerprint != it.installedFingerprint)
+                        Installation(it.state, it.installedFingerprint, it.loadedFingerprint, it.permissionResult, it.observedAt.toString(), stale, it.sanitizedError)
+                    }
+                    KeyView(key.id, hex, key.proof.toHexString(), true, registration(hex), eligibility(hex), installation)
+                }.toMutableList()
+            listOfNotNull(current, future).distinct().filter { hex -> views.none { it.publicKeyHex == hex } }.forEach { hex ->
+                views.add(KeyView(null, hex, null, false, registration(hex), eligibility(hex), null))
+            }
+            val point = observation?.let { o ->
+                val slot = o.chainSlot
+                val hash = o.chainHash
+                if (slot != null && hash != null) Point(slot.toPlainString(), hash.toHexString()) else null
+            }
+            val lastComplete = try {
+                chainCoordinator.status(network).lastCompletePoint?.let { Point(it.slot, it.hash) }
+            } catch (_: Exception) {
+                null
+            }
+            val affected = mutableListOf<String>()
+            if (observation?.registrationEpoch == null) affected.add("registrationEpoch")
+            if (observation?.markEpoch == null || observation.setEpoch == null) affected.add("snapshotEpochs")
+            if (observation?.eligible == null || observation.expired == null) affected.add("eligibility")
+            if (observation?.selected == null) affected.add("selection")
+            affected.add("loadedKey")
+            val state = ReadState(
+                when {
+                    observation == null -> "unavailable"
+                    refreshed == null -> "stale"
+                    affected.isNotEmpty() -> "incomplete"
+                    else -> "complete"
+                },
+                observation?.observedAt?.toString(),
+                point,
+                lastComplete,
+                when {
+                    observation == null -> "POOL_OBSERVATION_UNAVAILABLE"
+                    refreshed == null -> "POOL_OBSERVATION_NOT_REFRESHED"
+                    affected.isNotEmpty() -> "POOL_OBSERVATION_PARTIAL"
+                    else -> "POOL_OBSERVATION_CURRENT"
+                },
+                affected
+            )
+            SocketResponse.Success("leios_status", Status(request.requestId, target, views, state, era))
         } catch (_: Exception) {
-            null
+            failure("leios_status", request.requestId, "Leios target or observations unavailable")
         }
-        val affected = mutableListOf<String>()
-        if (observation?.registrationEpoch == null) affected.add("registrationEpoch")
-        if (observation?.markEpoch == null || observation.setEpoch == null) affected.add("snapshotEpochs")
-        if (observation?.eligible == null || observation.expired == null) affected.add("eligibility")
-        if (observation?.selected == null) affected.add("selection")
-        affected.add("loadedKey")
-        val state = ReadState(
-            when {
-                observation == null -> "unavailable"
-                refreshed == null -> "stale"
-                affected.isNotEmpty() -> "incomplete"
-                else -> "complete"
-            },
-            observation?.observedAt?.toString(), point, lastComplete,
-            when {
-                observation == null -> "POOL_OBSERVATION_UNAVAILABLE"
-                refreshed == null -> "POOL_OBSERVATION_NOT_REFRESHED"
-                affected.isNotEmpty() -> "POOL_OBSERVATION_PARTIAL"
-                else -> "POOL_OBSERVATION_CURRENT"
-            }, affected
-        )
-        SocketResponse.Success("leios_status", Status(request.requestId, target, views, state, era))
-    } catch (_: Exception) {
-        failure("leios_status", request.requestId, "Leios target or observations unavailable")
-    }
 }
