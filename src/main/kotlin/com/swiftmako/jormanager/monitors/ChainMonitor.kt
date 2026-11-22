@@ -52,7 +52,9 @@ class ChainMonitor(
 ) : SmartLifecycle {
     private val log = KotlinLogging.logger("ChainMonitor")
     private var root: Job? = null
+
     override fun isAutoStartup() = System.getProperty("jormanager.mode") != "repair"
+
     override fun isRunning() = root?.isActive == true
 
     override fun start() {
@@ -64,11 +66,14 @@ class ChainMonitor(
             try {
                 while (isActive) {
                     try {
-                        val nodes = nodeRepository.findAll().filterNot { it.isDeleted || it.isDraft }.sortedByDescending { it.isDefault }
+                        val nodes = nodeRepository.findAll().filterNot { it.isDeleted }.sortedByDescending { it.isDefault }
                         val selected = linkedMapOf<String, Node>()
                         for (node in nodes) {
-                            try { selected.putIfAbsent(cardanoRepository.networkKey(node), node) }
-                            catch (e: Exception) { log.warn(e) { "Unable to identify network for node ${node.id}" } }
+                            try {
+                                selected.putIfAbsent(cardanoRepository.networkKey(node), node)
+                            } catch (e: Exception) {
+                                log.warn(e) { "Unable to identify network for node ${node.id}" }
+                            }
                         }
                         for ((key, pair) in observers.toMap()) {
                             if (selected[key] != pair.first || !pair.second.isActive) {
@@ -79,8 +84,11 @@ class ChainMonitor(
                         for ((key, node) in selected) {
                             if (key !in observers) observers[key] = node to launch { observe(key, node) }
                         }
-                    } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { log.error(e) { "Unable to enumerate chain observers" } }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log.error(e) { "Unable to enumerate chain observers" }
+                    }
                     delay(10_000)
                 }
             } finally {
@@ -89,7 +97,10 @@ class ChainMonitor(
         }
     }
 
-    private suspend fun observe(key: String, node: Node) {
+    private suspend fun observe(
+        key: String,
+        node: Node
+    ) {
         while (currentCoroutineContext().isActive) {
             var mux: Mux? = null
             var session: NetworkChainSession? = null
@@ -116,52 +127,73 @@ class ChainMonitor(
                 val genesisOutputs = GenesisLedgerDecoder.byron(byronFile.content, byronMagic) +
                     if (!shelley.networkId.equals("mainnet", ignoreCase = true) &&
                         (configValues.get("TestShelleyHardForkAtEpoch") as? Number)?.toLong() == 0L
-                    ) GenesisLedgerDecoder.shelley(genesis.content) else emptyList()
+                    ) {
+                        GenesisLedgerDecoder.shelley(genesis.content)
+                    } else {
+                        emptyList()
+                    }
                 val genesisHash = requireNotNull(configAdapter.fromJson(config.content)).shelleyGenesisHash.hexToByteArray()
                 require(Blake2b.hash256(genesis.content.toByteArray(Charsets.UTF_8)).contentEquals(genesisHash)) { "Shelley genesis hash mismatch" }
                 coordinator.registerNetwork(key, byronGenesisHash.lowercase(), genesisOutputs)
-                aSocket(selector).tcp().connect(InetSocketAddress(host.hostname, node.port)) {
-                    noDelay = true; keepAlive = true; lingerSeconds = 0; typeOfService = TypeOfService.IPTOS_LOWDELAY
-                }.use { socket ->
-                    val connectionMux = Mux(socket.connection())
-                    mux = connectionMux
-                    connectionMux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
-                    coroutineScope {
-                        var executionFailure: Throwable? = null
-                        try {
-                            cardanoRepository.reestablishTarget(host, node)
-                            val active = requireNotNull(session)
-                            val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
-                            connectionMux.execute(
-                                KeepAliveProtocol(),
-                                ChainSyncProtocol(host, genesisHash, emptyList(), chainRepository, false, pooltoolService, "", "",
-                                    active, node, cardanoRepository, coordinator.intersectionPoints(key)),
-                                BlockFetchProtocol(active, leios, this),
-                                leios,
-                            )
-                        } catch (failure: Throwable) {
-                            executionFailure = failure
-                            throw failure
-                        } finally {
+                aSocket(selector)
+                    .tcp()
+                    .connect(InetSocketAddress(host.hostname, node.port)) {
+                        noDelay = true
+                        keepAlive = true
+                        lingerSeconds = 0
+                        typeOfService = TypeOfService.IPTOS_LOWDELAY
+                    }.use { socket ->
+                        val connectionMux = Mux(socket.connection())
+                        mux = connectionMux
+                        connectionMux.execute(HandshakeProtocol(requireNotNull(shelley.networkMagic)))
+                        coroutineScope {
+                            var executionFailure: Throwable? = null
                             try {
-                                connectionMux.shutdownGracefully()
+                                cardanoRepository.reestablishTarget(host, node)
+                                val active = requireNotNull(session)
+                                val leios = LeiosFetchProtocol(isCurrent = { generation -> generation == active.generation })
+                                connectionMux.execute(
+                                    KeepAliveProtocol(),
+                                    ChainSyncProtocol(
+                                        host,
+                                        genesisHash,
+                                        emptyList(),
+                                        chainRepository,
+                                        false,
+                                        pooltoolService,
+                                        "",
+                                        "",
+                                        active,
+                                        node,
+                                        cardanoRepository,
+                                        coordinator.intersectionPoints(key)
+                                    ),
+                                    BlockFetchProtocol(active, leios, this),
+                                    leios,
+                                )
                             } catch (failure: Throwable) {
-                                val original = executionFailure
-                                if (original == null) throw failure
-                                original.addSuppressed(failure)
+                                executionFailure = failure
+                                throw failure
+                            } finally {
+                                try {
+                                    connectionMux.shutdownGracefully()
+                                } catch (failure: Throwable) {
+                                    val original = executionFailure
+                                    if (original == null) throw failure
+                                    original.addSuppressed(failure)
+                                }
                             }
                         }
                     }
-                }
             } catch (e: CancellationException) {
                 cancelled = true
                 throw e
-            }
-            catch (e: Exception) {
+            } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
                 log.warn(e) { "Chain observer failed for network $key" }
-                try { session?.let { coordinator.boundaryFailure(key, e.message ?: "Chain connection failed", it.generation) } }
-                catch (failure: Exception) {
+                try {
+                    session?.let { coordinator.boundaryFailure(key, e.message ?: "Chain connection failed", it.generation) }
+                } catch (failure: Exception) {
                     currentCoroutineContext().ensureActive()
                     log.warn(failure) { "Unable to record chain failure" }
                 }
@@ -170,7 +202,11 @@ class ChainMonitor(
                     try {
                         mux?.shutdownGracefully()
                     } finally {
-                        try { session?.close() } finally { selector.close() }
+                        try {
+                            session?.close()
+                        } finally {
+                            selector.close()
+                        }
                     }
                 } catch (failure: Throwable) {
                     if (!cancelled) {
@@ -186,7 +222,16 @@ class ChainMonitor(
     override fun stop(callback: Runnable) {
         val job = root
         root = null
-        if (job == null) callback.run() else { job.invokeOnCompletion { callback.run() }; job.cancel() }
+        if (job == null) {
+            callback.run()
+        } else {
+            job.invokeOnCompletion { callback.run() }
+            job.cancel()
+        }
     }
-    override fun stop() { root?.cancel(); root = null }
+
+    override fun stop() {
+        root?.cancel()
+        root = null
+    }
 }

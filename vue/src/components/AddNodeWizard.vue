@@ -675,14 +675,6 @@
             </tbody>
           </table>
         </div>
-        <BFormGroup v-if="setupContext && setupContext.keys.length > 1 && !setupContext.keyId" label="Existing Leios key">
-          <BFormSelect v-model="selectedKeyId">
-            <BFormSelectOption :value="null" disabled>-- Select a key --</BFormSelectOption>
-            <BFormSelectOption v-for="key in setupContext.keys" :key="key.keyId" :value="key.keyId">
-              {{ key.keyId }}: {{ key.publicKeyHex }}
-            </BFormSelectOption>
-          </BFormSelect>
-        </BFormGroup>
         <p v-if="creationError" class="text-danger">{{ creationError }}</p>
 
 
@@ -747,7 +739,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
 import { FormWizard, TabContent } from 'vue3-form-wizard'
@@ -819,11 +811,6 @@ interface Metadata {
 
 const props = defineProps<{
   parentId?: number | null
-  setupContext?: {
-    requestId: string; setupRequestId: string | null; nodeId: number; hostId: number; networkKey: string
-    request: Record<string, unknown>; keyId: number | null
-    keys: { keyId: number; publicKeyHex: string }[]
-  } | null
 }>()
 
 const emit = defineEmits<{
@@ -838,13 +825,11 @@ const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
 const fileContents = ref<Record<string, File | null>>({})
 const itnPrivateFileInput = ref<HTMLInputElement | null>(null)
 const hasCustomizedTracingListen = ref(false)
-const selectedKeyId = ref<number | null>(props.setupContext?.keyId ?? null)
 const creationBusy = ref(false)
 const creationError = ref('')
-let requestId = props.setupContext?.setupRequestId ?? generateUUID()
+let requestId = generateUUID()
 let requestSignature = ''
-let prepared: { request: Record<string, unknown>; signature: string; sudo: string; keyId: number | null } | null = null
-let resumeSignature = ''
+let prepared: { request: Record<string, unknown>; signature: string; sudo: string } | null = null
 const privateFileInputs: Record<string, HTMLInputElement> = {}
 
 const formNode = ref({
@@ -941,7 +926,7 @@ watch(() => formNode.value.type, type => { if (type !== 'relay') formNode.value.
 
 
 watch(intentSignature, signature => {
-  if (!props.setupContext && requestSignature && requestSignature !== signature) {
+  if (requestSignature && requestSignature !== signature) {
     requestId = generateUUID()
     requestSignature = ''
   }
@@ -1129,29 +1114,15 @@ function handleCancel() {
 async function onComplete() {
   if (creationBusy.value || !store.connected || !validateStep1()) return
   if (formNode.value.type !== 'relay' && (!validateStep3() || !validateStep4() || !validateStep5())) return
-  if (props.setupContext && props.setupContext.keys.length > 1 && !props.setupContext.keyId && !selectedKeyId.value) {
-    creationError.value = 'Select an existing Leios key.'
-    return
-  }
-  if (props.setupContext && resumeSignature !== currentSignature.value) {
-    creationError.value = 'Saved setup details cannot be changed during resume.'
-    return
-  }
   creationBusy.value = true
   creationError.value = ''
   const signature = currentSignature.value
   try {
-    const request = props.setupContext
-      ? { ...JSON.parse(JSON.stringify(formNode.value)), ...JSON.parse(JSON.stringify(props.setupContext.request)) } as Record<string, unknown>
-      : await buildCreateRequest()
+    const request = await buildCreateRequest()
     if (signature !== currentSignature.value || !store.connected) return
     requestSignature = intentSignature.value
     request.requestId = requestId
-    if (props.setupContext) {
-      request.resumeNodeId = props.setupContext.nodeId
-      if (selectedKeyId.value != null) request.keyId = selectedKeyId.value
-    }
-    prepared = { request, signature, sudo: formNode.value.sudoPassword || '', keyId: selectedKeyId.value }
+    prepared = { request, signature, sudo: formNode.value.sudoPassword || '' }
     emitter.emit('show-spending-password-modal', { action: 'create-node' })
   } catch (error) {
     creationError.value = error instanceof Error ? error.message : String(error)
@@ -1164,7 +1135,7 @@ async function onSpendingPasswordConfirmed(data: { action: string; password: str
   if (data.action !== 'create-node' || creationBusy.value || !prepared) return
   const action = prepared
   prepared = null
-  if (!store.connected || action.signature !== currentSignature.value || action.keyId !== selectedKeyId.value) {
+  if (!store.connected || action.signature !== currentSignature.value) {
     creationError.value = 'The connection or setup changed; submit the form again.'
     return
   }
@@ -1204,13 +1175,7 @@ function passwordHidden(data: { action: string }) {
 onMounted(() => {
   store.requestHosts()
   store.requestFileOptions()
-  if (props.setupContext) {
-    Object.assign(formNode.value, JSON.parse(JSON.stringify(props.setupContext.request)))
-    formNode.value.spendingPassword = null
-    formNode.value.sudoPassword = null
-    nextTick(() => { resumeSignature = currentSignature.value })
-  }
-  
+
   if (props.parentId) {
     store.requestMetadata(props.parentId)
     formNode.value.parentId = props.parentId

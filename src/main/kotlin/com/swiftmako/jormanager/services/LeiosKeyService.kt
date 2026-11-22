@@ -43,9 +43,18 @@ class LeiosKeyService(
     private val safePath = Regex("[A-Za-z0-9_./-]+")
 
     // The secret is sent over stdin, never in a command line or the shared SCP temporary file.
-    private fun writeSecret(host: Host, path: String, value: String) {
+    private fun writeSecret(
+        host: Host,
+        path: String,
+        value: String
+    ) {
         if (!host.isRemote) {
-            java.nio.file.Files.writeString(java.nio.file.Path.of(path), value)
+            java.nio.file.Files
+                .writeString(
+                    java.nio.file.Path
+                        .of(path),
+                    value
+                )
         } else {
             val pool = SSHClientPool.getInstance(host)
             val ssh = pool.borrow()
@@ -57,7 +66,9 @@ class LeiosKeyService(
                         check(command.exitStatus == 0) { "Unable to transfer signing key" }
                     }
                 }
-            } finally { pool.recycle(ssh) }
+            } finally {
+                pool.recycle(ssh)
+            }
         }
     }
 
@@ -67,7 +78,11 @@ class LeiosKeyService(
         return CborSpans.parse(hex.hexToByteArray()).payload()
     }
 
-    fun prepare(request: LeiosKeyRequest, host: Host, node: Node): LeiosVotingKey {
+    fun prepare(
+        request: LeiosKeyRequest,
+        host: Host,
+        node: Node
+    ): LeiosVotingKey {
         require(request.intent == "prepare" || request.intent == "import")
         require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Authorization required" }
         require(node.hostId == host.id && !node.isDeleted && node.type in setOf("core", "pool"))
@@ -75,28 +90,27 @@ class LeiosKeyService(
         val network = eras.networkKey(node)
         require(request.target.poolId == null || request.target.poolId == poolId)
         require(request.target.networkKey == null || request.target.networkKey == network)
-        val observer = if (node.isDraft) {
-            if (request.observerNodeId != null) requireNotNull(nodes.findByIdOrNull(request.observerNodeId))
-            else nodes.findDefault() ?: throw IllegalStateException("A current observer is required for a draft pool")
-        } else node
-        val observerHost = if (node.isDraft) requireNotNull(hosts.findByIdOrNull(observer.hostId)) else host
-        val configDigest = if (node.isDraft) MessageDigest.getInstance("SHA-256")
-            .digest(requireNotNull(files.findByIdOrNull(node.configFileId)).content.toByteArray(Charsets.UTF_8)).toHexString() else null
+        val observer = when {
+            request.observerNodeId != null -> requireNotNull(nodes.findByIdOrNull(request.observerNodeId))
+            node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault() ?: node
+            else -> node
+        }
+        val observerHost = if (observer.id != node.id) requireNotNull(hosts.findByIdOrNull(observer.hostId)) else host
+
         fun validateTarget(): CardanoRepository.EraEvidence {
-            check(!observer.isDeleted && !observer.isDraft && eras.networkKey(observer) == network)
+            check(!observer.isDeleted && eras.networkKey(observer) == network)
             val currentNode = requireNotNull(nodes.findByIdOrNull(requireNotNull(node.id)))
-            check(!currentNode.isDeleted && currentNode.hostId == node.hostId && currentNode.poolId == poolId &&
-                currentNode.configFileId == node.configFileId && currentNode.coreVKeyId == node.coreVKeyId &&
-                currentNode.vrfVKeyId == node.vrfVKeyId && currentNode.ownerStakingAccountId == node.ownerStakingAccountId &&
-                currentNode.rewardsStakingAccountId == node.rewardsStakingAccountId && currentNode.isDraft == node.isDraft)
-            if (node.isDraft) {
-                val actual = MessageDigest.getInstance("SHA-256")
-                    .digest(requireNotNull(files.findByIdOrNull(node.configFileId)).content.toByteArray(Charsets.UTF_8)).toHexString()
-                check(actual == configDigest) { "Draft configuration changed" }
-            }
+            check(
+                !currentNode.isDeleted && currentNode.hostId == node.hostId && currentNode.poolId == poolId &&
+                    currentNode.configFileId == node.configFileId && currentNode.coreVKeyId == node.coreVKeyId &&
+                    currentNode.vrfVKeyId == node.vrfVKeyId && currentNode.ownerStakingAccountId == node.ownerStakingAccountId &&
+                    currentNode.rewardsStakingAccountId == node.rewardsStakingAccountId
+            )
             val era = eras.evidence(observer)
-            check(era.freshness == "current" && era.era == "dijkstra" &&
-                era.source == "host:${observerHost.id}/node:${observer.id}" && era.networkKey == network)
+            check(
+                era.freshness == "current" && era.era == "dijkstra" &&
+                    era.source == "host:${observerHost.id}/node:${observer.id}" && era.networkKey == network
+            )
             return era
         }
         val evidence = validateTarget()
@@ -118,22 +132,44 @@ class LeiosKeyService(
             connection.command(listOf(host.cardanoCliPath, "dijkstra", "key", "verification-key", "--signing-key-file", skey, "--verification-key-file", "$directory/derived.vkey"))
             val derived = bytesFromEnvelope(connection.command(listOf("cat", "$directory/derived.vkey")))
             require(derived.size == 96)
-            if (request.intent == "prepare") require(derived.contentEquals(bytesFromEnvelope(connection.command(listOf("cat", "$directory/generated.vkey")))) )
+            if (request.intent == "prepare") require(derived.contentEquals(bytesFromEnvelope(connection.command(listOf("cat", "$directory/generated.vkey")))))
             val owner = requireNotNull(wallets.findByIdOrNull(node.ownerStakingAccountId)?.stakingVkey?.content)
             val reward = requireNotNull(wallets.findByIdOrNull(node.rewardsStakingAccountId)?.stakingVkey?.content)
             val cold = requireNotNull(files.findByIdOrNull(node.coreVKeyId)?.content)
             val vrf = requireNotNull(files.findByIdOrNull(node.vrfVKeyId)?.content)
             listOf("owner" to owner, "reward" to reward, "cold" to cold, "vrf" to vrf).forEach { (name, content) -> connection.commandWriteFile("$directory/$name.vkey", content) }
             val genesis = json.readTree(requireNotNull(files.findByIdOrNull(node.genesisShelleyFileId)).content)
-            val networkArgs = if (genesis.path("networkId").asString().equals("Mainnet", true)) listOf("--mainnet") else {
+            val networkArgs = if (genesis.path("networkId").asString().equals("Mainnet", true)) {
+                listOf("--mainnet")
+            } else {
                 val magic = genesis.path("networkMagic").asString()
                 require(magic.matches(Regex("[0-9]+")))
                 listOf("--testnet-magic", magic)
             }
-            connection.command(listOf(host.cardanoCliPath, "dijkstra", "stake-pool", "registration-certificate",
-                "--cold-verification-key-file", "$directory/cold.vkey", "--vrf-verification-key-file", "$directory/vrf.vkey",
-                "--bls-signing-key-file", skey, "--pool-pledge", "0", "--pool-cost", "0", "--pool-margin", "0",
-                "--pool-reward-account-verification-key-file", "$directory/reward.vkey", "--pool-owner-stake-verification-key-file", "$directory/owner.vkey") + networkArgs + listOf("--out-file", "$directory/pool.cert"))
+            connection.command(
+                listOf(
+                    host.cardanoCliPath,
+                    "dijkstra",
+                    "stake-pool",
+                    "registration-certificate",
+                    "--cold-verification-key-file",
+                    "$directory/cold.vkey",
+                    "--vrf-verification-key-file",
+                    "$directory/vrf.vkey",
+                    "--bls-signing-key-file",
+                    skey,
+                    "--pool-pledge",
+                    "0",
+                    "--pool-cost",
+                    "0",
+                    "--pool-margin",
+                    "0",
+                    "--pool-reward-account-verification-key-file",
+                    "$directory/reward.vkey",
+                    "--pool-owner-stake-verification-key-file",
+                    "$directory/owner.vkey"
+                ) + networkArgs + listOf("--out-file", "$directory/pool.cert")
+            )
             val certHex = json.readTree(connection.command(listOf("cat", "$directory/pool.cert"))).path("cborHex").asString()
             require(certHex.isNotEmpty() && certHex.length % 2 == 0 && certHex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
             val certificate = CborSpans.parse(certHex.hexToByteArray()).array()
@@ -148,16 +184,29 @@ class LeiosKeyService(
             val secret = connection.command(listOf("cat", skey))
             val encrypted = walletUtils.encryptSKeyContent(secret, request.spendingPassword)
             val after = validateTarget()
-            check(after.networkKey == evidence.networkKey && after.era == evidence.era &&
-                after.generation == evidence.generation && after.source == evidence.source) { "Key target evidence changed" }
+            check(
+                after.networkKey == evidence.networkKey && after.era == evidence.era &&
+                    after.generation == evidence.generation && after.source == evidence.source
+            ) { "Key target evidence changed" }
             val digest = MessageDigest.getInstance("SHA-256")
             digest.update(public)
             val provenance = "cli-derived-key-and-certificate:" + digest.digest(proof).toHexString()
-            return requireNotNull(transaction.execute {
-                val file = files.save(File(name = "leios-${node.id}-${UUID.randomUUID()}.skey", content = encrypted))
-                keys.save(LeiosVotingKey(networkKey = network, poolId = poolId, publicKey = public, proof = proof,
-                    signingFileId = requireNotNull(file.id), preparedAt = Instant.now(), validationProvenance = provenance))
-            })
+            return requireNotNull(
+                transaction.execute {
+                    val file = files.save(File(name = "leios-${node.id}-${UUID.randomUUID()}.skey", content = encrypted))
+                    keys.save(
+                        LeiosVotingKey(
+                            networkKey = network,
+                            poolId = poolId,
+                            publicKey = public,
+                            proof = proof,
+                            signingFileId = requireNotNull(file.id),
+                            preparedAt = Instant.now(),
+                            validationProvenance = provenance
+                        )
+                    )
+                }
+            )
         } finally {
             connection.command(listOf("rm", "-rf", directory))
         }
