@@ -421,7 +421,6 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'governancesubmit':
         case 'pool_retirement_submit':
         case 'createnode':
-        case 'node_setup_context':
         case 'leios_key_prepared':
         case 'leios_key_imported':
         case 'leios_key_installation':

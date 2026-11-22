@@ -104,9 +104,6 @@ data class Node(
     @Column(name = "network_key_discriminator")
     @get:JsonIgnore
     val networkKeyDiscriminator: String? = null,
-    @Column(name = "is_draft", nullable = false)
-    @get:JsonProperty("isDraft")
-    val isDraft: Boolean = false,
     @Transient
     @get:JsonProperty("relays")
     val relays: List<Relay> = emptyList(),

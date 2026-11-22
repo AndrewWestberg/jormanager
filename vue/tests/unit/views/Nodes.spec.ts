@@ -22,9 +22,9 @@ type NodeState = {
   handleSaveMetadata: () => void
   openRetireModal: (nodeId: number) => void
   requestRetirement: () => void
-  openSetup: (nodeId: number) => Promise<void>
+  addPool: (parentId: number) => void
+  poolParentId: number | null
   showAddNodeWizard: boolean
-  setupContext: { nodeId: number } | null
 }
 
 function setup() {
@@ -108,18 +108,17 @@ describe('direct pool actions', () => {
     }
   })
 
-  it('excludes draft, deleted, and relay nodes from hasCoreNodes', () => {
+  it('excludes deleted and relay nodes from hasCoreNodes', () => {
     const { store, state } = setup()
     store.nodes = [
       { id: 1, name: 'relay-1', type: 'relay', hostId: 2 },
-      { id: 2, name: 'draft-core', type: 'core', hostId: 2, isDraft: true },
       { id: 3, name: 'deleted-pool', type: 'pool', hostId: 2, isDeleted: true }
     ] as unknown as typeof store.nodes
     expect(state.hasCoreNodes).toBe(false)
 
     store.nodes = [
       ...store.nodes,
-      { id: 4, name: 'active-pool', type: 'pool', hostId: 2, isDraft: false, isDeleted: false }
+      { id: 4, name: 'active-pool', type: 'pool', hostId: 2, isDeleted: false }
     ] as unknown as typeof store.nodes
     expect(state.hasCoreNodes).toBe(true)
   })
@@ -167,14 +166,10 @@ describe('direct pool actions', () => {
     emitter.off('show-spending-password-modal', prompt)
   })
 
-  it('opens the same wizard with the matching incomplete setup context', async () => {
-    const { store, state } = setup()
-    store.nodes = [{ id: 1, name: 'pool', type: 'core', hostId: 2, isDraft: true }] as unknown as typeof store.nodes
-    const context = { requestId: 'query', setupRequestId: 'setup', nodeId: 1, hostId: 2, request: {}, keys: [] }
-    const socket = vi.spyOn(store, 'socketRequest').mockResolvedValue(context)
-    await state.openSetup(1)
-    expect(socket).toHaveBeenCalledWith('/jormanager/node/setup-context', 'node_setup_context', { nodeId: 1 })
+  it('opens the add node wizard for a child pool without draft setup context', () => {
+    const { state } = setup()
+    state.addPool(1)
+    expect(state.poolParentId).toBe(1)
     expect(state.showAddNodeWizard).toBe(true)
-    expect(state.setupContext).toEqual(context)
   })
 })

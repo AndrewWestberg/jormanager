@@ -30,48 +30,72 @@ class LeiosObservationService(
     private val hosts: HostRepository,
     private val json: ObjectMapper,
 ) {
-    fun refresh(host: Host, node: Node): PoolKeyObservation? {
+    fun refresh(
+        host: Host,
+        node: Node
+    ): PoolKeyObservation? {
         val observer = when {
-            node.isDraft -> nodes.findDefault() ?: return null
             node.type == "pool" -> node.parentId?.let(nodes::findByIdOrNull) ?: nodes.findDefault() ?: return null
             else -> node
         }
-        val queryHost = if (node.isDraft || node.type == "pool") hosts.findByIdOrNull(observer.hostId) ?: return null else host
-        if (observer.isDeleted || observer.isDraft || observer.type == "pool" || eras.networkKey(node) != eras.networkKey(observer)) return null
+        val queryHost = if (node.type == "pool") hosts.findByIdOrNull(observer.hostId) ?: return null else host
+        if (observer.isDeleted || observer.type == "pool" || eras.networkKey(node) != eras.networkKey(observer)) return null
         val era = eras.evidence(observer)
         if (era.freshness != "current" || era.era != "dijkstra" || era.networkKey != eras.networkKey(observer) ||
-            era.source != "host:${queryHost.id}/node:${observer.id}") return null
+            era.source != "host:${queryHost.id}/node:${observer.id}"
+        ) {
+            return null
+        }
         val pool = requireNotNull(node.poolId)
-        val poolHash = if (pool.startsWith("pool1")) Bech32.decode(pool).let {
-            require(it.prefix == "pool" && it.bytes.size == 28)
-            it.bytes.toHexString()
-        } else pool.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
+        val poolHash = if (pool.startsWith("pool1")) {
+            Bech32.decode(pool).let {
+                require(it.prefix == "pool" && it.bytes.size == 28)
+                it.bytes.toHexString()
+            }
+        } else {
+            pool.lowercase().also { require(it.matches(Regex("[0-9a-f]{56}"))) }
+        }
         val socket = "${queryHost.nodeHomePath}/${observer.name}/db/socket"
         require(listOf(queryHost.cardanoCliPath, socket).all { it.matches(Regex("[A-Za-z0-9_./-]+")) && !it.startsWith("-") })
         val genesis = json.readTree(requireNotNull(files.findByIdOrNull(node.genesisShelleyFileId)).content)
-        val network = if (genesis.path("networkId").asString().equals("Mainnet", true)) listOf("--mainnet") else {
+        val network = if (genesis.path("networkId").asString().equals("Mainnet", true)) {
+            listOf("--mainnet")
+        } else {
             val magic = genesis.path("networkMagic").asString()
             require(magic.matches(Regex("[0-9]+")))
             listOf("--testnet-magic", magic)
         }
         val connection = HostConnection(queryHost, observer)
-        fun query(kind: String, extra: List<String>): JsonNode = json.readTree(connection.command(
-            listOf(queryHost.cardanoCliPath, "dijkstra", "query", kind) + extra + network + listOf("--socket-path", socket, "--output-json")
-        ))
+
+        fun query(
+            kind: String,
+            extra: List<String>
+        ): JsonNode =
+            json.readTree(
+                connection.command(
+                    listOf(queryHost.cardanoCliPath, "dijkstra", "query", kind) + extra + network + listOf("--socket-path", socket, "--output-json")
+                )
+            )
+
         fun point(tip: JsonNode): Pair<BigDecimal, ByteArray> {
             val slot = tip.path("slot")
-            require(slot.isIntegralNumber && slot.bigIntegerValue().signum() >= 0 &&
-                slot.bigIntegerValue() <= BigInteger("18446744073709551615")) { "Node tip slot unavailable" }
+            require(
+                slot.isIntegralNumber && slot.bigIntegerValue().signum() >= 0 &&
+                    slot.bigIntegerValue() <= BigInteger("18446744073709551615")
+            ) { "Node tip slot unavailable" }
             val hash = tip.path("hash").asString()
             require(hash.matches(Regex("[0-9a-fA-F]{64}"))) { "Node tip hash unavailable" }
             return BigDecimal(slot.bigIntegerValue()) to hash.hexToByteArray()
         }
         val startTip = query("tip", emptyList())
         val (startSlot, startHash) = point(startTip)
+
         fun epoch(value: JsonNode?): BigDecimal? {
             if (value == null || value.isMissingNode || value.isNull) return null
-            require(value.isIntegralNumber && value.bigIntegerValue().signum() >= 0 &&
-                value.bigIntegerValue() <= BigInteger("18446744073709551615")) { "Invalid observed epoch" }
+            require(
+                value.isIntegralNumber && value.bigIntegerValue().signum() >= 0 &&
+                    value.bigIntegerValue() <= BigInteger("18446744073709551615")
+            ) { "Invalid observed epoch" }
             return BigDecimal(value.bigIntegerValue())
         }
         val poolState = query("pool-state", listOf("--stake-pool-id", pool))
@@ -80,8 +104,13 @@ class LeiosObservationService(
         require(entries.all { it.key.equals(poolHash, true) || it.key.equals(pool, true) }) { "Pool query returned a different target" }
         require(entries.size <= 1)
         val state = entries.singleOrNull()?.value
-        if (state != null) require(state.isObject && state.has("blsKey") &&
-            state.has("retiring") && state.has("futureStakePoolParams")) { "Invalid pool-state result" }
+        if (state != null) {
+            require(
+                state.isObject && state.has("blsKey") &&
+                    state.has("retiring") && state.has("futureStakePoolParams")
+            ) { "Invalid pool-state result" }
+        }
+
         fun publicKey(value: JsonNode?): ByteArray? {
             if (value == null || value.isMissingNode || value.isNull) return null
             val key = if (value.has("blsPubKey")) value else value.path("bksKey")
@@ -97,7 +126,9 @@ class LeiosObservationService(
         val effectiveEpoch = if (current != null) {
             epoch(currentState?.path("bksRegisteredIn"))
                 ?: throw IllegalStateException("Effective key epoch unavailable")
-        } else null
+        } else {
+            null
+        }
         val retirement = epoch(state?.path("retiring"))
         val snapshot = query("stake-snapshot", listOf("--all-stake-pools"))
         require(snapshot.path("pools").isObject && snapshot.path("total").isObject) {
@@ -117,11 +148,23 @@ class LeiosObservationService(
             "Node tip changed while observing pool and stake snapshot"
         }
         val after = eras.evidence(observer)
-        check(after.freshness == "current" && after.networkKey == era.networkKey && after.era == era.era &&
-            after.generation == era.generation && after.source == era.source)
-        return observations.save(PoolKeyObservation(networkKey = era.networkKey, poolId = pool, observedAt = Instant.now(),
-            chainSlot = endSlot, chainHash = endHash,
-            currentPublicKey = current, futurePublicKey = future, effectiveEpoch = effectiveEpoch,
-            scheduledRetirement = retirement, selected = selected))
+        check(
+            after.freshness == "current" && after.networkKey == era.networkKey && after.era == era.era &&
+                after.generation == era.generation && after.source == era.source
+        )
+        return observations.save(
+            PoolKeyObservation(
+                networkKey = era.networkKey,
+                poolId = pool,
+                observedAt = Instant.now(),
+                chainSlot = endSlot,
+                chainHash = endHash,
+                currentPublicKey = current,
+                futurePublicKey = future,
+                effectiveEpoch = effectiveEpoch,
+                scheduledRetirement = retirement,
+                selected = selected
+            )
+        )
     }
 }

@@ -1,70 +1,97 @@
 package com.swiftmako.jormanager.services
 
-import tools.jackson.databind.JsonNode
-import tools.jackson.databind.ObjectMapper
-import tools.jackson.databind.node.ArrayNode
 import com.swiftmako.jormanager.controllers.NodeController
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
-import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
-import com.swiftmako.jormanager.entities.KeyInstallation
-import com.swiftmako.jormanager.entities.LeiosVotingKey
 import com.swiftmako.jormanager.entities.Node
-import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
-import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
-import com.swiftmako.jormanager.repositories.HostRepository
-import com.swiftmako.jormanager.repositories.KeyInstallationRepository
-import com.swiftmako.jormanager.repositories.LeiosKeyRepository
-import com.swiftmako.jormanager.repositories.NodeRepository
-import com.swiftmako.jormanager.repositories.NodeConfigurationSnapshotRepository
-import com.swiftmako.jormanager.utils.CborSpans
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
-import java.util.Base64
-import kotlinx.coroutines.flow.MutableSharedFlow
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.repository.findByIdOrNull
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ArrayNode
 
 @Service
 class PoolDeploymentService(
-    private val nodes: NodeRepository, private val hosts: HostRepository, private val files: FileRepository,
-    private val keys: LeiosKeyRepository, private val installations: KeyInstallationRepository,
-    private val eras: CardanoRepository,
-    private val configurationFiles: NodeConfigurationFiles, private val walletUtils: WalletUtils,
-    private val snapshots: NodeConfigurationSnapshotRepository,
-    private val nodeController: NodeController, private val jdbc: JdbcTemplate, private val json: ObjectMapper,
-    @param:Qualifier("nodesChannel") private val nodesChannel: MutableSharedFlow<Node>,
+    private val files: FileRepository,
+    private val configurationFiles: NodeConfigurationFiles,
+    private val walletUtils: WalletUtils,
+    private val nodeController: NodeController,
+    private val json: ObjectMapper,
 ) {
-    data class Result(val nodeId: Long, val state: String,
-        val installedFingerprint: String?, val loadedFingerprint: String?, val reason: String,
-        val operationId: String)
-    private data class Context(val node: Node, val host: Host, val observer: Node, val observerHost: Host,
-        val key: LeiosVotingKey?, val parent: Node?, val connection: HostConnection, val network: String,
-        val folder: String, val startup: String, val systemd: Boolean, val assets: Map<String, ByteArray>,
-        val era: String, val config: String, val fingerprint: String, val tipSlot: Long)
-    private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).toHexString()
-    private fun publicHash(key: LeiosVotingKey) = MessageDigest.getInstance("SHA-256").digest(key.publicKey).toHexString()
-    private fun safe(value: String) = value.also { require(it.matches(Regex("[A-Za-z0-9_./-]+")) && !it.startsWith("-") && !it.split('/').contains("..")) }
-    private fun file(id: Long) = requireNotNull(files.findByIdOrNull(id))
-    private fun remoteHash(c: HostConnection, path: String): String = if (c.commandFileExists(path)) {
-        c.commandArgs(listOf("sha256sum", path)).trim().substringBefore(' ').also { require(it.matches(Regex("[0-9a-f]{64}"))) }
-    } else "absent"
+    data class TargetSpec(
+        val host: Host,
+        val parent: Node?,
+        val name: String,
+        val type: String,
+        val processorThreads: Int,
+        val listen: String,
+        val port: Int,
+        val promPort: Int,
+        val tracingHost: String?,
+        val tracingPort: Int?,
+        val assets: Map<String, ByteArray>,
+        val config: String,
+    )
 
-    private fun isValidBlsSigningEnvelope(node: JsonNode): Boolean =
+    data class CredentialMaterial(
+        val kesSKey: String,
+        val vrfSKey: String,
+        val opcert: String,
+        val blsSKey: String? = null,
+        val blsPublicKey: ByteArray? = null,
+    )
+
+    data class DeploymentResult(
+        val configurationFingerprint: String,
+        val installedFingerprint: String?,
+        val kesExpireTimeSec: Long?,
+        val kesExpireDate: String?,
+        val rollback: () -> Unit = {},
+        val cleanup: () -> Unit = {},
+    )
+
+    private fun hash(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).toHexString()
+
+    private fun bytesHash(value: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(value).toHexString()
+
+    private fun safe(value: String): String =
+        value.also {
+            require(it.matches(Regex("[A-Za-z0-9_./-]+")) && !it.startsWith("-") && !it.split('/').contains("..")) {
+                "Invalid host path"
+            }
+        }
+
+    private fun file(id: Long) = requireNotNull(files.findByIdOrNull(id)) { "Referenced file $id not found" }
+
+    private fun remoteHash(
+        c: HostConnection,
+        path: String
+    ): String =
+        if (c.commandFileExists(path)) {
+            c
+                .commandArgs(listOf("sha256sum", path))
+                .trim()
+                .substringBefore(' ')
+                .also { require(it.matches(Regex("[0-9a-f]{64}"))) { "Invalid sha256sum output" } }
+        } else {
+            "absent"
+        }
+
+    internal fun isValidBlsSigningEnvelope(node: JsonNode): Boolean =
         node.isObject &&
             node.path("type").asString() == BLS_SIGNING_KEY_TYPE &&
             node.path("cborHex").asString().matches(BLS_SIGNING_KEY_CBOR_HEX_REGEX)
 
-    private fun validateBulkCredentials(node: JsonNode): ArrayNode {
+    internal fun validateBulkCredentials(node: JsonNode): ArrayNode {
         require(node is ArrayNode) { "Invalid existing bulk credentials" }
         node.forEach { entry ->
             require(entry.isArray && entry.size() in 3..4) { "Invalid existing bulk credential entry" }
@@ -82,7 +109,7 @@ class PoolDeploymentService(
         return node
     }
 
-    private fun parseAndValidateBulkCredentials(raw: String): ArrayNode {
+    fun parseAndValidateBulkCredentials(raw: String): ArrayNode {
         val parsed =
             try {
                 json.readTree(raw)
@@ -92,292 +119,449 @@ class PoolDeploymentService(
         return validateBulkCredentials(parsed)
     }
 
-    private fun context(nodeId: Long, keyId: Long?): Context {
-        val n = requireNotNull(nodes.findByIdOrNull(nodeId)); require(n.isDraft && !n.isDeleted && n.type in setOf("core", "pool"))
-        val host = requireNotNull(hosts.findByIdOrNull(n.hostId)); val observer = requireNotNull(nodes.findDefault())
-        val observerHost = requireNotNull(hosts.findByIdOrNull(observer.hostId))
-        val network = eras.networkKey(n); require(!observer.isDraft && !observer.isDeleted && eras.networkKey(observer) == network)
-        val genesis = json.readTree(file(observer.genesisShelleyFileId).content)
-        val flags = if (genesis.path("networkId").asString().equals("mainnet", true)) listOf("--mainnet") else listOf("--testnet-magic", genesis.path("networkMagic").asString().also { require(it.matches(Regex("[0-9]+"))) })
-        val socket = safe("${observerHost.nodeHomePath}/${observer.name}/db/socket")
-        val era = eras.getEra(observerHost, observer, flags.joinToString(" "), "--socket-path $socket")
-        require(era in setOf("dijkstra", "conway"))
-        val snapshot = snapshots.findByNodeId(nodeId).single()
-        val encoded = json.readTree(snapshot.assetsJson)
-        val assets = encoded.properties().associate { it.key to Base64.getDecoder().decode(it.value.asString()) }
-        val fingerprints = json.readTree(snapshot.publicFingerprints)
-        require(fingerprints.properties().map { it.key }.toSet() == assets.keys)
-        assets.forEach { (name, content) ->
-            require(MessageDigest.getInstance("SHA-256").digest(content).toHexString() == fingerprints.path(name).asString())
+    fun computeKesExpiration(
+        shelleyGenesis: JsonNode,
+        nowEpochSec: Long = Instant.now().epochSecond,
+    ): Pair<Long?, String?> {
+        val periods = shelleyGenesis.path("slotsPerKESPeriod").asLong(0L)
+        val maxKesEvolutions = shelleyGenesis.path("maxKESEvolutions").asLong(0L)
+        val slotLengthSec = shelleyGenesis.path("slotLength").asDouble(0.0)
+        return if (periods > 0L && maxKesEvolutions > 0L && slotLengthSec > 0.0) {
+            val expireSec = nowEpochSec + (maxKesEvolutions * periods * slotLengthSec).toLong()
+            expireSec to KES_EXPIRE_DATE_FORMATTER.format(Instant.ofEpochSecond(expireSec))
+        } else {
+            null to null
         }
-        configurationFiles.validate(assets)
-        require(snapshot.effectiveConfigDigest == hash(file(n.configFileId).content))
-        require(snapshot.effectiveTopologyDigest == hash(configurationFiles.renderTopology(assets)))
-        val key = if (era == "dijkstra") requireNotNull(keyId?.let(keys::findByIdOrNull)) else null
-        require(era != "conway" || keyId == null)
-        val pool = requireNotNull(n.poolId)
-        if (key != null) require(key.networkKey == network && key.poolId == pool && key.signingFileId != null && key.validationProvenance.isNotBlank() && key.publicKey.size == 96 && key.proof.size == 48)
-        val config = file(n.configFileId).content
-        val oc = HostConnection(observerHost, observer)
-        fun query(vararg args: String) = json.readTree(oc.commandArgs(listOf(safe(observerHost.cardanoCliPath), era, "query") + args + flags + listOf("--socket-path", socket, "--output-json")))
-        val tip = query("tip").path("slot").takeIf { it.isIntegralNumber && it.canConvertToLong() }?.asLong() ?: error("Tip slot unavailable")
-        val parent = if (n.type == "pool") requireNotNull(n.parentId?.let(nodes::findByIdOrNull)).also {
-            require(!it.isDeleted && !it.isDraft && it.type == "core" && it.hostId == n.hostId && eras.networkKey(it) == network)
-        } else null
-        val connection = HostConnection(host, parent); val folder = safe("${host.nodeHomePath}/${parent?.name ?: n.name}")
-        safe(host.cardanoNodePath); safe(host.cardanoCliPath); require(n.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*")))
-        val systemd = connection.hasSystemd
-        val tracingHost = n.tracingHost
-        require(n.listen.matches(Regex("[A-Za-z0-9.:-]+")) && (tracingHost == null || tracingHost.matches(Regex("[A-Za-z0-9.:-]+"))))
-        val startup = safe(if (systemd) "/etc/systemd/system/${parent?.name ?: n.name}-node.service" else "$folder/startNode.sh")
-        if (parent == null) {
-            require(!connection.commandFileExists(folder) && (!systemd || !connection.commandFileExists(startup))) { "Target directory or service already exists" }
-            val occupied = connection.commandArgs(listOf("ss", "-tulw"))
-            require(listOfNotNull(n.port, n.promPort, n.tracingPort).none { Regex("[:.]$it(?:\\s|$)").containsMatchIn(occupied) }) { "Reviewed port is already in use" }
-        }
-        else {
-            require(connection.commandReadFile("$folder/config.json") == config) { "Parent configuration changed" }
-            assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, content) ->
-                require(remoteHash(connection, "$folder/$name") == hash(content.toString(Charsets.UTF_8))) { "Parent files differ from selected snapshot" }
-            }
-            require(remoteHash(connection, "$folder/topology.json") == hash(assets.getValue("topology.json").toString(Charsets.UTF_8))) { "Parent topology changed" }
-            require(connection.commandFileExists(requireNotNull(startup)))
-            val startupContent = connection.commandReadFile(startup)
-            if (startupContent.contains("--bulk-credentials-file")) {
-                require(connection.commandFileExists("$folder/credentials.json")) { "Existing bulk credentials file not found" }
-                parseAndValidateBulkCredentials(connection.commandReadFile("$folder/credentials.json"))
-            }
-        }
-        if (systemd) {
-            val owner = connection.commandArgs(listOf("id", "-un")).trim()
-            if (parent == null) require(host.sshUser == owner) { "Service user differs from credential owner" }
-            else require(Regex("(?m)^User=([^\\r\\n]+)$").find(connection.commandReadFile(startup))?.groupValues?.get(1) == owner) { "Service user differs from credential owner" }
-        }
-        val assetIds = listOf(n.genesisByronFileId, n.genesisShelleyFileId, n.genesisAlonzoFileId, n.genesisConwayFileId) + listOfNotNull(n.genesisDijkstraFileId)
-        listOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json", "dijkstra-genesis.json").take(assetIds.size).zip(assetIds).forEach { (name, id) -> require(file(id).content.toByteArray().contentEquals(assets.getValue(name))) }
-        listOfNotNull(n.topologyFileId?.let { "topology.json" to it }, n.peerSnapshotFileId?.let { "peer-snapshot.json" to it })
-            .forEach { (name, id) -> require(file(id).content.toByteArray(Charsets.UTF_8).contentEquals(assets.getValue(name))) }
-        val ids = assetIds + listOfNotNull(n.topologyFileId, n.peerSnapshotFileId) +
-            listOf(n.configFileId, n.coreSKeyId, n.coreVKeyId, n.coreCounterId, n.vrfSKeyId, n.vrfVKeyId, n.kesSKeyId, n.kesVKeyId) + listOfNotNull(key?.signingFileId)
-        val relevant = ids.joinToString("|") { "$it:${hash(file(it).content)}" }
-        val existing = if (parent == null) "absent" else listOf(startup, "$folder/env", "$folder/credentials.json",
-            "$folder/${parent.name}.kes.skey", "$folder/${parent.name}.vrf.skey", "$folder/${parent.name}.node.opcert")
-            .joinToString("|") { "$it:${remoteHash(connection, it)}" } + "|" +
-            listOf(parent.kesSKeyId, parent.vrfSKeyId, parent.opcertId).joinToString("|") { "$it:${hash(file(it).content)}" }
-        val fingerprint = hash(json.writeValueAsString(n) + "|" + (key?.let(::publicHash) ?: "no-bls") + "|" + relevant + "|" + existing + "|" + assets.entries.sortedBy { it.key }.joinToString("|") { it.key + ":" + MessageDigest.getInstance("SHA-256").digest(it.value).toHexString() })
-        return Context(n, host, observer, observerHost, key, parent, connection, network, folder, startup, systemd, assets, era, config, fingerprint, tip)
     }
 
-    fun install(nodeId: Long, keyId: Long?, operationId: String, spendingPassword: String, sudoPassword: String): Result {
-        UUID.fromString(operationId)
-        require(walletUtils.isValidSpendingPassword(spendingPassword))
-        val row = jdbc.query("SELECT node_id,host_id,details,state FROM pool_deployment_previews WHERE id=?",
-            { rs, _ -> (1..4).map { rs.getString(it) } }, operationId).singleOrNull() ?: error("Setup operation not found")
-        val details = json.readTree(row[2]) as tools.jackson.databind.node.ObjectNode
-        val savedKey = details.path("keyId")
-        require(row[0] == nodeId.toString() &&
-            (if (keyId == null) savedKey.isNull || savedKey.isMissingNode else savedKey.asLong(-1) == keyId))
-        if (row[3] in setOf("installed", "installed_startup_failed")) {
-            return Result(nodeId, row[3], details.path("installedFingerprint").takeIf { it.isString }?.asString(),
-                details.path("loadedFingerprint").takeIf { it.isString }?.asString(),
-                details.path("reason").asString(), operationId)
+    fun validateTarget(
+        spec: TargetSpec,
+        spendingPassword: String,
+        sudoPassword: String,
+        verifySudo: Boolean = false,
+        candidateVrfSKey: String? = null,
+    ): ArrayNode? {
+        require(spec.type in setOf("core", "pool")) { "Unsupported producer type" }
+        require(spec.name.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]*"))) { "Invalid node name" }
+        require(spec.processorThreads > 0 && spec.port in 1..65535) { "Invalid processor threads or port" }
+        require(
+            spec.listen.matches(Regex("[A-Za-z0-9.:-]+")) &&
+                (spec.tracingHost == null || spec.tracingHost.matches(Regex("[A-Za-z0-9.:-]+"))),
+        ) { "Invalid listen address" }
+        safe(spec.host.nodeHomePath)
+        safe(spec.host.cardanoNodePath)
+        safe(spec.host.cardanoCliPath)
+        configurationFiles.validate(spec.assets)
+
+        val connection = HostConnection(spec.host, spec.parent)
+        val folder = safe("${spec.host.nodeHomePath}/${spec.parent?.name ?: spec.name}")
+        val systemd = connection.hasSystemd
+        val startup = safe(if (systemd) "/etc/systemd/system/${spec.parent?.name ?: spec.name}-node.service" else "$folder/startNode.sh")
+        if (verifySudo && systemd) {
+            connection.sudoCommand(listOf("pwd"), sudoPassword)
         }
-        check(row[3] in setOf("prepared", "registered")) {
-            "Installation outcome requires host and operational certificate counter inspection before retrying"
-        }
-        require(details.path("registrationState").asString() in setOf("submitted", "confirmed") &&
-            details.path("transactionId").asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Acknowledged registration required" }
-        val c = context(nodeId, keyId)
-        require(row[1] == c.node.hostId.toString())
-        val n = c.node; val connection = c.connection
-        val kes = walletUtils.getSKeyContent(file(n.kesSKeyId), spendingPassword)
-        val vrf = walletUtils.getSKeyContent(file(n.vrfSKeyId), spendingPassword)
-        val cold = walletUtils.getSKeyContent(file(n.coreSKeyId), spendingPassword)
-        val bls = c.key?.let { walletUtils.getSKeyContent(file(requireNotNull(it.signingFileId)), spendingPassword) }
-        val blsJson = bls?.let { json.readTree(it).also { value -> require(value.path("type").asString() == "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size" && value.path("cborHex").asString().matches(Regex("5820[0-9a-fA-F]{64}"))) } }
-        details.put("installationFingerprint", c.fingerprint)
-        require(jdbc.update("UPDATE pool_deployment_previews SET state='installing',details=? WHERE id=? AND state=? AND details=?",
-            json.writeValueAsString(details), operationId, row[3], row[2]) == 1) { "Setup operation changed or installation is already in progress" }
-        val prefix = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
-        val temporary = listOf("$prefix.cold", "$prefix.counter", "$prefix.kes.vkey", "$prefix.opcert", "$prefix.bls", "$prefix.bls.vkey")
-        var installed = false
-        var counterPersisted = false
-        var certificatePersisted = false
-        try {
-            require(context(nodeId, keyId).fingerprint == c.fingerprint)
-            connection.commandWriteSecret("$prefix.cold", cold)
-            if (bls != null) {
-                connection.commandWriteSecret("$prefix.bls", bls)
-                connection.commandArgs(listOf(safe(c.host.cardanoCliPath), c.era, "key", "verification-key", "--signing-key-file", "$prefix.bls", "--verification-key-file", "$prefix.bls.vkey"))
-                val derived = json.readTree(connection.commandReadFile("$prefix.bls.vkey")).path("cborHex").asString().hexToByteArray()
-                require(CborSpans.parse(derived).payload().contentEquals(requireNotNull(c.key).publicKey))
-            }
-            connection.commandWriteFile("$prefix.counter", file(n.coreCounterId).content)
-            connection.commandWriteFile("$prefix.kes.vkey", file(n.kesVKeyId).content)
-            val shelleyGenesis = json.readTree(file(n.genesisShelleyFileId).content)
-            val periods = shelleyGenesis.path("slotsPerKESPeriod").asLong()
-            require(periods > 0 && c.tipSlot >= 0)
-            connection.commandArgs(listOf(safe(c.host.cardanoCliPath), c.era, "node", "issue-op-cert", "--hot-kes-verification-key-file", "$prefix.kes.vkey", "--cold-signing-key-file", "$prefix.cold", "--operational-certificate-issue-counter", "$prefix.counter", "--kes-period", (c.tipSlot / periods).toString(), "--out-file", "$prefix.opcert"))
-            val counter = connection.commandReadFile("$prefix.counter")
-            files.save(file(n.coreCounterId).copy(content = counter))
-            counterPersisted = true
-            val cert = connection.commandReadFile("$prefix.opcert")
-            val certId = requireNotNull(files.save(File(name = "${n.name}.node.opcert", content = cert)).id)
-            certificatePersisted = true
-            fun writePrivate(path: String, content: String) {
-                val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
-                try {
-                    connection.commandWriteSecret(temp, content)
-                    connection.commandArgs(listOf("install", "-m", "600", temp, safe(path)))
-                    require(connection.commandArgs(listOf("stat", "-c", "%U:%a", path)).trim() == "${connection.commandArgs(listOf("id", "-un")).trim()}:600")
-                    require(remoteHash(connection, path) == hash(content))
-                } finally { connection.commandArgs(listOf("rm", "-f", temp)) }
-            }
-            if (c.parent == null) {
-                connection.commandArgs(listOf("mkdir", c.folder))
-                connection.commandArgs(listOf("mkdir", "${c.folder}/db"))
-                c.assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
-                    val content = bytes.toString(Charsets.UTF_8)
-                    connection.commandWriteFile("${c.folder}/$name", content)
-                    require(remoteHash(connection, "${c.folder}/$name") == hash(content))
+
+        val parentCredentials: ArrayNode? =
+            if (spec.parent == null) {
+                require(spec.type == "core") { "Standalone producer must have core type" }
+                require(!connection.commandFileExists(folder) && (!systemd || !connection.commandFileExists(startup))) {
+                    "Target directory or service already exists"
                 }
-                val topology = configurationFiles.renderTopology(c.assets)
-                listOf("topology.json" to topology, "config.json" to c.config).forEach { (name, content) -> connection.commandWriteFile("${c.folder}/$name", content); require(remoteHash(connection, "${c.folder}/$name") == hash(content)) }
-                writePrivate("${c.folder}/${n.name}.kes.skey", kes); writePrivate("${c.folder}/${n.name}.vrf.skey", vrf)
-                writePrivate("${c.folder}/${n.name}.node.opcert", cert)
-                if (bls != null) writePrivate("${c.folder}/${n.name}.bls.skey", bls)
-                val env = nodeController.renderEnvContent("core", n.name, c.folder, n.listen, n.port, n.tracingHost ?: "127.0.0.1", n.tracingPort)
-                connection.commandWriteFile("${c.folder}/env", env); require(remoteHash(connection, "${c.folder}/env") == hash(env))
-                if (c.systemd) {
-                    val base = nodeController.renderSystemdContent("core", c.host, n.name, n.processorThreads, n.tracingHost ?: "127.0.0.1", n.tracingPort)
-                    val startup = if (bls != null) base.replace("--shelley-operational-certificate", "--shelley-bls-key ${c.folder}/${n.name}.bls.skey \\\n  --shelley-operational-certificate") else base
+                val occupied = connection.commandArgs(listOf("ss", "-tulw"))
+                require(
+                    listOfNotNull(spec.port, spec.promPort, spec.tracingPort).none {
+                        Regex("[:.]$it(?:\\s|$)").containsMatchIn(occupied)
+                    },
+                ) { "Reviewed port is already in use" }
+                null
+            } else {
+                require(spec.type == "pool") { "Child producer must have pool type" }
+                val parent = spec.parent
+                require(!parent.isDeleted && parent.type == "core" && parent.hostId == spec.host.id) {
+                    "Parent core node is unavailable"
+                }
+                require(connection.commandReadFile("$folder/config.json") == spec.config) { "Parent configuration changed" }
+                spec.assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, content) ->
+                    require(remoteHash(connection, "$folder/$name") == hash(content.toString(Charsets.UTF_8))) {
+                        "Parent files differ from selected snapshot"
+                    }
+                }
+                require(
+                    remoteHash(connection, "$folder/topology.json") ==
+                        hash(spec.assets.getValue("topology.json").toString(Charsets.UTF_8)),
+                ) { "Parent topology changed" }
+                require(connection.commandFileExists(startup)) { "Parent startup file not found" }
+                val startupContent = connection.commandReadFile(startup)
+                val credentialPath = "$folder/credentials.json"
+                val existing: ArrayNode =
+                    if (startupContent.contains("--bulk-credentials-file")) {
+                        require(connection.commandFileExists(credentialPath)) { "Existing bulk credentials file not found" }
+                        parseAndValidateBulkCredentials(connection.commandReadFile(credentialPath))
+                    } else {
+                        require(!connection.commandFileExists(credentialPath)) {
+                            "Unexpected existing credentials require inspection"
+                        }
+                        require(
+                            startupContent.contains("--shelley-kes-key") &&
+                                startupContent.contains("--shelley-vrf-key") &&
+                                startupContent.contains("--shelley-operational-certificate"),
+                        ) { "Parent startup lacks Shelley credential flags" }
+                        val parentKes = walletUtils.getSKeyContent(file(parent.kesSKeyId), spendingPassword)
+                        val parentVrf = walletUtils.getSKeyContent(file(parent.vrfSKeyId), spendingPassword)
+                        val parentOpcert = file(parent.opcertId).content
+                        require(
+                            remoteHash(connection, "$folder/${parent.name}.kes.skey") == hash(parentKes) &&
+                                remoteHash(connection, "$folder/${parent.name}.vrf.skey") == hash(parentVrf) &&
+                                remoteHash(connection, "$folder/${parent.name}.node.opcert") == hash(parentOpcert),
+                        ) { "Parent singleton credentials differ from persisted material" }
+                        val parentEntry =
+                            json
+                                .createArrayNode()
+                                .add(json.readTree(parentOpcert))
+                                .add(json.readTree(parentVrf))
+                                .add(json.readTree(parentKes))
+                        if (startupContent.contains("--shelley-bls-key")) {
+                            val match =
+                                Regex("--shelley-bls-key\\s+([^\\s\\\\]+)").find(startupContent)
+                                    ?: error("Cannot identify parent BLS key")
+                            val parentBls = json.readTree(connection.commandReadFile(safe(match.groupValues[1])))
+                            require(isValidBlsSigningEnvelope(parentBls)) { "Invalid BLS envelope in existing bulk credentials" }
+                            parentEntry.add(parentBls)
+                        }
+                        validateBulkCredentials(json.createArrayNode().add(parentEntry))
+                    }
+                if (candidateVrfSKey != null) {
+                    val vrfHex = json.readTree(candidateVrfSKey).path("cborHex").asString()
+                    require(vrfHex.isNotBlank() && existing.none { it[1].path("cborHex").asString() == vrfHex }) {
+                        "VRF key already exists in bulk credentials"
+                    }
+                }
+                existing.deepCopy()
+            }
+
+        if (systemd) {
+            val owner = connection.commandArgs(listOf("id", "-un")).trim()
+            if (spec.parent == null) {
+                require(spec.host.sshUser == owner) { "Service user differs from credential owner" }
+            } else {
+                require(
+                    Regex("(?m)^User=([^\\r\\n]+)$").find(connection.commandReadFile(startup))?.groupValues?.get(1) == owner,
+                ) { "Service user differs from credential owner" }
+            }
+        }
+        return parentCredentials
+    }
+
+    fun deploy(
+        spec: TargetSpec,
+        credentials: CredentialMaterial,
+        spendingPassword: String,
+        sudoPassword: String,
+        operationId: String = UUID.randomUUID().toString(),
+        deferBackupCleanup: Boolean = false,
+    ): DeploymentResult {
+        require(walletUtils.isValidSpendingPassword(spendingPassword)) { "Authorization required" }
+        require((credentials.blsSKey == null) == (credentials.blsPublicKey == null)) { "Incomplete BLS credential material" }
+        val blsJson =
+            credentials.blsSKey?.let { raw ->
+                json.readTree(raw).also { parsed ->
+                    require(isValidBlsSigningEnvelope(parsed)) { "Invalid BLS signing key envelope" }
+                }
+            }
+        if (credentials.blsPublicKey != null) {
+            require(credentials.blsPublicKey.size == 96) { "Invalid BLS public key length" }
+        }
+
+        val validatedParentCredentials =
+            validateTarget(
+                spec = spec,
+                spendingPassword = spendingPassword,
+                sudoPassword = sudoPassword,
+                verifySudo = false,
+                candidateVrfSKey = credentials.vrfSKey,
+            )
+
+        val connection = HostConnection(spec.host, spec.parent)
+        val folder = safe("${spec.host.nodeHomePath}/${spec.parent?.name ?: spec.name}")
+        val systemd = connection.hasSystemd
+        val startup = safe(if (systemd) "/etc/systemd/system/${spec.parent?.name ?: spec.name}-node.service" else "$folder/startNode.sh")
+        val serviceName = "${spec.parent?.name ?: spec.name}-node.service"
+        val topology = configurationFiles.renderTopology(spec.assets)
+
+        fun writePrivate(
+            path: String,
+            content: String
+        ) {
+            val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
+            try {
+                connection.commandWriteSecret(temp, content)
+                connection.commandArgs(listOf("install", "-m", "600", temp, safe(path)))
+                val expectedOwner = "${connection.commandArgs(listOf("id", "-un")).trim()}:600"
+                require(connection.commandArgs(listOf("stat", "-c", "%U:%a", path)).trim() == expectedOwner) {
+                    "Installed secret permissions mismatch"
+                }
+                require(remoteHash(connection, path) == hash(content)) { "Installed secret hash mismatch" }
+            } finally {
+                runCatching { connection.commandArgs(listOf("rm", "-f", temp)) }
+            }
+        }
+
+        val rollbackAction: () -> Unit
+        val cleanupAction: () -> Unit
+
+        if (spec.parent == null) {
+            var folderCreated = false
+            var systemdUnitInstalled = false
+            rollbackAction = {
+                if (systemd && systemdUnitInstalled) {
+                    runCatching { connection.sudoCommand(listOf("systemctl", "stop", serviceName), sudoPassword) }
+                    runCatching { connection.sudoCommand(listOf("systemctl", "disable", serviceName), sudoPassword) }
+                    runCatching { connection.sudoCommand(listOf("rm", "-f", startup), sudoPassword) }
+                    runCatching { connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword) }
+                }
+                if (folderCreated) {
+                    runCatching { connection.commandArgs(listOf("rm", "-rf", folder)) }
+                }
+            }
+            cleanupAction = {}
+
+            try {
+                connection.commandArgs(listOf("mkdir", folder))
+                folderCreated = true
+                connection.commandArgs(listOf("mkdir", "$folder/db"))
+                spec.assets.filterKeys { it != "config.json" && it != "topology.json" }.forEach { (name, bytes) ->
+                    val content = bytes.toString(Charsets.UTF_8)
+                    connection.commandWriteFile("$folder/$name", content)
+                    require(remoteHash(connection, "$folder/$name") == hash(content)) { "Installed $name hash mismatch" }
+                }
+                listOf("topology.json" to topology, "config.json" to spec.config).forEach { (name, content) ->
+                    connection.commandWriteFile("$folder/$name", content)
+                    require(remoteHash(connection, "$folder/$name") == hash(content)) { "Installed $name hash mismatch" }
+                }
+                writePrivate("$folder/${spec.name}.kes.skey", credentials.kesSKey)
+                writePrivate("$folder/${spec.name}.vrf.skey", credentials.vrfSKey)
+                writePrivate("$folder/${spec.name}.node.opcert", credentials.opcert)
+                if (credentials.blsSKey != null) {
+                    writePrivate("$folder/${spec.name}.bls.skey", credentials.blsSKey)
+                }
+                val env =
+                    nodeController.renderEnvContent(
+                        "core",
+                        spec.name,
+                        folder,
+                        spec.listen,
+                        spec.port,
+                        spec.tracingHost ?: "127.0.0.1",
+                        spec.tracingPort,
+                    )
+                connection.commandWriteFile("$folder/env", env)
+                require(remoteHash(connection, "$folder/env") == hash(env)) { "Installed env hash mismatch" }
+                if (systemd) {
+                    val base =
+                        nodeController.renderSystemdContent(
+                            "core",
+                            spec.host,
+                            spec.name,
+                            spec.processorThreads,
+                            spec.tracingHost ?: "127.0.0.1",
+                            spec.tracingPort,
+                        )
+                    val renderedStartup =
+                        if (credentials.blsSKey != null) {
+                            base.replace(
+                                "--shelley-operational-certificate",
+                                "--shelley-bls-key $folder/${spec.name}.bls.skey \\\n  --shelley-operational-certificate",
+                            )
+                        } else {
+                            base
+                        }
                     val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
                     try {
-                        connection.commandWriteSecret(temp, startup)
-                        connection.sudoCommand(listOf("install", "-m", "644", temp, requireNotNull(c.startup)), sudoPassword)
-                        require(remoteHash(connection, c.startup) == hash(startup))
-                    } finally { connection.commandArgs(listOf("rm", "-f", temp)) }
-                } else {
-                    val trace = if (n.tracingPort == null) "" else " --tracer-socket-network-accept \${TRACING_HOST}:\${TRACING_PORT}"
-                    val blsArgument = if (bls == null) "" else " --shelley-bls-key ${c.folder}/${n.name}.bls.skey"
-                    val startup = "#!/bin/sh\ncd ${c.folder}\n. ${c.folder}/env\nexec ${c.host.cardanoNodePath} +RTS -N${n.processorThreads} -RTS run --topology \${TOPOLOGY} --database-path \${DATABASE_PATH} --socket-path \${SOCKET_PATH} --host-addr \${HOST_ADDR} --port \${PORT} --config \${CONFIG} --shelley-kes-key \${SHELLEY_KES_KEY} --shelley-vrf-key \${SHELLEY_VRF_KEY} --shelley-operational-certificate \${SHELLEY_OPCERT}$blsArgument$trace\n"
-                    connection.commandWriteFile("${c.folder}/startNode.sh", startup); connection.commandArgs(listOf("chmod", "500", "${c.folder}/startNode.sh")); require(remoteHash(connection, "${c.folder}/startNode.sh") == hash(startup))
-                }
-            } else {
-                val startupPath = requireNotNull(c.startup); val original = connection.commandReadFile(startupPath)
-                val credentialPath = "${c.folder}/credentials.json"
-                val credentials: ArrayNode = if (original.contains("--bulk-credentials-file")) {
-                    parseAndValidateBulkCredentials(connection.commandReadFile(credentialPath))
-                } else {
-                    require(original.contains("--shelley-kes-key") && original.contains("--shelley-vrf-key") && original.contains("--shelley-operational-certificate"))
-                    val p = c.parent
-                    val parentKes = walletUtils.getSKeyContent(file(p.kesSKeyId), spendingPassword)
-                    val parentVrf = walletUtils.getSKeyContent(file(p.vrfSKeyId), spendingPassword)
-                    require(remoteHash(connection, "${c.folder}/${p.name}.kes.skey") == hash(parentKes) &&
-                        remoteHash(connection, "${c.folder}/${p.name}.vrf.skey") == hash(parentVrf) &&
-                        remoteHash(connection, "${c.folder}/${p.name}.node.opcert") == hash(file(p.opcertId).content)) {
-                        "Parent singleton credentials differ from persisted material"
+                        connection.commandWriteSecret(temp, renderedStartup)
+                        systemdUnitInstalled = true
+                        connection.sudoCommand(listOf("install", "-m", "644", temp, startup), sudoPassword)
+                        require(remoteHash(connection, startup) == hash(renderedStartup)) { "Installed systemd unit hash mismatch" }
+                    } finally {
+                        runCatching { connection.commandArgs(listOf("rm", "-f", temp)) }
                     }
-                    val parentEntry = json.createArrayNode().add(json.readTree(file(p.opcertId).content)).add(json.readTree(parentVrf)).add(json.readTree(parentKes))
-                    if (original.contains("--shelley-bls-key")) {
-                        val match = Regex("--shelley-bls-key\\s+([^\\s\\\\]+)").find(original) ?: error("Cannot identify parent BLS key")
-                        val parentBls = json.readTree(connection.commandReadFile(safe(match.groupValues[1])))
-                        require(isValidBlsSigningEnvelope(parentBls)) { "Invalid BLS envelope in existing bulk credentials" }
-                        parentEntry.add(parentBls)
+                    connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword)
+                    connection.sudoCommand(listOf("systemctl", "restart", serviceName), sudoPassword)
+                    connection.sudoCommand(listOf("systemctl", "enable", serviceName), sudoPassword)
+                } else {
+                    val trace = if (spec.tracingPort == null) "" else " --tracer-socket-network-accept \${TRACING_HOST}:\${TRACING_PORT}"
+                    val blsArgument = if (credentials.blsSKey == null) "" else " --shelley-bls-key $folder/${spec.name}.bls.skey"
+                    val renderedStartup =
+                        "#!/bin/sh\ncd $folder\n. $folder/env\nexec ${spec.host.cardanoNodePath} +RTS -N${spec.processorThreads} -RTS run --topology \${TOPOLOGY} --database-path \${DATABASE_PATH} --socket-path \${SOCKET_PATH} --host-addr \${HOST_ADDR} --port \${PORT} --config \${CONFIG} --shelley-kes-key \${SHELLEY_KES_KEY} --shelley-vrf-key \${SHELLEY_VRF_KEY} --shelley-operational-certificate \${SHELLEY_OPCERT}$blsArgument$trace\n"
+                    connection.commandWriteFile("$folder/startNode.sh", renderedStartup)
+                    connection.commandArgs(listOf("chmod", "500", "$folder/startNode.sh"))
+                    require(remoteHash(connection, "$folder/startNode.sh") == hash(renderedStartup)) {
+                        "Installed startNode.sh hash mismatch"
                     }
-                    validateBulkCredentials(json.createArrayNode().add(parentEntry))
                 }
-                val vrfHex = json.readTree(vrf).path("cborHex").asString(); require(vrfHex.isNotBlank() && credentials.none { it[1].path("cborHex").asString() == vrfHex })
-                val entry = json.createArrayNode().add(json.readTree(cert)).add(json.readTree(vrf)).add(json.readTree(kes))
-                if (blsJson != null) entry.add(blsJson)
-                credentials.add(entry)
-                if (connection.commandFileExists(credentialPath)) {
-                    require(original.contains("--bulk-credentials-file")) { "Unexpected existing credentials require inspection" }
-                    connection.commandArgs(listOf("cp", "-p", credentialPath, "$credentialPath.jormanager-backup-$operationId"))
+            } catch (e: Throwable) {
+                rollbackAction()
+                throw e
+            }
+        } else {
+            val originalStartup = connection.commandReadFile(startup)
+            val credentialPath = "$folder/credentials.json"
+            val envPath = "$folder/env"
+            val credentialBackup = safe("$credentialPath.jormanager-backup-$operationId")
+            val envBackup = safe("$envPath.jormanager-backup-$operationId")
+            val startupBackup = safe("$startup.jormanager-backup-$operationId")
+            val hadExistingCredentials = connection.commandFileExists(credentialPath)
+            var credentialBackupCreated = false
+            var credentialsModified = false
+            var envBackupCreated = false
+            var envModified = false
+            var startupBackupCreated = false
+            var startupModified = false
+
+            rollbackAction = {
+                if (credentialsModified) {
+                    if (hadExistingCredentials && credentialBackupCreated) {
+                        runCatching { connection.commandArgs(listOf("install", "-m", "600", credentialBackup, credentialPath)) }
+                    } else if (!hadExistingCredentials) {
+                        runCatching { connection.commandArgs(listOf("rm", "-f", credentialPath)) }
+                    }
                 }
-                writePrivate(credentialPath, json.writeValueAsString(credentials))
-                if (!original.contains("--bulk-credentials-file")) {
-                    val envPath = "${c.folder}/env"; val env = connection.commandReadFile(envPath) + "\nBULK_CREDENTIALS=$credentialPath\n"
-                    connection.commandArgs(listOf("cp", "-p", envPath, "$envPath.jormanager-backup-$operationId"))
-                    connection.commandArgs(listOf("chmod", "600", envPath)); connection.commandWriteFile(envPath, env); require(remoteHash(connection, envPath) == hash(env))
-                    val replaced = original.replace(Regex("--shelley-(?:kes-key|vrf-key|operational-certificate|bls-key)[ \\t]+[^\\s\\\\]+[ \\t]*\\\\?"), "")
-                        .replace("--config \${CONFIG}", "--config \${CONFIG} \\\n  --bulk-credentials-file \${BULK_CREDENTIALS}")
-                    require(replaced.contains("--bulk-credentials-file") && !replaced.contains("--shelley-kes-key"))
+                if (envModified && envBackupCreated) {
+                    runCatching { connection.commandArgs(listOf("cp", "-p", envBackup, envPath)) }
+                }
+                if (startupModified && startupBackupCreated) {
+                    if (systemd) {
+                        runCatching { connection.sudoCommand(listOf("install", "-m", "644", startupBackup, startup), sudoPassword) }
+                    } else {
+                        runCatching { connection.commandArgs(listOf("install", "-m", "500", startupBackup, startup)) }
+                    }
+                }
+                if (systemd && (credentialsModified || envModified || startupModified)) {
+                    runCatching { connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword) }
+                    runCatching { connection.sudoCommand(listOf("systemctl", "restart", serviceName), sudoPassword) }
+                }
+            }
+
+            cleanupAction = {
+                if (credentialBackupCreated) {
+                    runCatching { connection.commandArgs(listOf("rm", "-f", credentialBackup)) }
+                }
+                if (envBackupCreated) {
+                    runCatching { connection.commandArgs(listOf("rm", "-f", envBackup)) }
+                }
+                if (startupBackupCreated) {
+                    if (systemd) {
+                        runCatching { connection.sudoCommand(listOf("rm", "-f", startupBackup), sudoPassword) }
+                    } else {
+                        runCatching { connection.commandArgs(listOf("rm", "-f", startupBackup)) }
+                    }
+                }
+            }
+
+            try {
+                val bulkCredentials = requireNotNull(validatedParentCredentials).deepCopy()
+                val entry =
+                    json
+                        .createArrayNode()
+                        .add(json.readTree(credentials.opcert))
+                        .add(json.readTree(credentials.vrfSKey))
+                        .add(json.readTree(credentials.kesSKey))
+                if (blsJson != null) {
+                    entry.add(blsJson)
+                }
+                bulkCredentials.add(entry)
+                if (hadExistingCredentials) {
+                    require(originalStartup.contains("--bulk-credentials-file")) {
+                        "Unexpected existing credentials require inspection"
+                    }
+                    connection.commandArgs(listOf("cp", "-p", credentialPath, credentialBackup))
+                    credentialBackupCreated = true
+                }
+                credentialsModified = true
+                writePrivate(credentialPath, json.writeValueAsString(bulkCredentials))
+
+                if (!originalStartup.contains("--bulk-credentials-file")) {
+                    val updatedEnv = connection.commandReadFile(envPath) + "\nBULK_CREDENTIALS=$credentialPath\n"
+                    connection.commandArgs(listOf("cp", "-p", envPath, envBackup))
+                    envBackupCreated = true
+                    envModified = true
+                    connection.commandArgs(listOf("chmod", "600", envPath))
+                    connection.commandWriteFile(envPath, updatedEnv)
+                    require(remoteHash(connection, envPath) == hash(updatedEnv)) { "Updated env hash mismatch" }
+
+                    val replaced =
+                        originalStartup
+                            .replace(Regex("--shelley-(?:kes-key|vrf-key|operational-certificate|bls-key)[ \\t]+[^\\s\\\\]+[ \\t]*\\\\?"), "")
+                            .replace("--config \${CONFIG}", "--config \${CONFIG} \\\n  --bulk-credentials-file \${BULK_CREDENTIALS}")
+                    require(replaced.contains("--bulk-credentials-file") && !replaced.contains("--shelley-kes-key")) {
+                        "Failed to render bulk-credentials startup command"
+                    }
                     val temp = "/tmp/jormanager-deploy-${UUID.randomUUID()}"
                     try {
                         connection.commandWriteSecret(temp, replaced)
-                        if (c.systemd) {
-                            connection.sudoCommand(listOf("cp", startupPath, "$startupPath.jormanager-backup-$operationId"), sudoPassword)
-                            connection.sudoCommand(listOf("install", "-m", "644", temp, startupPath), sudoPassword)
+                        if (systemd) {
+                            connection.sudoCommand(listOf("cp", startup, startupBackup), sudoPassword)
+                            startupBackupCreated = true
+                            startupModified = true
+                            connection.sudoCommand(listOf("install", "-m", "644", temp, startup), sudoPassword)
                         } else {
-                            connection.commandArgs(listOf("cp", startupPath, "$startupPath.jormanager-backup-$operationId"))
-                            connection.commandArgs(listOf("install", "-m", "500", temp, startupPath))
+                            connection.commandArgs(listOf("cp", startup, startupBackup))
+                            startupBackupCreated = true
+                            startupModified = true
+                            connection.commandArgs(listOf("install", "-m", "500", temp, startup))
                         }
-                        require(remoteHash(connection, startupPath) == hash(replaced))
-                    } finally { connection.commandArgs(listOf("rm", "-f", temp)) }
+                        require(remoteHash(connection, startup) == hash(replaced)) { "Updated startup hash mismatch" }
+                    } finally {
+                        runCatching { connection.commandArgs(listOf("rm", "-f", temp)) }
+                    }
                 }
-            }
-            val maxKesEvolutions = shelleyGenesis.path("maxKESEvolutions").asLong(0L)
-            val slotLengthSec = shelleyGenesis.path("slotLength").asDouble(0.0)
-            val (kesExpireTimeSec, kesExpireDate) =
-                if (maxKesEvolutions > 0L && slotLengthSec > 0.0) {
-                    val expireSec = Instant.now().epochSecond + (maxKesEvolutions * periods * slotLengthSec).toLong()
-                    expireSec to KES_EXPIRE_DATE_FORMATTER.format(Instant.ofEpochSecond(expireSec))
-                } else {
-                    n.kesExpireTimeSec to n.kesExpireDate
+
+                if (systemd) {
+                    connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword)
+                    connection.sudoCommand(listOf("systemctl", "restart", serviceName), sudoPassword)
+                    connection.sudoCommand(listOf("systemctl", "enable", serviceName), sudoPassword)
                 }
-            val savedNode =
-                nodes.save(
-                    n.copy(
-                        isDraft = false,
-                        opcertId = certId,
-                        kesExpireTimeSec = kesExpireTimeSec,
-                        kesExpireDate = kesExpireDate,
-                    )
-                )
-            val fingerprint = c.key?.let(::publicHash)
-            if (c.key != null) installations.save(KeyInstallation(keyId = requireNotNull(keyId), nodeId = nodeId, hostId = n.hostId,
-                configurationFingerprint = c.fingerprint, installedFingerprint = fingerprint, permissionResult = "owner:600", state = "installed", observedAt = Instant.now()))
-            if (fingerprint != null) details.put("installedFingerprint", fingerprint) else details.putNull("installedFingerprint")
-            details.putNull("loadedFingerprint")
-            details.put("reason", if (c.systemd) "Installation completed; service startup has not been confirmed." else "Installation verified.")
-            val initialState = if (c.systemd) "installed_startup_failed" else "installed"
-            check(jdbc.update("UPDATE pool_deployment_previews SET state=?,details=? WHERE id=? AND state='installing'",
-                initialState, json.writeValueAsString(details), operationId) == 1)
-            installed = true
-            nodesChannel.tryEmit(savedNode)
-            if (c.systemd) {
-                val service = "${c.parent?.name ?: n.name}-node.service"
-                connection.sudoCommand(listOf("systemctl", "daemon-reload"), sudoPassword)
-                connection.sudoCommand(listOf("systemctl", "restart", service), sudoPassword)
-                connection.sudoCommand(listOf("systemctl", "enable", service), sudoPassword)
-                details.put("reason", "Installation verified.")
-                check(jdbc.update("UPDATE pool_deployment_previews SET state='installed',details=? WHERE id=? AND state='installed_startup_failed'",
-                    json.writeValueAsString(details), operationId) == 1)
+                if (!deferBackupCleanup) {
+                    cleanupAction()
+                }
+            } catch (e: Throwable) {
+                rollbackAction()
+                cleanupAction()
+                throw e
             }
-            return Result(nodeId, "installed", fingerprint, null, "Installation verified.", operationId)
-        } catch (e: Exception) {
-            if (installed) {
-                details.put("reason", "Installation completed, but service startup failed; inspect the host.")
-                jdbc.update("UPDATE pool_deployment_previews SET state='installed_startup_failed',details=? WHERE id=? AND state='installed_startup_failed'",
-                    json.writeValueAsString(details), operationId)
-                return Result(nodeId, "installed_startup_failed", details.path("installedFingerprint").takeIf { it.isString }?.asString(),
-                    null, details.path("reason").asString(), operationId)
-            }
-            details.put("reason", "Installation failed; inspect the host and operational certificate counter before retrying.")
-            jdbc.update("UPDATE pool_deployment_previews SET state='failed',details=? WHERE id=? AND state='installing'",
-                json.writeValueAsString(details), operationId)
-            throw IllegalStateException("Installation failed; inspect the host and operational certificate counter before retrying", e)
-        } finally {
-            connection.commandArgs(listOf("rm", "-f") + temporary.filterNot {
-                (!counterPersisted && it == "$prefix.counter") || (!certificatePersisted && it == "$prefix.opcert")
-            })
         }
+
+        val shelleyGenesis = json.readTree(spec.assets.getValue("shelley-genesis.json").toString(Charsets.UTF_8))
+        val (kesExpireTimeSec, kesExpireDate) = computeKesExpiration(shelleyGenesis)
+        val installedFingerprint = credentials.blsPublicKey?.let(::bytesHash)
+        val configurationFingerprint =
+            hash(
+                listOf(
+                    spec.host.id.toString(),
+                    spec.parent?.id?.toString() ?: "standalone",
+                    spec.name,
+                    spec.type,
+                    hash(spec.config),
+                    hash(topology),
+                    installedFingerprint ?: "no-bls",
+                    spec.assets.entries
+                        .sortedBy { it.key }
+                        .joinToString("|") { "${it.key}:${bytesHash(it.value)}" },
+                ).joinToString("|"),
+            )
+
+        return DeploymentResult(
+            configurationFingerprint = configurationFingerprint,
+            installedFingerprint = installedFingerprint,
+            kesExpireTimeSec = kesExpireTimeSec,
+            kesExpireDate = kesExpireDate,
+            rollback = rollbackAction,
+            cleanup = cleanupAction,
+        )
     }
 
     companion object {
-        private const val BLS_SIGNING_KEY_TYPE = "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size"
-        private val BLS_SIGNING_KEY_CBOR_HEX_REGEX = Regex("5820[0-9a-fA-F]{64}")
+        internal const val BLS_SIGNING_KEY_TYPE = "BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size"
+        internal val BLS_SIGNING_KEY_CBOR_HEX_REGEX = Regex("5820[0-9a-fA-F]{64}")
         private val KES_EXPIRE_DATE_FORMATTER: DateTimeFormatter =
             DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss 'UTC' yyyy", Locale.US).withZone(ZoneOffset.UTC)
     }
