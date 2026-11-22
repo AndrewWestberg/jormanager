@@ -1,0 +1,115 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.9.xsd">
+    <changeSet id="049-remove-draft-nodes" author="jormanager">
+        <sql><![CDATA[
+DROP TABLE IF EXISTS pool_draft_config;
+DROP TABLE IF EXISTS pool_deployment_previews;
+DROP TABLE IF EXISTS node_configuration_snapshots;
+
+DELETE FROM key_installations WHERE node_id IN (SELECT id FROM nodes WHERE is_draft = true);
+DELETE FROM leios_install_previews WHERE node_id IN (SELECT id FROM nodes WHERE is_draft = true);
+DELETE FROM relays WHERE node_id IN (SELECT id FROM nodes WHERE is_draft = true);
+DELETE FROM topology_entries WHERE node_id IN (SELECT id FROM nodes WHERE is_draft = true);
+UPDATE nodes SET parent_id = NULL WHERE parent_id IN (SELECT id FROM nodes WHERE is_draft = true);
+
+DELETE FROM pool_key_observations
+WHERE pool_id IN (SELECT pool_id FROM nodes WHERE is_draft = true AND pool_id IS NOT NULL)
+  AND pool_id NOT IN (SELECT pool_id FROM nodes WHERE is_draft = false AND pool_id IS NOT NULL);
+
+WITH deleted_keys AS (
+    DELETE FROM leios_voting_keys
+    WHERE pool_id IN (SELECT pool_id FROM nodes WHERE is_draft = true AND pool_id IS NOT NULL)
+      AND pool_id NOT IN (SELECT pool_id FROM nodes WHERE is_draft = false AND pool_id IS NOT NULL)
+      AND id NOT IN (SELECT key_id FROM key_installations)
+      AND id NOT IN (SELECT key_id FROM leios_install_previews)
+      AND id NOT IN (SELECT current_key_id FROM pool_key_observations WHERE current_key_id IS NOT NULL)
+      AND id NOT IN (SELECT future_key_id FROM pool_key_observations WHERE future_key_id IS NOT NULL)
+    RETURNING id, signing_file_id
+),
+deleted_nodes AS (
+    DELETE FROM nodes WHERE is_draft = true
+    RETURNING
+        genesis_byron_file_id,
+        genesis_shelley_file_id,
+        genesis_alonzo_file_id,
+        genesis_conway_file_id,
+        genesis_dijkstra_file_id,
+        config_file_id,
+        topology_file_id,
+        peer_snapshot_file_id,
+        core_skey_id,
+        core_vkey_id,
+        core_counter_id,
+        vrf_skey_id,
+        vrf_vkey_id,
+        kes_skey_id,
+        kes_vkey_id,
+        opcert_id,
+        itn_private_key_id,
+        itn_public_key_id
+),
+candidate_files AS (
+    SELECT signing_file_id AS file_id FROM deleted_keys WHERE signing_file_id IS NOT NULL
+    UNION
+    SELECT unnest(ARRAY[
+        genesis_byron_file_id,
+        genesis_shelley_file_id,
+        genesis_alonzo_file_id,
+        genesis_conway_file_id,
+        genesis_dijkstra_file_id,
+        config_file_id,
+        topology_file_id,
+        peer_snapshot_file_id,
+        core_skey_id,
+        core_vkey_id,
+        core_counter_id,
+        vrf_skey_id,
+        vrf_vkey_id,
+        kes_skey_id,
+        kes_vkey_id,
+        opcert_id,
+        itn_private_key_id,
+        itn_public_key_id
+    ]) AS file_id FROM deleted_nodes
+)
+DELETE FROM files f
+WHERE f.id IN (SELECT file_id FROM candidate_files WHERE file_id IS NOT NULL)
+  AND NOT EXISTS (
+      SELECT 1 FROM nodes n
+      WHERE n.is_draft = false
+        AND f.id IN (
+            n.genesis_byron_file_id,
+            n.genesis_shelley_file_id,
+            n.genesis_alonzo_file_id,
+            n.genesis_conway_file_id,
+            n.genesis_dijkstra_file_id,
+            n.config_file_id,
+            n.topology_file_id,
+            n.peer_snapshot_file_id,
+            n.core_skey_id,
+            n.core_vkey_id,
+            n.core_counter_id,
+            n.vrf_skey_id,
+            n.vrf_vkey_id,
+            n.kes_skey_id,
+            n.kes_vkey_id,
+            n.opcert_id,
+            n.itn_private_key_id,
+            n.itn_public_key_id
+        )
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM leios_voting_keys k
+      WHERE k.id NOT IN (SELECT id FROM deleted_keys)
+        AND k.signing_file_id = f.id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM wallet w
+      WHERE f.id IN (w.payment_skey, w.payment_vkey, w.staking_skey, w.staking_vkey)
+  );
+
+ALTER TABLE nodes DROP COLUMN IF EXISTS is_draft;
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>

@@ -139,7 +139,7 @@ class NodeMonitor
                     val coreNodes =
                         nodeRepository
                             .findAll()
-                            .filter { !it.isDeleted && !it.isDraft && it.type != "relay" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
+                            .filter { !it.isDeleted && it.type != "relay" && (it.poolPledge == null || it.poolCost == null || it.poolMargin == null) }
                     if (coreNodes.isEmpty()) {
                         return@launch
                     }
@@ -219,7 +219,6 @@ class NodeMonitor
         }
 
         private suspend fun refreshNode(node: Node) {
-            if (node.isDraft) return
             val nodeId = node.id ?: return
 
             mutex.withLock {

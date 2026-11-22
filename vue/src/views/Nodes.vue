@@ -4,7 +4,7 @@
       <div>
         <BButton
           variant="outline-primary"
-          @click="poolParentId = null; setupContext = null; showAddNodeWizard = true"
+          @click="poolParentId = null; showAddNodeWizard = true"
           v-b-tooltip.hover.bottom="'Add a new cardano-node.'"
         >
           +&nbsp;Node
@@ -79,7 +79,7 @@
             </div>
           </template>
           <template #cell(kesExpireTimeSec)="{ item, value }">
-            <span v-if="(value as number) > -1 && !isDraftNode((item as any).id)">
+            <span v-if="(value as number) > -1">
               {{ formatKesExpiry(value as number) }}&nbsp;
               <div
                 class="text-warning clickable d-inline-block"
@@ -92,7 +92,7 @@
           </template>
           <template #cell(edit)="{ item }">
             <div
-              v-if="(item as any).type !== 'pool' && !isDraftNode((item as any).id)"
+              v-if="(item as any).type !== 'pool'"
               class="text-danger clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Restart Node', variant: 'danger' }"
               @click="restartNode((item as any).name)"
@@ -100,7 +100,7 @@
               <font-awesome-icon :icon="['fas', 'power-off']" />
             </div>&nbsp;
             <div
-              v-if="(item as any).type !== 'relay' && !isDraftNode((item as any).id)"
+              v-if="(item as any).type !== 'relay'"
               class="text-warning clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Edit Pool Config', variant: 'warning' }"
               @click="openPoolConfigModal((item as any).id)"
@@ -108,7 +108,7 @@
               <font-awesome-icon :icon="['fas', 'percent']" />
             </div>&nbsp;
             <div
-              v-if="(item as any).type !== 'relay' && !isDraftNode((item as any).id)"
+              v-if="(item as any).type !== 'relay'"
               class="text-primary clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Edit Metadata', variant: 'primary' }"
               @click="openMetadataModal((item as any).id)"
@@ -116,7 +116,7 @@
               <font-awesome-icon :icon="['fas', 'info-circle']" />
             </div>&nbsp;
             <div
-              v-if="(item as any).type !== 'relay' && !isDraftNode((item as any).id)"
+              v-if="(item as any).type !== 'relay'"
               class="text-success clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Edit Relays', variant: 'success' }"
               @click="openRelaysModal((item as any).id)"
@@ -132,15 +132,7 @@
               <font-awesome-icon :icon="['fas', 'key']" />
             </div>&nbsp;
             <div
-              v-if="isDraftNode((item as any).id)"
-              class="text-info clickable d-inline-block"
-              v-b-tooltip.hover.right="{ title: 'Resume setup', variant: 'info' }"
-              @click="openSetup((item as any).id)"
-            >
-              <font-awesome-icon :icon="['fas', 'check-circle']" />
-            </div>&nbsp;
-            <div
-              v-if="(item as any).type !== 'relay' && !isDraftNode((item as any).id)"
+              v-if="(item as any).type !== 'relay'"
               class="text-danger clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Retire Pool', variant: 'danger' }"
               @click="openRetireModal((item as any).id)"
@@ -148,7 +140,7 @@
               <font-awesome-icon :icon="['fas', 'skull']" />
             </div>&nbsp;
             <div
-              v-if="(item as any).type === 'core' && mp && !isDraftNode((item as any).id)"
+              v-if="(item as any).type === 'core' && mp"
               class="text-primary clickable d-inline-block"
               v-b-tooltip.hover.right="{ title: 'Add Pool', variant: 'primary' }"
               @click="addPool((item as any).id)"
@@ -163,7 +155,6 @@
     <AddNodeWizard
       v-if="showAddNodeWizard"
       :parent-id="poolParentId"
-      :setup-context="setupContext"
       @hide-add-node-wizard="showAddNodeWizard = false"
     />
     <BModal :model-value="leiosNodeId !== null" title="Leios key lifecycle" size="xl" hide-footer
@@ -545,35 +536,6 @@ const retirePoolForm = ref({
   retireEpoch: 0
 })
 watch(retirePoolForm, () => { retirementRequestId = generateUUID() }, { deep: true, flush: 'sync' })
-type PoolSetupContext = {
-  requestId: string; nodeId: number; hostId: number; observerNodeId: number
-  networkKey: string; configSha256: string; request: Record<string, unknown>
-  keyId: number | null; registrationRequestId: string | null
-  keys: { keyId: number; publicKeyHex: string }[]; setupRequestId: string | null
-}
-const setupContext = ref<PoolSetupContext | null>(null)
-const setupLoading = ref(false)
-
-async function openSetup(nodeId: number) {
-  if (setupLoading.value || !store.connected || !isDraftNode(nodeId)) return
-  setupLoading.value = true
-  try {
-    const context = await store.socketRequest<PoolSetupContext>('/jormanager/node/setup-context', 'node_setup_context', { nodeId })
-    const node = nodes.value.find(item => item.id === nodeId)
-    if (!node || !isDraftNode(nodeId) || context.nodeId !== nodeId || context.hostId !== node.hostId) {
-      throw new Error('Setup target does not match')
-    }
-    setupContext.value = context
-    poolParentId.value = null
-    showAddNodeWizard.value = true
-  } catch (error) {
-    store.toastError = { title: 'Setup unavailable', message: error instanceof Error ? error.message : String(error) }
-  } finally {
-    setupLoading.value = false
-  }
-}
-
-
 
 // Select options
 const feeAccountOptions = computed(() => store.registrationFeesSelectOptions())
@@ -586,7 +548,7 @@ const rewardsAccountOptions = computed(() => store.rewardsSelectOptions())
 
 // Check if there are any core/pool nodes (non-relay)
 const hasCoreNodes = computed(() => {
-  return nodes.value.some((node) => (node as any).type !== 'relay' && !(node as any).isDraft && !(node as any).isDeleted)
+  return nodes.value.some((node) => (node as any).type !== 'relay' && !(node as any).isDeleted)
 })
 
 const fields = [
@@ -600,10 +562,6 @@ const fields = [
 function formatKesExpiry(timestamp: number): string {
   const date = moment.unix(timestamp)
   return `${date.format('YYYY-MM-DD h:mma UTCZ')} (${date.fromNow()})`
-}
-
-function isDraftNode(nodeId: number) {
-  return !!(nodes.value.find(node => node.id === nodeId) as { isDraft?: boolean } | undefined)?.isDraft
 }
 
 
@@ -829,7 +787,6 @@ function restartNode(nodeName: string) {
 }
 
 function addPool(parentId: number) {
-  setupContext.value = null
   poolParentId.value = parentId
   showAddNodeWizard.value = true
 }

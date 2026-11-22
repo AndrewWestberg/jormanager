@@ -96,7 +96,7 @@ const props = defineProps<{ nodeId: number }>()
 const store = useJorManagerStore()
 const emitter = useEventBus()
 const node = computed(() => store.nodes.find(item => item.id === props.nodeId) as
-  | (typeof store.nodes[number] & { hostId: number; isDraft?: boolean; poolId?: string | null })
+  | (typeof store.nodes[number] & { hostId: number; poolId?: string | null })
   | undefined)
 
 type KeyView = {

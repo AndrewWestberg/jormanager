@@ -224,7 +224,6 @@ class BlockController
                             nodeRepository.findAll().filter {
                                 it.type != "relay" &&
                                     !it.isDeleted &&
-                                    !it.isDraft &&
                                     !it.poolId.isNullOrBlank() &&
                                     cardanoRepository.networkKey(it) == defaultNetworkKey
                             }
@@ -323,7 +322,8 @@ class BlockController
                                     // in Conway, we switch to 4k/f instead of 3k/f
                                     val stabilityWindowMultiplier = if (tip.eraNumber < ERA_CONWAY) 3 else 4
                                     val stabilityWindow =
-                                        genesisByron.protocolConsts.k.toBigDecimal()
+                                        genesisByron.protocolConsts.k
+                                            .toBigDecimal()
                                             .multiply(stabilityWindowMultiplier.toBigDecimal())
                                             .divide(genesisShelley.activeSlotsCoeff, 0, RoundingMode.CEILING)
                                             .longValueExact()

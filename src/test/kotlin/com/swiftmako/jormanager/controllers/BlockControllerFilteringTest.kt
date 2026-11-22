@@ -39,7 +39,7 @@ class BlockControllerFilteringTest {
     private val moshi = config.getMoshi()
 
     @Test
-    fun `calculateLeaderLogs excludes draft deleted blank-poolId relay and cross-network nodes`() {
+    fun `calculateLeaderLogs excludes deleted blank-poolId relay and cross-network nodes`() {
         val blockRepository = mockk<BlockRepository>(relaxed = true)
         val nodeRepository = mockk<NodeRepository>()
         val hostRepository = mockk<HostRepository>()
@@ -82,7 +82,6 @@ class BlockControllerFilteringTest {
                 isDefault = true,
                 vrfSKeyId = 6L,
             )
-        val draftPool = activePool.copy(id = 2L, name = "draft-pool", poolId = "draft-pool-id", isDefault = false, isDraft = true, vrfSKeyId = -1L)
         val blankPool = activePool.copy(id = 3L, name = "blank-pool", poolId = "   ", isDefault = false, vrfSKeyId = -1L)
         val deletedPool = activePool.copy(id = 4L, name = "deleted-pool", poolId = "deleted-pool-id", isDefault = false, isDeleted = true, vrfSKeyId = -1L)
         val otherNetPool = activePool.copy(id = 5L, name = "other-net-pool", poolId = "other-net-pool-id", isDefault = false, genesisShelleyFileId = 999L, vrfSKeyId = -1L)
@@ -113,7 +112,7 @@ class BlockControllerFilteringTest {
         every { walletUtils.isValidSpendingPassword("secret") } returns true
         every { walletUtils.getSKeyContent(vrfKey, "secret") } returns vrfKey.content
         every { nodeRepository.findDefault() } returns activePool
-        every { nodeRepository.findAll() } returns listOf(activePool, draftPool, blankPool, deletedPool, otherNetPool, relayNode)
+        every { nodeRepository.findAll() } returns listOf(activePool, blankPool, deletedPool, otherNetPool, relayNode)
         every { cardanoRepository.networkKey(any()) } answers { "network:${firstArg<Node>().genesisShelleyFileId}" }
         every { cardanoRepository.getEra(any(), any(), any(), any()) } returns "conway"
         every { hostRepository.findById(1L) } returns Optional.of(host)
@@ -233,7 +232,7 @@ class BlockControllerFilteringTest {
     }
 
     @Test
-    fun `calculateLeaderLogs emits clean error when only draft or cross-network pools exist`() {
+    fun `calculateLeaderLogs emits clean error when only deleted or cross-network pools exist`() {
         val nodeRepository = mockk<NodeRepository>()
         val cardanoRepository = mockk<CardanoRepository>()
         val walletUtils = mockk<WalletUtils>()
@@ -257,12 +256,12 @@ class BlockControllerFilteringTest {
                 configFileId = 5L,
                 isDefault = true,
             )
-        val draftCore = defaultRelay.copy(id = 2L, name = "draft-core", type = "core", poolId = "pool-draft", isDefault = false, isDraft = true)
+        val deletedCore = defaultRelay.copy(id = 2L, name = "deleted-core", type = "core", poolId = "pool-deleted", isDefault = false, isDeleted = true)
         val otherNetCore = defaultRelay.copy(id = 3L, name = "other-net", type = "core", poolId = "pool-other", isDefault = false, genesisShelleyFileId = 999L)
 
         every { walletUtils.isValidSpendingPassword("secret") } returns true
         every { nodeRepository.findDefault() } returns defaultRelay
-        every { nodeRepository.findAll() } returns listOf(defaultRelay, draftCore, otherNetCore)
+        every { nodeRepository.findAll() } returns listOf(defaultRelay, deletedCore, otherNetCore)
         every { cardanoRepository.networkKey(any()) } answers { "network:${firstArg<Node>().genesisShelleyFileId}" }
 
         val done = CompletableFuture<SocketResponse.PublicFailure>()

@@ -45,7 +45,10 @@ class BlockControllerLeaderLogsTest {
             ObjectMapper().readTree(it)["cases"]
         }
 
-    private fun schedule(firstSlot: Long, fDenominator: String = "20"): JsonNode =
+    private fun schedule(
+        firstSlot: Long,
+        fDenominator: String = "20"
+    ): JsonNode =
         schedules.single {
             it["mode"].asString() == "praos" &&
                 it["firstSlot"].asLong() == firstSlot &&
@@ -74,10 +77,12 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, requestType = "futureEpoch")
 
         assertThat(result.saved.map { it.slot }.sorted())
-            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() }).inOrder()
+            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() })
+            .inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT + EPOCH_LENGTH)
         assertThat(result.chainQueries)
-            .containsExactly(FIRST_SLOT + EPOCH_LENGTH - 60, FIRST_SLOT).inOrder()
+            .containsExactly(FIRST_SLOT + EPOCH_LENGTH - 60, FIRST_SLOT)
+            .inOrder()
     }
 
     @ParameterizedTest
@@ -87,7 +92,8 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, f = "1", stakeSet = "0", stakeMark = "0")
 
         assertThat(result.saved.map { it.slot }.sorted())
-            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() }).inOrder()
+            .containsExactlyElementsIn(oracle["assignedSlots"].values().map { it.asLong() })
+            .inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT)
     }
 
@@ -127,7 +133,8 @@ class BlockControllerLeaderLogsTest {
             )) {
                 val result = calculate(visibleProcessors, era = era, f = f, stakeSet = "0", stakeMark = "0")
                 assertThat(result.chainQueries)
-                    .containsExactly(FIRST_SLOT - expectedWindow, FIRST_SLOT - EPOCH_LENGTH).inOrder()
+                    .containsExactly(FIRST_SLOT - expectedWindow, FIRST_SLOT - EPOCH_LENGTH)
+                    .inOrder()
                 assertThat(result.saved).isEmpty()
             }
         }
@@ -140,7 +147,8 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, f = "1", multiPool = true, existing = occupied)
 
         assertThat(result.saved.map { it.slot })
-            .containsExactlyElementsIn((FIRST_SLOT + 1 until FIRST_SLOT + EPOCH_LENGTH).toList()).inOrder()
+            .containsExactlyElementsIn((FIRST_SLOT + 1 until FIRST_SLOT + EPOCH_LENGTH).toList())
+            .inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT)
         assertThat(result.keyReads).containsExactly(6, 1, 7, 1)
         assertThat(result.poolLookups).isEqualTo(EPOCH_LENGTH.toInt() * 3)
@@ -153,7 +161,8 @@ class BlockControllerLeaderLogsTest {
         val result = calculate(visibleProcessors, f = "1", multiPool = true, overlapping = true)
 
         assertThat(result.saved.map { it.slot })
-            .containsExactlyElementsIn((FIRST_SLOT until FIRST_SLOT + EPOCH_LENGTH).toList()).inOrder()
+            .containsExactlyElementsIn((FIRST_SLOT until FIRST_SLOT + EPOCH_LENGTH).toList())
+            .inOrder()
         assertPendingBlocks(result.saved, FIRST_SLOT)
         assertThat(result.saved.map { it.pool to it.slot }.distinct()).hasSize(result.saved.size)
         assertThat(result.keyReads).containsExactly(6, 2, 7, 2)
@@ -186,14 +195,13 @@ class BlockControllerLeaderLogsTest {
     }
 
     @Test
-    fun `excludes draft deleted blank-poolId and other-network nodes from leaderlogs`() {
+    fun `excludes deleted blank-poolId and other-network nodes from leaderlogs`() {
         val result =
             calculate(
                 visibleProcessors = 2,
                 era = "Conway",
                 extraNodes = { base ->
                     listOf(
-                        base.copy(id = 10, name = "draft-pool", poolId = "draft-pool-id", isDefault = false, isDraft = true, vrfSKeyId = -1),
                         base.copy(id = 11, name = "blank-pool", poolId = "", isDefault = false, vrfSKeyId = -1),
                         base.copy(id = 12, name = "deleted-pool", poolId = "deleted-pool-id", isDefault = false, isDeleted = true, vrfSKeyId = -1),
                         base.copy(id = 13, name = "other-net-pool", poolId = "other-net-pool-id", isDefault = false, genesisShelleyFileId = 999, vrfSKeyId = -1),
@@ -207,7 +215,10 @@ class BlockControllerLeaderLogsTest {
         assertPendingBlocks(result.saved, FIRST_SLOT)
     }
 
-    private fun assertPendingBlocks(blocks: List<Block>, firstSlot: Long) {
+    private fun assertPendingBlocks(
+        blocks: List<Block>,
+        firstSlot: Long
+    ) {
         blocks.forEach {
             assertThat(it.pool).isEqualTo("synthetic")
             assertThat(it.host).isEqualTo("synthetic-host")
@@ -269,14 +280,33 @@ class BlockControllerLeaderLogsTest {
         val secondRequestPreloaded = CountDownLatch(1)
         val keyReads = mapOf(6 to AtomicInteger(), 7 to AtomicInteger())
         val host = Host(
-            id = 1, type = "local", cardanoCliPath = "cardano-cli", cardanoNodePath = "cardano-node",
-            hostname = "synthetic-host", sshUser = "unused", nodeHomePath = "/unused", jcliPath = null,
+            id = 1,
+            type = "local",
+            cardanoCliPath = "cardano-cli",
+            cardanoNodePath = "cardano-node",
+            hostname = "synthetic-host",
+            sshUser = "unused",
+            nodeHomePath = "/unused",
+            jcliPath = null,
         )
         val node = Node(
-            id = 1, hostId = 1, color = "#000000", type = "core", processorThreads = 1,
-            name = "synthetic", listen = "127.0.0.1", port = 3001, promPort = 12798,
-            genesisByronFileId = 1, genesisShelleyFileId = 2, genesisAlonzoFileId = 3,
-            genesisConwayFileId = 4, configFileId = 5, poolId = POOL_ID, isDefault = true, vrfSKeyId = 6,
+            id = 1,
+            hostId = 1,
+            color = "#000000",
+            type = "core",
+            processorThreads = 1,
+            name = "synthetic",
+            listen = "127.0.0.1",
+            port = 3001,
+            promPort = 12798,
+            genesisByronFileId = 1,
+            genesisShelleyFileId = 2,
+            genesisAlonzoFileId = 3,
+            genesisConwayFileId = 4,
+            configFileId = 5,
+            poolId = POOL_ID,
+            isDefault = true,
+            vrfSKeyId = 6,
         )
         val baseNodes = if (multiPool) {
             listOf(
@@ -291,15 +321,27 @@ class BlockControllerLeaderLogsTest {
         val nodes = baseNodes + extraNodes(node)
         val activePoolNodes =
             nodes.filter {
-                !it.isDeleted && !it.isDraft && !it.poolId.isNullOrBlank() && it.genesisShelleyFileId == node.genesisShelleyFileId
+                !it.isDeleted && !it.poolId.isNullOrBlank() && it.genesisShelleyFileId == node.genesisShelleyFileId
             }
-        val byron = File(id = 1, name = "byron", content =
-            """{"startTime":0,"protocolConsts":{"k":1},"blockVersionData":{"slotDuration":1000}}""")
-        val shelley = File(id = 2, name = "shelley", content =
-            """{"activeSlotsCoeff":$f,"networkId":"Testnet","networkMagic":2,"slotLength":1,"epochLength":3600,"slotsPerKESPeriod":3600,"systemStart":"1970-01-01T00:00:00Z","maxKESEvolutions":62}""")
+        val byron = File(
+            id = 1,
+            name = "byron",
+            content =
+                """{"startTime":0,"protocolConsts":{"k":1},"blockVersionData":{"slotDuration":1000}}"""
+        )
+        val shelley = File(
+            id = 2,
+            name = "shelley",
+            content =
+                """{"activeSlotsCoeff":$f,"networkId":"Testnet","networkMagic":2,"slotLength":1,"epochLength":3600,"slotsPerKESPeriod":3600,"systemStart":"1970-01-01T00:00:00Z","maxKESEvolutions":62}"""
+        )
         val syntheticKey = schedule(FIRST_SLOT)["vrfSkeyHex"].asString()
-        val keyFile = File(id = 6, name = "public-synthetic-vrf", content =
-            """{"type":"VrfSigningKey_PraosVRF","description":"Public all-zero-seed test key","cborHex":"5840$syntheticKey"}""")
+        val keyFile = File(
+            id = 6,
+            name = "public-synthetic-vrf",
+            content =
+                """{"type":"VrfSigningKey_PraosVRF","description":"Public all-zero-seed test key","cborHex":"5840$syntheticKey"}"""
+        )
         val expectedPoolIds = activePoolNodes.map { requireNotNull(it.poolId) }.distinct()
         val poolSnapshots = expectedPoolIds.joinToString(",") {
             """"$it":{"stakeSet":$stakeSet,"stakeMark":$stakeMark,"stakeGo":0}"""
@@ -353,10 +395,17 @@ class BlockControllerLeaderLogsTest {
         every { chainRepository.findFirstBeforeSlot(any(), any()) } answers {
             val slot = firstArg<Long>()
             chainQueries.add(slot)
-            listOf(ChainBlock(
-                blockNumber = slot - 1, slotNumber = slot - 1, hash = ZERO_HASH,
-                prevHash = ZERO_HASH, etaV = ZERO_HASH, poolId = POOL_ID, leaderVrf = "",
-            ))
+            listOf(
+                ChainBlock(
+                    blockNumber = slot - 1,
+                    slotNumber = slot - 1,
+                    hash = ZERO_HASH,
+                    prevHash = ZERO_HASH,
+                    etaV = ZERO_HASH,
+                    poolId = POOL_ID,
+                    leaderVrf = "",
+                )
+            )
         }
         every { websocket.convertAndSend("/topic/messages", any<Any>()) } answers {
             when (val response = secondArg<Any>()) {
@@ -396,17 +445,25 @@ class BlockControllerLeaderLogsTest {
             }
             val blockUtils = BlockUtils(AtomicReference(), "/usr/local/lib/libsodium.so")
             val target = BlockController(
-                buildProperties = mockk(relaxed = true), blockRepository = blockRepository,
-                nodeRepository = nodeRepository, hostRepository = hostRepository, fileRepository = fileRepository,
+                buildProperties = mockk(relaxed = true),
+                blockRepository = blockRepository,
+                nodeRepository = nodeRepository,
+                hostRepository = hostRepository,
+                fileRepository = fileRepository,
                 blockUtils = blockUtils,
                 leaderLogCalculator = LeaderLogCalculator(blockUtils, visibleProcessors),
-                walletUtils = walletUtils, webSocketTemplate = websocket,
+                walletUtils = walletUtils,
+                webSocketTemplate = websocket,
                 byronGenesisAdapter = config.getByronGenesisAdapter(moshi),
                 shelleyGenesisAdapter = config.getShelleyGenesisAdapter(moshi),
                 protocolParamsAdapter = config.getProtocolParametersAdapter(moshi),
-                queryTipAdapter = config.getQueryTipAdapter(moshi), keyAdapter = config.getKeyAdapter(moshi),
-                stakeSnapshotAdapter = config.getStakeSnapshotAdapter(moshi), chainRepository = chainRepository,
-                mp = false, pastEpochsToShow = 2, nodeController = mockk(relaxed = true),
+                queryTipAdapter = config.getQueryTipAdapter(moshi),
+                keyAdapter = config.getKeyAdapter(moshi),
+                stakeSnapshotAdapter = config.getStakeSnapshotAdapter(moshi),
+                chainRepository = chainRepository,
+                mp = false,
+                pastEpochsToShow = 2,
+                nodeController = mockk(relaxed = true),
                 cardanoRepository = cardanoRepository,
             )
             target.calculateLeaderLogs(LeaderLogsRequest("synthetic-password", requestType))
@@ -424,8 +481,13 @@ class BlockControllerLeaderLogsTest {
             completion.get(60, TimeUnit.SECONDS)
             if (repositoryFailure == null) assertThat(errors).isEmpty()
             return Result(
-                saved.toList(), chainQueries.toList(), keyReads.filterValues { it.get() > 0 }.mapValues { it.value.get() },
-                poolLookups.get(), events.toList(), errors.toList(), finalDrainCounts.toList(),
+                saved.toList(),
+                chainQueries.toList(),
+                keyReads.filterValues { it.get() > 0 }.mapValues { it.value.get() },
+                poolLookups.get(),
+                events.toList(),
+                errors.toList(),
+                finalDrainCounts.toList(),
             )
         } finally {
             unmockkConstructor(HostConnection::class)
@@ -433,10 +495,18 @@ class BlockControllerLeaderLogsTest {
         }
     }
 
-    private fun existingBlock(slot: Long) = Block(
-        id = 1, at = "existing", pool = "synthetic", host = "synthetic-host", slot = slot,
-        epoch = slot / EPOCH_LENGTH, slotInEpoch = slot % EPOCH_LENGTH, hash = "", status = "pending",
-    )
+    private fun existingBlock(slot: Long) =
+        Block(
+            id = 1,
+            at = "existing",
+            pool = "synthetic",
+            host = "synthetic-host",
+            slot = slot,
+            epoch = slot / EPOCH_LENGTH,
+            slotInEpoch = slot % EPOCH_LENGTH,
+            hash = "",
+            status = "pending",
+        )
 
     companion object {
         private const val FIRST_SLOT = 10_000_800L
