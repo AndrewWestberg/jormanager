@@ -44,7 +44,9 @@ import {
   faProjectDiagram,
   faCoins,
   faPlusCircle,
-  faChevronDown
+  faChevronDown,
+  faCompressArrowsAlt,
+  faLayerGroup
 } from '@fortawesome/free-solid-svg-icons'
 
 // ApexCharts
@@ -88,7 +90,9 @@ library.add(
   faProjectDiagram,
   faCoins,
   faPlusCircle,
-  faChevronDown
+  faChevronDown,
+  faCompressArrowsAlt,
+  faLayerGroup
 )
 
 // Create app

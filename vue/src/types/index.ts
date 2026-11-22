@@ -36,11 +36,14 @@ export interface FileOption {
   [key: string]: unknown
 }
 
+export type SelectionMode = 'STANDARD' | 'DEFRAGMENT'
+
 export interface WalletItem {
   id: number
   name: string
   paymentAddress: string
   paymentAddrLovelace: number
+  paymentAddrUtxoCount?: number
   stakingAddress?: string
   stakingAddrLovelace: number
   nativeAssetMap: Record<string, number>
@@ -90,6 +93,10 @@ export interface TxFeeData {
   tokenFees: number[]
   tokenKeepFee: number
   tokenLocked: number
+  selectionMode?: SelectionMode
+  inputCount?: number
+  outputCount?: number
+  estimatedTxSize?: number
   uuid: string
 }
 

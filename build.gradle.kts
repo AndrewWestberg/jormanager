@@ -81,6 +81,7 @@ dependencies {
     compileOnly("org.checkerframework:checker-qual:${Versions.CHECKER_FRAMEWORK}")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
     implementation("io.newm:com.muquit.libsodiumjna.libsodium-jna:${Versions.LIBSODIUM_JNA}")
+    implementation("com.bloxbean.cardano:cardano-client-lib:${Versions.CARDANO_CLIENT_LIB}")
     // implementation("com.squareup.jnagmp:jnagmp:3.0.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
@@ -89,7 +90,6 @@ dependencies {
     testImplementation("io.mockk:mockk:${Versions.MOCKK}")
     testImplementation("com.google.truth:truth:${Versions.GOOGLE_TRUTH}")
     testImplementation("org.junit.jupiter:junit-jupiter:${Versions.JUNIT}")
-    testImplementation("com.bloxbean.cardano:cardano-client-lib:${Versions.CARDANO_CLIENT_LIB}")
 }
 
 fun isNonStable(version: String): Boolean {

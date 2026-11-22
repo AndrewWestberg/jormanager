@@ -27,6 +27,7 @@ import com.swiftmako.jormanager.model.RetirePoolRequest
 import com.swiftmako.jormanager.model.RotateKesRequest
 import com.swiftmako.jormanager.model.UpdateColorRequest
 import com.swiftmako.jormanager.model.UpdateMetadataRequest
+import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.key.Key
 import com.swiftmako.jormanager.model.metadata.pool.About
 import com.swiftmako.jormanager.model.metadata.pool.Company
@@ -46,6 +47,7 @@ import com.swiftmako.jormanager.repositories.RelayRepository
 import com.swiftmako.jormanager.repositories.TransactionRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.MetadataService
+import com.swiftmako.jormanager.services.TransactionPlannerService
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CardanoNetworkEpochs
 import com.swiftmako.jormanager.utils.CardanoUtils
@@ -104,6 +106,7 @@ class NodeController
         private val ledgerDao: LedgerDao,
         private val cardanoUtils: CardanoUtils,
         private val cardanoRepository: CardanoRepository,
+        private val transactionPlannerService: TransactionPlannerService = TransactionPlannerService(),
         // @param:Value("\${jormanager.era}") private val eraString: String,
     ) {
         private val log by lazy { LoggerFactory.getLogger("NodeController") }
@@ -329,18 +332,13 @@ class NodeController
                                     .command(
                                         "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                                     ).trim()
-                            defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                            val protocolParameters =
-                                protocolParamsAdapter.fromJson(protocolParamsJson)
-                                    ?: throw IOException("Invalid protocol params!")
+                            val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
-                            // 1. Create a transaction to dump EVERYTHING into
+                            // 1. Prepare fee payer account and UTxOs for SDK coin selection
                             var depositAndFees = BigInteger.ZERO
                             var witnessCount = 0
-                            val transaction = StringBuilder()
                             val certificates = StringBuilder()
                             val signingKeys = StringBuilder()
-                            transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                             val feePayerAccount =
                                 walletRepository.findByIdOrNull(request.registrationFeesAccount!!)
                                     ?: throw IOException("Registration fees account not found!")
@@ -353,9 +351,6 @@ class NodeController
                                     era,
                                     feePayerAccount.paymentAddr
                                 )
-                            utxos.forEach { utxo ->
-                                transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                            }
                             val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                             log.debug("feePayerAccount balance: $feePayerAccountBalance")
                             witnessCount++ // fee payer is a witness
@@ -368,17 +363,11 @@ class NodeController
                             )
                             signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
 
-                            // initial dummy value to return change to the fee payer account.
-                            // We'll replace this with the actual change to return later
-                            transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                             val queryTipString =
                                 defaultHostConnection
                                     .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                                     .trim()
                             val ttl = queryTipAdapter.fromJson(queryTipString)?.let { it.slot + 21600 } ?: -1
-                            transaction.append("--invalid-hereafter $ttl ")
-                            transaction.append("--fee 200000 ")
 
                             // 2. Register owner address on the chain if not yet registered
                             val ownerStakingAccount =
@@ -976,52 +965,21 @@ class NodeController
                             )
                             certificates.append("--certificate /tmp/owner.deleg.cert ")
 
-                            // 8. Calculate fees
-                            transaction.append(certificates)
-                            transaction.append("--out-file /tmp/transaction.txbody")
-                            defaultHostConnection.command(transaction.toString())
-
-                            log.debug("depositAndFees: $depositAndFees")
-                            val referenceScriptSize =
-                                walletUtils.queryReferenceScriptSize(
-                                    defaultHost,
-                                    defaultHostConnection,
-                                    magicString,
-                                    socketPath,
-                                    era,
-                                    utxos,
-                                )
-                            val feesString =
-                                defaultHostConnection
-                                    .command(
-                                        "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                                    ).trim()
-                            val fees = feesString.split(" ")[0].toBigInteger()
-                            log.debug("fees: $fees")
-                            depositAndFees += fees
-                            log.debug("final depositAndFees: $depositAndFees")
-
-                            // 9. Create the transaction
-                            val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
-                            if (change < BigInteger.ONE) {
-                                throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                            }
-
-                            val tokenChange = StringBuilder()
-                            utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                                if (amount > BigInteger.ZERO) {
-                                    tokenChange.append("+$amount $currency")
-                                }
-                            }
-
+                            // 8. Plan UTxO selection and fees locally via Cardano SDK
                             val realTransaction =
-                                transaction
-                                    .toString()
-                                    .replace("--fee 200000 ", "--fee $fees ")
-                                    .replace(
-                                        "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                        "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                                    )
+                                buildAdminTransactionCommand(
+                                    cardanoCliPath = defaultHost.cardanoCliPath,
+                                    era = era,
+                                    utxos = utxos,
+                                    changeAddress = feePayerAccount.paymentAddr,
+                                    protocolParameters = protocolParameters,
+                                    deposit = depositAndFees,
+                                    ttl = ttl,
+                                    witnessCount = witnessCount,
+                                    extraArgs = certificates.toString(),
+                                    extraPayloadBytes = estimateCertPayloadBytes(certificates, request.relays?.size ?: 0),
+                                    outFile = "/tmp/transaction.txbody",
+                                )
                             log.debug("Pool Transaction Command: $realTransaction")
                             defaultHostConnection.command(realTransaction)
 
@@ -1032,6 +990,10 @@ class NodeController
 
                             runBlocking {
                                 TransactionCache.withLock {
+                                    val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                    if (txSigned.isNotBlank()) {
+                                        transactionPlannerService.validateSignedEnvelopeSize(txSigned, protocolParameters)
+                                    }
                                     // 11. Submit the transaction
                                     defaultHostConnection.command(
                                         "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
@@ -1041,7 +1003,6 @@ class NodeController
                                             .command(
                                                 "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                             ).trim()
-                                    val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                     TransactionCache.put(txid, txSigned)
 
                                     val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -1329,18 +1290,13 @@ class NodeController
                                         .command(
                                             "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                                         ).trim()
-                                defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                                val protocolParameters =
-                                    protocolParamsAdapter.fromJson(protocolParamsJson)
-                                        ?: throw IOException("Invalid protocol params!")
+                                val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
-                                // 1. Create a transaction to dump EVERYTHING into
+                                // 1. Prepare fee payer account and UTxOs for SDK coin selection
                                 var depositAndFees = BigInteger.ZERO
                                 var witnessCount = 0
-                                val transaction = StringBuilder()
                                 val certificates = StringBuilder()
                                 val signingKeys = StringBuilder()
-                                transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                                 val feePayerAccount =
                                     walletRepository.findByIdOrNull(request.registrationFeesAccount)
                                         ?: throw IOException("Registration fees account not found!")
@@ -1353,9 +1309,6 @@ class NodeController
                                         era,
                                         feePayerAccount.paymentAddr
                                     )
-                                utxos.forEach { utxo ->
-                                    transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                                }
                                 val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                                 log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
                                 witnessCount++ // fee payer is a witness
@@ -1368,18 +1321,12 @@ class NodeController
                                 )
                                 signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
 
-                                // initial dummy value to return change to the fee payer account.
-                                // We'll replace this with the actual change to return later
-                                transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                                 val queryTipJson =
                                     defaultHostConnection
                                         .command(
                                             "${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json"
                                         ).trim()
                                 val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
-                                transaction.append("--invalid-hereafter $ttl ")
-                                transaction.append("--fee 200000 ")
 
                                 // 2. Register owner address on the chain if not yet registered
                                 val ownerStakingAccount =
@@ -1546,52 +1493,21 @@ class NodeController
                                         certificates.append("--certificate /tmp/owner.deleg.cert ")
                                     }
 
-                                    // 8. Calculate fees
-                                    transaction.append(certificates)
-                                    transaction.append("--out-file /tmp/transaction.txbody")
-                                    defaultHostConnection.command(transaction.toString())
-
-                                    log.debug("depositAndFees: $depositAndFees")
-                                    val referenceScriptSize =
-                                        walletUtils.queryReferenceScriptSize(
-                                            defaultHost,
-                                            defaultHostConnection,
-                                            magicString,
-                                            socketPath,
-                                            era,
-                                            utxos,
-                                        )
-                                    val feesString =
-                                        defaultHostConnection
-                                            .command(
-                                                "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                                            ).trim()
-                                    val fees = feesString.split(" ")[0].toBigInteger()
-                                    log.debug("fees: $fees")
-                                    depositAndFees += fees
-                                    log.debug("final depositAndFees: $depositAndFees")
-
-                                    // 9. Create the transaction
-                                    val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
-                                    if (change < BigInteger.ONE) {
-                                        throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                                    }
-
-                                    val tokenChange = StringBuilder()
-                                    utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                                        if (amount > BigInteger.ZERO) {
-                                            tokenChange.append("+$amount $currency")
-                                        }
-                                    }
-
+                                    // 8. Plan UTxO selection and fees locally via Cardano SDK
                                     val realTransaction =
-                                        transaction
-                                            .toString()
-                                            .replace("--fee 200000 ", "--fee $fees ")
-                                            .replace(
-                                                "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                                "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                                            )
+                                        buildAdminTransactionCommand(
+                                            cardanoCliPath = defaultHost.cardanoCliPath,
+                                            era = era,
+                                            utxos = utxos,
+                                            changeAddress = feePayerAccount.paymentAddr,
+                                            protocolParameters = protocolParameters,
+                                            deposit = depositAndFees,
+                                            ttl = ttl,
+                                            witnessCount = witnessCount,
+                                            extraArgs = certificates.toString(),
+                                            extraPayloadBytes = estimateCertPayloadBytes(certificates, relays.size),
+                                            outFile = "/tmp/transaction.txbody",
+                                        )
                                     log.debug("Pool Transaction Command: $realTransaction")
                                     defaultHostConnection.command(realTransaction)
 
@@ -1602,6 +1518,14 @@ class NodeController
 
                                     runBlocking {
                                         TransactionCache.withLock {
+                                            val txSigned =
+                                                defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                            if (txSigned.isNotBlank()) {
+                                                transactionPlannerService.validateSignedEnvelopeSize(
+                                                    txSigned,
+                                                    protocolParameters,
+                                                )
+                                            }
                                             // 11. Submit the transaction
                                             defaultHostConnection.command(
                                                 "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
@@ -1611,8 +1535,6 @@ class NodeController
                                                     .command(
                                                         "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                                     ).trim()
-                                            val txSigned =
-                                                defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                             TransactionCache.put(txid, txSigned)
 
                                             val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -1998,18 +1920,13 @@ class NodeController
                             .command(
                                 "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
-                    defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                    val protocolParameters =
-                        protocolParamsAdapter.fromJson(protocolParamsJson)
-                            ?: throw IOException("Invalid protocol params!")
+                    val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
-                    // 1. Create a transaction to dump EVERYTHING into
+                    // 1. Prepare fee payer account and UTxOs for SDK coin selection
                     var depositAndFees = BigInteger.ZERO
                     var witnessCount = 0
-                    val transaction = StringBuilder()
                     val certificates = StringBuilder()
                     val signingKeys = StringBuilder()
-                    transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                     val feePayerAccount =
                         walletRepository.findByIdOrNull(request.registrationFeesAccount)
                             ?: throw IOException("Registration fees account not found!")
@@ -2022,9 +1939,6 @@ class NodeController
                             era,
                             feePayerAccount.paymentAddr
                         )
-                    utxos.forEach { utxo ->
-                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                    }
                     val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                     log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
                     witnessCount++ // fee payer is a witness
@@ -2037,17 +1951,11 @@ class NodeController
                     )
                     signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
 
-                    // initial dummy value to return change to the fee payer account.
-                    // We'll replace this with the actual change to return later
-                    transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                     val queryTipJson =
                         defaultHostConnection
                             .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
-                    transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee 200000 ")
 
                     nodeRepository.findByIdOrNull(request.id)?.let { node ->
                         // 2. Register owner address on the chain if not yet registered
@@ -2412,52 +2320,21 @@ class NodeController
                         defaultHostConnection.command(poolRegcertCommand.toString())
                         certificates.append("--certificate /tmp/core.pool.cert ")
 
-                        // 8. Calculate fees
-                        transaction.append(certificates)
-                        transaction.append("--out-file /tmp/transaction.txbody")
-                        defaultHostConnection.command(transaction.toString())
-
-                        log.debug("depositAndFees: $depositAndFees")
-                        val referenceScriptSize =
-                            walletUtils.queryReferenceScriptSize(
-                                defaultHost,
-                                defaultHostConnection,
-                                magicString,
-                                socketPath,
-                                era,
-                                utxos,
-                            )
-                        val feesString =
-                            defaultHostConnection
-                                .command(
-                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                                ).trim()
-                        val fees = feesString.split(" ")[0].toBigInteger()
-                        log.debug("fees: $fees")
-                        depositAndFees += fees
-                        log.debug("final depositAndFees: $depositAndFees")
-
-                        // 9. Create the transaction
-                        val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
-                        if (change < BigInteger.ONE) {
-                            throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                        }
-
-                        val tokenChange = StringBuilder()
-                        utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                            if (amount > BigInteger.ZERO) {
-                                tokenChange.append("+$amount $currency")
-                            }
-                        }
-
+                        // 8. Plan UTxO selection and fees locally via Cardano SDK
                         val realTransaction =
-                            transaction
-                                .toString()
-                                .replace("--fee 200000 ", "--fee $fees ")
-                                .replace(
-                                    "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                    "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                                )
+                            buildAdminTransactionCommand(
+                                cardanoCliPath = defaultHost.cardanoCliPath,
+                                era = era,
+                                utxos = utxos,
+                                changeAddress = feePayerAccount.paymentAddr,
+                                protocolParameters = protocolParameters,
+                                deposit = depositAndFees,
+                                ttl = ttl,
+                                witnessCount = witnessCount,
+                                extraArgs = certificates.toString(),
+                                extraPayloadBytes = estimateCertPayloadBytes(certificates, relays.size),
+                                outFile = "/tmp/transaction.txbody",
+                            )
                         log.debug("Pool Transaction Command: $realTransaction")
                         defaultHostConnection.command(realTransaction)
 
@@ -2468,6 +2345,10 @@ class NodeController
 
                         runBlocking {
                             TransactionCache.withLock {
+                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                if (txSigned.isNotBlank()) {
+                                    transactionPlannerService.validateSignedEnvelopeSize(txSigned, protocolParameters)
+                                }
                                 // 11. Submit the transaction
                                 defaultHostConnection.command(
                                     "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
@@ -2477,7 +2358,6 @@ class NodeController
                                         .command(
                                             "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
-                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
 
                                 val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -2560,18 +2440,13 @@ class NodeController
                             .command(
                                 "${defaultHost.cardanoCliPath} $era query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
-                    defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
-                    val protocolParameters =
-                        protocolParamsAdapter.fromJson(protocolParamsJson)
-                            ?: throw IOException("Invalid protocol params!")
+                    val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
-                    // 1. Create a transaction to dump EVERYTHING into
+                    // 1. Prepare fee payer account and UTxOs for SDK coin selection
                     var depositAndFees = BigInteger.ZERO
                     var witnessCount = 0
-                    val transaction = StringBuilder()
                     val certificates = StringBuilder()
                     val signingKeys = StringBuilder()
-                    transaction.append("${defaultHost.cardanoCliPath} $era transaction build-raw ")
                     val feePayerAccount =
                         walletRepository.findByIdOrNull(request.registrationFeesAccount)
                             ?: throw IOException("Registration fees account not found!")
@@ -2584,9 +2459,6 @@ class NodeController
                             era,
                             feePayerAccount.paymentAddr
                         )
-                    utxos.forEach { utxo ->
-                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                    }
                     val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                     log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
                     witnessCount++ // fee payer is a witness
@@ -2599,17 +2471,11 @@ class NodeController
                     )
                     signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
 
-                    // initial dummy value to return change to the fee payer account.
-                    // We'll replace this with the actual change to return later
-                    transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                     val queryTipJson =
                         defaultHostConnection
                             .command("${defaultHost.cardanoCliPath} $era query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
-                    transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee 200000 ")
 
                     nodeRepository.findByIdOrNull(request.nodeId)?.let { node ->
 
@@ -2780,52 +2646,21 @@ class NodeController
                         defaultHostConnection.command(poolRegcertCommand.toString())
                         certificates.append("--certificate /tmp/core.pool.cert ")
 
-                        // 8. Calculate fees
-                        transaction.append(certificates)
-                        transaction.append("--out-file /tmp/transaction.txbody")
-                        defaultHostConnection.command(transaction.toString())
-
-                        log.debug("depositAndFees: $depositAndFees")
-                        val referenceScriptSize =
-                            walletUtils.queryReferenceScriptSize(
-                                defaultHost,
-                                defaultHostConnection,
-                                magicString,
-                                socketPath,
-                                era,
-                                utxos,
-                            )
-                        val feesString =
-                            defaultHostConnection
-                                .command(
-                                    "${defaultHost.cardanoCliPath} $era transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                                ).trim()
-                        val fees = feesString.split(" ")[0].toBigInteger()
-                        log.debug("fees: $fees")
-                        depositAndFees += fees
-                        log.debug("final depositAndFees: $depositAndFees")
-
-                        // 9. Create the transaction
-                        val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
-                        if (change < BigInteger.ONE) {
-                            throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                        }
-
-                        val tokenChange = StringBuilder()
-                        utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                            if (amount > BigInteger.ZERO) {
-                                tokenChange.append("+$amount $currency")
-                            }
-                        }
-
+                        // 8. Plan UTxO selection and fees locally via Cardano SDK
                         val realTransaction =
-                            transaction
-                                .toString()
-                                .replace("--fee 200000 ", "--fee $fees ")
-                                .replace(
-                                    "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                    "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                                )
+                            buildAdminTransactionCommand(
+                                cardanoCliPath = defaultHost.cardanoCliPath,
+                                era = era,
+                                utxos = utxos,
+                                changeAddress = feePayerAccount.paymentAddr,
+                                protocolParameters = protocolParameters,
+                                deposit = depositAndFees,
+                                ttl = ttl,
+                                witnessCount = witnessCount,
+                                extraArgs = certificates.toString(),
+                                extraPayloadBytes = estimateCertPayloadBytes(certificates, relays.size),
+                                outFile = "/tmp/transaction.txbody",
+                            )
                         log.debug("Pool Transaction Command: $realTransaction")
                         defaultHostConnection.command(realTransaction)
 
@@ -2836,6 +2671,10 @@ class NodeController
 
                         runBlocking {
                             TransactionCache.withLock {
+                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                if (txSigned.isNotBlank()) {
+                                    transactionPlannerService.validateSignedEnvelopeSize(txSigned, protocolParameters)
+                                }
                                 // 11. Submit the transaction
                                 defaultHostConnection.command(
                                     "${defaultHost.cardanoCliPath} $era transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
@@ -2845,7 +2684,6 @@ class NodeController
                                         .command(
                                             "${defaultHost.cardanoCliPath} $era transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
-                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
 
                                 val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -2918,15 +2756,13 @@ class NodeController
                             .command(
                                 "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
-                    defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+                    val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
-                    // 1. Create a transaction to dump EVERYTHING into
+                    // 1. Prepare fee payer account and UTxOs for SDK coin selection
                     var depositAndFees = BigInteger.ZERO
                     var witnessCount = 0
-                    val transaction = StringBuilder()
                     val certificates = StringBuilder()
                     val signingKeys = StringBuilder()
-                    transaction.append("${defaultHost.cardanoCliPath} conway transaction build-raw ")
                     val feePayerAccount =
                         walletRepository.findByIdOrNull(request.retireFeesAccount)
                             ?: throw IOException("Registration fees account not found!")
@@ -2939,9 +2775,6 @@ class NodeController
                             era,
                             feePayerAccount.paymentAddr
                         )
-                    utxos.forEach { utxo ->
-                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                    }
                     val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                     log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
                     witnessCount++ // fee payer is a witness
@@ -2951,17 +2784,11 @@ class NodeController
                     )
                     signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
 
-                    // initial dummy value to return change to the fee payer account.
-                    // We'll replace this with the actual change to return later
-                    transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                     val queryTipJson =
                         defaultHostConnection
                             .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
-                    transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee 200000 ")
 
                     val coldSKeyFile =
                         fileRepository.findByIdOrNull(node.coreSKeyId)
@@ -2984,52 +2811,21 @@ class NodeController
                     witnessCount++ // the core.node.skey is a witness
                     signingKeys.append("--signing-key-file /tmp/core.node.skey ")
 
-                    // 8. Calculate fees
-                    transaction.append(certificates)
-                    transaction.append("--out-file /tmp/transaction.txbody")
-                    defaultHostConnection.command(transaction.toString())
-
-                    log.debug("depositAndFees: $depositAndFees")
-                    val referenceScriptSize =
-                        walletUtils.queryReferenceScriptSize(
-                            defaultHost,
-                            defaultHostConnection,
-                            magicString,
-                            socketPath,
-                            "conway",
-                            utxos,
-                        )
-                    val feesString =
-                        defaultHostConnection
-                            .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/transaction.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                            ).trim()
-                    val fees = feesString.split(" ")[0].toBigInteger()
-                    log.debug("fees: $fees")
-                    depositAndFees += fees
-                    log.debug("final depositAndFees: $depositAndFees")
-
-                    // 9. Create the transaction
-                    val change = utxos.sumByBigInteger { it.lovelace } - depositAndFees
-                    if (change < BigInteger.ONE) {
-                        throw IOException("Not enough funds to pay depositAndFees of $depositAndFees lovelace!")
-                    }
-
-                    val tokenChange = StringBuilder()
-                    utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                        if (amount > BigInteger.ZERO) {
-                            tokenChange.append("+$amount $currency")
-                        }
-                    }
-
+                    // 8. Plan UTxO selection and fees locally via Cardano SDK
                     val realTransaction =
-                        transaction
-                            .toString()
-                            .replace("--fee 200000 ", "--fee $fees ")
-                            .replace(
-                                "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                            )
+                        buildAdminTransactionCommand(
+                            cardanoCliPath = defaultHost.cardanoCliPath,
+                            era = "conway",
+                            utxos = utxos,
+                            changeAddress = feePayerAccount.paymentAddr,
+                            protocolParameters = protocolParameters,
+                            deposit = depositAndFees,
+                            ttl = ttl,
+                            witnessCount = witnessCount,
+                            extraArgs = certificates.toString(),
+                            extraPayloadBytes = estimateCertPayloadBytes(certificates),
+                            outFile = "/tmp/transaction.txbody",
+                        )
                     log.debug("Pool Transaction Command: $realTransaction")
                     defaultHostConnection.command(realTransaction)
 
@@ -3080,6 +2876,10 @@ class NodeController
                     val txid =
                         runBlocking {
                             TransactionCache.withLock {
+                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
+                                if (txSigned.isNotBlank()) {
+                                    transactionPlannerService.validateSignedEnvelopeSize(txSigned, protocolParameters)
+                                }
                                 // 11. Submit the transaction
                                 defaultHostConnection.command(
                                     "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/transaction.txsigned $magicString $socketPath"
@@ -3089,7 +2889,6 @@ class NodeController
                                         .command(
                                             "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/transaction.txbody --output-text"
                                         ).trim()
-                                val txSigned = defaultHostConnection.commandReadFile("/tmp/transaction.txsigned")
                                 TransactionCache.put(txid, txSigned)
 
                                 val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -3927,15 +3726,12 @@ class NodeController
                             .command(
                                 "${defaultHost.cardanoCliPath} conway query protocol-parameters $magicString $socketPath --output-json"
                             ).trim()
-                    defaultHostConnection.commandWriteFile("/tmp/protocol-parameters.json", protocolParamsJson)
+                    val protocolParameters = parseProtocolParameters(protocolParamsJson)
 
                     // Build the transaction
                     var witnessCount = 0
-                    val transaction = StringBuilder()
                     val voteFiles = StringBuilder()
                     val signingKeys = StringBuilder()
-
-                    transaction.append("${defaultHost.cardanoCliPath} conway transaction build-raw ")
 
                     // Get fee payer account
                     val feePayerAccount =
@@ -3950,9 +3746,6 @@ class NodeController
                             era,
                             feePayerAccount.paymentAddr
                         )
-                    utxos.forEach { utxo ->
-                        transaction.append("--tx-in ${utxo.hash}#${utxo.ix} ")
-                    }
                     val feePayerAccountBalance = utxos.sumByBigInteger { it.lovelace }
                     log.debug("feePayerAccount balance: {}", feePayerAccountBalance)
                     val rationaleAnchor = uploadGovernanceRationale(request.rationale)
@@ -3965,17 +3758,12 @@ class NodeController
                     signingKeys.append("--signing-key-file /tmp/feepayer.payment.skey ")
                     tempFiles.add("/tmp/feepayer.payment.skey")
 
-                    // initial dummy value to return change to the fee payer account
-                    transaction.append("--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ")
-
                     // Get TTL
                     val queryTipJson =
                         defaultHostConnection
                             .command("${defaultHost.cardanoCliPath} conway query tip $magicString $socketPath --output-json")
                             .trim()
                     val ttl = queryTipAdapter.fromJson(queryTipJson)?.let { it.slot + 21600 } ?: -1
-                    transaction.append("--invalid-hereafter $ttl ")
-                    transaction.append("--fee 200000 ")
 
                     // Generate vote files for each node
                     for (nodeVote in request.votes) {
@@ -4033,53 +3821,22 @@ class NodeController
                         witnessCount++
                     }
 
-                    // Build dummy transaction for fee calculation
-                    transaction.append(voteFiles)
-                    transaction.append("--out-file /tmp/governance-vote.txbody")
-                    log.debug("Building dummy transaction: $transaction")
-                    defaultHostConnection.command(transaction.toString())
-
-                    // Calculate fees
-                    val referenceScriptSize =
-                        walletUtils.queryReferenceScriptSize(
-                            defaultHost,
-                            defaultHostConnection,
-                            magicString,
-                            socketPath,
-                            "conway",
-                            utxos,
-                        )
-                    val feesString =
-                        defaultHostConnection
-                            .command(
-                                "${defaultHost.cardanoCliPath} conway transaction calculate-min-fee --tx-body-file /tmp/governance-vote.txbody --protocol-params-file /tmp/protocol-parameters.json --tx-in-count ${utxos.size} --tx-out-count 1 $magicString --witness-count $witnessCount --byron-witness-count 0 --reference-script-size $referenceScriptSize --output-text"
-                            ).trim()
-                    val fees = feesString.split(" ")[0].toBigInteger()
-                    log.debug("Calculated fees: $fees")
-
-                    // Calculate change
-                    val change = feePayerAccountBalance - fees
-                    if (change < BigInteger.ONE) {
-                        throw IOException("Not enough funds to pay fees of $fees lovelace!")
-                    }
-
-                    // Handle token change
-                    val tokenChange = StringBuilder()
-                    utxos.toNativeAssetMap().forEach { (currency, amount) ->
-                        if (amount > BigInteger.ZERO) {
-                            tokenChange.append("+$amount $currency")
-                        }
-                    }
-
-                    // Rebuild transaction with correct fee
+                    // Plan UTxO selection and fees locally via Cardano SDK
+                    val perVoteBytes = if (rationaleAnchor != null) 240 else 120
                     val realTransaction =
-                        transaction
-                            .toString()
-                            .replace("--fee 200000 ", "--fee $fees ")
-                            .replace(
-                                "--tx-out ${feePayerAccount.paymentAddr}+$feePayerAccountBalance ",
-                                "--tx-out '${feePayerAccount.paymentAddr}+$change$tokenChange' "
-                            )
+                        buildAdminTransactionCommand(
+                            cardanoCliPath = defaultHost.cardanoCliPath,
+                            era = "conway",
+                            utxos = utxos,
+                            changeAddress = feePayerAccount.paymentAddr,
+                            protocolParameters = protocolParameters,
+                            deposit = BigInteger.ZERO,
+                            ttl = ttl,
+                            witnessCount = witnessCount,
+                            extraArgs = voteFiles.toString(),
+                            extraPayloadBytes = request.votes.size * perVoteBytes,
+                            outFile = "/tmp/governance-vote.txbody",
+                        )
                     log.debug("Final transaction command: $realTransaction")
                     defaultHostConnection.command(realTransaction)
 
@@ -4090,6 +3847,10 @@ class NodeController
 
                     val txid = runBlocking {
                         TransactionCache.withLock {
+                            val txSigned = defaultHostConnection.commandReadFile("/tmp/governance-vote.txsigned")
+                            if (txSigned.isNotBlank()) {
+                                transactionPlannerService.validateSignedEnvelopeSize(txSigned, protocolParameters)
+                            }
                             // Submit the transaction
                             defaultHostConnection.command(
                                 "${defaultHost.cardanoCliPath} conway transaction submit --tx-file /tmp/governance-vote.txsigned $magicString $socketPath"
@@ -4099,7 +3860,6 @@ class NodeController
                                     .command(
                                         "${defaultHost.cardanoCliPath} conway transaction txid --tx-body-file /tmp/governance-vote.txbody --output-text"
                                     ).trim()
-                            val txSigned = defaultHostConnection.commandReadFile("/tmp/governance-vote.txsigned")
                             TransactionCache.put(txid, txSigned)
 
                             val cborBytes = txSignedAdapter.fromJson(txSigned)!!.cborHex.hexToByteArray()
@@ -4168,6 +3928,65 @@ class NodeController
         ) {
             hostConnection.command("mkdir -p $nodeFolder/db")
             hostConnection.command("mkdir -p $nodeFolder/logs")
+        }
+
+        private fun parseProtocolParameters(protocolParamsJson: String): ProtocolParameters =
+            if (protocolParamsJson.isBlank() || protocolParamsJson == "{}") {
+                ProtocolParameters.conwayDefaults()
+            } else {
+                protocolParamsAdapter.fromJson(protocolParamsJson)
+                    ?: throw IOException("Invalid protocol params!")
+            }
+
+        private fun estimateCertPayloadBytes(
+            certificatesArg: CharSequence,
+            relayCount: Int = 0,
+        ): Int {
+            val certCount = "--certificate ".toRegex().findAll(certificatesArg).count()
+            val hasPoolReg = "core.pool.cert" in certificatesArg
+            return if (hasPoolReg) {
+                380 + (relayCount * 48) + ((certCount - 1).coerceAtLeast(0) * 72)
+            } else {
+                certCount * 72
+            }
+        }
+
+        private fun buildAdminTransactionCommand(
+            cardanoCliPath: String,
+            era: String,
+            utxos: List<Utxo>,
+            changeAddress: String,
+            protocolParameters: ProtocolParameters,
+            deposit: BigInteger,
+            ttl: Long,
+            witnessCount: Int,
+            extraArgs: String,
+            extraPayloadBytes: Int,
+            outFile: String,
+        ): String {
+            val plan =
+                transactionPlannerService.planAdminTransaction(
+                    utxos = utxos,
+                    changeAddress = changeAddress,
+                    protocolParameters = protocolParameters,
+                    deposit = deposit,
+                    ttl = ttl,
+                    witnessCount = witnessCount,
+                    extraPayloadBytes = extraPayloadBytes,
+                )
+            return StringBuilder().apply {
+                append("$cardanoCliPath $era transaction build-raw ")
+                plan.selectedUtxos.forEach { utxo ->
+                    append("--tx-in ${utxo.hash}#${utxo.ix} ")
+                }
+                plan.outputs.forEach { output ->
+                    append("--tx-out ${output.toCliTxOutArg()} ")
+                }
+                append("--invalid-hereafter $ttl ")
+                append("--fee ${plan.fee} ")
+                append(extraArgs)
+                append("--out-file $outFile")
+            }.toString()
         }
 
         companion object {

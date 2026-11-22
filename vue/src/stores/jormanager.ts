@@ -15,7 +15,8 @@ import type {
   NodeStatEvent,
   Toast,
   AppVersionData,
-  TxFeeData
+  TxFeeData,
+  SelectionMode
 } from '@/types'
 
 interface SelectOption {
@@ -46,11 +47,15 @@ interface JorManagerState {
   files: FileOption[]
   walletItems: WalletItem[]
 
-  // Transaction fees
+  // Transaction fees & SDK planner metadata
   txFee: number
   tokenFees: number[]
   tokenKeepFee: number
   tokenLocked: number
+  planSelectionMode: SelectionMode
+  planInputCount: number
+  planOutputCount: number
+  planEstimatedTxSize: number
   requestFeesUUID: string
   responseFeesUUID: string
 
@@ -97,11 +102,15 @@ export const useJorManagerStore = defineStore('jormanager', {
     files: [],
     walletItems: [],
 
-    // Transaction fees
+    // Transaction fees & SDK planner metadata
     txFee: 0,
     tokenFees: [],
     tokenKeepFee: 0,
     tokenLocked: 0,
+    planSelectionMode: 'STANDARD',
+    planInputCount: 0,
+    planOutputCount: 0,
+    planEstimatedTxSize: 0,
     requestFeesUUID: 'ec8301e5-98bb-4be2-82d4-0f97fa82bb32',
     responseFeesUUID: '200bbde5-d0ba-4810-ae31-aa5c66ff0bd1',
 
@@ -700,6 +709,10 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.tokenFees = data.tokenFees
       this.tokenKeepFee = data.tokenKeepFee
       this.tokenLocked = data.tokenLocked
+      this.planSelectionMode = (data as any).selectionMode ?? 'STANDARD'
+      this.planInputCount = Number((data as any).inputCount ?? 0)
+      this.planOutputCount = Number((data as any).outputCount ?? 0)
+      this.planEstimatedTxSize = Number((data as any).estimatedTxSize ?? 0)
       this.responseFeesUUID = data.uuid
     },
 
@@ -773,6 +786,9 @@ export const useJorManagerStore = defineStore('jormanager', {
     invalidateSendAdaFees() {
       this.requestFeesUUID = generateUUID()
       this.responseFeesUUID = generateUUID()
+      this.planInputCount = 0
+      this.planOutputCount = 0
+      this.planEstimatedTxSize = 0
     },
 
     submitTransaction(formSendAda: unknown) {

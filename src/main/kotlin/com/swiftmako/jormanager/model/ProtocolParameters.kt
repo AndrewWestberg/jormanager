@@ -42,5 +42,32 @@ data class ProtocolParameters(
     @param:Json(name = "treasuryCut")
     val treasuryCut: Double,
     @param:Json(name = "poolPledgeInfluence")
-    val poolPledgeInfluence: Double
-)
+    val poolPledgeInfluence: Double,
+    @param:Json(name = "minFeeRefScriptCostPerByte")
+    val minFeeRefScriptCostPerByte: BigDecimal? = null,
+) {
+    companion object {
+        fun conwayDefaults(): ProtocolParameters =
+            ProtocolParameters(
+                stakePoolDeposit = BigInteger.valueOf(500_000_000L),
+                protocolVersion = ProtocolVersion(major = 10, minor = 0),
+                minUTxOValue = null,
+                utxoCostPerWord = null,
+                utxoCostPerByte = 4310L,
+                decentralisationParam = null,
+                maxTxSize = 16384L,
+                minPoolCost = 170_000_000L,
+                txFeePerByte = 44L,
+                maxBlockBodySize = 90112L,
+                txFeeFixed = 155381L,
+                poolRetireMaxEpoch = 18L,
+                maxBlockHeaderSize = 1100L,
+                stakeAddressDeposit = BigInteger.valueOf(2_000_000L),
+                stakePoolTargetNum = 500L,
+                monetaryExpansion = 0.003,
+                treasuryCut = 0.2,
+                poolPledgeInfluence = 0.3,
+                minFeeRefScriptCostPerByte = BigDecimal.valueOf(15L),
+            )
+    }
+}

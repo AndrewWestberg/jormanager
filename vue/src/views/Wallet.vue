@@ -75,14 +75,30 @@
           </template>
           <template #cell(paymentAddrLovelace)="{ item, value }">
             <div class="text-right">
+              <span
+                v-if="Number((item as any).paymentAddrUtxoCount) > 0"
+                class="badge bg-secondary me-2"
+                v-b-tooltip.hover.bottom="{ title: `${(item as any).paymentAddrUtxoCount} unspent UTxO(s)`, variant: 'secondary' }"
+              >
+                {{ (item as any).paymentAddrUtxoCount }} UTxO{{ Number((item as any).paymentAddrUtxoCount) === 1 ? '' : 's' }}
+              </span>
               {{ lovelaceToAda(Number(value)) }}
               <span
                 v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && Number(value) > 0"
-                class="clickable text-success d-inline-block"
+                class="clickable text-success d-inline-block ms-1"
                 v-b-tooltip.hover.bottom="{ title: 'Send', variant: 'success' }"
                 @click="sendAdaClick((item as any).name)"
               >
                 <font-awesome-icon :icon="['fas', 'hand-holding-usd']" />
+              </span>
+              <span
+                v-if="(item as any).type !== 'address' && (item as any).type !== 'pledge' && (item as any).hasPaymentKeys !== false && Number(value) > 0 && Number((item as any).paymentAddrUtxoCount) > 1"
+                class="clickable text-info d-inline-block ms-2"
+                data-testid="defragment-utxos-btn"
+                v-b-tooltip.hover.bottom="{ title: 'Defragment UTxOs', variant: 'info' }"
+                @click="defragmentUtxosClick((item as any).name)"
+              >
+                <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" />
               </span>
             </div>
             <hr v-if="hasNativeAssets((item as any).name)" />
@@ -316,6 +332,13 @@ function sendAdaClick(name: string) {
   const item = findWalletItemByName(name)
   if (item) {
     emitter.emit('show-send-ada-modal', { walletItem: item, isClaim: false })
+  }
+}
+
+function defragmentUtxosClick(name: string) {
+  const item = findWalletItemByName(name)
+  if (item) {
+    emitter.emit('show-send-ada-modal', { walletItem: item, isClaim: false, isDefragment: true })
   }
 }
 

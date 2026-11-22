@@ -19,6 +19,8 @@ data class CalculateFeeRequest(
     val metadata: String?,
     @param:Json(name = "uuid")
     val uuid: String,
+    @param:Json(name = "selectionMode")
+    val selectionMode: String = "STANDARD",
 ) {
     // Get all from IDs, preferring fromIds list if not empty, otherwise falling back to single fromId
     fun getEffectiveFromIds(): List<Long> = fromIds.ifEmpty { listOf(fromId) }
