@@ -14,12 +14,12 @@ class WebSocketConfig : WebSocketMessageBrokerConfigurer {
         config.enableSimpleBroker("/topic")
         config.setApplicationDestinationPrefixes("/jormanager")
     }
+
     override fun configureWebSocketTransport(registration: WebSocketTransportRegistration) {
         // The configuration-restore endpoint bounds decoded ZIP input to 64 MiB.
         // Allow the corresponding base64 STOMP frame plus its JSON envelope.
         registration.setMessageSizeLimit(90 * 1024 * 1024)
     }
-
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
         registry

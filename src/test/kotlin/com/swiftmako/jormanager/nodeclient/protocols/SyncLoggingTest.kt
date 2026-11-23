@@ -38,19 +38,43 @@ class SyncLoggingTest {
     @BeforeEach
     fun captureLogs() {
         events.start()
-        loggers.forEach { it.level = Level.INFO; it.addAppender(events) }
+        loggers.forEach {
+            it.level = Level.INFO
+            it.addAppender(events)
+        }
     }
 
     @AfterEach
     fun closeProtocols() {
-        sync.shutdown(); fetch.shutdown(); leios.shutdown(); session.close(); scope.cancel()
-        loggers.forEachIndexed { index, logger -> logger.detachAppender(events); logger.level = levels[index] }
+        sync.shutdown()
+        fetch.shutdown()
+        leios.shutdown()
+        session.close()
+        scope.cancel()
+        loggers.forEachIndexed { index, logger ->
+            logger.detachAppender(events)
+            logger.level = levels[index]
+        }
         events.stop()
     }
 
-    private fun saved(height: Long, tip: Long, now: Long) {
-        val message = MsgRollForward(height, height * 20, "11".repeat(32), "00".repeat(32), "", "", "", "", "",
-            ChainTip(tip * 20, tip, if (height >= tip) "11".repeat(32) else "22".repeat(32)))
+    private fun saved(
+        height: Long,
+        tip: Long,
+        now: Long
+    ) {
+        val message = MsgRollForward(
+            height,
+            height * 20,
+            "11".repeat(32),
+            "00".repeat(32),
+            "",
+            "",
+            "",
+            "",
+            "",
+            ChainTip(tip * 20, tip, if (height >= tip) "11".repeat(32) else "22".repeat(32))
+        )
         sync.logSavedBlock(message, "aa".repeat(28), now)
         session.tipBlockNumber = tip
         fetch.logSavedBlock(height, now)
@@ -66,10 +90,19 @@ class SyncLoggingTest {
         saved(100, 100, 10_000_000_001)
         saved(101, 101, 10_000_000_002)
         saved(102, 101, 10_000_000_003)
-        assertThat(events.list.map { it.loggerName }).containsExactly(
-            "ChainSyncProtocol", "LedgerDao", "ChainSyncProtocol", "LedgerDao",
-            "ChainSyncProtocol", "LedgerDao", "ChainSyncProtocol", "LedgerDao", "ChainSyncProtocol", "LedgerDao"
-        ).inOrder()
+        assertThat(events.list.map { it.loggerName })
+            .containsExactly(
+                "ChainSyncProtocol",
+                "LedgerDao",
+                "ChainSyncProtocol",
+                "LedgerDao",
+                "ChainSyncProtocol",
+                "LedgerDao",
+                "ChainSyncProtocol",
+                "LedgerDao",
+                "ChainSyncProtocol",
+                "LedgerDao"
+            ).inOrder()
         assertThat(events.list.map { it.level }.toSet()).containsExactly(Level.INFO)
     }
 
@@ -85,7 +118,8 @@ class SyncLoggingTest {
             other.logSavedBlock(21, 3)
             assertThat(events.list).hasSize(2)
         } finally {
-            other.shutdown(); otherSession.close()
+            other.shutdown()
+            otherSession.close()
         }
     }
 }

@@ -25,7 +25,10 @@ object SubmittedTransactionDecoder {
 
     private val hex = HexFormat.of()
 
-    fun decodeSubmitted(hex: String, era: String): Submitted {
+    fun decodeSubmitted(
+        hex: String,
+        era: String
+    ): Submitted {
         require(hex.isNotEmpty() && hex.length % 2 == 0 && hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) { "Invalid transaction hex" }
         val eraNumber = QueryTip(era).eraNumber
         require(eraNumber in QueryTip.ERA_SHELLEY..QueryTip.ERA_DIJKSTRA) { "Unsupported transaction era" }
@@ -60,5 +63,4 @@ object SubmittedTransactionDecoder {
         }
         return Submitted(body, batch.parent.bodyId.toHexString(), batch, normal, collateral, outputs)
     }
-
 }

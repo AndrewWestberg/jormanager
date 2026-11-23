@@ -99,7 +99,8 @@ class LeiosObservationServiceTest {
             commands += args
             when {
                 args.contains("tip") -> """{"slot":1234,"hash":"$tipHashHex"}"""
-                args.contains("pool-state") -> """
+                args.contains("pool-state") ->
+                    """
                     {
                       "$childPoolId": {
                         "blsKey": {"bksKey": {"blsPubKey": "$currentBlsHex"}, "bksRegisteredIn": 12},
@@ -107,7 +108,7 @@ class LeiosObservationServiceTest {
                         "futureStakePoolParams": {"blsKey": {"blsPubKey": "$futureBlsHex"}}
                       }
                     }
-                """.trimIndent()
+                    """.trimIndent()
                 args.contains("stake-snapshot") -> """{"pools":{},"total":{}}"""
                 args.contains("leios-committee") -> """{"currentLeiosCommittee":[],"futureLeiosCommittee":[]}"""
                 else -> error("Unexpected CLI command: $args")

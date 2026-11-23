@@ -11,10 +11,22 @@ import java.math.BigInteger
  * The caller must establish which announced EB was certified; a certificate does not itself contain that hash.
  */
 object LeiosContentResolver {
-    data class Entry(val fullTransactionHash: ByteArray, val size: Long, val batch: DecodedTransactionBatch)
-    data class Closure(val ebHash: ByteArray, val entries: List<Entry>)
+    data class Entry(
+        val fullTransactionHash: ByteArray,
+        val size: Long,
+        val batch: DecodedTransactionBatch
+    )
 
-    fun references(certifiedEbHash: ByteArray, announcedSize: Long, body: ByteArray): List<Pair<ByteArray, Long>> {
+    data class Closure(
+        val ebHash: ByteArray,
+        val entries: List<Entry>
+    )
+
+    fun references(
+        certifiedEbHash: ByteArray,
+        announcedSize: Long,
+        body: ByteArray
+    ): List<Pair<ByteArray, Long>> {
         require(certifiedEbHash.size == 32 && announcedSize >= 0)
         val entries = CborSpans.parse(body).entries()
         require(entries.isNotEmpty()) { "Empty endorser block" }
@@ -23,11 +35,15 @@ object LeiosContentResolver {
         val seen = HashSet<String>()
         val refs = entries.map { (key, value) ->
             require(key.major == 2)
-            val hash = key.payload(); require(hash.size == 32)
-            val id = hash.toHexString(); require(seen.add(id)) { "Duplicate endorser transaction" }
+            val hash = key.payload()
+            require(hash.size == 32)
+            val id = hash.toHexString()
+            require(seen.add(id)) { "Duplicate endorser transaction" }
             require(value.major == 0 && value.integer() <= BigInteger.valueOf(0xffffffffL))
             val size = value.integer().toLong()
-            encodeUnsigned(canonical, 2, 32); canonical.write(hash); encodeUnsigned(canonical, 0, size)
+            encodeUnsigned(canonical, 2, 32)
+            canonical.write(hash)
+            encodeUnsigned(canonical, 0, size)
             hash to size
         }
         val encoded = canonical.toByteArray()
@@ -36,7 +52,12 @@ object LeiosContentResolver {
         return refs
     }
 
-    fun resolve(certifiedEbHash: ByteArray, announcedSize: Long, body: ByteArray, transactionsByHash: Map<String, ByteArray>): Closure {
+    fun resolve(
+        certifiedEbHash: ByteArray,
+        announcedSize: Long,
+        body: ByteArray,
+        transactionsByHash: Map<String, ByteArray>
+    ): Closure {
         val refs = references(certifiedEbHash, announcedSize, body)
         val resolved = refs.map { (hash, size) ->
             val id = hash.toHexString()
@@ -47,14 +68,28 @@ object LeiosContentResolver {
         return Closure(certifiedEbHash.copyOf(), resolved)
     }
 
-    private fun encodeUnsigned(out: ByteArrayOutputStream, major: Int, n: Long) {
+    private fun encodeUnsigned(
+        out: ByteArrayOutputStream,
+        major: Int,
+        n: Long
+    ) {
         require(n >= 0)
         val prefix = major shl 5
         when {
             n < 24 -> out.write(prefix or n.toInt())
-            n <= 0xff -> { out.write(prefix or 24); out.write(n.toInt()) }
-            n <= 0xffff -> { out.write(prefix or 25); out.write((n shr 8).toInt()); out.write(n.toInt()) }
-            else -> { out.write(prefix or 26); for (shift in 24 downTo 0 step 8) out.write((n shr shift).toInt()) }
+            n <= 0xff -> {
+                out.write(prefix or 24)
+                out.write(n.toInt())
+            }
+            n <= 0xffff -> {
+                out.write(prefix or 25)
+                out.write((n shr 8).toInt())
+                out.write(n.toInt())
+            }
+            else -> {
+                out.write(prefix or 26)
+                for (shift in 24 downTo 0 step 8) out.write((n shr shift).toInt())
+            }
         }
     }
 }

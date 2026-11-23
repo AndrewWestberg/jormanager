@@ -690,7 +690,7 @@ export const useJorManagerStore = defineStore('jormanager', {
 
         // Block height series
         if (nodeStats.blockHeight != null) {
-          let index = findIndex(this.blockHeightSeries, ['name', nodeStats.nodeName])
+          const index = findIndex(this.blockHeightSeries, ['name', nodeStats.nodeName])
           if (index > -1) {
             const nextData = [...this.blockHeightSeries[index].data, [nodeStats.timestamp, nodeStats.blockHeight] as [number, number]].slice(-60)
             this.blockHeightSeries[index] = {

@@ -107,9 +107,10 @@ class CardanoFixedPointTest {
                                 assertWithMessage("spurious divergence $key").that(divergence).isNull()
                             }
                         }
-                        assertWithMessage("node comparator row $row").that(
-                            CardanoFixedPoint.taylorExpCmp(CardanoFixedPoint.fromRatio(scale, scale - a), -exponent),
-                        ).isEqualTo(comparison(node[3]))
+                        assertWithMessage("node comparator row $row")
+                            .that(
+                                CardanoFixedPoint.taylorExpCmp(CardanoFixedPoint.fromRatio(scale, scale - a), -exponent),
+                            ).isEqualTo(comparison(node[3]))
                         validateIterations(node[3], node[4])
                         row++
                     }
@@ -177,8 +178,10 @@ class CardanoFixedPointTest {
         return BigDecimal(value).movePointRight(34).toBigIntegerExact()
     }
 
-    private fun columns(line: String, size: Int): List<String> =
-        line.trim().split(whitespace).also { require(it.size == size) { "Expected $size columns: $line" } }
+    private fun columns(
+        line: String,
+        size: Int
+    ): List<String> = line.trim().split(whitespace).also { require(it.size == size) { "Expected $size columns: $line" } }
 
     private fun comparison(name: String): CardanoFixedPoint.Comparison =
         when (name) {
@@ -188,7 +191,10 @@ class CardanoFixedPointTest {
             else -> error("Invalid node comparison: $name")
         }
 
-    private fun validateIterations(name: String, value: String) {
+    private fun validateIterations(
+        name: String,
+        value: String
+    ) {
         val iterations = value.toInt()
         assertThat(iterations).isIn(1..1000)
         if (comparison(name) == CardanoFixedPoint.Comparison.MAX_REACHED) assertThat(iterations).isEqualTo(1000)
@@ -196,7 +202,10 @@ class CardanoFixedPointTest {
 
     private fun resourceReader(name: String): BufferedReader = resource(name).bufferedReader(Charsets.UTF_8)
 
-    private fun gzipReader(name: String, digest: MessageDigest? = null): BufferedReader {
+    private fun gzipReader(
+        name: String,
+        digest: MessageDigest? = null
+    ): BufferedReader {
         val uncompressed = GZIPInputStream(resource(name))
         return (if (digest == null) uncompressed else DigestInputStream(uncompressed, digest)).bufferedReader(Charsets.UTF_8)
     }
@@ -206,7 +215,11 @@ class CardanoFixedPointTest {
     @Suppress("UNCHECKED_CAST")
     private fun loadDivergences(): List<Map<String, Any?>> =
         resourceReader("oracle-divergences.json").use { reader ->
-            val value = Moshi.Builder().build().adapter(Any::class.java).fromJson(reader.readText())
+            val value = Moshi
+                .Builder()
+                .build()
+                .adapter(Any::class.java)
+                .fromJson(reader.readText())
             value as List<Map<String, Any?>>
         }
 

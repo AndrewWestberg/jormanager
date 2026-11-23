@@ -67,7 +67,10 @@ class WalletUtils
     ) {
         private val log by lazy { LoggerFactory.getLogger("WalletUtils") }
 
-        suspend fun getWalletItems(magicString: String, era: String): List<WalletItem> {
+        suspend fun getWalletItems(
+            magicString: String,
+            era: String
+        ): List<WalletItem> {
             val node = nodeRepository.findDefault() ?: throw IOException("No default node")
             val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host for default node not found")
             val connection = HostConnection(host, node)
@@ -143,7 +146,11 @@ class WalletUtils
         )
 
         /** Query only at the requested, completely indexed point; never infer rewards from history. */
-        fun getAccountSnapshot(node: Node, address: String, expectedPoint: ChainPoint): AccountSnapshot {
+        fun getAccountSnapshot(
+            node: Node,
+            address: String,
+            expectedPoint: ChainPoint
+        ): AccountSnapshot {
             val networkKey = cardanoRepository.networkKey(node)
             val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Node host unavailable")
             val genesisFile = fileRepository.findByIdOrNull(node.genesisShelleyFileId) ?: throw IOException("Genesis unavailable")
@@ -152,11 +159,15 @@ class WalletUtils
             val socket = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
             val era = cardanoRepository.getEra(host, node, magic, socket)
             val connection = HostConnection(host, node)
+
             fun checkIndexedPoint() {
                 val state = chainIngestionCoordinator.status(networkKey)
-                check(state.status == "complete" && state.lastCompletePoint == expectedPoint && state.observedTip == expectedPoint &&
-                    cardanoRepository.networkKey(node) == networkKey) { "Account state is not available at the requested indexed point" }
+                check(
+                    state.status == "complete" && state.lastCompletePoint == expectedPoint && state.observedTip == expectedPoint &&
+                        cardanoRepository.networkKey(node) == networkKey
+                ) { "Account state is not available at the requested indexed point" }
             }
+
             fun tip(): ChainPoint {
                 val args = listOf(host.cardanoCliPath, era, "query", "tip") + magic.split(" ") + socket.split(" ") + "--output-json"
                 val value = queryTipAdapter.fromJson(connection.commandArgs(args)) ?: throw IOException("Invalid node tip")
@@ -169,8 +180,16 @@ class WalletUtils
             check(tip() == expectedPoint) { "Node point changed during account query" }
             checkIndexedPoint()
             val account = info.singleOrNull()
-            return AccountSnapshot(networkKey, requireNotNull(node.id), requireNotNull(host.id), address, expectedPoint,
-                account != null, account?.rewardAccountBalance?.toString(), account?.stakeAddressDeposit?.toString())
+            return AccountSnapshot(
+                networkKey,
+                requireNotNull(node.id),
+                requireNotNull(host.id),
+                address,
+                expectedPoint,
+                account != null,
+                account?.rewardAccountBalance?.toString(),
+                account?.stakeAddressDeposit?.toString()
+            )
         }
 
         fun getUtxos(
@@ -182,8 +201,10 @@ class WalletUtils
             paymentAddr: String,
         ): List<Utxo> {
             val node = nodeRepository.findDefault() ?: throw IOException("No default node")
-            require(node.hostId == host.id &&
-                socketPath == "--socket-path ${host.nodeHomePath}/${node.name}/db/socket") { "Wallet target node changed" }
+            require(
+                node.hostId == host.id &&
+                    socketPath == "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
+            ) { "Wallet target node changed" }
             val args = listOf(host.cardanoCliPath, era, "query", "utxo", "--address", paymentAddr) +
                 magicString.split(" ") + socketPath.split(" ") + "--output-json"
             val confirmed = queryUtxoJsonAdapter.fromJson(hostConnection.commandArgs(args))
@@ -219,7 +240,11 @@ class WalletUtils
                 confirmed.flatMap { listOf("--tx-in", "${it.hash}#${it.ix}") } +
                 magicString.split(" ") + socketPath.split(" ") + "--output-text"
             val output = hostConnection.commandArgs(args).trim()
-            val confirmedSize = REFERENCE_SCRIPT_SIZE_REGEX.matchEntire(output)?.groupValues?.get(1)?.toLongOrNull()
+            val confirmedSize = REFERENCE_SCRIPT_SIZE_REGEX
+                .matchEntire(output)
+                ?.groupValues
+                ?.get(1)
+                ?.toLongOrNull()
                 ?: throw IOException("Unable to determine reference script size: $output")
             return Math.addExact(pendingSize, confirmedSize)
         }
@@ -326,8 +351,7 @@ class WalletUtils
             }
         }
 
-        private fun currentTextEncryptor(password: String): TextEncryptor =
-            textEncryptor(AesGcmBytesEncryptor.withPassword(password, S).build())
+        private fun currentTextEncryptor(password: String): TextEncryptor = textEncryptor(AesGcmBytesEncryptor.withPassword(password, S).build())
 
         private fun legacyCompatibleTextEncryptor(password: String): TextEncryptor {
             // Matches Encryptors.delux so existing keys can be decrypted and re-encrypted.

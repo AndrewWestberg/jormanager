@@ -25,138 +25,171 @@ class LeaderLogCalculatorTest {
         }
 
     @Test
-    fun `all node schedules match complete native results with one and two workers`() = runBlocking {
-        assertThat(schedules.size()).isEqualTo(21)
-        for (visibleProcessors in listOf(2, 4)) {
-            val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
-            schedules.forEachIndexed { index, oracle ->
-                val result = collect(
-                    calculator = calculator,
-                    firstSlot = oracle["firstSlot"].asLong(),
-                    slotCount = oracle["slotCount"].asInt(),
-                    mode = modeOf(oracle),
-                    decentralization = ratio(oracle, "d"),
-                    epochNonce = oracle["nonceHex"].asString().hexToByteArray(),
-                    pools = listOf(pool(oracle)),
-                )
-                assertWithMessage("node case %s, visible processors %s", index, visibleProcessors)
-                    .that(result.electedByPool.single())
-                    .containsExactlyElementsIn(assignedSlots(oracle)).inOrder()
-            }
-        }
-    }
-
-    @Test
-    fun `both stake pools independently match their node schedules in each mode`() = runBlocking {
-        for (visibleProcessors in listOf(2, 4)) {
-            val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
-            for (mode in Mode.entries) {
-                val oracles = schedules.filter {
-                    modeOf(it) == mode && it["slotCount"].asInt() == 120 &&
-                        it["fNumerator"].asString() == "1" && it["fDenominator"].asString() == "20" &&
-                        it["activeStake"].asString() == "3"
-                }.sortedBy { it["poolStake"].asString().toBigInteger() }
-                assertThat(oracles.map { it["poolStake"].asString() }).containsExactly("1", "2").inOrder()
-                val first = oracles.first()
-                val result = collect(
-                    calculator = calculator,
-                    firstSlot = first["firstSlot"].asLong(),
-                    slotCount = first["slotCount"].asInt(),
-                    mode = mode,
-                    decentralization = ratio(first, "d"),
-                    epochNonce = first["nonceHex"].asString().hexToByteArray(),
-                    pools = oracles.map { pool(it) },
-                )
-                oracles.forEachIndexed { poolIndex, oracle ->
-                    assertWithMessage("%s pool %s, visible processors %s", mode, poolIndex, visibleProcessors)
-                        .that(result.electedByPool[poolIndex])
-                        .containsExactlyElementsIn(assignedSlots(oracle)).inOrder()
-                }
-            }
-        }
-    }
-
-    @Test
-    fun `chunk boundaries cover every nonzero starting slot and pool exactly once`() = runBlocking {
-        val firstSlot = 10_000_123L
-        for (visibleProcessors in listOf(2, 4)) {
-            val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
-            for (mode in Mode.entries) {
-                val oracle = alwaysLeaderOracle(mode)
-                // f=1 elects both a nonzero stake and a zero stake, through the real native path.
-                val pools = listOf(pool(oracle), pool(oracle, BigInteger.ZERO))
-                for (slotCount in listOf(0, 1, 1023, 1024, 1025, 2049)) {
+    fun `all node schedules match complete native results with one and two workers`() =
+        runBlocking {
+            assertThat(schedules.size()).isEqualTo(21)
+            for (visibleProcessors in listOf(2, 4)) {
+                val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
+                schedules.forEachIndexed { index, oracle ->
                     val result = collect(
-                        calculator, firstSlot, slotCount, mode, BigDecimal.ZERO,
-                        oracle["nonceHex"].asString().hexToByteArray(), pools,
+                        calculator = calculator,
+                        firstSlot = oracle["firstSlot"].asLong(),
+                        slotCount = oracle["slotCount"].asInt(),
+                        mode = modeOf(oracle),
+                        decentralization = ratio(oracle, "d"),
+                        epochNonce = oracle["nonceHex"].asString().hexToByteArray(),
+                        pools = listOf(pool(oracle)),
                     )
-                    val expected = (firstSlot until firstSlot + slotCount).toList()
-                    result.electedByPool.forEachIndexed { poolIndex, elected ->
-                        assertWithMessage("%s count %s pool %s, visible processors %s", mode, slotCount, poolIndex, visibleProcessors)
-                            .that(elected).containsExactlyElementsIn(expected).inOrder()
-                    }
-                    val expectedSizes = when (slotCount) {
-                        0 -> emptyList()
-                        1025 -> listOf(1024, 1)
-                        2049 -> listOf(1024, 1024, 1)
-                        else -> listOf(slotCount)
-                    }
-                    assertThat(result.chunkSizes).containsExactlyElementsIn(expectedSizes).inOrder()
-                    assertThat(result.chunkFirstSlots)
-                        .containsExactlyElementsIn(expectedSizes.indices.map { firstSlot + it * 1024L }).inOrder()
+                    assertWithMessage("node case %s, visible processors %s", index, visibleProcessors)
+                        .that(result.electedByPool.single())
+                        .containsExactlyElementsIn(assignedSlots(oracle))
+                        .inOrder()
                 }
-                val empty = collect(
-                    calculator, firstSlot, 2049, mode, BigDecimal.ZERO,
-                    oracle["nonceHex"].asString().hexToByteArray(), emptyList(),
-                )
-                assertThat(empty.chunkSizes).isEmpty()
-                assertThat(empty.chunkFirstSlots).isEmpty()
-                assertThat(empty.electedByPool).isEmpty()
             }
         }
-    }
 
     @Test
-    fun `all overlay slots remain covered and unelected in both modes`() = runBlocking {
-        for (visibleProcessors in listOf(2, 4)) {
-            val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
-            for (mode in Mode.entries) {
-                val oracle = alwaysLeaderOracle(mode)
-                val result = collect(
-                    calculator, 10_000_123L, 2049, mode, BigDecimal.ONE,
-                    oracle["nonceHex"].asString().hexToByteArray(), listOf(pool(oracle), pool(oracle, BigInteger.ZERO)),
-                )
-                assertThat(result.chunkSizes).containsExactly(1024, 1024, 1).inOrder()
-                result.electedByPool.forEach { assertThat(it).isEmpty() }
+    fun `both stake pools independently match their node schedules in each mode`() =
+        runBlocking {
+            for (visibleProcessors in listOf(2, 4)) {
+                val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
+                for (mode in Mode.entries) {
+                    val oracles = schedules
+                        .filter {
+                            modeOf(it) == mode && it["slotCount"].asInt() == 120 &&
+                                it["fNumerator"].asString() == "1" && it["fDenominator"].asString() == "20" &&
+                                it["activeStake"].asString() == "3"
+                        }.sortedBy { it["poolStake"].asString().toBigInteger() }
+                    assertThat(oracles.map { it["poolStake"].asString() }).containsExactly("1", "2").inOrder()
+                    val first = oracles.first()
+                    val result = collect(
+                        calculator = calculator,
+                        firstSlot = first["firstSlot"].asLong(),
+                        slotCount = first["slotCount"].asInt(),
+                        mode = mode,
+                        decentralization = ratio(first, "d"),
+                        epochNonce = first["nonceHex"].asString().hexToByteArray(),
+                        pools = oracles.map { pool(it) },
+                    )
+                    oracles.forEachIndexed { poolIndex, oracle ->
+                        assertWithMessage("%s pool %s, visible processors %s", mode, poolIndex, visibleProcessors)
+                            .that(result.electedByPool[poolIndex])
+                            .containsExactlyElementsIn(assignedSlots(oracle))
+                            .inOrder()
+                    }
+                }
             }
         }
-    }
 
     @Test
-    fun `exact small decimal overlay matches node boundary even in modern mode`() = runBlocking {
-        val oracle = schedules.single {
-            it["dNumerator"].asString() == "1" && it["dDenominator"].asString() == "2500" &&
-                it["fDenominator"].asString() == "1"
-        }
-        val firstSlot = oracle["firstSlot"].asLong()
-        val expected = assignedSlots(oracle)
-        assertThat(expected).doesNotContain(firstSlot)
-        assertThat(expected).contains(firstSlot + 2499)
-        assertThat(expected).doesNotContain(firstSlot + 2500)
-        assertThat(expected).contains(firstSlot + 2501)
-        for (visibleProcessors in listOf(2, 4)) {
-            val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
-            for (mode in Mode.entries) {
-                // f=1 makes this node overlay oracle independent of the mode's VRF width.
-                val result = collect(
-                    calculator, firstSlot, oracle["slotCount"].asInt(), mode, ratio(oracle, "d"),
-                    oracle["nonceHex"].asString().hexToByteArray(), listOf(pool(oracle, mode = mode)),
-                )
-                assertWithMessage("overlay mode %s, visible processors %s", mode, visibleProcessors)
-                    .that(result.electedByPool.single()).containsExactlyElementsIn(expected).inOrder()
+    fun `chunk boundaries cover every nonzero starting slot and pool exactly once`() =
+        runBlocking {
+            val firstSlot = 10_000_123L
+            for (visibleProcessors in listOf(2, 4)) {
+                val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
+                for (mode in Mode.entries) {
+                    val oracle = alwaysLeaderOracle(mode)
+                    // f=1 elects both a nonzero stake and a zero stake, through the real native path.
+                    val pools = listOf(pool(oracle), pool(oracle, BigInteger.ZERO))
+                    for (slotCount in listOf(0, 1, 1023, 1024, 1025, 2049)) {
+                        val result = collect(
+                            calculator,
+                            firstSlot,
+                            slotCount,
+                            mode,
+                            BigDecimal.ZERO,
+                            oracle["nonceHex"].asString().hexToByteArray(),
+                            pools,
+                        )
+                        val expected = (firstSlot until firstSlot + slotCount).toList()
+                        result.electedByPool.forEachIndexed { poolIndex, elected ->
+                            assertWithMessage("%s count %s pool %s, visible processors %s", mode, slotCount, poolIndex, visibleProcessors)
+                                .that(elected)
+                                .containsExactlyElementsIn(expected)
+                                .inOrder()
+                        }
+                        val expectedSizes = when (slotCount) {
+                            0 -> emptyList()
+                            1025 -> listOf(1024, 1)
+                            2049 -> listOf(1024, 1024, 1)
+                            else -> listOf(slotCount)
+                        }
+                        assertThat(result.chunkSizes).containsExactlyElementsIn(expectedSizes).inOrder()
+                        assertThat(result.chunkFirstSlots)
+                            .containsExactlyElementsIn(expectedSizes.indices.map { firstSlot + it * 1024L })
+                            .inOrder()
+                    }
+                    val empty = collect(
+                        calculator,
+                        firstSlot,
+                        2049,
+                        mode,
+                        BigDecimal.ZERO,
+                        oracle["nonceHex"].asString().hexToByteArray(),
+                        emptyList(),
+                    )
+                    assertThat(empty.chunkSizes).isEmpty()
+                    assertThat(empty.chunkFirstSlots).isEmpty()
+                    assertThat(empty.electedByPool).isEmpty()
+                }
             }
         }
-    }
+
+    @Test
+    fun `all overlay slots remain covered and unelected in both modes`() =
+        runBlocking {
+            for (visibleProcessors in listOf(2, 4)) {
+                val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
+                for (mode in Mode.entries) {
+                    val oracle = alwaysLeaderOracle(mode)
+                    val result = collect(
+                        calculator,
+                        10_000_123L,
+                        2049,
+                        mode,
+                        BigDecimal.ONE,
+                        oracle["nonceHex"].asString().hexToByteArray(),
+                        listOf(pool(oracle), pool(oracle, BigInteger.ZERO)),
+                    )
+                    assertThat(result.chunkSizes).containsExactly(1024, 1024, 1).inOrder()
+                    result.electedByPool.forEach { assertThat(it).isEmpty() }
+                }
+            }
+        }
+
+    @Test
+    fun `exact small decimal overlay matches node boundary even in modern mode`() =
+        runBlocking {
+            val oracle = schedules.single {
+                it["dNumerator"].asString() == "1" && it["dDenominator"].asString() == "2500" &&
+                    it["fDenominator"].asString() == "1"
+            }
+            val firstSlot = oracle["firstSlot"].asLong()
+            val expected = assignedSlots(oracle)
+            assertThat(expected).doesNotContain(firstSlot)
+            assertThat(expected).contains(firstSlot + 2499)
+            assertThat(expected).doesNotContain(firstSlot + 2500)
+            assertThat(expected).contains(firstSlot + 2501)
+            for (visibleProcessors in listOf(2, 4)) {
+                val calculator = LeaderLogCalculator(blockUtils, visibleProcessors)
+                for (mode in Mode.entries) {
+                    // f=1 makes this node overlay oracle independent of the mode's VRF width.
+                    val result = collect(
+                        calculator,
+                        firstSlot,
+                        oracle["slotCount"].asInt(),
+                        mode,
+                        ratio(oracle, "d"),
+                        oracle["nonceHex"].asString().hexToByteArray(),
+                        listOf(pool(oracle, mode = mode)),
+                    )
+                    assertWithMessage("overlay mode %s, visible processors %s", mode, visibleProcessors)
+                        .that(result.electedByPool.single())
+                        .containsExactlyElementsIn(expected)
+                        .inOrder()
+                }
+            }
+        }
 
     @Test
     fun `calculator rejects the other mode threshold width before emitting any chunk`() {
@@ -180,31 +213,36 @@ class LeaderLogCalculatorTest {
         }
     }
 
-    private fun modeOf(oracle: JsonNode): Mode = when (oracle["mode"].asString()) {
-        "tpraos" -> Mode.TPRAOS
-        "praos" -> Mode.PRAOS
-        else -> error("Unknown node schedule mode: ${oracle["mode"]}")
-    }
+    private fun modeOf(oracle: JsonNode): Mode =
+        when (oracle["mode"].asString()) {
+            "tpraos" -> Mode.TPRAOS
+            "praos" -> Mode.PRAOS
+            else -> error("Unknown node schedule mode: ${oracle["mode"]}")
+        }
 
-    private fun ratio(oracle: JsonNode, prefix: String): BigDecimal =
-        BigDecimal(oracle["${prefix}Numerator"].asString()).divide(BigDecimal(oracle["${prefix}Denominator"].asString()))
+    private fun ratio(
+        oracle: JsonNode,
+        prefix: String
+    ): BigDecimal = BigDecimal(oracle["${prefix}Numerator"].asString()).divide(BigDecimal(oracle["${prefix}Denominator"].asString()))
 
     private fun pool(
         oracle: JsonNode,
         poolStake: BigInteger = oracle["poolStake"].asString().toBigInteger(),
         mode: Mode = modeOf(oracle),
-    ): PoolInput = PoolInput(
-        threshold = CardanoLeaderElection.prepare(
-            CardanoLeaderElection.prepareActiveSlotCoefficient(ratio(oracle, "f")),
-            StakeFraction(poolStake, oracle["activeStake"].asString().toBigInteger()),
-            if (mode == Mode.TPRAOS) 64 else 32,
-        ),
-        vrfSkey = oracle["vrfSkeyHex"].asString().hexToByteArray(),
-    )
+    ): PoolInput =
+        PoolInput(
+            threshold = CardanoLeaderElection.prepare(
+                CardanoLeaderElection.prepareActiveSlotCoefficient(ratio(oracle, "f")),
+                StakeFraction(poolStake, oracle["activeStake"].asString().toBigInteger()),
+                if (mode == Mode.TPRAOS) 64 else 32,
+            ),
+            vrfSkey = oracle["vrfSkeyHex"].asString().hexToByteArray(),
+        )
 
-    private fun alwaysLeaderOracle(mode: Mode): JsonNode = schedules.first {
-        modeOf(it) == mode && it["fDenominator"].asString() == "1" && it["poolStake"].asString() == "1"
-    }
+    private fun alwaysLeaderOracle(mode: Mode): JsonNode =
+        schedules.first {
+            modeOf(it) == mode && it["fDenominator"].asString() == "1" && it["poolStake"].asString() == "1"
+        }
 
     private fun assignedSlots(oracle: JsonNode): List<Long> = oracle["assignedSlots"].values().map { it.asLong() }
 

@@ -148,12 +148,14 @@ object LeiosAnnouncementsTable : JmLongIdTable("leios_announcements") {
     val size = decimal("eb_size", 20, 0)
     val raw = binary("raw_announcement")
 }
+
 object LeiosCertificationsTable : JmLongIdTable("leios_certifications") {
     val inclusion = long("inclusion_id").references(ChainInclusionsTable.id)
     val announcementHash = binary("announcement_hash")
     val raw = binary("raw_certificate")
     val complete = bool("complete")
 }
+
 object LeiosContentReferencesTable : JmLongIdTable("leios_content_references") {
     val certification = long("certification_id").references(LeiosCertificationsTable.id)
     val position = integer("position")
@@ -168,4 +170,3 @@ object NetworkGenesisTable : Table("network_genesis") {
     val seeded = bool("seeded")
     override val primaryKey = PrimaryKey(network)
 }
-

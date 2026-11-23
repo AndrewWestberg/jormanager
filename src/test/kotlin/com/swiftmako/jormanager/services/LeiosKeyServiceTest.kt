@@ -51,9 +51,18 @@ class LeiosKeyServiceTest {
         every { wallets.findById(any()) } returns Optional.of(WalletEntry(5, "owner", "payment", "address", stakingVkey = File(9, "stake", "{}")))
         every { files.findById(any()) } answers { Optional.of(File(firstArg(), "public", """{"networkId":"Testnet","networkMagic":42}""")) }
         val service = LeiosKeyService(wallet, wallets, files, keys, nodes, mockk(), eras, jacksonObjectMapper(), mockk())
-        fun request(public: String? = null, claimedProof: String? = null) = LeiosKeyRequest(
-            "request", LeiosController.Target(1, 2, "pool", "network"), "prepare", "password",
-            publicKeyHex = public, proofOfPossessionHex = claimedProof)
+
+        fun request(
+            public: String? = null,
+            claimedProof: String? = null
+        ) = LeiosKeyRequest(
+            "request",
+            LeiosController.Target(1, 2, "pool", "network"),
+            "prepare",
+            "password",
+            publicKeyHex = public,
+            proofOfPossessionHex = claimedProof
+        )
         mockkConstructor(HostConnection::class)
         try {
             every { anyConstructed<HostConnection>().command(any<List<String>>()) } answers {

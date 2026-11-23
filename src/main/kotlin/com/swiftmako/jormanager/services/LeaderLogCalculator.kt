@@ -62,28 +62,31 @@ class LeaderLogCalculator internal constructor(
         coroutineScope {
             val pending = ArrayDeque<Deferred<ChunkResult>>()
             var submittedSlots = 0
+
             fun submitChunk() {
                 val chunkFirstSlot = firstSlot + submittedSlots
                 val count = minOf(1024, slotCount - submittedSlots)
                 submittedSlots += count
-                pending.addLast(async(cpuDispatcher) {
-                    val context = currentCoroutineContext()
-                    val elected = BooleanArray(Math.multiplyExact(count, pools.size))
-                    repeat(count) { offset ->
-                        context.ensureActive()
-                        val slot = chunkFirstSlot + offset
-                        if (!blockUtils.isOverlaySlot(firstSlot, slot, decentralization)) {
-                            val seed = if (mode == Mode.TPRAOS) blockUtils.mkSeed(slot, epochNonce) else blockUtils.mkInputVRF(slot, epochNonce)
-                            pools.forEachIndexed { poolIndex, pool ->
-                                context.ensureActive()
-                                val raw = blockUtils.vrfEvalCertified(seed, pool.vrfSkey)
-                                val value = if (mode == Mode.PRAOS) blockUtils.vrfLeaderValue(raw) else raw
-                                elected[offset * pools.size + poolIndex] = pool.threshold.isLeader(BigInteger(1, value))
+                pending.addLast(
+                    async(cpuDispatcher) {
+                        val context = currentCoroutineContext()
+                        val elected = BooleanArray(Math.multiplyExact(count, pools.size))
+                        repeat(count) { offset ->
+                            context.ensureActive()
+                            val slot = chunkFirstSlot + offset
+                            if (!blockUtils.isOverlaySlot(firstSlot, slot, decentralization)) {
+                                val seed = if (mode == Mode.TPRAOS) blockUtils.mkSeed(slot, epochNonce) else blockUtils.mkInputVRF(slot, epochNonce)
+                                pools.forEachIndexed { poolIndex, pool ->
+                                    context.ensureActive()
+                                    val raw = blockUtils.vrfEvalCertified(seed, pool.vrfSkey)
+                                    val value = if (mode == Mode.PRAOS) blockUtils.vrfLeaderValue(raw) else raw
+                                    elected[offset * pools.size + poolIndex] = pool.threshold.isLeader(BigInteger(1, value))
+                                }
                             }
                         }
+                        ChunkResult(chunkFirstSlot, count, elected)
                     }
-                    ChunkResult(chunkFirstSlot, count, elected)
-                })
+                )
             }
             repeat(parallelism) { if (submittedSlots < slotCount) submitChunk() }
             while (pending.isNotEmpty()) {

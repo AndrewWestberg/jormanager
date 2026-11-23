@@ -173,16 +173,19 @@ class CardanoLeaderElectionTest {
         assertThat(unchanged.futureDecentralizationParameter).isEqualTo(BigDecimal(current))
     }
 
-    private fun snapshot(pool: Int, other: Int): String =
-        """{"stake":[[{"key hash":"a"},$pool],[{"key hash":"b"},$other]],"delegations":[[{"key hash":"a"},"pool"],[{"key hash":"b"},"other"]]}"""
+    private fun snapshot(
+        pool: Int,
+        other: Int
+    ): String = """{"stake":[[{"key hash":"a"},$pool],[{"key hash":"b"},$other]],"delegations":[[{"key hash":"a"},"pool"],[{"key hash":"b"},"other"]]}"""
 
-    private fun genesisJson(f: String): String =
-        """{"activeSlotsCoeff":$f,"networkId":"Testnet","slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2020-01-01T00:00:00Z","maxKESEvolutions":62}"""
+    private fun genesisJson(f: String): String = """{"activeSlotsCoeff":$f,"networkId":"Testnet","slotLength":1,"epochLength":432000,"slotsPerKESPeriod":129600,"systemStart":"2020-01-01T00:00:00Z","maxKESEvolutions":62}"""
 
-    private fun protocolJson(d: String): String =
-        """{$d"stakePoolDeposit":500000000,"protocolVersion":{"major":9,"minor":0},"maxTxSize":16384,"minPoolCost":170000000,"txFeePerByte":44,"maxBlockBodySize":90112,"txFeeFixed":155381,"poolRetireMaxEpoch":18,"maxBlockHeaderSize":1100,"stakeAddressDeposit":2000000,"stakePoolTargetNum":500,"monetaryExpansion":0.003,"treasuryCut":0.2,"poolPledgeInfluence":0.3}"""
+    private fun protocolJson(d: String): String = """{$d"stakePoolDeposit":500000000,"protocolVersion":{"major":9,"minor":0},"maxTxSize":16384,"minPoolCost":170000000,"txFeePerByte":44,"maxBlockBodySize":90112,"txFeeFixed":155381,"poolRetireMaxEpoch":18,"maxBlockHeaderSize":1100,"stakeAddressDeposit":2000000,"stakePoolTargetNum":500,"monetaryExpansion":0.003,"treasuryCut":0.2,"poolPledgeInfluence":0.3}"""
 
-    private fun assertNumericDecimal(json: String, expected: BigDecimal) {
+    private fun assertNumericDecimal(
+        json: String,
+        expected: BigDecimal
+    ) {
         JsonReader.of(Buffer().writeUtf8(json)).use { reader ->
             assertThat(reader.peek()).isEqualTo(JsonReader.Token.NUMBER)
             assertThat(BigDecimal(reader.nextString())).isEqualTo(expected)
@@ -190,7 +193,11 @@ class CardanoLeaderElectionTest {
         }
     }
 
-    private fun assertObjectDecimal(json: String, name: String, expected: BigDecimal) {
+    private fun assertObjectDecimal(
+        json: String,
+        name: String,
+        expected: BigDecimal
+    ) {
         JsonReader.of(Buffer().writeUtf8(json)).use { reader ->
             var found = false
             reader.beginObject()
@@ -208,7 +215,10 @@ class CardanoLeaderElectionTest {
         }
     }
 
-    private fun stake(pool: Long, active: Long): StakeFraction = StakeFraction(BigInteger.valueOf(pool), BigInteger.valueOf(active))
+    private fun stake(
+        pool: Long,
+        active: Long
+    ): StakeFraction = StakeFraction(BigInteger.valueOf(pool), BigInteger.valueOf(active))
 
     private data class Vector(
         val width: Int,
@@ -226,20 +236,22 @@ class CardanoLeaderElectionTest {
 
     private fun loadVectors(): List<Vector> =
         requireNotNull(javaClass.getResourceAsStream("/leaderlog/node-vectors.tsv")).bufferedReader().use { reader ->
-            reader.lineSequence().mapIndexed { row, line ->
-                val columns = line.split('\t')
-                require(columns.size == 11) { "Malformed node vector $row" }
-                Vector(
-                    columns[0].toInt(),
-                    columns[1].toBigInteger(),
-                    StakeFraction(columns[2].toBigInteger(), columns[3].toBigInteger()),
-                    BigDecimal(columns[4]).divide(BigDecimal(columns[5])),
-                    columns[6].toBooleanStrict(),
-                    columns[7].toBigInteger(),
-                    columns[8].takeUnless { it == "none" }?.toBigInteger(),
-                    columns[9].toBigInteger(),
-                    columns[10].takeUnless { it == "none" }?.toBigInteger(),
-                )
-            }.toList()
+            reader
+                .lineSequence()
+                .mapIndexed { row, line ->
+                    val columns = line.split('\t')
+                    require(columns.size == 11) { "Malformed node vector $row" }
+                    Vector(
+                        columns[0].toInt(),
+                        columns[1].toBigInteger(),
+                        StakeFraction(columns[2].toBigInteger(), columns[3].toBigInteger()),
+                        BigDecimal(columns[4]).divide(BigDecimal(columns[5])),
+                        columns[6].toBooleanStrict(),
+                        columns[7].toBigInteger(),
+                        columns[8].takeUnless { it == "none" }?.toBigInteger(),
+                        columns[9].toBigInteger(),
+                        columns[10].takeUnless { it == "none" }?.toBigInteger(),
+                    )
+                }.toList()
         }
 }

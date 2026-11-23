@@ -149,26 +149,45 @@ class WalletController
                         ?: throw IOException("Wallet entry id $id not found!")
                 }
                 require(entries.isNotEmpty() && entries.map { it.id }.distinct().size == entries.size)
-                val candidates = if (request.isClaim) request.toAccounts.mapNotNull { it.account.takeIf { id -> id > 0 } }
-                    .distinct().map { id -> walletRepository.findByIdOrNull(id)?.takeUnless { it.deleted }
-                        ?: throw IOException("Wallet entry id $id not found!") }.filter { it.paymentSkey != null }
-                    else listOf(entries.first())
+                val candidates = if (request.isClaim) {
+                    request.toAccounts
+                        .mapNotNull { it.account.takeIf { id -> id > 0 } }
+                        .distinct()
+                        .map { id ->
+                            walletRepository.findByIdOrNull(id)?.takeUnless { it.deleted }
+                                ?: throw IOException("Wallet entry id $id not found!")
+                        }.filter { it.paymentSkey != null }
+                } else {
+                    listOf(entries.first())
+                }
                 val candidateUtxos = candidates.associate { it.id to walletUtils.getUtxos(defaultHost, defaultHostConnection, magicString, socketPath, era, it.paymentAddr) }
-                val payer = if (request.isClaim) candidates.firstOrNull {
-                    candidateUtxos[it.id].orEmpty().sumByBigInteger { utxo -> utxo.lovelace } >= BigInteger("1000000")
-                } ?: throw IOException("No Account found capable of covering the claim fee!") else entries.first()
+                val payer = if (request.isClaim) {
+                    candidates.firstOrNull {
+                        candidateUtxos[it.id].orEmpty().sumByBigInteger { utxo -> utxo.lovelace } >= BigInteger("1000000")
+                    } ?: throw IOException("No Account found capable of covering the claim fee!")
+                } else {
+                    entries.first()
+                }
                 val utxos = candidateUtxos[payer.id].orEmpty()
                 require(utxos.isNotEmpty()) { "Fee payer has no available inputs" }
                 val referenceSize = walletUtils.queryReferenceScriptSize(defaultHost, defaultHostConnection, magicString, socketPath, era, utxos)
-                val rewards = if (request.isClaim) entries.map { entry ->
-                    walletUtils.getWalletItem(defaultHost, defaultHostConnection, magicString, socketPath, era, entry)
-                        .stakingAddrLovelace ?: BigInteger.ZERO
-                } else emptyList()
+                val rewards = if (request.isClaim) {
+                    entries.map { entry ->
+                        walletUtils
+                            .getWalletItem(defaultHost, defaultHostConnection, magicString, socketPath, era, entry)
+                            .stakingAddrLovelace ?: BigInteger.ZERO
+                    }
+                } else {
+                    emptyList()
+                }
                 val totalRewards = rewards.fold(BigInteger.ZERO, BigInteger::add)
                 val addresses = request.toAccounts.map { destination ->
-                    if (destination.isAddress) destination.address else
+                    if (destination.isAddress) {
+                        destination.address
+                    } else {
                         walletRepository.findByIdOrNull(destination.account)?.takeUnless { it.deleted }?.paymentAddr
                             ?: throw IOException("Destination account not found")
+                    }
                 }
                 require(addresses.isNotEmpty() && addresses.all { it.isNotBlank() }) { "No destination" }
                 val prefix = "/tmp/jormanager-fee-${UUID.randomUUID()}"
@@ -187,25 +206,55 @@ class WalletController
                         cleanup += metadataPath
                         extra += listOf("--metadata-json-file", metadataPath)
                     }
-                    if (request.isClaim) entries.forEachIndexed { index, entry ->
-                        extra += listOf("--withdrawal", "${requireNotNull(entry.stakingAddr)}+${rewards[index]}")
+                    if (request.isClaim) {
+                        entries.forEachIndexed { index, entry ->
+                            extra += listOf("--withdrawal", "${requireNotNull(entry.stakingAddr)}+${rewards[index]}")
+                        }
                     }
-                    val tip = requireNotNull(queryTipAdapter.fromJson(defaultHostConnection.commandArgs(
-                        listOf(defaultHost.cardanoCliPath, era, "query", "tip") + magicString.split(" ") +
-                            socketPath.split(" ") + "--output-json")))
+                    val tip = requireNotNull(
+                        queryTipAdapter.fromJson(
+                            defaultHostConnection.commandArgs(
+                                listOf(defaultHost.cardanoCliPath, era, "query", "tip") + magicString.split(" ") +
+                                    socketPath.split(" ") + "--output-json"
+                            )
+                        )
+                    )
                     require(tip.slot >= 0) { "Invalid node tip" }
                     val sourceAssets = utxos.toNativeAssetMap()
-                    fun minimum(address: String, coin: BigInteger, assets: Map<String, BigInteger>): BigInteger {
+
+                    fun minimum(
+                        address: String,
+                        coin: BigInteger,
+                        assets: Map<String, BigInteger>
+                    ): BigInteger {
                         val value = address + "+" + coin + assets.entries.joinToString("") { "+${it.value} ${it.key}" }
-                        val result = defaultHostConnection.commandArgs(listOf(defaultHost.cardanoCliPath, era, "transaction",
-                            "calculate-min-required-utxo", "--protocol-params-file", paramsPath, "--tx-out", value))
-                        return result.trim().split(Regex("\\s+")).first { it.matches(Regex("[0-9]+")) }.toBigInteger()
+                        val result = defaultHostConnection.commandArgs(
+                            listOf(
+                                defaultHost.cardanoCliPath,
+                                era,
+                                "transaction",
+                                "calculate-min-required-utxo",
+                                "--protocol-params-file",
+                                paramsPath,
+                                "--tx-out",
+                                value
+                            )
+                        )
+                        return result
+                            .trim()
+                            .split(Regex("\\s+"))
+                            .first { it.matches(Regex("[0-9]+")) }
+                            .toBigInteger()
                     }
+
                     fun outputs(fee: BigInteger): List<WalletTransactionBuilder.Output> {
                         repeat(16) {
                             val remaining = sourceAssets.toMutableMap()
-                            remaining["ada"] = if (request.isClaim) totalRewards else
+                            remaining["ada"] = if (request.isClaim) {
+                                totalRewards
+                            } else {
                                 utxos.sumByBigInteger { it.lovelace } - fee - tokenKeepFee - tokenFees.fold(BigInteger.ZERO, BigInteger::add)
+                            }
                             val percentages = mutableMapOf<String, Int>()
                             val amounts = request.toAccounts.map { item ->
                                 val currency = item.currency.trimEnd('.')
@@ -237,33 +286,70 @@ class WalletController
                                     nextFees[i] = needed - previous
                                     previous = needed
                                 }
-                                WalletTransactionBuilder.Output(address, ada + previous, assets.map { (unit, value) ->
-                                    val parts = unit.split(".", limit = 2)
-                                    NativeAsset(parts.getOrElse(1) { "" }, parts[0], value)
-                                })
+                                WalletTransactionBuilder.Output(
+                                    address,
+                                    ada + previous,
+                                    assets.map { (unit, value) ->
+                                        val parts = unit.split(".", limit = 2)
+                                        NativeAsset(parts.getOrElse(1) { "" }, parts[0], value)
+                                    }
+                                )
                             }
                             val changeAssets = remaining.filter { it.key != "ada" && it.value.signum() > 0 }
                             require(remaining.filterKeys { it != "ada" }.values.all { it.signum() >= 0 }) { "Insufficient native assets" }
-                            val nextKeep = if (changeAssets.isEmpty()) BigInteger.ZERO else
+                            val nextKeep = if (changeAssets.isEmpty()) {
+                                BigInteger.ZERO
+                            } else {
                                 minimum(payer.paymentAddr, BigInteger("1000000"), changeAssets)
+                            }
                             if (nextFees == tokenFees && nextKeep == tokenKeepFee) return result
-                            tokenFees.clear(); tokenFees.addAll(nextFees); tokenKeepFee = nextKeep
+                            tokenFees.clear()
+                            tokenFees.addAll(nextFees)
+                            tokenKeepFee = nextKeep
                         }
                         throw IllegalArgumentException("Output minimum ADA did not converge")
                     }
-                    val built = transactionBuilder.build(defaultHost, defaultHostConnection, era, utxos, emptyList(), payer.paymentAddr,
-                        withdrawals = totalRewards, extraArgs = extra, validUntil = Math.addExact(tip.slot, 21600L),
-                        protocolParameters = protocolParams, protocolPath = paramsPath,
-                        witnessCount = 1 + if (request.isClaim) entries.size else 0, bodyPath = bodyPath,
-                        referenceScriptSize = referenceSize, outputsForFee = ::outputs)
-                    val body = CborSpans.parse(json.readTree(built.textEnvelope).path("cborHex").asString().hexToByteArray()).array().first()
-                    val lovelace = body.entries().single { it.first.integer() == BigInteger.TWO }.second.integer()
-                    webSocketTemplate.convertAndSend("/topic/messages", SocketResponse.Success(type = "calculatefee",
-                        data = CalculateFeeResponse(lovelace, tokenFees.toList(), tokenKeepFee, BigInteger.ZERO, request.uuid)))
+                    val built = transactionBuilder.build(
+                        defaultHost,
+                        defaultHostConnection,
+                        era,
+                        utxos,
+                        emptyList(),
+                        payer.paymentAddr,
+                        withdrawals = totalRewards,
+                        extraArgs = extra,
+                        validUntil = Math.addExact(tip.slot, 21600L),
+                        protocolParameters = protocolParams,
+                        protocolPath = paramsPath,
+                        witnessCount = 1 + if (request.isClaim) entries.size else 0,
+                        bodyPath = bodyPath,
+                        referenceScriptSize = referenceSize,
+                        outputsForFee = ::outputs
+                    )
+                    val body = CborSpans
+                        .parse(
+                            json
+                                .readTree(built.textEnvelope)
+                                .path("cborHex")
+                                .asString()
+                                .hexToByteArray()
+                        ).array()
+                        .first()
+                    val lovelace = body
+                        .entries()
+                        .single { it.first.integer() == BigInteger.TWO }
+                        .second
+                        .integer()
+                    webSocketTemplate.convertAndSend(
+                        "/topic/messages",
+                        SocketResponse.Success(
+                            type = "calculatefee",
+                            data = CalculateFeeResponse(lovelace, tokenFees.toList(), tokenKeepFee, BigInteger.ZERO, request.uuid)
+                        )
+                    )
                 } finally {
                     defaultHostConnection.commandArgs(listOf("rm", "-f") + cleanup)
                 }
-
             } catch (e: Throwable) {
                 val error = "Fatal error calculating fees!"
                 log.error(e) { error }
@@ -309,7 +395,6 @@ class WalletController
                 log.error(e) { error }
                 SocketResponse.Error(type = "createwalletentry", exception = e)
             }
-
 
         private fun createStakeWalletEntry(request: CreateWalletEntryRequest): WalletEntry =
             nodeRepository.findDefault()?.let { defaultNode ->
@@ -417,7 +502,7 @@ class WalletController
                                 }
                             defaultHostConnection
                                 .command(
-                                    "${defaultHost.cardanoCliPath} $era stake-address registration-certificate ${depositArg}--staking-verification-key-file $svkeyPath --out-file $regcertPath"
+                                    "${defaultHost.cardanoCliPath} $era stake-address registration-certificate $depositArg--staking-verification-key-file $svkeyPath --out-file $regcertPath"
                                 ).trim()
                             val regcertContent = defaultHostConnection.commandReadFile(regcertPath)
                             val savedRegcertFile =
@@ -577,31 +662,39 @@ class WalletController
                 log.error(e) { error }
                 SocketResponse.Error(type = "deletewalletentry", exception = e)
             }
+
         @MessageMapping("/submittransaction")
         @SendTo("/topic/messages")
-        fun submitTransaction(request: SubmitTransactionRequest): SocketResponse<String> = try {
-            require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Invalid spending password!" }
-            val txId = ledgerDao.withSubmissionLock { submitWallet(request.spendingPassword, request, null) }
-            SocketResponse.Success("submittransaction", "transaction succeeded: $txId")
-        } catch (e: Exception) {
-            log.error(e) { "Error submitting wallet transaction" }
-            SocketResponse.Error("submittransaction", e)
-        }
+        fun submitTransaction(request: SubmitTransactionRequest): SocketResponse<String> =
+            try {
+                require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Invalid spending password!" }
+                val txId = ledgerDao.withSubmissionLock { submitWallet(request.spendingPassword, request, null) }
+                SocketResponse.Success("submittransaction", "transaction succeeded: $txId")
+            } catch (e: Exception) {
+                log.error(e) { "Error submitting wallet transaction" }
+                SocketResponse.Error("submittransaction", e)
+            }
 
         @MessageMapping("/updatestakingaddress")
         @SendTo("/topic/messages")
-        fun updateStakingAddress(request: UpdateStakingAddressRequest): SocketResponse<String> = try {
-            require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Invalid spending password!" }
-            val txId = ledgerDao.withSubmissionLock { submitWallet(request.spendingPassword, null, request) }
-            SocketResponse.Success("updatestakingaddress", "transaction succeeded: $txId")
-        } catch (e: Exception) {
-            log.error(e) { "Error updating stake address" }
-            SocketResponse.Error("updatestakingaddress", e)
-        }
+        fun updateStakingAddress(request: UpdateStakingAddressRequest): SocketResponse<String> =
+            try {
+                require(walletUtils.isValidSpendingPassword(request.spendingPassword)) { "Invalid spending password!" }
+                val txId = ledgerDao.withSubmissionLock { submitWallet(request.spendingPassword, null, request) }
+                SocketResponse.Success("updatestakingaddress", "transaction succeeded: $txId")
+            } catch (e: Exception) {
+                log.error(e) { "Error updating stake address" }
+                SocketResponse.Error("updatestakingaddress", e)
+            }
 
-        private fun submitWallet(password: String, request: SubmitTransactionRequest?, stakeRequest: UpdateStakingAddressRequest?): String {
-            fun entry(id: Long) = walletRepository.findByIdOrNull(id)?.takeUnless { it.deleted }
-                ?: throw IllegalArgumentException("Wallet account not found")
+        private fun submitWallet(
+            password: String,
+            request: SubmitTransactionRequest?,
+            stakeRequest: UpdateStakingAddressRequest?
+        ): String {
+            fun entry(id: Long) =
+                walletRepository.findByIdOrNull(id)?.takeUnless { it.deleted }
+                    ?: throw IllegalArgumentException("Wallet account not found")
             val node = nodeRepository.findDefault() ?: throw IOException("No default node!")
             val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host not found!")
             val genesis = shelleyGenesisAdapter.fromJson(requireNotNull(fileRepository.findByIdOrNull(node.genesisShelleyFileId)).content)
@@ -615,10 +708,16 @@ class WalletController
             require(sources.isNotEmpty() && sources.map { it.id }.distinct().size == sources.size)
             val payer = when {
                 stakeRequest != null -> entry(stakeRequest.stakingFeesAccount)
-                request!!.isClaim -> request.toAccounts.filter { !it.isAddress && it.account > 0 }.map { entry(it.account) }
-                    .firstOrNull { it.paymentSkey != null && walletUtils.getUtxos(host, connection, magic, socket, era, it.paymentAddr)
-                        .sumByBigInteger { utxo -> utxo.lovelace } >= BigInteger("1000000") + request.txFee }
-                    ?: throw IOException("No Account found capable of covering the claim fee!")
+                request!!.isClaim ->
+                    request.toAccounts
+                        .filter { !it.isAddress && it.account > 0 }
+                        .map { entry(it.account) }
+                        .firstOrNull {
+                            it.paymentSkey != null && walletUtils
+                                .getUtxos(host, connection, magic, socket, era, it.paymentAddr)
+                                .sumByBigInteger { utxo -> utxo.lovelace } >= BigInteger("1000000") + request.txFee
+                        }
+                        ?: throw IOException("No Account found capable of covering the claim fee!")
                 else -> sources.first()
             }
             val inputs = walletUtils.getUtxos(host, connection, magic, socket, era, payer.paymentAddr)
@@ -639,25 +738,38 @@ class WalletController
                     val stake = sources.single()
                     val info = walletUtils.getStakeAddressInfo(host, connection, magic, socket, era, requireNotNull(stake.stakingAddr))
                     require(stakeRequest.isRegistration == info.isEmpty()) { "Stake registration state changed" }
-                    val amount = if (stakeRequest.isRegistration) json.readTree(parameters).path("stakeAddressDeposit").asString().toBigInteger()
-                        else requireNotNull(info.single().stakeAddressDeposit) { "Recorded stake deposit unavailable" }
+                    val amount = if (stakeRequest.isRegistration) {
+                        json
+                            .readTree(parameters)
+                            .path("stakeAddressDeposit")
+                            .asString()
+                            .toBigInteger()
+                    } else {
+                        requireNotNull(info.single().stakeAddressDeposit) { "Recorded stake deposit unavailable" }
+                    }
                     if (stakeRequest.isRegistration) deposit = amount else refund = amount
                     val key = "$prefix.vkey"
                     val cert = "$prefix.cert"
                     cleanup += listOf(key, cert)
                     connection.commandWriteFile(key, requireNotNull(stake.stakingVkey).content)
-                    val certificate = mutableListOf(host.cardanoCliPath, era, "stake-address",
-                        if (stakeRequest.isRegistration) "registration-certificate" else "deregistration-certificate")
+                    val certificate = mutableListOf(
+                        host.cardanoCliPath,
+                        era,
+                        "stake-address",
+                        if (stakeRequest.isRegistration) "registration-certificate" else "deregistration-certificate"
+                    )
                     if (era == "conway" || era == "dijkstra") certificate += listOf("--key-reg-deposit-amt", amount.toString())
                     certificate += listOf("--stake-verification-key-file", key, "--out-file", cert)
                     connection.commandArgs(certificate)
                     args += listOf("--certificate-file", cert)
                 } else {
-                    if (request!!.isClaim) stakes.forEach { stake ->
-                        val reward = walletUtils.getStakeAddressInfo(host, connection, magic, socket, era, requireNotNull(stake.stakingAddr)).single().rewardAccountBalance
-                        require(reward.signum() >= 0)
-                        withdrawals += reward
-                        args += listOf("--withdrawal", "${stake.stakingAddr}+$reward")
+                    if (request!!.isClaim) {
+                        stakes.forEach { stake ->
+                            val reward = walletUtils.getStakeAddressInfo(host, connection, magic, socket, era, requireNotNull(stake.stakingAddr)).single().rewardAccountBalance
+                            require(reward.signum() >= 0)
+                            withdrawals += reward
+                            args += listOf("--withdrawal", "${stake.stakingAddr}+$reward")
+                        }
                     }
                     if (!request.metadata.isNullOrBlank()) {
                         json.readTree(request.metadata)
@@ -674,27 +786,46 @@ class WalletController
                     items.forEach { item ->
                         val amount = requireNotNull(item.amount)
                         require(amount.signum() > 0 && item.tokenFee.signum() >= 0) { "Invalid output amount" }
-                        if (item.currency == "ada") ada += amount else {
+                        if (item.currency == "ada") {
+                            ada += amount
+                        } else {
                             val unit = item.currency.trimEnd('.')
                             require(unit.matches(Regex("[0-9a-fA-F]{56}(\\.[0-9a-fA-F]{0,64})?"))) { "Invalid asset" }
                             assets[unit] = (assets[unit] ?: BigInteger.ZERO) + amount
                             ada += item.tokenFee
                         }
                     }
-                    WalletTransactionBuilder.Output(address, ada, assets.map { (unit, amount) ->
-                        val parts = unit.split(".", limit = 2)
-                        NativeAsset(parts.getOrElse(1) { "" }, parts[0], amount)
-                    })
+                    WalletTransactionBuilder.Output(
+                        address,
+                        ada,
+                        assets.map { (unit, amount) ->
+                            val parts = unit.split(".", limit = 2)
+                            NativeAsset(parts.getOrElse(1) { "" }, parts[0], amount)
+                        }
+                    )
                 } ?: emptyList()
                 if (request != null) require(outputs.isNotEmpty()) { "No destination" }
-                val tip = requireNotNull(queryTipAdapter.fromJson(connection.commandArgs(
-                    listOf(host.cardanoCliPath, era, "query", "tip") + magic.split(" ") + socket.split(" ") + "--output-json")))
+                val tip = requireNotNull(queryTipAdapter.fromJson(connection.commandArgs(listOf(host.cardanoCliPath, era, "query", "tip") + magic.split(" ") + socket.split(" ") + "--output-json")))
                 require(tip.slot >= 0) { "Invalid node tip" }
                 val referenceSize = walletUtils.queryReferenceScriptSize(host, connection, magic, socket, era, inputs)
-                val built = transactionBuilder.build(host, connection, era, inputs, outputs, payer.paymentAddr,
-                    withdrawals = withdrawals, deposits = deposit, refunds = refund, extraArgs = args,
-                    validUntil = Math.addExact(tip.slot, 21600L), protocolParameters = parameters, protocolPath = params,
-                    witnessCount = 1 + stakes.size, bodyPath = body, referenceScriptSize = referenceSize)
+                val built = transactionBuilder.build(
+                    host,
+                    connection,
+                    era,
+                    inputs,
+                    outputs,
+                    payer.paymentAddr,
+                    withdrawals = withdrawals,
+                    deposits = deposit,
+                    refunds = refund,
+                    extraArgs = args,
+                    validUntil = Math.addExact(tip.slot, 21600L),
+                    protocolParameters = parameters,
+                    protocolPath = params,
+                    witnessCount = 1 + stakes.size,
+                    bodyPath = body,
+                    referenceScriptSize = referenceSize
+                )
                 val keys = listOf(requireNotNull(payer.paymentSkey)) + stakes.map { requireNotNull(it.stakingSkey) }
                 val signing = mutableListOf(host.cardanoCliPath, era, "transaction", "sign", "--tx-body-file", body)
                 keys.forEachIndexed { index, file ->
@@ -707,7 +838,13 @@ class WalletController
                 signing += listOf("--out-file", signed)
                 connection.commandArgs(signing)
                 val envelope = connection.commandReadFile(signed)
-                require(json.readTree(envelope).path("cborHex").asString().isNotBlank()) { "Invalid signed transaction" }
+                require(
+                    json
+                        .readTree(envelope)
+                        .path("cborHex")
+                        .asString()
+                        .isNotBlank()
+                ) { "Invalid signed transaction" }
                 connection.commandArgs(listOf(host.cardanoCliPath, era, "transaction", "submit", "--tx-file", signed) + magic.split(" ") + socket.split(" "))
                 ledgerDao.recordSubmitted(host, node, era, built.txId, envelope)
                 return built.txId
