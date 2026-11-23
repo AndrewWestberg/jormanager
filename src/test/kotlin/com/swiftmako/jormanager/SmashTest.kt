@@ -7,9 +7,11 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
+@EnabledIfEnvironmentVariable(named = "JORMANAGER_RUN_SMASH_TESTS", matches = "true")
 class SmashTest {
     @Test
     fun testSmashMainnetSuccess() =

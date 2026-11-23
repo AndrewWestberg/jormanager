@@ -1,7 +1,6 @@
 package com.swiftmako.jormanager.tracing
 
 import com.google.common.truth.Truth.assertThat
-import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
@@ -9,6 +8,7 @@ import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.spring.config.Configuration
 import io.mockk.every
 import io.mockk.mockk
 import io.ktor.utils.io.ClosedByteChannelException
@@ -24,7 +24,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 class TracingConnectionManagerTest {
-    private val shelleyGenesisAdapter = Moshi.Builder().build().adapter(GenesisShelley::class.java)
+    private val shelleyGenesisAdapter = Configuration().getMoshi().adapter(GenesisShelley::class.java)
     private val tracingRuntimeProfiler = TracingRuntimeProfiler()
 
     @Test

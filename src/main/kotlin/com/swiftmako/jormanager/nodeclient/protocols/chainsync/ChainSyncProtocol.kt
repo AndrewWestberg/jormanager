@@ -166,7 +166,7 @@ class ChainSyncProtocol(
         check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
 
         val reserved = isIntersectFound && session != null
-        if (reserved) session!!.reserve()
+        if (reserved) session.reserve()
         try {
             currentCoroutineContext().ensureActive()
             synchronized(stateLock) {
@@ -192,7 +192,7 @@ class ChainSyncProtocol(
                 return payload.flip()
             }
         } catch (e: Throwable) {
-            if (reserved) session!!.release()
+            if (reserved) session.release()
             throw e
         }
     }

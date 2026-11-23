@@ -11,10 +11,12 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
 
+@EnabledIfEnvironmentVariable(named = "JORMANAGER_RUN_METADATA_UPLOAD_TEST", matches = "true")
 class MetadataUploadTest {
     @Test
     fun testUploadMetadata() =

@@ -192,15 +192,16 @@ class WalletSubmissionTest {
     }
 
     @Test
-    fun stakingRegistrationDoesNotSpendUnusedInputs() {
-        val dust = Utxo("33".repeat(32), 0, n(1_000_000), emptyList())
-        val f = Fixture("dijkstra", listOf(dust))
+    fun stakingRegistrationPreservesTokenBearingInputWhenPureAdaIsSufficient() {
+        val token = NativeAsset("01", "aa".repeat(28), BigInteger.ONE)
+        val tokenInput = Utxo("33".repeat(32), 0, n(2_000_000), listOf(token))
+        val f = Fixture("dijkstra", listOf(tokenInput))
         f.run {
             val response = f.controller.updateStakingAddress(UpdateStakingAddressRequest(2, "secret", 1, true))
             assertTrue(response is SocketResponse.Success)
-            val body = f.commands.last { "build-raw" in it }
-            assertEquals(1, body.count { it == "--tx-in" })
-            assertEquals(n(8_800_000), f.balance(f.fundsAddress))
+            val remaining = f.ledger.liveUtxos("network", f.fundsAddress, f.roots.getValue(f.fundsAddress))
+            assertTrue(tokenInput in remaining)
+            assertEquals(n(9_800_000), f.balance(f.fundsAddress))
         }
     }
 
