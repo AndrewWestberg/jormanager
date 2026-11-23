@@ -32,8 +32,7 @@ class MsgRollForwardAdapterTest {
         }
     }
 
-    private fun parseRollForward(bytes: ByteArray): CborArray =
-        CborReader.createFromByteArray(bytes).readDataItem() as CborArray
+    private fun parseRollForward(bytes: ByteArray): CborArray = CborReader.createFromByteArray(bytes).readDataItem() as CborArray
 
     @Test
     fun `supported Dijkstra and Conway eras decode cleanly`() {
@@ -75,38 +74,39 @@ class MsgRollForwardAdapterTest {
     }
 
     @Test
-    fun `ChainSyncProtocol rejects unknown future era MsgRollForward with IllegalStateException`() = runBlocking {
-        val conwayBlock = F.block(6, 1)
-        val conwayHash = F.blockHash(conwayBlock)
-        val session = NetworkChainSession("era-bounds-test", mock(ChainIngestionCoordinator::class.java), false, 1, 21600)
-        val sync = ChainSyncProtocol(
-            mock(Host::class.java),
-            ByteArray(32),
-            emptyList(),
-            mock(ChainRepository::class.java),
-            false,
-            mock(PooltoolService::class.java),
-            "",
-            "",
-            session,
-        )
-        try {
-            muxByteBufferPool.recycle(sync.sendData())
-            sync.receiveData(ByteBuffer.wrap(F.intersectFound(F.array(), F.tip(1, conwayHash, 1))))
-            muxByteBufferPool.recycle(sync.sendData())
-
-            val futureEraRollForward = F.array(
-                F.integer(MsgRollForward.MESSAGE_ID),
-                F.array(F.integer(8L), F.tagged24(F.header(conwayBlock))),
-                F.tip(2, conwayHash, 2),
+    fun `ChainSyncProtocol rejects unknown future era MsgRollForward with IllegalStateException`() =
+        runBlocking {
+            val conwayBlock = F.block(6, 1)
+            val conwayHash = F.blockHash(conwayBlock)
+            val session = NetworkChainSession("era-bounds-test", mock(ChainIngestionCoordinator::class.java), false, 1, 21600)
+            val sync = ChainSyncProtocol(
+                mock(Host::class.java),
+                ByteArray(32),
+                emptyList(),
+                mock(ChainRepository::class.java),
+                false,
+                mock(PooltoolService::class.java),
+                "",
+                "",
+                session,
             )
-            val error = assertThrows<IllegalStateException> {
-                sync.receiveData(ByteBuffer.wrap(futureEraRollForward))
+            try {
+                muxByteBufferPool.recycle(sync.sendData())
+                sync.receiveData(ByteBuffer.wrap(F.intersectFound(F.array(), F.tip(1, conwayHash, 1))))
+                muxByteBufferPool.recycle(sync.sendData())
+
+                val futureEraRollForward = F.array(
+                    F.integer(MsgRollForward.MESSAGE_ID),
+                    F.array(F.integer(8L), F.tagged24(F.header(conwayBlock))),
+                    F.tip(2, conwayHash, 2),
+                )
+                val error = assertThrows<IllegalStateException> {
+                    sync.receiveData(ByteBuffer.wrap(futureEraRollForward))
+                }
+                assertThat(error.message).contains("Unable to decode era 8 chain header")
+            } finally {
+                sync.shutdown()
+                session.close()
             }
-            assertThat(error.message).contains("Unable to decode era 8 chain header")
-        } finally {
-            sync.shutdown()
-            session.close()
         }
-    }
 }

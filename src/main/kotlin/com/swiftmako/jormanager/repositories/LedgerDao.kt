@@ -28,9 +28,14 @@ class LedgerDao(
     @param:Qualifier("refreshWalletChannel") private val refresh: MutableStateFlow<Long?>,
 ) {
     private data class Submitted(
-        val network: String, val host: Host, val node: Node, val era: String,
-        val envelope: String, val transaction: SubmittedTransactionDecoder.Submitted,
-        val at: Instant = Instant.now(), var includedAt: BigInteger? = null,
+        val network: String,
+        val host: Host,
+        val node: Node,
+        val era: String,
+        val envelope: String,
+        val transaction: SubmittedTransactionDecoder.Submitted,
+        val at: Instant = Instant.now(),
+        var includedAt: BigInteger? = null,
     )
 
     private val submitted = LinkedHashMap<Pair<String, String>, Submitted>()
@@ -40,7 +45,13 @@ class LedgerDao(
     fun <T> withSubmissionLock(action: () -> T): T = action()
 
     @Synchronized
-    fun recordSubmitted(host: Host, node: Node, era: String, txId: String, signedEnvelope: String) {
+    fun recordSubmitted(
+        host: Host,
+        node: Node,
+        era: String,
+        txId: String,
+        signedEnvelope: String
+    ) {
         val transaction = SubmittedTransactionDecoder.decodeSubmitted(json.readTree(signedEnvelope).path("cborHex").asString(), era)
         require(transaction.id == txId.lowercase()) { "Submitted transaction ID does not match signed bytes" }
         val network = cardano.networkKey(node)
@@ -62,7 +73,11 @@ class LedgerDao(
     }
 
     @Synchronized
-    fun liveUtxos(network: String, address: String, confirmed: List<Utxo>): List<Utxo> {
+    fun liveUtxos(
+        network: String,
+        address: String,
+        confirmed: List<Utxo>
+    ): List<Utxo> {
         prune()
         val pending = submitted.values.filter { it.network == network && it.includedAt == null }
         val spent = pending.flatMap { it.transaction.normalInputs }.toHashSet()
@@ -71,8 +86,12 @@ class LedgerDao(
         pending.forEach { entry ->
             entry.transaction.outputs.forEach { (reference, output) ->
                 if (LedgerRepository.addressText(output.address) == address) {
-                    outputs[reference] = Utxo(reference.first, reference.second.toLong(), output.coin,
-                        output.assets.map { NativeAsset(it.name.toHexString(), it.policy.toHexString(), it.quantity) })
+                    outputs[reference] = Utxo(
+                        reference.first,
+                        reference.second.toLong(),
+                        output.coin,
+                        output.assets.map { NativeAsset(it.name.toHexString(), it.policy.toHexString(), it.quantity) }
+                    )
                 }
             }
         }
@@ -80,7 +99,11 @@ class LedgerDao(
     }
 
     @Synchronized
-    fun pendingOutput(network: String, hash: String, index: Int): DecodedOutput? {
+    fun pendingOutput(
+        network: String,
+        hash: String,
+        index: Int
+    ): DecodedOutput? {
         prune()
         return submitted.values.firstNotNullOfOrNull {
             if (it.network == network && it.includedAt == null) it.transaction.outputs[hash to index] else null
@@ -88,12 +111,19 @@ class LedgerDao(
     }
 
     @Synchronized
-    fun confirmed(network: String, slot: BigInteger, transactionIds: Collection<String>) {
+    fun confirmed(
+        network: String,
+        slot: BigInteger,
+        transactionIds: Collection<String>
+    ) {
         transactionIds.forEach { submitted[network to it]?.includedAt = slot }
     }
 
     @Synchronized
-    fun rollback(network: String, slot: BigInteger?) {
+    fun rollback(
+        network: String,
+        slot: BigInteger?
+    ) {
         prune()
         val rolledBack = submitted.values.filter { it.network == network && it.includedAt?.let { at -> slot == null || at > slot } == true }
         if (rolledBack.isEmpty()) return
@@ -105,12 +135,16 @@ class LedgerDao(
             try {
                 if (cardano.networkKey(entry.node) != network) return@forEach
                 connection.commandWriteFile(path, entry.envelope)
-                connection.commandArgs(listOf(entry.host.cardanoCliPath, entry.era, "transaction", "submit", "--tx-file", path) +
-                    cardano.networkArguments(entry.node) + listOf("--socket-path", "${entry.host.nodeHomePath}/${entry.node.name}/db/socket"))
+                connection.commandArgs(
+                    listOf(entry.host.cardanoCliPath, entry.era, "transaction", "submit", "--tx-file", path) +
+                        cardano.networkArguments(entry.node) + listOf("--socket-path", "${entry.host.nodeHomePath}/${entry.node.name}/db/socket")
+                )
             } catch (e: Exception) {
                 log.warn("Unable to resubmit acknowledged transaction {} after rollback", entry.transaction.id, e)
             } finally {
-                try { connection.commandArgs(listOf("rm", "-f", path)) } catch (e: Exception) {
+                try {
+                    connection.commandArgs(listOf("rm", "-f", path))
+                } catch (e: Exception) {
                     log.warn("Unable to remove rollback transaction file {}", path, e)
                 }
             }

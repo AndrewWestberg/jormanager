@@ -11,7 +11,10 @@ object BigDecimalAdapter {
     fun fromJson(reader: JsonReader): BigDecimal = BigDecimal(reader.nextString())
 
     @ToJson
-    fun toJson(writer: JsonWriter, value: BigDecimal) {
+    fun toJson(
+        writer: JsonWriter,
+        value: BigDecimal
+    ) {
         writer.value(value)
     }
 }

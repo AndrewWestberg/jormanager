@@ -140,7 +140,6 @@ class Mux(
                     }
                 }
 
-
                 // Are all protocols in Agency.None? If so, then we're done.
                 protocolsDone = !socketConnection.socket.isClosed &&
                     protocols.filterNot { protocol -> protocol.agency == Agency.None }.isEmpty()
@@ -182,7 +181,6 @@ class Mux(
 
     private val timestampNow: Int
         get() = (System.nanoTime() / 1000).toInt()
-
 
     private class MuxRxBuffer(
         val rxBuffer: ByteBuffer,

@@ -23,9 +23,14 @@ class WalletFeeEstimatorTest {
     private val policy = "22".repeat(28)
     private val json = jacksonObjectMapper()
     private val params = """{"maxTxSize":16384,"maxValueSize":5000}"""
+
     private fun n(value: Long) = BigInteger.valueOf(value)
 
-    private fun checkEstimate(claim: Boolean, asset: Boolean, percent: Boolean) {
+    private fun checkEstimate(
+        claim: Boolean,
+        asset: Boolean,
+        percent: Boolean
+    ) {
         val wallets = mockk<WalletUtils>()
         val accounts = mockk<WalletRepository>()
         val files = mockk<FileRepository>()
@@ -53,7 +58,10 @@ class WalletFeeEstimatorTest {
         every { files.findById(1L) } returns Optional.of(key)
         every { accounts.findById(1L) } returns Optional.of(payer)
         every { accounts.findById(2L) } returns Optional.of(stake)
-        every { genesis.fromJson(any<String>()) } returns mockk<GenesisShelley> { every { networkId } returns "mainnet"; every { networkMagic } returns 1L }
+        every { genesis.fromJson(any<String>()) } returns mockk<GenesisShelley> {
+            every { networkId } returns "mainnet"
+            every { networkMagic } returns 1L
+        }
         every { tip.fromJson(any<String>()) } returns QueryTip("babbage", hash = "aa".repeat(32), slot = 100)
         every { cardano.getEra(any(), any(), any(), any()) } returns "babbage"
         every { protocols.query(any(), any(), any(), any(), any(), any()) } returns params
@@ -66,9 +74,14 @@ class WalletFeeEstimatorTest {
         every { messages.convertAndSend(any<String>(), capture(response)) } just Runs
         val builder = WalletTransactionBuilder(json)
         val controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), messages, cardano, protocols, mockk(), builder, json)
-        val destinations = if (asset) listOf(ToAccountFeeRequest("$policy.01", -1, "destination", n(4)),
-            ToAccountFeeRequest("ada", -1, "destination", n(1), if (percent) 100 else null))
-            else listOf(ToAccountFeeRequest("ada", if (claim) 1 else -1, if (claim) "" else "destination", n(if (claim) 4_000_000 else 40_000_000), if (percent) 100 else null))
+        val destinations = if (asset) {
+            listOf(
+                ToAccountFeeRequest("$policy.01", -1, "destination", n(4)),
+                ToAccountFeeRequest("ada", -1, "destination", n(1), if (percent) 100 else null)
+            )
+        } else {
+            listOf(ToAccountFeeRequest("ada", if (claim) 1 else -1, if (claim) "" else "destination", n(if (claim) 4_000_000 else 40_000_000), if (percent) 100 else null))
+        }
         val request = CalculateFeeRequest(1, if (claim) listOf(1, 2) else emptyList(), destinations, destinations.size, claim, null, "fixture")
         var envelope = ""
         var id = ""
@@ -82,7 +95,11 @@ class WalletFeeEstimatorTest {
                 when {
                     "calculate-min-required-utxo" in args -> "Lovelace 1000000"
                     "calculate-min-fee" in args -> {
-                        val size = json.readTree(envelope).path("cborHex").asString().length / 2
+                        val size = json
+                            .readTree(envelope)
+                            .path("cborHex")
+                            .asString()
+                            .length / 2
                         val witnesses = args[args.indexOf("--witness-count") + 1].toInt()
                         "${155381 + 44 * (size + witnesses * 110)} Lovelace"
                     }
@@ -92,14 +109,20 @@ class WalletFeeEstimatorTest {
                         val outputs = lastOutputs.map { value ->
                             val parts = value.split('+')
                             val assets = parts.drop(2).map { component ->
-                                val pair = component.split(' '); val unit = pair[1].split('.')
+                                val pair = component.split(' ')
+                                val unit = pair[1].split('.')
                                 Triple(unit[0].hexToByteArray(), unit.getOrElse(1) { "" }.hexToByteArray(), pair[0].toLong())
                             }
                             F.output(coin = parts[1].toLong(), assets = assets)
                         }
                         val fee = args[args.indexOf("--fee") + 1].toLong()
-                        val body = F.map(listOf(F.integer(0) to F.array(F.input("11".repeat(32).hexToByteArray())),
-                            F.integer(1) to F.array(outputs), F.integer(2) to F.integer(fee)))
+                        val body = F.map(
+                            listOf(
+                                F.integer(0) to F.array(F.input("11".repeat(32).hexToByteArray())),
+                                F.integer(1) to F.array(outputs),
+                                F.integer(2) to F.integer(fee)
+                            )
+                        )
                         val hex = F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte())).toHexString()
                         id = SubmittedTransactionDecoder.decodeSubmitted(hex, "babbage").id
                         envelope = """{"cborHex":"$hex"}"""
@@ -117,24 +140,60 @@ class WalletFeeEstimatorTest {
             val estimatedOutputs = lastOutputs.toList()
             val fixedOutputs = estimatedOutputs.filterNot { it.startsWith("source+") && it != "source+4000000" }.map { value ->
                 val parts = value.split('+')
-                WalletTransactionBuilder.Output(parts[0], parts[1].toBigInteger(), parts.drop(2).map { component ->
-                    val pair = component.split(' '); val unit = pair[1].split('.')
-                    NativeAsset(unit.getOrElse(1) { "" }, unit[0], pair[0].toBigInteger())
-                })
+                WalletTransactionBuilder.Output(
+                    parts[0],
+                    parts[1].toBigInteger(),
+                    parts.drop(2).map { component ->
+                        val pair = component.split(' ')
+                        val unit = pair[1].split('.')
+                        NativeAsset(unit.getOrElse(1) { "" }, unit[0], pair[0].toBigInteger())
+                    }
+                )
             }
             val conn = HostConnection(host, node)
-            val built = builder.build(host, conn, "babbage", listOf(input), fixedOutputs, "source",
+            val built = builder.build(
+                host,
+                conn,
+                "babbage",
+                listOf(input),
+                fixedOutputs,
+                "source",
                 withdrawals = if (claim) n(4_000_000) else BigInteger.ZERO,
                 extraArgs = if (claim) listOf("--withdrawal", "stake1+2000000", "--withdrawal", "stake2+2000000") else emptyList(),
-                validUntil = 21700, protocolParameters = params, protocolPath = "params", witnessCount = if (claim) 3 else 1, bodyPath = "body")
-            val body = com.swiftmako.jormanager.utils.CborSpans.parse(json.readTree(built.textEnvelope).path("cborHex").asString().hexToByteArray()).array().first()
-            assertEquals(fee, body.entries().single { it.first.integer() == BigInteger.TWO }.second.integer())
+                validUntil = 21700,
+                protocolParameters = params,
+                protocolPath = "params",
+                witnessCount = if (claim) 3 else 1,
+                bodyPath = "body"
+            )
+            val body = com.swiftmako.jormanager.utils.CborSpans
+                .parse(
+                    json
+                        .readTree(built.textEnvelope)
+                        .path("cborHex")
+                        .asString()
+                        .hexToByteArray()
+                ).array()
+                .first()
+            assertEquals(
+                fee,
+                body
+                    .entries()
+                    .single { it.first.integer() == BigInteger.TWO }
+                    .second
+                    .integer()
+            )
             assertEquals(estimatedOutputs, lastOutputs)
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun fixedAmount() = checkEstimate(false, false, false)
+
     @Test fun fullAdaAmount() = checkEstimate(false, false, true)
+
     @Test fun assetChange() = checkEstimate(false, true, true)
+
     @Test fun multiClaim() = checkEstimate(true, false, false)
 }

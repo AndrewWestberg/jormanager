@@ -61,7 +61,6 @@ class DirectPoolTransactionActionsTest {
     private val retirement = PoolRetirementController(json, mockk(), mockk(), mockk(), mockk(), mockk(), walletUtils, mockk(), mockk(), ledger)
     private val id = UUID.randomUUID().toString()
 
-
     @Test
     fun registrationRequiresPassword() {
         val metadata = Metadata("TEST", "Pool", "Description", "https://example.test", null)

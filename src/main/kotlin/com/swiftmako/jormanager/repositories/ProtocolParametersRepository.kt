@@ -7,7 +7,14 @@ import org.springframework.stereotype.Repository
 
 @Repository
 class ProtocolParametersRepository {
-    fun query(host: Host, node: Node, connection: HostConnection, era: String, magic: String, socket: String): String {
+    fun query(
+        host: Host,
+        node: Node,
+        connection: HostConnection,
+        era: String,
+        magic: String,
+        socket: String
+    ): String {
         val raw = connection.commandArgs(listOf(host.cardanoCliPath, era, "query", "protocol-parameters") + magic.split(" ") + socket.split(" ") + "--output-json").trim()
         require(raw.isNotEmpty()) { "Protocol parameters unavailable" }
         return raw

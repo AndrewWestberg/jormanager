@@ -74,8 +74,10 @@ class NodeConfigurationFilesTest {
         return mutableMapOf(
             "byron-genesis.json" to """{"protocolConsts":{"protocolMagic":164},"startTime":0}""".toByteArray(),
             "shelley-genesis.json" to """{"networkMagic":164,"systemStart":"1970-01-01T00:00:00Z"}""".toByteArray(),
-            "alonzo-genesis.json" to "{}".toByteArray(), "conway-genesis.json" to "{}".toByteArray(),
-            "config.json" to config.toByteArray(), "topology.json" to topology.toByteArray(),
+            "alonzo-genesis.json" to "{}".toByteArray(),
+            "conway-genesis.json" to "{}".toByteArray(),
+            "config.json" to config.toByteArray(),
+            "topology.json" to topology.toByteArray(),
         ).apply {
             if (dijkstra) {
                 put("dijkstra-genesis.json", "{}".toByteArray())

@@ -33,14 +33,23 @@ class CardanoRepository(
         val reason: String? = null,
     )
 
-    data class ChainPoint(val slot: String, val hash: String)
+    data class ChainPoint(
+        val slot: String,
+        val hash: String
+    )
 
-    private class Entry(key: String) {
+    private class Entry(
+        key: String
+    ) {
         var evidence = EraEvidence(key)
     }
 
     private val entries = ConcurrentHashMap<String, Entry>()
-    private fun entryKey(key: String, node: Node) = "$key:${node.id}"
+
+    private fun entryKey(
+        key: String,
+        node: Node
+    ) = "$key:${node.id}"
 
     private fun genesis(node: Node): Pair<GenesisShelley, String> {
         val file = requireNotNull(fileRepository.findByIdOrNull(node.genesisShelleyFileId)) { "Shelley genesis unavailable" }
@@ -53,16 +62,26 @@ class CardanoRepository(
         val config = requireNotNull(fileRepository.findByIdOrNull(node.configFileId)) { "Node configuration unavailable" }
         val parsed = requireNotNull(configAdapter.fromJson(config.content)) { "Invalid node configuration" }
         val byronHash = requireNotNull(parsed.byronGenesisHash) { "Byron genesis identity unavailable" }
-        require(parsed.shelleyGenesisHash.isNotBlank() && byronHash.isNotBlank() &&
-            parsed.requiresNetworkMagic in setOf("RequiresMagic", "RequiresNoMagic") &&
-            genesis.systemStart.isNotBlank() && genesis.networkMagic != null) { "Incomplete network identity" }
+        require(
+            parsed.shelleyGenesisHash.isNotBlank() && byronHash.isNotBlank() &&
+                parsed.requiresNetworkMagic in setOf("RequiresMagic", "RequiresNoMagic") &&
+                genesis.systemStart.isNotBlank() && genesis.networkMagic != null
+        ) { "Incomplete network identity" }
         val hashes = listOf(byronHash, parsed.shelleyGenesisHash, parsed.alonzoGenesisHash, parsed.conwayGenesisHash, parsed.dijkstraGenesisHash)
         require(hashes.filterNotNull().all { it.matches(Regex("[0-9a-fA-F]{64}")) }) { "Invalid genesis identity" }
-        val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
+        val digest = MessageDigest
+            .getInstance("SHA-256")
+            .digest(content.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         // Preserve existing persisted network keys; new networks use the reserved empty slot.
-        return listOf(genesis.networkMagic.toString(), genesis.systemStart, digest, parsed.requiresNetworkMagic!!,
-            node.networkKeyDiscriminator ?: "-", *hashes.map { it?.lowercase() ?: "-" }.toTypedArray()).joinToString(":")
+        return listOf(
+            genesis.networkMagic.toString(),
+            genesis.systemStart,
+            digest,
+            parsed.requiresNetworkMagic!!,
+            node.networkKeyDiscriminator ?: "-",
+            *hashes.map { it?.lowercase() ?: "-" }.toTypedArray()
+        ).joinToString(":")
     }
 
     fun networkArguments(node: Node): List<String> = magic(node).split(" ")
@@ -77,8 +96,10 @@ class CardanoRepository(
         }
     }
 
-    private fun socket(host: Host, node: Node) = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
-
+    private fun socket(
+        host: Host,
+        node: Node
+    ) = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
 
     fun evidence(node: Node): EraEvidence {
         val key = networkKey(node)
@@ -86,11 +107,19 @@ class CardanoRepository(
         return synchronized(entry) { entry.evidence }
     }
 
-    fun reestablishTarget(host: Host, node: Node) {
+    fun reestablishTarget(
+        host: Host,
+        node: Node
+    ) {
         getEra(host, node, magic(node), socket(host, node))
     }
 
-    fun getEra(host: Host, node: Node, magicString: String, socketPath: String): String {
+    fun getEra(
+        host: Host,
+        node: Node,
+        magicString: String,
+        socketPath: String
+    ): String {
         require(host.id == node.hostId && magicString == magic(node) && socketPath == socket(host, node)) { "Wrong network or node socket" }
         val key = networkKey(node)
         val entry = entries.computeIfAbsent(entryKey(key, node)) { Entry(key) }
@@ -108,8 +137,15 @@ class CardanoRepository(
                 val era = tip.era?.lowercase()
                 require(era in setOf("byron", "shelley", "allegra", "mary", "alonzo", "babbage", "conway", "dijkstra")) { "Unknown node era" }
                 val generation = entry.evidence.generation + if (entry.evidence.era != era) 1 else 0
-                entry.evidence = EraEvidence(key, era, "current", "host:${host.id}/node:${node.id}",
-                    tip.hash.takeIf { it.isNotBlank() }?.let { ChainPoint(tip.slot.toString(), it) }, Instant.now().toString(), generation)
+                entry.evidence = EraEvidence(
+                    key,
+                    era,
+                    "current",
+                    "host:${host.id}/node:${node.id}",
+                    tip.hash.takeIf { it.isNotBlank() }?.let { ChainPoint(tip.slot.toString(), it) },
+                    Instant.now().toString(),
+                    generation
+                )
                 requireNotNull(era)
             } catch (e: Exception) {
                 entry.evidence = entry.evidence.copy(freshness = "unavailable")
@@ -118,11 +154,14 @@ class CardanoRepository(
         }
     }
 
-    fun observeBlockEra(host: Host, node: Node, eraNumber: Int) {
+    fun observeBlockEra(
+        host: Host,
+        node: Node,
+        eraNumber: Int
+    ) {
         val current = evidence(node)
         if (current.freshness != "current" || QueryTip(current.era.orEmpty()).eraNumber != eraNumber) {
             reestablishTarget(host, node)
         }
     }
-
 }

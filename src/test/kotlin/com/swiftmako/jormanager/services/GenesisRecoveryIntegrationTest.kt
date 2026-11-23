@@ -51,8 +51,10 @@ class GenesisRecoveryIntegrationTest {
     fun createIsolatedDatabase() {
         assumeTrue(!url.isNullOrBlank()) { "Set JORMANAGER_TEST_DATABASE_URL to a disposable local PostgreSQL database" }
         val target = URI(requireNotNull(url).removePrefix("jdbc:"))
-        require(target.scheme == "postgresql" && target.host in setOf("127.0.0.1", "localhost") &&
-            target.path.matches(Regex("/jormanager_test_[a-zA-Z0-9_]+"))) { "Only a dedicated local jormanager_test_* database is allowed" }
+        require(
+            target.scheme == "postgresql" && target.host in setOf("127.0.0.1", "localhost") &&
+                target.path.matches(Regex("/jormanager_test_[a-zA-Z0-9_]+"))
+        ) { "Only a dedicated local jormanager_test_* database is allowed" }
         DriverManager.getConnection(url).use { connection ->
             connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
         }
@@ -71,24 +73,45 @@ class GenesisRecoveryIntegrationTest {
     @AfterAll
     fun removeIsolatedDatabase() {
         database?.let { TransactionManager.closeAndUnregister(it) }
-        if (isolatedUrl != null) DriverManager.getConnection(url).use { connection ->
-            connection.createStatement().use { it.execute("DROP DATABASE $databaseName WITH (FORCE)") }
+        if (isolatedUrl != null) {
+            DriverManager.getConnection(url).use { connection ->
+                connection.createStatement().use { it.execute("DROP DATABASE $databaseName WITH (FORCE)") }
+            }
         }
     }
 
-    private fun outputs(network: String): List<Pair<String, String>> = transaction {
-        LedgerUtxosTable.selectAll().where { LedgerUtxosTable.networkKey eq network }
-            .orderBy(LedgerUtxosTable.txId).map { it[LedgerUtxosTable.txId] to it[LedgerUtxosTable.lovelace] }
-    }
+    private fun outputs(network: String): List<Pair<String, String>> =
+        transaction {
+            LedgerUtxosTable
+                .selectAll()
+                .where { LedgerUtxosTable.networkKey eq network }
+                .orderBy(LedgerUtxosTable.txId)
+                .map { it[LedgerUtxosTable.txId] to it[LedgerUtxosTable.lovelace] }
+        }
 
-    private fun block(network: String, slot: Long, complete: Boolean = true, adopted: Boolean = true): Long = transaction {
-        ChainInclusionsTable.insert {
-            it[ChainInclusionsTable.network] = network; it[hash] = ByteArray(32) { slot.toByte() }
-            it[ChainInclusionsTable.slot] = slot.toBigDecimal(); it[height] = slot.toBigDecimal()
-            it[previousHash] = null; it[era] = 7; it[header] = byteArrayOf(); it[body] = byteArrayOf()
-            it[ChainInclusionsTable.adopted] = adopted; it[ChainInclusionsTable.complete] = complete; it[sourceKind] = "direct"
-        }[ChainInclusionsTable.id].value
-    }
+    private fun block(
+        network: String,
+        slot: Long,
+        complete: Boolean = true,
+        adopted: Boolean = true
+    ): Long =
+        transaction {
+            ChainInclusionsTable
+                .insert {
+                    it[ChainInclusionsTable.network] = network
+                    it[hash] = ByteArray(32) { slot.toByte() }
+                    it[ChainInclusionsTable.slot] = slot.toBigDecimal()
+                    it[height] = slot.toBigDecimal()
+                    it[previousHash] = null
+                    it[era] = 7
+                    it[header] = byteArrayOf()
+                    it[body] = byteArrayOf()
+                    it[ChainInclusionsTable.adopted] = adopted
+                    it[ChainInclusionsTable.complete] = complete
+                    it[sourceKind] = "direct"
+                }[ChainInclusionsTable.id]
+                .value
+        }
 
     @Test
     fun initializationIsIdempotentAndNetworkScoped() {
@@ -110,7 +133,8 @@ class GenesisRecoveryIntegrationTest {
         val second = block(network, 59)
         transaction {
             SyncStatesTable.update({ SyncStatesTable.network eq network }) {
-                it[completeInclusion] = second; it[status] = "complete"
+                it[completeInclusion] = second
+                it[status] = "complete"
             }
         }
         val generation = coordinator.beginSession(network)
@@ -119,15 +143,21 @@ class GenesisRecoveryIntegrationTest {
         assertThat(coordinator.status(network).lastCompletePoint!!.slot).isEqualTo("59")
         assertThat(coordinator.generation(network)).isEqualTo(generation)
         transaction {
-            assertThat(ChainInclusionsTable.selectAll().where { ChainInclusionsTable.network eq network }
-                .map { it[ChainInclusionsTable.id].value }).containsExactly(first, second)
+            assertThat(
+                ChainInclusionsTable
+                    .selectAll()
+                    .where { ChainInclusionsTable.network eq network }
+                    .map { it[ChainInclusionsTable.id].value }
+            ).containsExactly(first, second)
             assertThat(LedgerRepository.spend(LedgerRepository.ProjectionContext(network, second, 59.toBigDecimal(), 59.toBigDecimal(), isNewInclusion = false), funds[0].txId, 0)).isNull()
         }
         coordinator.registerNetwork(network, genesisHash, funds)
         transaction {
             assertThat(LedgerRepository.currentOutput(network, funds[0].txId, 0)).isNull()
             assertThat(LedgerRepository.currentOutput(network, funds[1].txId, 0)!![LedgerUtxosTable.lovelace]).isEqualTo("2700")
-            val spent = LedgerUtxosTable.selectAll().where { LedgerUtxosTable.networkKey eq network }
+            val spent = LedgerUtxosTable
+                .selectAll()
+                .where { LedgerUtxosTable.networkKey eq network }
                 .single { it[LedgerUtxosTable.txId] == funds[0].txId.toHexString() }
             assertThat(spent[LedgerUtxosTable.spendingInclusionId]).isEqualTo(second)
         }
@@ -141,8 +171,12 @@ class GenesisRecoveryIntegrationTest {
             val inclusion = block(network, 16, complete = adopted, adopted = adopted)
             transaction {
                 TransactionBatchesTable.insert {
-                    it[TransactionBatchesTable.inclusion] = inclusion; it[sourceKind] = "direct"
-                    it[position] = 0; it[applicationOrdinal] = 0; it[valid] = true; it[raw] = byteArrayOf()
+                    it[TransactionBatchesTable.inclusion] = inclusion
+                    it[sourceKind] = "direct"
+                    it[position] = 0
+                    it[applicationOrdinal] = 0
+                    it[valid] = true
+                    it[raw] = byteArrayOf()
                 }
                 SyncStatesTable.update({ SyncStatesTable.network eq network }) { it[status] = "complete" }
             }
@@ -183,7 +217,10 @@ class GenesisRecoveryIntegrationTest {
         val workers = Executors.newFixedThreadPool(2)
         try {
             val registrations = (1..2).map {
-                workers.submit { start.await(); coordinator.registerNetwork(network, genesisHash, funds) }
+                workers.submit {
+                    start.await()
+                    coordinator.registerNetwork(network, genesisHash, funds)
+                }
             }
             start.countDown()
             registrations.forEach { it.get(15, TimeUnit.SECONDS) }
@@ -198,7 +235,9 @@ class GenesisRecoveryIntegrationTest {
         val network = "wallet-coverage"
         coordinator.registerNetwork(network, genesisHash, funds)
         val address = transaction {
-            (LedgerUtxosTable innerJoin LedgerTable).selectAll().where { LedgerUtxosTable.networkKey eq network }
+            (LedgerUtxosTable innerJoin LedgerTable)
+                .selectAll()
+                .where { LedgerUtxosTable.networkKey eq network }
                 .single { it[LedgerUtxosTable.txId] == funds[0].txId.toHexString() }[LedgerTable.address]
         }
         assertThat(coordinator.status("missing-wallet-network").walletReady).isFalse()
@@ -214,7 +253,13 @@ class GenesisRecoveryIntegrationTest {
         coordinator.observeTip(network, ChainPoint("59", ByteArray(32) { 59 }.toHexString()), generation)
         assertThat(coordinator.status(network).walletReady).isTrue()
         assertThat(coordinator.status(other).walletReady).isFalse()
-        assertThat(LedgerRepository.queryUtxos(network, setOf(address)).getValue(address).single().lovelace).isEqualTo(funds[0].coin)
+        assertThat(
+            LedgerRepository
+                .queryUtxos(network, setOf(address))
+                .getValue(address)
+                .single()
+                .lovelace
+        ).isEqualTo(funds[0].coin)
         coordinator.boundaryFailure(network, "Requested block unavailable", generation)
         assertThat(coordinator.status(network).walletReady).isFalse()
         assertThat(coordinator.generation(network)).isEqualTo(generation + 1)

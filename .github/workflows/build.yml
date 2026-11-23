@@ -2,28 +2,66 @@ name: CI Build
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "develop", "dijkstra", "main", "master" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "develop", "dijkstra", "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    name: Build, Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: vue/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: vue
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: vue
+        run: npm run lint:check
 
       - name: Set up Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '21'
-          
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
 
-      - name: Build with Gradle
-        run: |
-          chmod +x gradlew
-          ./gradlew ktlintFormat
-          ./gradlew bootJar
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: enhanced
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Check formatting, compile tests, and build
+        run: ./gradlew ktlintCheck testVue compileTestKotlin bootJar --build-cache --stacktrace
+
+      - name: Upload Gradle reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-reports
+          path: |
+            build/reports/ktlint/
+            build/reports/tests/
+            build/reports/problems/
+          retention-days: 7
+          if-no-files-found: ignore

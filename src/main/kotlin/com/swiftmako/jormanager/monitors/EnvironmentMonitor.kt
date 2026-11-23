@@ -70,7 +70,11 @@ class EnvironmentMonitor
                 while (isRunning.get()) {
                     try {
                         log.info("Fetching environments...")
-                        val client = okHttpClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
+                        val client = okHttpClient
+                            .newBuilder()
+                            .followRedirects(false)
+                            .followSslRedirects(false)
+                            .build()
                         val index = client.newCall(Request.Builder().url(URL).build()).execute().use { response ->
                             require(response.isSuccessful) { "Catalog returned HTTP ${response.code}" }
                             response.body.string()
@@ -82,7 +86,9 @@ class EnvironmentMonitor
                             if (parsed == null || parsed.scheme != "https" || parsed.host != origin.host ||
                                 parsed.port != origin.port || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
                                 parsed.fragment != null
-                            ) return@forEach
+                            ) {
+                                return@forEach
+                            }
                             val remoteFileName = parsed.pathSegments.last()
                             val request = Request.Builder().url(parsed).build()
                             client.newCall(request).execute().use { response ->

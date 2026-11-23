@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+# Collect staged Kotlin / Gradle Kotlin DSL files and frontend files
+KOTLIN_FILES=()
+VUE_LINT_FILES=()
+while IFS= read -r file; do
+  case "$file" in
+    *.kt|*.kts)
+      KOTLIN_FILES+=("$file")
+      ;;
+    vue/*.vue|vue/*.ts|vue/*.tsx|vue/*.js|vue/*.jsx|vue/*.mjs|vue/*.cjs|vue/*.mts|vue/*.cts)
+      VUE_LINT_FILES+=("${file#vue/}")
+      ;;
+  esac
+done <<< "$STAGED_FILES"
+
+if [ "${#KOTLIN_FILES[@]}" -gt 0 ]; then
+  UNSTAGED_KOTLIN="$(git diff --name-only -- "${KOTLIN_FILES[@]}")"
+  if [ -n "$UNSTAGED_KOTLIN" ]; then
+    echo "Warning: Staged Kotlin files also have unstaged working-tree changes; ktlintCheck inspects working-tree contents." >&2
+  fi
+
+  echo "Running ktlintCheck for staged Kotlin files..."
+  if ! ./gradlew ktlintCheck -x testVue -x buildVue; then
+    echo "" >&2
+    echo "Commit blocked: Kotlin formatting check failed (ktlintCheck)." >&2
+    echo "Run './gradlew ktlintFormat', review and re-stage your changes, then commit again." >&2
+    exit 1
+  fi
+fi
+
+if [ "${#VUE_LINT_FILES[@]}" -gt 0 ]; then
+  echo "Running ESLint for staged frontend files..."
+  pushd vue >/dev/null
+  trap 'popd >/dev/null' EXIT
+
+  NODE_MAJOR=0
+  if command -v node >/dev/null 2>&1; then
+    NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)
+  fi
+
+  if [ "$NODE_MAJOR" -lt 24 ]; then
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+      set +u
+      # shellcheck disable=SC1091
+      source "$NVM_DIR/nvm.sh"
+      nvm use 24 >/dev/null
+      set -u
+    else
+      echo "Commit blocked: Node.js >= 24 is required for frontend linting (found v${NODE_MAJOR})." >&2
+      exit 1
+    fi
+  fi
+
+  if [ ! -d node_modules ]; then
+    echo "Commit blocked: vue/node_modules not found. Run 'cd vue && npm ci' first." >&2
+    exit 1
+  fi
+
+  if ! npx --no-install eslint -- "${VUE_LINT_FILES[@]}"; then
+    echo "" >&2
+    echo "Commit blocked: Frontend lint check failed (ESLint)." >&2
+    echo "Run 'cd vue && npm run lint', review and re-stage your changes, then commit again." >&2
+    exit 1
+  fi
+fi

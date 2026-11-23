@@ -57,8 +57,7 @@ class HostConnection(
         }
 
     /** Execute literal arguments, including on SSH where the remote shell otherwise splits them. */
-    fun commandArgs(args: List<String>): String =
-        if (host.isRemote) remoteCommand(args.map { "'${it.replace("'", "'\\''")}'" }) else localCommand(args)
+    fun commandArgs(args: List<String>): String = if (host.isRemote) remoteCommand(args.map { "'${it.replace("'", "'\\''")}'" }) else localCommand(args)
 
     fun bashCommand(
         command: String,
@@ -406,10 +405,14 @@ class HostConnection(
     }
 
     /** Create a private, unique signing-key file without exposing it through shared SCP staging. */
-    fun commandWriteSecret(fileName: String, content: String) {
+    fun commandWriteSecret(
+        fileName: String,
+        content: String
+    ) {
         require(Regex("/tmp/[A-Za-z0-9._-]+").matches(fileName)) { "Unsafe secret file path" }
         if (!host.isRemote) {
-            val path = java.nio.file.Path.of(fileName)
+            val path = java.nio.file.Path
+                .of(fileName)
             Files.createFile(path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
             try {
                 Files.writeString(path, content)

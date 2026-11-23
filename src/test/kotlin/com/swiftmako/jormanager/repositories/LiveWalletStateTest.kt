@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper
 class LiveWalletStateTest {
     private val address = Bech32.encode("addr_test", F.address)
     private val root = Utxo("11".repeat(32), 0, BigInteger.valueOf(10_000_000), emptyList())
+
     private class Fixture {
         val host = mockk<Host> {
             every { cardanoCliPath } returns "cli"
@@ -32,11 +33,26 @@ class LiveWalletStateTest {
         val jdbc = mockk<org.springframework.jdbc.core.JdbcTemplate>(relaxed = true)
         val ledger = LedgerDao(eras, ObjectMapper(), jdbc, MutableStateFlow(null))
     }
-    private fun transaction(input: Utxo, coin: Long, era: String): Pair<String, String> {
-        val body = F.map(listOf(F.integer(0) to F.array(F.input(input.hash.hexToByteArray(), input.ix.toInt())),
-            F.integer(1) to F.array(F.output(coin = coin)), F.integer(2) to F.integer(200_000)))
-        val hex = (if (era == "dijkstra") F.array(body, F.map(emptyList()), byteArrayOf(0xf6.toByte()))
-            else F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte()))).toHexString()
+
+    private fun transaction(
+        input: Utxo,
+        coin: Long,
+        era: String
+    ): Pair<String, String> {
+        val body = F.map(
+            listOf(
+                F.integer(0) to F.array(F.input(input.hash.hexToByteArray(), input.ix.toInt())),
+                F.integer(1) to F.array(F.output(coin = coin)),
+                F.integer(2) to F.integer(200_000)
+            )
+        )
+        val hex = (
+            if (era == "dijkstra") {
+                F.array(body, F.map(emptyList()), byteArrayOf(0xf6.toByte()))
+            } else {
+                F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte()))
+            }
+        ).toHexString()
         return SubmittedTransactionDecoder.decodeSubmitted(hex, era).id to """{"cborHex":"$hex"}"""
     }
 
@@ -74,7 +90,8 @@ class LiveWalletStateTest {
         mockkConstructor(HostConnection::class)
         try {
             every { anyConstructed<HostConnection>().commandWriteFile(any(), any()) } answers {
-                replayed += secondArg<String>(); ""
+                replayed += secondArg<String>()
+                ""
             }
             every { anyConstructed<HostConnection>().commandArgs(any()) } returns ""
             f.ledger.rollback("another-network", BigInteger.ZERO)
@@ -82,6 +99,8 @@ class LiveWalletStateTest {
             f.ledger.rollback("test-network", BigInteger.ONE)
             assertEquals(listOf(firstEnvelope, secondEnvelope), replayed)
             assertEquals(listOf(secondChange), f.ledger.liveUtxos("test-network", address, listOf(root)))
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 }

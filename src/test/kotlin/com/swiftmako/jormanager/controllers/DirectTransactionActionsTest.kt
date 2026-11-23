@@ -99,6 +99,7 @@ class DirectTransactionActionsTest {
             every { nodeController.uploadGovernanceRationale(null) } returns null
             every { nodeController.uploadGovernanceRationale("public") } returns ("https://example.test/rationale" to "a".repeat(64))
             every { nodeController.uploadGovernanceRationale("failure") } throws IllegalStateException("fixture publication failure")
+
             fun submit(rationale: String?) = controller.receiveSubmit(GovernanceController.SubmitRequest(UUID.randomUUID().toString(), request.copy(rationale = rationale), "secret"))
             assertThat(submit(null)).isInstanceOf(SocketResponse.Error::class.java)
             assertThat(submit("public")).isInstanceOf(SocketResponse.Error::class.java)

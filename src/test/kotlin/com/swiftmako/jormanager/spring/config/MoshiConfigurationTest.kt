@@ -10,14 +10,16 @@ class MoshiConfigurationTest {
 
     @Test
     fun configMapKeysAndValuesAreNotParsedAsDates() {
-        val values = requireNotNull(moshi.adapter(Map::class.java).lenient().fromJson(
-            """{
+        val values = requireNotNull(
+            moshi.adapter(Map::class.java).lenient().fromJson(
+                """{
                 "AlonzoGenesisFile": "alonzo-genesis.json",
                 "RequiresNetworkMagic": "RequiresMagic",
                 "TestShelleyHardForkAtEpoch": 0,
                 "TraceOptions": {"": {"backends": ["Stdout MachineFormat"]}}
             }"""
-        ))
+            )
+        )
 
         assertThat(values["AlonzoGenesisFile"]).isEqualTo("alonzo-genesis.json")
         assertThat(values["RequiresNetworkMagic"]).isEqualTo("RequiresMagic")

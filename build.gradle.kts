@@ -34,6 +34,15 @@ configurations.configureEach {
     }
 }
 
+configurations.matching { it.name.startsWith("ktlint") }.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" && requested.name == "kotlin-compiler-embeddable") {
+            useVersion("2.2.0")
+            because("Prevent Spring/Kotlin BOM from overriding ktlint's bundled kotlin-compiler-embeddable with Kotlin 2.4 (KT-87267)")
+        }
+    }
+}
+
 ktlint {
     version.set(Versions.KTLINT)
 }
@@ -129,6 +138,16 @@ abstract class BuildVueTask
     constructor(
         private val execOperations: ExecOperations
     ) : DefaultTask() {
+        @get:InputFiles
+        @get:PathSensitive(PathSensitivity.RELATIVE)
+        abstract val vueSources: ConfigurableFileCollection
+
+        @get:OutputDirectory
+        abstract val distDir: DirectoryProperty
+
+        @get:OutputDirectory
+        abstract val staticResourcesDir: DirectoryProperty
+
         init {
             group = "build"
             description = "Builds the Vue.js frontend"
@@ -141,13 +160,33 @@ abstract class BuildVueTask
             }
         }
     }
-tasks.register<BuildVueTask>("buildVue")
+tasks.register<BuildVueTask>("buildVue") {
+    vueSources.from(
+        fileTree("vue/src"),
+        fileTree("vue/public"),
+        "vue/index.html",
+        "vue/package.json",
+        "vue/package-lock.json",
+        "vue/tsconfig.json",
+        "vue/vite.config.ts",
+        "vue/deploy.sh",
+    )
+    distDir.set(layout.projectDirectory.dir("vue/dist"))
+    staticResourcesDir.set(layout.projectDirectory.dir("src/main/resources/static"))
+}
 
 abstract class TestVueTask
     @Inject
     constructor(
         private val execOperations: ExecOperations
     ) : DefaultTask() {
+        @get:InputFiles
+        @get:PathSensitive(PathSensitivity.RELATIVE)
+        abstract val vueTestSources: ConfigurableFileCollection
+
+        @get:OutputFile
+        abstract val resultStamp: RegularFileProperty
+
         init {
             group = "verification"
             description = "Runs Vue.js frontend unit tests"
@@ -158,9 +197,64 @@ abstract class TestVueTask
             execOperations.exec {
                 commandLine("/bin/bash", "./vue/test.sh")
             }
+            val stampFile = resultStamp.get().asFile
+            stampFile.parentFile.mkdirs()
+            stampFile.writeText("passed\n")
         }
     }
-tasks.register<TestVueTask>("testVue")
+tasks.register<TestVueTask>("testVue") {
+    vueTestSources.from(
+        fileTree("vue/src"),
+        fileTree("vue/tests"),
+        "vue/package.json",
+        "vue/package-lock.json",
+        "vue/tsconfig.json",
+        "vue/vitest.config.ts",
+        "vue/test.sh",
+    )
+    resultStamp.set(layout.buildDirectory.file("reports/vue-tests/result.stamp"))
+}
+
+abstract class InstallGitHooksTask
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations
+    ) : DefaultTask() {
+        @get:Input
+        abstract val ciEnvironment: Property<Boolean>
+
+        @get:Input
+        abstract val gitDirectoryPresent: Property<Boolean>
+
+        init {
+            group = "setup"
+            description = "Configures git core.hooksPath to use repository .githooks"
+        }
+
+        @TaskAction
+        fun installGitHooks() {
+            if (ciEnvironment.get() || !gitDirectoryPresent.get()) {
+                return
+            }
+            execOperations.exec {
+                commandLine("git", "config", "--local", "core.hooksPath", ".githooks")
+            }
+        }
+    }
+tasks.register<InstallGitHooksTask>("installGitHooks") {
+    ciEnvironment.set(
+        providers
+            .environmentVariable("CI")
+            .map { it.isNotBlank() }
+            .orElse(false)
+    )
+    gitDirectoryPresent.set(
+        layout.projectDirectory
+            .dir(".git")
+            .asFile
+            .exists()
+    )
+}
 
 tasks.named("processResources") {
     dependsOn("testVue")
