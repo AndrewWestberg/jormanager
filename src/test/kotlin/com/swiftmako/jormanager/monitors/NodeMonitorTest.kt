@@ -1,7 +1,6 @@
 package com.swiftmako.jormanager.monitors
 
 import com.google.common.truth.Truth.assertThat
-import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
@@ -12,6 +11,7 @@ import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ChainRepository
+import com.swiftmako.jormanager.spring.config.Configuration
 import com.swiftmako.jormanager.tracing.TraceForwardMessage
 import com.swiftmako.jormanager.tracing.TracingDashboardSignalService
 import com.swiftmako.jormanager.tracing.TracingRawMetricSnapshot
@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.messaging.simp.SimpMessagingTemplate
 
 class NodeMonitorTest {
-    private val moshi = Moshi.Builder().build()
+    private val moshi = Configuration().getMoshi()
     private val shelleyGenesisAdapter = moshi.adapter(GenesisShelley::class.java)
     private val tracingRuntimeProfiler = com.swiftmako.jormanager.tracing
         .TracingRuntimeProfiler()

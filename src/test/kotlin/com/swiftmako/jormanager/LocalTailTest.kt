@@ -1,8 +1,10 @@
 package com.swiftmako.jormanager
 
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import java.util.concurrent.TimeUnit
 
+@EnabledIfEnvironmentVariable(named = "JORMANAGER_RUN_LOCAL_TAIL_TEST", matches = "true")
 class LocalTailTest {
     @Test
     fun testTail() {

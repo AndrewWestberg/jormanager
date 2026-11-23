@@ -36,6 +36,16 @@ The current implementation preserves supported Conway/earlier-era operation and 
 
 See the [Dijkstra upgrade and operator guide](docs/dijkstra-upgrade-guide.md) for individual network file selection, single-action wallet/pool workflows, parent/child `directDeposits`, replay and observation limits. **Manual network, migration/restore and producer validation remains pending; local builds are not release qualification.**
 
+## Tests
+
+`./gradlew test` runs the default backend and frontend test suites. To run an opt-in smoke test, set its flag to `true` and run `./gradlew test --rerun --tests '*TestClass'` with the class name from the table.
+
+| Test class | Opt-in flag | External dependency or effect |
+| --- | --- | --- |
+| `SmashTest` | `JORMANAGER_RUN_SMASH_TESTS` | Queries public Cardano SMASH endpoints. |
+| `LocalTailTest` | `JORMANAGER_RUN_LOCAL_TAIL_TEST` | Reads `/home/westbam/haskell/prfit/logs/node-*.json`. |
+| `MetadataUploadTest` | `JORMANAGER_RUN_METADATA_UPLOAD_TEST` | Uploads `/home/westbam/haskell/bcsh.metadata.json` to S3. |
+
 ## Support
 
 If you need support, the ask for help on this telegram channel -> https://t.me/jormanager

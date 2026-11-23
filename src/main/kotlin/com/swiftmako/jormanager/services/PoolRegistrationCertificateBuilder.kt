@@ -201,7 +201,7 @@ class PoolRegistrationCertificateBuilder(
             )
             ownerFiles.forEach { command += listOf("--pool-owner-stake-verification-key-file", it) }
             val blsValue = field("blsKey")
-            val blsState = if (future != null) blsValue else blsValue?.path("bksKey")
+            val blsState = if (future != null) blsValue else blsValue.path("bksKey")
             val desiredPublic = if (keyId != null) {
                 require(era == "dijkstra" && action in setOf("register", "rotate"))
                 val key = requireNotNull(keys.findByIdOrNull(keyId))

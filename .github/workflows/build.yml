@@ -51,8 +51,8 @@ jobs:
           cache-provider: enhanced
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
-      - name: Check formatting, compile tests, and build
-        run: ./gradlew ktlintCheck testVue compileTestKotlin bootJar --build-cache --stacktrace
+      - name: Check formatting, run tests, and build
+        run: ./gradlew ktlintCheck test bootJar --build-cache --stacktrace
 
       - name: Upload Gradle reports on failure
         if: failure()

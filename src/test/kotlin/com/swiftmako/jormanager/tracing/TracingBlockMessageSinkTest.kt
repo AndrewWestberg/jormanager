@@ -3,7 +3,6 @@ package com.swiftmako.jormanager.tracing
 import com.google.common.truth.Truth.assertThat
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborTextString
-import com.squareup.moshi.Moshi
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.entities.Block
 import com.swiftmako.jormanager.entities.File
@@ -16,6 +15,7 @@ import com.swiftmako.jormanager.repositories.BlockRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
+import com.swiftmako.jormanager.spring.config.Configuration
 import com.swiftmako.jormanager.tracing.fixtures.TraceForwardFixtures
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.messaging.simp.SimpMessagingTemplate
 
 class TracingBlockMessageSinkTest {
-    private val moshi = Moshi.Builder().build()
+    private val moshi = Configuration().getMoshi()
     private val byronGenesisAdapter = moshi.adapter(GenesisByron::class.java)
     private val shelleyGenesisAdapter = moshi.adapter(GenesisShelley::class.java)
     private val tracingRuntimeProfiler = TracingRuntimeProfiler()

@@ -179,7 +179,7 @@ class LeiosInstallationServiceTest {
     @Test fun `historical previews cannot authorize an installation`() {
         setup()
         try {
-            row = arrayOf("old", "request", 2L, 1L, 7L, "fingerprint", "public", "old review", Instant.now(), "previewed")
+            row = arrayOf<Any?>("old", "request", 2L, 1L, 7L, "fingerprint", "public", "old review", Instant.now(), "previewed")
             state = "previewed"
             assertThrows<IllegalArgumentException> { service.install(request) }
             assertThat(commands).isEmpty()
