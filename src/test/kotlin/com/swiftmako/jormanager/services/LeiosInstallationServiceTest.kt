@@ -59,7 +59,9 @@ class LeiosInstallationServiceTest {
         every { installations.save(any<KeyInstallation>()) } answers { firstArg() }
         every { jdbc.query(any<String>(), any<RowMapper<Any>>(), *anyVararg()) } answers {
             val data = row
-            if (data == null) emptyList() else {
+            if (data == null) {
+                emptyList()
+            } else {
                 val rs = mockk<ResultSet>()
                 every { rs.getString(1) } returns data[0] as String
                 every { rs.getLong(2) } returns data[2] as Long
@@ -75,7 +77,10 @@ class LeiosInstallationServiceTest {
             val sql = firstArg<String>()
             val args = secondArg<Array<out Any?>>()
             when {
-                sql.startsWith("INSERT") -> { row = args; state = "prepared" }
+                sql.startsWith("INSERT") -> {
+                    row = args
+                    state = "prepared"
+                }
                 sql.contains("state='installing'") -> state = "installing"
                 sql.contains("state='installed'") -> state = "installed"
                 sql.contains("state='failed'") -> state = "failed"
@@ -95,9 +100,19 @@ class LeiosInstallationServiceTest {
                 args.first() == "sha256sum" -> HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(remote.getValue(args[1]).toByteArray()))
                 args.first() == "id" -> "operator"
                 args.first() == "stat" -> permissions
-                args.first() == "cp" -> { remote[args.last()] = remote.getValue(args[args.size - 2]); "" }
-                args.first() == "mv" -> { if (failMove) throw IllegalStateException("write failed"); remote[args.last()] = remote.remove(args[args.size - 2])!!; "" }
-                args.first() == "rm" -> { args.drop(2).forEach { remote.remove(it) }; "" }
+                args.first() == "cp" -> {
+                    remote[args.last()] = remote.getValue(args[args.size - 2])
+                    ""
+                }
+                args.first() == "mv" -> {
+                    if (failMove) throw IllegalStateException("write failed")
+                    remote[args.last()] = remote.remove(args[args.size - 2])!!
+                    ""
+                }
+                args.first() == "rm" -> {
+                    args.drop(2).forEach { remote.remove(it) }
+                    ""
+                }
                 else -> ""
             }
         }
@@ -112,7 +127,9 @@ class LeiosInstallationServiceTest {
             assertThat(error.disposition).isEqualTo("retry")
             assertThat(commands.none { it.first() == "mv" }).isTrue()
             assertThat(assertThrows<LeiosInstallationService.InstallationFailure> { service.install(request) }.disposition).isEqualTo("wait")
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `bad permissions after writing report wait and never replay or restart`() {
@@ -126,7 +143,9 @@ class LeiosInstallationServiceTest {
             assertThrows<LeiosInstallationService.InstallationFailure> { service.install(request) }
             assertThat(commands).hasSize(count)
             assertThat(commands.none { "restart" in it }).isTrue()
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `remote write failure is not replayed`() {
@@ -138,7 +157,9 @@ class LeiosInstallationServiceTest {
             assertThrows<LeiosInstallationService.InstallationFailure> { service.install(request) }
             assertThat(commands).hasSize(count)
             assertThat(commands.none { "restart" in it }).isTrue()
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `installed result is durable and cannot be reused for another key`() {
@@ -150,8 +171,11 @@ class LeiosInstallationServiceTest {
             assertThat(service.install(request)).isEqualTo(result)
             assertThat(commands).hasSize(count)
             assertThrows<IllegalArgumentException> { service.install(LeiosInstallRequest("request", request.target, 8, "password")) }
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
+
     @Test fun `historical previews cannot authorize an installation`() {
         setup()
         try {
@@ -159,7 +183,9 @@ class LeiosInstallationServiceTest {
             state = "previewed"
             assertThrows<IllegalArgumentException> { service.install(request) }
             assertThat(commands).isEmpty()
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `fresh singleton install writes single BLS envelope object and configures shelley-bls-key`() {
@@ -170,7 +196,9 @@ class LeiosInstallationServiceTest {
             assertThat(installedJson.isObject).isTrue()
             assertThat(installedJson.path("cborHex").asString()).isEqualTo("5820${"01".repeat(32)}")
             assertThat(remote.getValue("/nodes/core/startNode.sh")).contains("--shelley-bls-key /nodes/core/leios-7.skey")
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `singleton rotation preserves active BLS key envelopes alongside rotated key in deduplicated array`() {
@@ -209,13 +237,16 @@ class LeiosInstallationServiceTest {
             val chainedArray = mapper.readTree(remote.getValue("/nodes/core/leios-9.skey"))
             assertThat(chainedArray.isArray).isTrue()
             assertThat(chainedArray.size()).isEqualTo(3)
-            assertThat((0 until chainedArray.size()).map { chainedArray[it].path("cborHex").asString() }).containsExactly(
-                "5820${"aa".repeat(32)}",
-                "5820${"01".repeat(32)}",
-                "5820${"bb".repeat(32)}",
-            ).inOrder()
+            assertThat((0 until chainedArray.size()).map { chainedArray[it].path("cborHex").asString() })
+                .containsExactly(
+                    "5820${"aa".repeat(32)}",
+                    "5820${"01".repeat(32)}",
+                    "5820${"bb".repeat(32)}",
+                ).inOrder()
             assertThat(remote.getValue("/nodes/core/startNode.sh")).contains("--shelley-bls-key /nodes/core/leios-9.skey")
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `singleton idempotent re-install deduplicates by cborHex and preserves single object or active array`() {
@@ -242,7 +273,9 @@ class LeiosInstallationServiceTest {
             val dedupedArray = mapper.readTree(remote.getValue("/nodes/core/leios-7.skey"))
             assertThat(dedupedArray.isArray).isTrue()
             assertThat(dedupedArray.size()).isEqualTo(2)
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `singleton install rejects malformed or empty existing shelley-bls-key file before writing`() {
@@ -260,7 +293,9 @@ class LeiosInstallationServiceTest {
                 assertThat(error.disposition).isEqualTo("retry")
                 assertThat(remote.containsKey("/nodes/core/leios-7.skey")).isFalse()
             }
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 
     @Test fun `bulk child pool installs and rotates BLS keys across PR 6749 shapes using parent producer era evidence`() {
@@ -372,10 +407,11 @@ class LeiosInstallationServiceTest {
             service.install(LeiosInstallRequest("bulk-rotate-2", childTarget, 18, "password"))
             val afterRotate2 = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
             assertThat(afterRotate2[1][3].isArray).isTrue()
-            assertThat((0 until afterRotate2[1][3].size()).map { afterRotate2[1][3][it].path("cborHex").asString().lowercase() }).containsExactly(
-                "5820${"01".repeat(32)}",
-                "5820${"05".repeat(32)}",
-            ).inOrder()
+            assertThat((0 until afterRotate2[1][3].size()).map { afterRotate2[1][3][it].path("cborHex").asString().lowercase() })
+                .containsExactly(
+                    "5820${"01".repeat(32)}",
+                    "5820${"05".repeat(32)}",
+                ).inOrder()
 
             // 4. Re-installing key2 with different description against envelope array does not duplicate
             val key2AltDesc = """{"type":"BlsSigningKey_bls12-381-BLS-Signature-Minimal-Signature-Size","description":"Alt description","cborHex":"5820${"05".repeat(32).uppercase()}"}"""
@@ -394,12 +430,15 @@ class LeiosInstallationServiceTest {
             service.install(LeiosInstallRequest("bulk-rotate-3", childTarget, 19, "password"))
             val afterRotate3 = mapper.readTree(remote.getValue("/nodes/core/credentials.json"))
             assertThat(afterRotate3[1][3].isArray).isTrue()
-            assertThat((0 until afterRotate3[1][3].size()).map { afterRotate3[1][3][it].path("cborHex").asString().lowercase() }).containsExactly(
-                "5820${"01".repeat(32)}",
-                "5820${"05".repeat(32)}",
-                "5820${"06".repeat(32)}",
-            ).inOrder()
+            assertThat((0 until afterRotate3[1][3].size()).map { afterRotate3[1][3][it].path("cborHex").asString().lowercase() })
+                .containsExactly(
+                    "5820${"01".repeat(32)}",
+                    "5820${"05".repeat(32)}",
+                    "5820${"06".repeat(32)}",
+                ).inOrder()
             assertThat(remote.keys.any { it.startsWith("/nodes/core/credentials.json.jormanager-backup-") }).isTrue()
-        } finally { unmockkConstructor(HostConnection::class) }
+        } finally {
+            unmockkConstructor(HostConnection::class)
+        }
     }
 }

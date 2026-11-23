@@ -94,8 +94,12 @@ class Configuration {
     @Scope(ConfigurableBeanFactory.SCOPE_SINGLETON)
     fun getMoshi(): Moshi {
         // Reader-based annotated adapters handle null themselves unless explicitly wrapped.
-        val decimalAdapter = Moshi.Builder().add(BigDecimalAdapter).build()
-            .adapter(BigDecimal::class.java).nullSafe()
+        val decimalAdapter = Moshi
+            .Builder()
+            .add(BigDecimalAdapter)
+            .build()
+            .adapter(BigDecimal::class.java)
+            .nullSafe()
         return Moshi
             .Builder()
             .add(BigIntegerAdapter)

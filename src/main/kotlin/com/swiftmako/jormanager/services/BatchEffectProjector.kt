@@ -15,22 +15,45 @@ import java.math.BigInteger
 
 /** Applies node-adopted outcomes, not a second consensus or script validator. All calls share the chain transaction. */
 @Component
-class BatchEffectProjector(private val json: ObjectMapper) {
+class BatchEffectProjector(
+    private val json: ObjectMapper
+) {
     // Exposed 1.6.1 otherwise appends the named sequence only to the final multi-row VALUES tuple.
-    private val nextOccurrenceId = org.jetbrains.exposed.v1.core.Sequence("hibernate_sequence").nextLongVal()
+    private val nextOccurrenceId = org.jetbrains.exposed.v1.core
+        .Sequence("hibernate_sequence")
+        .nextLongVal()
 
-    fun apply(context: LedgerRepository.ProjectionContext, batch: DecodedTransactionBatch, position: Int, source: String, applicationOrdinal: Int, fullHash: ByteArray? = null): Long {
+    fun apply(
+        context: LedgerRepository.ProjectionContext,
+        batch: DecodedTransactionBatch,
+        position: Int,
+        source: String,
+        applicationOrdinal: Int,
+        fullHash: ByteArray? = null
+    ): Long {
         val network = context.network
         val inclusion = context.inclusion
         val valid = requireNotNull(batch.isValid) { "A submission is not an adopted batch" }
-        val existing = if (context.isNewInclusion) null else TransactionBatchesTable.select(TransactionBatchesTable.id).where {
-            (TransactionBatchesTable.inclusion eq inclusion) and (TransactionBatchesTable.sourceKind eq source) and (TransactionBatchesTable.position eq position)
-        }.singleOrNull()
-        val batchId = existing?.get(TransactionBatchesTable.id)?.value ?: TransactionBatchesTable.insertReturning(returning = listOf(TransactionBatchesTable.id)) {
-            it[TransactionBatchesTable.inclusion] = inclusion; it[TransactionBatchesTable.sourceKind] = source
-            it[TransactionBatchesTable.position] = position; it[TransactionBatchesTable.applicationOrdinal] = applicationOrdinal
-            it[TransactionBatchesTable.valid] = valid; it[raw] = batch.raw.bytes(); it[TransactionBatchesTable.fullHash] = fullHash
-        }.single()[TransactionBatchesTable.id].value
+        val existing = if (context.isNewInclusion) {
+            null
+        } else {
+            TransactionBatchesTable
+                .select(TransactionBatchesTable.id)
+                .where {
+                    (TransactionBatchesTable.inclusion eq inclusion) and (TransactionBatchesTable.sourceKind eq source) and (TransactionBatchesTable.position eq position)
+                }.singleOrNull()
+        }
+        val batchId = existing?.get(TransactionBatchesTable.id)?.value ?: TransactionBatchesTable
+            .insertReturning(returning = listOf(TransactionBatchesTable.id)) {
+                it[TransactionBatchesTable.inclusion] = inclusion
+                it[TransactionBatchesTable.sourceKind] = source
+                it[TransactionBatchesTable.position] = position
+                it[TransactionBatchesTable.applicationOrdinal] = applicationOrdinal
+                it[TransactionBatchesTable.valid] = valid
+                it[raw] = batch.raw.bytes()
+                it[TransactionBatchesTable.fullHash] = fullHash
+            }.single()[TransactionBatchesTable.id]
+            .value
         val parentId = member(context, batchId, batch.parent, null, null, batch.children.size, valid)
         val childIds = batch.children.mapIndexed { index, child -> member(context, batchId, child, parentId, index, index, valid) }
         val ordered = batch.children.zip(childIds) + (batch.parent to parentId)
@@ -44,13 +67,25 @@ class BatchEffectProjector(private val json: ObjectMapper) {
             tx.collateralReturn?.let { LedgerRepository.createOutput(context, memberId, tx.bodyId, tx.outputs.size, it, true, !valid) }
             data(context, memberId, tx, valid)
             var effectPosition = 0
-            fun effect(kind: String, address: ByteArray, amount: BigInteger?, lower: BigInteger? = null, upper: BigInteger? = null) {
+
+            fun effect(
+                kind: String,
+                address: ByteArray,
+                amount: BigInteger?,
+                lower: BigInteger? = null,
+                upper: BigInteger? = null
+            ) {
                 val index = effectPosition++
                 if (AccountEffectsTable.selectAll().where { (AccountEffectsTable.member eq memberId) and (AccountEffectsTable.position eq index) }.empty()) {
                     AccountEffectsTable.insert {
-                        it[member] = memberId; it[AccountEffectsTable.position] = index; it[account] = address; it[AccountEffectsTable.kind] = kind
-                        it[AccountEffectsTable.amount] = amount?.toBigDecimal(); it[AccountEffectsTable.lower] = lower?.toBigDecimal()
-                        it[AccountEffectsTable.upper] = upper?.toBigDecimal(); it[effective] = valid
+                        it[member] = memberId
+                        it[AccountEffectsTable.position] = index
+                        it[account] = address
+                        it[AccountEffectsTable.kind] = kind
+                        it[AccountEffectsTable.amount] = amount?.toBigDecimal()
+                        it[AccountEffectsTable.lower] = lower?.toBigDecimal()
+                        it[AccountEffectsTable.upper] = upper?.toBigDecimal()
+                        it[effective] = valid
                     }
                 }
                 if (valid && amount != null && kind in setOf("WITHDRAWAL", "DIRECT_DEPOSIT", "DONATION")) {
@@ -75,7 +110,11 @@ class BatchEffectProjector(private val json: ObjectMapper) {
                 certificate(context, memberId, index, certificate, valid)
                 certificate.credential?.let { credential ->
                     val key = byteArrayOf(credential.kind.toByte()) + credential.hash
-                    val kind = when (certificate.kind) { 7, 11, 12, 13, 16 -> "REGISTRATION_DEPOSIT"; 8, 17 -> "REGISTRATION_REFUND"; else -> null }
+                    val kind = when (certificate.kind) {
+                        7, 11, 12, 13, 16 -> "REGISTRATION_DEPOSIT"
+                        8, 17 -> "REGISTRATION_REFUND"
+                        else -> null
+                    }
                     if (kind != null) effect(kind, key, certificate.amount)
                 }
             }
@@ -100,30 +139,82 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         return batchId
     }
 
-    private fun member(context: LedgerRepository.ProjectionContext, batch: Long, tx: DecodedTransactionMember, parent: Long?, childPosition: Int?, ordinal: Int, valid: Boolean): Long =
-        (if (context.isNewInclusion) null else TransactionMembersTable.select(TransactionMembersTable.id).where { (TransactionMembersTable.batch eq batch) and (TransactionMembersTable.txId eq tx.bodyId) }
-            .singleOrNull()?.get(TransactionMembersTable.id)?.value) ?: TransactionMembersTable.insertReturning(returning = listOf(TransactionMembersTable.id)) {
-            it[TransactionMembersTable.batch] = batch; it[txId] = tx.bodyId; it[TransactionMembersTable.parent] = parent
-            it[TransactionMembersTable.childPosition] = childPosition; it[processingOrdinal] = ordinal
-            it[rawBody] = tx.body.bytes(); it[rawWitnesses] = tx.witnesses.bytes(); it[rawAuxiliary] = tx.auxiliaryData?.bytes()
-            it[auxiliaryPresence] = if (tx.auxiliaryData == null) "absent" else if (tx.auxiliaryData.isNull()) "null" else "present"
-            it[fee] = tx.fee?.toBigDecimal(); it[effective] = valid
-        }.single()[TransactionMembersTable.id].value
+    private fun member(
+        context: LedgerRepository.ProjectionContext,
+        batch: Long,
+        tx: DecodedTransactionMember,
+        parent: Long?,
+        childPosition: Int?,
+        ordinal: Int,
+        valid: Boolean
+    ): Long =
+        (
+            if (context.isNewInclusion) {
+                null
+            } else {
+                TransactionMembersTable
+                    .select(TransactionMembersTable.id)
+                    .where { (TransactionMembersTable.batch eq batch) and (TransactionMembersTable.txId eq tx.bodyId) }
+                    .singleOrNull()
+                    ?.get(TransactionMembersTable.id)
+                    ?.value
+            }
+        ) ?: TransactionMembersTable
+            .insertReturning(returning = listOf(TransactionMembersTable.id)) {
+                it[TransactionMembersTable.batch] = batch
+                it[txId] = tx.bodyId
+                it[TransactionMembersTable.parent] = parent
+                it[TransactionMembersTable.childPosition] = childPosition
+                it[processingOrdinal] = ordinal
+                it[rawBody] = tx.body.bytes()
+                it[rawWitnesses] = tx.witnesses.bytes()
+                it[rawAuxiliary] = tx.auxiliaryData?.bytes()
+                it[auxiliaryPresence] = if (tx.auxiliaryData == null) {
+                    "absent"
+                } else if (tx.auxiliaryData.isNull()) {
+                    "null"
+                } else {
+                    "present"
+                }
+                it[fee] = tx.fee?.toBigDecimal()
+                it[effective] = valid
+            }.single()[TransactionMembersTable.id]
+            .value
 
-    private fun inputs(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, valid: Boolean) {
+    private fun inputs(
+        context: LedgerRepository.ProjectionContext,
+        member: Long,
+        tx: DecodedTransactionMember,
+        valid: Boolean
+    ) {
         if (tx.inputs.isEmpty() && tx.referenceInputs.isEmpty() && tx.collateralInputs.isEmpty()) return
-        val existing = if (context.isNewInclusion) emptyMap() else InputOccurrencesTable.select(InputOccurrencesTable.id, InputOccurrencesTable.role, InputOccurrencesTable.position)
-            .where { InputOccurrencesTable.member eq member }
-            .associate { (it[InputOccurrencesTable.role] to it[InputOccurrencesTable.position]) to it[InputOccurrencesTable.id] }
-        fun process(inputs: List<DecodedInput>, role: String, effective: Boolean) {
+        val existing = if (context.isNewInclusion) {
+            emptyMap()
+        } else {
+            InputOccurrencesTable
+                .select(InputOccurrencesTable.id, InputOccurrencesTable.role, InputOccurrencesTable.position)
+                .where { InputOccurrencesTable.member eq member }
+                .associate { (it[InputOccurrencesTable.role] to it[InputOccurrencesTable.position]) to it[InputOccurrencesTable.id] }
+        }
+
+        fun process(
+            inputs: List<DecodedInput>,
+            role: String,
+            effective: Boolean
+        ) {
             inputs.forEachIndexed { position, input ->
-                val resolved = if (effective) LedgerRepository.spend(context, input.transactionId, input.index)
-                    else LedgerRepository.currentOutput(context.network, input.transactionId, input.index)?.get(LedgerUtxosTable.outputOccurrenceId)
+                val resolved = if (effective) {
+                    LedgerRepository.spend(context, input.transactionId, input.index)
+                } else {
+                    LedgerRepository.currentOutput(context.network, input.transactionId, input.index)?.get(LedgerUtxosTable.outputOccurrenceId)
+                }
                 val id = existing[role to position]
                 if (id == null) {
                     context.pendingInputs.add(PendingInput(member, input, role, position, effective, resolved))
                     if (context.pendingInputs.size == 256) flushInputs(context)
-                } else InputOccurrencesTable.update({ InputOccurrencesTable.id eq id }) { it[resolvedOutput] = resolved }
+                } else {
+                    InputOccurrencesTable.update({ InputOccurrencesTable.id eq id }) { it[resolvedOutput] = resolved }
+                }
             }
         }
         process(tx.inputs, "spending", valid)
@@ -132,10 +223,26 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         if (!context.isNewInclusion) flushInputs(context)
     }
 
-    private fun data(context: LedgerRepository.ProjectionContext, member: Long, tx: DecodedTransactionMember, effective: Boolean) {
-        data class Pending(val family: String, val position: Int, val raw: CborSpan, val typed: Any?)
+    private fun data(
+        context: LedgerRepository.ProjectionContext,
+        member: Long,
+        tx: DecodedTransactionMember,
+        effective: Boolean
+    ) {
+        data class Pending(
+            val family: String,
+            val position: Int,
+            val raw: CborSpan,
+            val typed: Any?
+        )
         val rows = mutableListOf<Pending>()
-        fun save(family: String, index: Int, raw: CborSpan, typed: Any?) {
+
+        fun save(
+            family: String,
+            index: Int,
+            raw: CborSpan,
+            typed: Any?
+        ) {
             rows.add(Pending(family, index, raw, typed))
         }
         val families = mapOf(3 to "validityEnd", 4 to "certificates", 5 to "withdrawals", 7 to "auxiliaryHash", 8 to "validityStart", 9 to "mint", 11 to "scriptIntegrityHash", 14 to "guards", 15 to "network", 17 to "totalCollateral", 19 to "votes", 20 to "proposals", 21 to "treasury", 22 to "donation", 24 to "requiredGuards", 25 to "directDeposits", 26 to "accountIntervals", 27 to "startingAccountIntervals")
@@ -146,9 +253,15 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         tx.auxiliary?.metadata?.let { save("metadata", 0, it, cborValue(it)) }
         tx.auxiliary?.scripts?.forEachIndexed { index, script -> save("auxiliaryScript", index, script.raw, mapOf("language" to script.language, "value" to cborValue(script.raw))) }
         if (rows.isEmpty()) return
-        val existing = if (context.isNewInclusion) emptySet() else MemberDataTable.select(MemberDataTable.family, MemberDataTable.position)
-            .where { MemberDataTable.member eq member }
-            .map { it[MemberDataTable.family] to it[MemberDataTable.position] }.toSet()
+        val existing = if (context.isNewInclusion) {
+            emptySet()
+        } else {
+            MemberDataTable
+                .select(MemberDataTable.family, MemberDataTable.position)
+                .where { MemberDataTable.member eq member }
+                .map { it[MemberDataTable.family] to it[MemberDataTable.position] }
+                .toSet()
+        }
         rows.forEach { row ->
             if ((row.family to row.position) !in existing) {
                 context.pendingData.add(PendingData(member, row.family, row.position, row.raw, json.writeValueAsString(row.typed), effective))
@@ -168,9 +281,13 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         if (context.pendingInputs.isEmpty()) return
         InputOccurrencesTable.batchInsert(context.pendingInputs, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
             this[InputOccurrencesTable.id] = nextOccurrenceId
-            this[InputOccurrencesTable.member] = row.member; this[InputOccurrencesTable.role] = row.role
-            this[InputOccurrencesTable.position] = row.position; this[InputOccurrencesTable.txId] = row.input.transactionId
-            this[InputOccurrencesTable.index] = row.input.index; this[InputOccurrencesTable.resolvedOutput] = row.resolved; this[InputOccurrencesTable.effective] = row.effective
+            this[InputOccurrencesTable.member] = row.member
+            this[InputOccurrencesTable.role] = row.role
+            this[InputOccurrencesTable.position] = row.position
+            this[InputOccurrencesTable.txId] = row.input.transactionId
+            this[InputOccurrencesTable.index] = row.input.index
+            this[InputOccurrencesTable.resolvedOutput] = row.resolved
+            this[InputOccurrencesTable.effective] = row.effective
         }
         context.pendingInputs.clear()
     }
@@ -179,14 +296,23 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         if (context.pendingData.isEmpty()) return
         MemberDataTable.batchInsert(context.pendingData, useMultiRowValues = true, shouldReturnGeneratedValues = false) { row ->
             this[MemberDataTable.id] = nextOccurrenceId
-            this[MemberDataTable.member] = row.member; this[MemberDataTable.family] = row.family; this[MemberDataTable.position] = row.position
-            this[MemberDataTable.raw] = row.raw.bytes(); this[MemberDataTable.typed] = row.typed
+            this[MemberDataTable.member] = row.member
+            this[MemberDataTable.family] = row.family
+            this[MemberDataTable.position] = row.position
+            this[MemberDataTable.raw] = row.raw.bytes()
+            this[MemberDataTable.typed] = row.typed
             this[MemberDataTable.effective] = row.effective
         }
         context.pendingData.clear()
     }
 
-    private fun certificate(context: LedgerRepository.ProjectionContext, member: Long, position: Int, cert: DecodedCertificate, effective: Boolean) {
+    private fun certificate(
+        context: LedgerRepository.ProjectionContext,
+        member: Long,
+        position: Int,
+        cert: DecodedCertificate,
+        effective: Boolean
+    ) {
         val credential = cert.credential?.let { byteArrayOf(it.kind.toByte()) + it.hash }
         val key = cert.pool ?: credential ?: cert.raw.hash256()
         val typed = linkedMapOf<String, Any?>("tag" to cert.kind, "credential" to credential?.toHexString(), "pool" to cert.pool?.toHexString(), "amount" to cert.amount?.toString(), "epoch" to cert.epoch?.toString(), "payload" to cborValue(cert.raw))
@@ -194,39 +320,89 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         governance(member, position, "CERTIFICATE", key, cert.amount, cert.raw, typed, effective)
         if (!effective) return
         // Registration intent and scheduled retirement are distinct from epoch-bound activation/refund.
-        val family = when (cert.kind) { 3 -> "POOL_REGISTRATION"; 4 -> "POOL_RETIREMENT"; 0, 7, 11, 12, 13 -> "STAKE_REGISTRATION"; 1, 8 -> "STAKE_DEREGISTRATION"; 2, 9, 10 -> "STAKE_DELEGATION"; 14, 15 -> "COMMITTEE"; 16, 17, 18 -> "DREP"; else -> "CERTIFICATE_${cert.kind}" }
+        val family = when (cert.kind) {
+            3 -> "POOL_REGISTRATION"
+            4 -> "POOL_RETIREMENT"
+            0, 7, 11, 12, 13 -> "STAKE_REGISTRATION"
+            1, 8 -> "STAKE_DEREGISTRATION"
+            2, 9, 10 -> "STAKE_DELEGATION"
+            14, 15 -> "COMMITTEE"
+            16, 17, 18 -> "DREP"
+            else -> "CERTIFICATE_${cert.kind}"
+        }
         project(context.network, context.inclusion, member, family, key, json.writeValueAsString(typed), context.nextSequence++)
         if (cert.kind == 3) project(context.network, context.inclusion, member, "POOL_RETIREMENT", key, "null", context.nextSequence++)
     }
 
-    private fun governance(member: Long, position: Int, kind: String, target: ByteArray?, amount: BigInteger?, raw: CborSpan, typed: Any, effective: Boolean) {
-        if (CertificateGovernanceEffectsTable.selectAll().where { (CertificateGovernanceEffectsTable.member eq member) and (CertificateGovernanceEffectsTable.kind eq kind) and (CertificateGovernanceEffectsTable.position eq position) }.empty()) CertificateGovernanceEffectsTable.insert {
-            it[CertificateGovernanceEffectsTable.member] = member; it[CertificateGovernanceEffectsTable.position] = position
-            it[CertificateGovernanceEffectsTable.kind] = kind; it[CertificateGovernanceEffectsTable.target] = target
-            it[CertificateGovernanceEffectsTable.amount] = amount?.toBigDecimal(); it[CertificateGovernanceEffectsTable.raw] = raw.bytes()
-            it[CertificateGovernanceEffectsTable.typed] = json.writeValueAsString(typed); it[CertificateGovernanceEffectsTable.effective] = effective
+    private fun governance(
+        member: Long,
+        position: Int,
+        kind: String,
+        target: ByteArray?,
+        amount: BigInteger?,
+        raw: CborSpan,
+        typed: Any,
+        effective: Boolean
+    ) {
+        if (CertificateGovernanceEffectsTable.selectAll().where { (CertificateGovernanceEffectsTable.member eq member) and (CertificateGovernanceEffectsTable.kind eq kind) and (CertificateGovernanceEffectsTable.position eq position) }.empty()) {
+            CertificateGovernanceEffectsTable.insert {
+                it[CertificateGovernanceEffectsTable.member] = member
+                it[CertificateGovernanceEffectsTable.position] = position
+                it[CertificateGovernanceEffectsTable.kind] = kind
+                it[CertificateGovernanceEffectsTable.target] = target
+                it[CertificateGovernanceEffectsTable.amount] = amount?.toBigDecimal()
+                it[CertificateGovernanceEffectsTable.raw] = raw.bytes()
+                it[CertificateGovernanceEffectsTable.typed] = json.writeValueAsString(typed)
+                it[CertificateGovernanceEffectsTable.effective] = effective
+            }
         }
     }
 
-    private fun state(network: String, family: String, key: ByteArray): ResultRow? = DerivedAccountGovernanceStatesTable.selectAll().where {
-        (DerivedAccountGovernanceStatesTable.network eq network) and (DerivedAccountGovernanceStatesTable.family eq family) and (DerivedAccountGovernanceStatesTable.key eq key)
-    }.singleOrNull()
+    private fun state(
+        network: String,
+        family: String,
+        key: ByteArray
+    ): ResultRow? =
+        DerivedAccountGovernanceStatesTable
+            .selectAll()
+            .where {
+                (DerivedAccountGovernanceStatesTable.network eq network) and (DerivedAccountGovernanceStatesTable.family eq family) and (DerivedAccountGovernanceStatesTable.key eq key)
+            }.singleOrNull()
 
-    private fun project(network: String, inclusion: Long, member: Long, family: String, key: ByteArray, value: String, sequence: Int) {
+    private fun project(
+        network: String,
+        inclusion: Long,
+        member: Long,
+        family: String,
+        key: ByteArray,
+        value: String,
+        sequence: Int
+    ) {
         val prior = state(network, family, key)
         ReversibleChangesTable.insert {
-            it[ReversibleChangesTable.inclusion] = inclusion; it[ReversibleChangesTable.sequence] = sequence
-            it[ReversibleChangesTable.family] = family; it[ReversibleChangesTable.key] = key
+            it[ReversibleChangesTable.inclusion] = inclusion
+            it[ReversibleChangesTable.sequence] = sequence
+            it[ReversibleChangesTable.family] = family
+            it[ReversibleChangesTable.key] = key
             it[priorValue] = prior?.get(DerivedAccountGovernanceStatesTable.value)
             it[priorInclusion] = prior?.get(DerivedAccountGovernanceStatesTable.inclusion)
             it[priorMember] = prior?.get(DerivedAccountGovernanceStatesTable.member)
         }
-        if (prior == null) DerivedAccountGovernanceStatesTable.insert {
-            it[DerivedAccountGovernanceStatesTable.network] = network; it[DerivedAccountGovernanceStatesTable.family] = family
-            it[DerivedAccountGovernanceStatesTable.key] = key; it[DerivedAccountGovernanceStatesTable.value] = value
-            it[DerivedAccountGovernanceStatesTable.inclusion] = inclusion; it[DerivedAccountGovernanceStatesTable.member] = member
-        } else DerivedAccountGovernanceStatesTable.update({ (DerivedAccountGovernanceStatesTable.network eq network) and (DerivedAccountGovernanceStatesTable.family eq family) and (DerivedAccountGovernanceStatesTable.key eq key) }) {
-            it[DerivedAccountGovernanceStatesTable.value] = value; it[DerivedAccountGovernanceStatesTable.inclusion] = inclusion; it[DerivedAccountGovernanceStatesTable.member] = member
+        if (prior == null) {
+            DerivedAccountGovernanceStatesTable.insert {
+                it[DerivedAccountGovernanceStatesTable.network] = network
+                it[DerivedAccountGovernanceStatesTable.family] = family
+                it[DerivedAccountGovernanceStatesTable.key] = key
+                it[DerivedAccountGovernanceStatesTable.value] = value
+                it[DerivedAccountGovernanceStatesTable.inclusion] = inclusion
+                it[DerivedAccountGovernanceStatesTable.member] = member
+            }
+        } else {
+            DerivedAccountGovernanceStatesTable.update({ (DerivedAccountGovernanceStatesTable.network eq network) and (DerivedAccountGovernanceStatesTable.family eq family) and (DerivedAccountGovernanceStatesTable.key eq key) }) {
+                it[DerivedAccountGovernanceStatesTable.value] = value
+                it[DerivedAccountGovernanceStatesTable.inclusion] = inclusion
+                it[DerivedAccountGovernanceStatesTable.member] = member
+            }
         }
     }
 
@@ -238,22 +414,29 @@ class BatchEffectProjector(private val json: ObjectMapper) {
         var index = 0
         while (index < pending.size) {
             val item = pending[index++]
+
             fun childIndices(): List<Int> {
                 val start = pending.size
                 pending.addAll(item.children)
                 return List(item.children.size) { start + it }
             }
-            nodes.add(when (item.major) {
-                0, 1 -> mapOf("type" to "integer", "value" to item.integer().toString())
-                2 -> mapOf("type" to "bytes", "hex" to item.payload().toHexString())
-                3 -> mapOf("type" to "text", "value" to item.payload().toString(Charsets.UTF_8))
-                4 -> mapOf("type" to "array", "items" to childIndices())
-                5 -> mapOf("type" to "map", "entries" to childIndices().chunked(2))
-                6 -> mapOf("type" to "tag", "tag" to item.argument.toString(), "value" to childIndices().single())
-                else -> if (item.isNull()) mapOf("type" to "null")
-                    else if (item.argument == BigInteger.valueOf(20) || item.argument == BigInteger.valueOf(21)) mapOf("type" to "boolean", "value" to item.boolean())
-                    else mapOf("type" to "simple", "rawHex" to item.bytes().toHexString())
-            })
+            nodes.add(
+                when (item.major) {
+                    0, 1 -> mapOf("type" to "integer", "value" to item.integer().toString())
+                    2 -> mapOf("type" to "bytes", "hex" to item.payload().toHexString())
+                    3 -> mapOf("type" to "text", "value" to item.payload().toString(Charsets.UTF_8))
+                    4 -> mapOf("type" to "array", "items" to childIndices())
+                    5 -> mapOf("type" to "map", "entries" to childIndices().chunked(2))
+                    6 -> mapOf("type" to "tag", "tag" to item.argument.toString(), "value" to childIndices().single())
+                    else -> if (item.isNull()) {
+                        mapOf("type" to "null")
+                    } else if (item.argument == BigInteger.valueOf(20) || item.argument == BigInteger.valueOf(21)) {
+                        mapOf("type" to "boolean", "value" to item.boolean())
+                    } else {
+                        mapOf("type" to "simple", "rawHex" to item.bytes().toHexString())
+                    }
+                }
+            )
         }
         return mapOf("root" to 0, "nodes" to nodes)
     }

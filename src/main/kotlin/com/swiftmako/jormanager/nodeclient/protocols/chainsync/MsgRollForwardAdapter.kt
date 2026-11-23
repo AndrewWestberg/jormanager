@@ -32,7 +32,10 @@ object MsgRollForwardAdapter {
     private const val ERA_DIJKSTRA = 7L
 //    private var tipDone = false
 
-    fun fromCborArray(cborArray: CborArray, byronEpochSlots: Long? = null): Optional<MsgRollForward> {
+    fun fromCborArray(
+        cborArray: CborArray,
+        byronEpochSlots: Long? = null
+    ): Optional<MsgRollForward> {
         try {
             assert(MsgRollForward.MESSAGE_ID == cborArray.elementToLong(0))
 
@@ -48,12 +51,20 @@ object MsgRollForwardAdapter {
                 val header = ByronBlockDecoder.decodeHeader(nested.elementToByteArray(1), tag == 0L, requireNotNull(byronEpochSlots))
                 val tip = cborArray.elementAt(2) as CborArray
                 val point = tip.elementAt(0) as CborArray
-                return Optional.of(MsgRollForward(
-                    header.blockNumber.longValueExact(), header.slot.longValueExact(),
-                    header.headerHash.toHexString(), header.previousHash.toHexString(),
-                    "", "", "", "", "",
-                    ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
-                ))
+                return Optional.of(
+                    MsgRollForward(
+                        header.blockNumber.longValueExact(),
+                        header.slot.longValueExact(),
+                        header.headerHash.toHexString(),
+                        header.previousHash.toHexString(),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
+                    )
+                )
             }
             val wrappedBlockHeaderBytes = headerCborArray.elementToByteArray(1)
             if (blockEra == ERA_DIJKSTRA) {
@@ -61,15 +72,20 @@ object MsgRollForwardAdapter {
                 val blockVrf = header.vrfResult.toHexString()
                 val tip = cborArray.elementAt(2) as CborArray
                 val point = tip.elementAt(0) as CborArray
-                return Optional.of(MsgRollForward(
-                    header.blockNumber.longValueExact(), header.slot.longValueExact(),
-                    CborSpans.parse(wrappedBlockHeaderBytes).hash256().toHexString(),
-                    header.previousHash?.toHexString() ?: "", header.issuerVkey.toHexString(),
-                    Blake2b.hash256(NONCE_VRF_HEADER + header.vrfResult).toHexString(),
-                    Blake2b.hash256(LEADER_VRF_HEADER + header.vrfResult).toHexString(),
-                    blockVrf, header.vrfProof.toHexString(),
-                    ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
-                ))
+                return Optional.of(
+                    MsgRollForward(
+                        header.blockNumber.longValueExact(),
+                        header.slot.longValueExact(),
+                        CborSpans.parse(wrappedBlockHeaderBytes).hash256().toHexString(),
+                        header.previousHash?.toHexString() ?: "",
+                        header.issuerVkey.toHexString(),
+                        Blake2b.hash256(NONCE_VRF_HEADER + header.vrfResult).toHexString(),
+                        Blake2b.hash256(LEADER_VRF_HEADER + header.vrfResult).toHexString(),
+                        blockVrf,
+                        header.vrfProof.toHexString(),
+                        ChainTip(point.elementToLong(0), tip.elementToLong(1), point.elementToHexString(1)),
+                    )
+                )
             }
 
             // calculate the block hash

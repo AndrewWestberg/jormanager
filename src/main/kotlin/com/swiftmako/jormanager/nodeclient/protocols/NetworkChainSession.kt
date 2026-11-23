@@ -13,18 +13,27 @@ class NetworkChainSession(
     generation: Long,
     val byronEpochSlots: Long,
 ) {
-    data class Request(val point: ChainPoint, val generation: Long)
+    data class Request(
+        val point: ChainPoint,
+        val generation: Long
+    )
+
     private val permits = Semaphore(128)
     private val requests = Channel<Request>(128)
+
     @Volatile var generation: Long = generation
         private set
+
     @Volatile var tipBlockNumber: Long = 0
 
     suspend fun reserve() = permits.acquire()
+
     fun release() = permits.release()
+
     fun enqueue(point: ChainPoint) {
         check(requests.trySend(Request(point, generation)).isSuccess) { "Chain fetch queue closed or full" }
     }
+
     suspend fun next(): Request {
         while (true) {
             val request = requests.receive()
@@ -32,10 +41,12 @@ class NetworkChainSession(
             permits.release()
         }
     }
+
     @Synchronized
     fun rollback(point: ChainPoint?) {
         generation = coordinator.rollback(networkKey, point, generation)
     }
+
     @Synchronized
     fun close() {
         requests.close()

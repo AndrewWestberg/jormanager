@@ -16,7 +16,10 @@ internal object CardanoFixedPoint {
         MAX_REACHED,
     }
 
-    fun floorDiv(numerator: BigInteger, denominator: BigInteger): BigInteger {
+    fun floorDiv(
+        numerator: BigInteger,
+        denominator: BigInteger
+    ): BigInteger {
         val (quotient, remainder) = numerator.divideAndRemainder(denominator)
         return if (remainder.signum() != 0 && numerator.signum() != denominator.signum()) {
             quotient - BigInteger.ONE
@@ -25,12 +28,20 @@ internal object CardanoFixedPoint {
         }
     }
 
-    fun fromRatio(numerator: BigInteger, denominator: BigInteger): BigInteger =
-        floorDiv(numerator * SCALE, denominator)
+    fun fromRatio(
+        numerator: BigInteger,
+        denominator: BigInteger
+    ): BigInteger = floorDiv(numerator * SCALE, denominator)
 
-    fun multiply(a: BigInteger, b: BigInteger): BigInteger = floorDiv(a * b, SCALE)
+    fun multiply(
+        a: BigInteger,
+        b: BigInteger
+    ): BigInteger = floorDiv(a * b, SCALE)
 
-    fun divide(a: BigInteger, b: BigInteger): BigInteger = floorDiv(a * SCALE, b)
+    fun divide(
+        a: BigInteger,
+        b: BigInteger
+    ): BigInteger = floorDiv(a * SCALE, b)
 
     fun exp(x: BigInteger): BigInteger {
         if (x.signum() < 0) return divide(SCALE, exp(-x))
@@ -58,7 +69,10 @@ internal object CardanoFixedPoint {
         return exponent * SCALE + lnContinuedFraction(remainder)
     }
 
-    fun taylorExpCmp(q: BigInteger, x: BigInteger): Comparison {
+    fun taylorExpCmp(
+        q: BigInteger,
+        x: BigInteger
+    ): Comparison {
         var acc = SCALE
         var err = x
         var divisor = SCALE
@@ -76,7 +90,10 @@ internal object CardanoFixedPoint {
         return Comparison.MAX_REACHED
     }
 
-    private fun integerPower(base: BigInteger, exponent: BigInteger): BigInteger =
+    private fun integerPower(
+        base: BigInteger,
+        exponent: BigInteger
+    ): BigInteger =
         if (exponent.signum() < 0) {
             divide(SCALE, positiveIntegerPower(base, -exponent))
         } else {
@@ -84,7 +101,10 @@ internal object CardanoFixedPoint {
         }
 
     // Preserve ipow' evaluation order: odd powers multiply by power(n-1), even powers square power(n/2).
-    private fun positiveIntegerPower(base: BigInteger, exponent: BigInteger): BigInteger =
+    private fun positiveIntegerPower(
+        base: BigInteger,
+        exponent: BigInteger
+    ): BigInteger =
         when {
             exponent.signum() == 0 -> SCALE
             !exponent.testBit(0) -> {

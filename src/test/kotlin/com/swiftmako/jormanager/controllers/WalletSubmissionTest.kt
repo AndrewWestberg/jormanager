@@ -23,7 +23,10 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 
 class WalletSubmissionTest {
     private fun n(value: Long) = BigInteger.valueOf(value)
-    private inner class Fixture(val era: String) {
+
+    private inner class Fixture(
+        val era: String
+    ) {
         val json = jacksonObjectMapper()
         val wallets = mockk<WalletUtils>()
         val accounts = mockk<WalletRepository>()
@@ -41,8 +44,10 @@ class WalletSubmissionTest {
         val stakeAddress = Bech32.encode("addr_test", byteArrayOf(0x60) + ByteArray(28) { 0x22 })
         val funds = WalletEntry(1, "funds", "payment", fundsAddress, paymentSkey = key)
         val stake = WalletEntry(2, "stake", "stake", stakeAddress, paymentSkey = key, stakingAddr = "stake-address", stakingSkey = key, stakingVkey = key)
-        val roots = mapOf(fundsAddress to Utxo("11".repeat(32), 0, n(10_000_000), emptyList()),
-            stakeAddress to Utxo("22".repeat(32), 0, n(5_000_000), emptyList()))
+        val roots = mapOf(
+            fundsAddress to Utxo("11".repeat(32), 0, n(10_000_000), emptyList()),
+            stakeAddress to Utxo("22".repeat(32), 0, n(5_000_000), emptyList())
+        )
         val ledger = LedgerDao(eras, json, mockk(relaxed = true), MutableStateFlow(null))
         var envelope = ""
         var id = ""
@@ -50,6 +55,7 @@ class WalletSubmissionTest {
         var registered = false
         val commands = mutableListOf<List<String>>()
         val controller: WalletController
+
         init {
             every { node.hostId } returns 1
             every { node.genesisShelleyFileId } returns 1
@@ -78,7 +84,9 @@ class WalletSubmissionTest {
             every { wallets.getSKeyContent(key, "secret") } returns "signing-key"
             controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), mockk(), eras, parameters, ledger, WalletTransactionBuilder(json), json)
         }
+
         fun balance(address: String) = ledger.liveUtxos("network", address, listOf(roots.getValue(address))).sumOf { it.lovelace }
+
         fun run(action: () -> Unit) {
             mockkConstructor(HostConnection::class)
             try {
@@ -95,15 +103,27 @@ class WalletSubmissionTest {
                         "submit" in args && reject -> throw IllegalStateException("node rejected registration")
                         "build-raw" in args -> {
                             val inputs = args.indices.filter { args[it] == "--tx-in" }.map {
-                                val reference = args[it + 1].split('#'); F.input(reference[0].hexToByteArray(), reference[1].toInt())
+                                val reference = args[it + 1].split('#')
+                                F.input(reference[0].hexToByteArray(), reference[1].toInt())
                             }
                             val outputs = args.indices.filter { args[it] == "--tx-out" }.map {
-                                val value = args[it + 1].split('+'); F.output(Bech32.decode(value[0]).bytes, value[1].toLong())
+                                val value = args[it + 1].split('+')
+                                F.output(Bech32.decode(value[0]).bytes, value[1].toLong())
                             }
-                            val body = F.map(listOf(F.integer(0) to F.array(inputs), F.integer(1) to F.array(outputs),
-                                F.integer(2) to F.integer(args[args.indexOf("--fee") + 1].toLong())))
-                            val hex = (if (era == "dijkstra") F.array(body, F.map(emptyList()), byteArrayOf(0xf6.toByte()))
-                                else F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte()))).toHexString()
+                            val body = F.map(
+                                listOf(
+                                    F.integer(0) to F.array(inputs),
+                                    F.integer(1) to F.array(outputs),
+                                    F.integer(2) to F.integer(args[args.indexOf("--fee") + 1].toLong())
+                                )
+                            )
+                            val hex = (
+                                if (era == "dijkstra") {
+                                    F.array(body, F.map(emptyList()), byteArrayOf(0xf6.toByte()))
+                                } else {
+                                    F.array(body, F.map(emptyList()), byteArrayOf(0xf5.toByte()), byteArrayOf(0xf6.toByte()))
+                                }
+                            ).toHexString()
                             id = SubmittedTransactionDecoder.decodeSubmitted(hex, era).id
                             envelope = """{"cborHex":"$hex"}"""
                             ""
@@ -112,24 +132,28 @@ class WalletSubmissionTest {
                     }
                 }
                 action()
-            } finally { unmockkConstructor(HostConnection::class) }
+            } finally {
+                unmockkConstructor(HostConnection::class)
+            }
         }
     }
 
     @Test fun registrationUsesEitherFeeAccountWithoutLockingRejectedFunds() {
-        for (era in listOf("conway", "dijkstra")) for (payer in listOf(1L, 2L)) {
-            val f = Fixture(era)
-            f.run {
-                val request = UpdateStakingAddressRequest(2, "secret", payer, true)
-                f.reject = true
-                assertTrue(f.controller.updateStakingAddress(request) is SocketResponse.Error)
-                assertEquals(n(10_000_000), f.balance(f.fundsAddress))
-                assertEquals(n(5_000_000), f.balance(f.stakeAddress))
-                f.reject = false
-                assertTrue(f.controller.updateStakingAddress(request) is SocketResponse.Success)
-                assertEquals(n(if (payer == 1L) 7_800_000 else 10_000_000), f.balance(f.fundsAddress))
-                assertEquals(n(if (payer == 2L) 2_800_000 else 5_000_000), f.balance(f.stakeAddress))
-                assertTrue(f.commands.any { "registration-certificate" in it && it[it.indexOf("--key-reg-deposit-amt") + 1] == "2000000" })
+        for (era in listOf("conway", "dijkstra")) {
+            for (payer in listOf(1L, 2L)) {
+                val f = Fixture(era)
+                f.run {
+                    val request = UpdateStakingAddressRequest(2, "secret", payer, true)
+                    f.reject = true
+                    assertTrue(f.controller.updateStakingAddress(request) is SocketResponse.Error)
+                    assertEquals(n(10_000_000), f.balance(f.fundsAddress))
+                    assertEquals(n(5_000_000), f.balance(f.stakeAddress))
+                    f.reject = false
+                    assertTrue(f.controller.updateStakingAddress(request) is SocketResponse.Success)
+                    assertEquals(n(if (payer == 1L) 7_800_000 else 10_000_000), f.balance(f.fundsAddress))
+                    assertEquals(n(if (payer == 2L) 2_800_000 else 5_000_000), f.balance(f.stakeAddress))
+                    assertTrue(f.commands.any { "registration-certificate" in it && it[it.indexOf("--key-reg-deposit-amt") + 1] == "2000000" })
+                }
             }
         }
     }
@@ -146,8 +170,16 @@ class WalletSubmissionTest {
     @Test fun acknowledgedSendUpdatesLiveChange() {
         val f = Fixture("dijkstra")
         f.run {
-            val request = SubmitTransactionRequest("secret", 1, emptyList(), n(200_000), BigInteger.ZERO,
-                listOf(ToAccount("ada", 2, "", n(1_000_000), null, BigInteger.ZERO)), false, null)
+            val request = SubmitTransactionRequest(
+                "secret",
+                1,
+                emptyList(),
+                n(200_000),
+                BigInteger.ZERO,
+                listOf(ToAccount("ada", 2, "", n(1_000_000), null, BigInteger.ZERO)),
+                false,
+                null
+            )
             assertTrue(f.controller.submitTransaction(request) is SocketResponse.Success)
             assertEquals(n(8_800_000), f.balance(f.fundsAddress))
             assertEquals(n(6_000_000), f.balance(f.stakeAddress))
@@ -164,8 +196,22 @@ class WalletSubmissionTest {
         val wallets = mockk<WalletUtils>()
         val ledger = mockk<LedgerDao>()
         every { wallets.isValidSpendingPassword("wrong") } returns false
-        val controller = WalletController(wallets, mockk(), mockk(), mockk(), mockk(), mockk(), mockk(),
-            mockk(), mockk(), mockk(), mockk(), ledger, mockk(), jacksonObjectMapper())
+        val controller = WalletController(
+            wallets,
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            mockk(),
+            ledger,
+            mockk(),
+            jacksonObjectMapper()
+        )
         val request = SubmitTransactionRequest("wrong", 1, emptyList(), BigInteger.ZERO, BigInteger.ZERO, emptyList(), false, null)
         assertTrue(controller.submitTransaction(request) is SocketResponse.Error)
         verify(exactly = 0) { ledger.withSubmissionLock(any<() -> String>()) }

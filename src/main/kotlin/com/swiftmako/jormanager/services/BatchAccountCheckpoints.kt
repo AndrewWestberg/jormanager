@@ -10,7 +10,9 @@ import java.math.BigInteger
  * Exact assertions establish a balance at their checkpoint; ranges alone do not establish a total.
  * The node remains authoritative for account existence, rewards and ledger/script acceptance.
  */
-internal class BatchAccountCheckpoints(batch: DecodedTransactionBatch) {
+internal class BatchAccountCheckpoints(
+    batch: DecodedTransactionBatch
+) {
     private val original = HashMap<String, BigInteger>()
     private val delta = HashMap<String, BigInteger>()
     private val withdrawn = HashMap<String, BigInteger>()
@@ -37,7 +39,10 @@ internal class BatchAccountCheckpoints(batch: DecodedTransactionBatch) {
         }
     }
 
-    fun withdraw(address: ByteArray, amount: BigInteger) {
+    fun withdraw(
+        address: ByteArray,
+        amount: BigInteger
+    ) {
         val key = address.toHexString()
         val total = (withdrawn[key] ?: BigInteger.ZERO) + amount
         original[key]?.let { require(total <= it) { "Withdrawal uses same-batch direct deposits" } }
@@ -45,12 +50,18 @@ internal class BatchAccountCheckpoints(batch: DecodedTransactionBatch) {
         delta[key] = (delta[key] ?: BigInteger.ZERO) - amount
     }
 
-    fun deposit(address: ByteArray, amount: BigInteger) {
+    fun deposit(
+        address: ByteArray,
+        amount: BigInteger
+    ) {
         val key = address.toHexString()
         delta[key] = (delta[key] ?: BigInteger.ZERO) + amount
     }
 
-    private fun checkInterval(interval: DecodedAccountInterval, value: BigInteger) {
+    private fun checkInterval(
+        interval: DecodedAccountInterval,
+        value: BigInteger
+    ) {
         require(interval.exact == null || value == interval.exact) { "Account equality checkpoint mismatch" }
         require(interval.lowerInclusive == null || value >= interval.lowerInclusive) { "Account lower checkpoint mismatch" }
         require(interval.upperExclusive == null || value < interval.upperExclusive) { "Account upper checkpoint mismatch" }

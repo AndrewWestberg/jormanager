@@ -34,13 +34,28 @@ class ChainIngestionCoordinator(
     private val lastProgressNotification = ConcurrentHashMap<String, Long>()
     private val liveWalletGenerations = ConcurrentHashMap<String, Long>()
     private val log = LoggerFactory.getLogger(ChainIngestionCoordinator::class.java)
-    private val nextReferenceId = org.jetbrains.exposed.v1.core.Sequence("hibernate_sequence").nextLongVal()
-    fun registerNetwork(networkKey: String, genesisHash: String, genesisOutputs: List<DecodedGenesisOutput> = emptyList()) {
+    private val nextReferenceId = org.jetbrains.exposed.v1.core
+        .Sequence("hibernate_sequence")
+        .nextLongVal()
+
+    fun registerNetwork(
+        networkKey: String,
+        genesisHash: String,
+        genesisOutputs: List<DecodedGenesisOutput> = emptyList()
+    ) {
         require(networkKey.isNotBlank() && genesisHash.matches(Regex("[0-9a-f]{64}")))
         val restored = transaction {
             lock(networkKey)
-            NetworkGenesisTable.insertIgnore { it[network] = networkKey; it[hash] = genesisHash.hexToByteArray(); it[seeded] = false }
-            val row = NetworkGenesisTable.selectAll().where { NetworkGenesisTable.network eq networkKey }.forUpdate().single()
+            NetworkGenesisTable.insertIgnore {
+                it[network] = networkKey
+                it[hash] = genesisHash.hexToByteArray()
+                it[seeded] = false
+            }
+            val row = NetworkGenesisTable
+                .selectAll()
+                .where { NetworkGenesisTable.network eq networkKey }
+                .forUpdate()
+                .single()
             check(row[NetworkGenesisTable.hash].contentEquals(genesisHash.hexToByteArray())) { "Network genesis identity changed" }
             if (!row[NetworkGenesisTable.seeded]) {
                 check(ChainInclusionsTable.selectAll().where { ChainInclusionsTable.network eq networkKey }.empty()) { "Genesis cannot be replaced after ingestion" }
@@ -51,16 +66,26 @@ class ChainIngestionCoordinator(
             } else if (genesisOutputs.isNotEmpty() &&
                 LedgerUtxosTable.selectAll().where { LedgerUtxosTable.networkKey eq networkKey }.empty()
             ) {
-                check((TransactionBatchesTable innerJoin ChainInclusionsTable).selectAll()
-                    .where { ChainInclusionsTable.network eq networkKey }.empty()) {
+                check(
+                    (TransactionBatchesTable innerJoin ChainInclusionsTable)
+                        .selectAll()
+                        .where { ChainInclusionsTable.network eq networkKey }
+                        .empty()
+                ) {
                     "Genesis outputs are missing after transaction ingestion; controlled index recovery is required"
                 }
-                check(ChainInclusionsTable.selectAll().where {
-                    (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.complete eq false)
-                }.empty()) { "Genesis recovery is unsafe with incomplete block history" }
+                check(
+                    ChainInclusionsTable
+                        .selectAll()
+                        .where {
+                            (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.complete eq false)
+                        }.empty()
+                ) { "Genesis recovery is unsafe with incomplete block history" }
                 LedgerRepository.seedGenesis(networkKey, genesisOutputs)
                 genesisOutputs.size
-            } else 0
+            } else {
+                0
+            }
         }
         if (restored > 0) log.info("Restored {} genesis outputs for network {} before transaction ingestion", restored, networkKey)
     }
@@ -68,11 +93,19 @@ class ChainIngestionCoordinator(
     private fun lock(network: String): ResultRow {
         require(network.isNotBlank())
         SyncStatesTable.insertIgnore {
-            it[SyncStatesTable.network] = network; it[generation] = 0; it[status] = "unavailable"
-            it[reason] = "Awaiting verified replay from genesis"; it[completeInclusion] = null
-            it[observedSlot] = null; it[observedHash] = null
+            it[SyncStatesTable.network] = network
+            it[generation] = 0
+            it[status] = "unavailable"
+            it[reason] = "Awaiting verified replay from genesis"
+            it[completeInclusion] = null
+            it[observedSlot] = null
+            it[observedHash] = null
         }
-        return SyncStatesTable.selectAll().where { SyncStatesTable.network eq network }.forUpdate().single()
+        return SyncStatesTable
+            .selectAll()
+            .where { SyncStatesTable.network eq network }
+            .forUpdate()
+            .single()
     }
 
     fun beginSession(networkKey: String): Long {
@@ -80,7 +113,9 @@ class ChainIngestionCoordinator(
             val row = lock(networkKey)
             val next = Math.addExact(row[SyncStatesTable.generation], 1L)
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
-                it[generation] = next; it[status] = "syncing"; it[reason] = "Re-establishing chain intersection"
+                it[generation] = next
+                it[status] = "syncing"
+                it[reason] = "Re-establishing chain intersection"
             }
             next
         }
@@ -91,16 +126,22 @@ class ChainIngestionCoordinator(
 
     fun generation(networkKey: String): Long = transaction { lock(networkKey)[SyncStatesTable.generation] }
 
-    fun observeTip(networkKey: String, tip: ChainPoint, expectedGeneration: Long) {
+    fun observeTip(
+        networkKey: String,
+        tip: ChainPoint,
+        expectedGeneration: Long
+    ) {
         val becameReady = transaction {
             val row = lock(networkKey)
             check(row[SyncStatesTable.generation] == expectedGeneration) { "Discarded stale session observation" }
             val complete = row[SyncStatesTable.completeInclusion]?.let(::inclusion)
             val caughtUp = complete?.get(ChainInclusionsTable.hash)?.contentEquals(tip.hash.hexToByteArray()) == true && complete[ChainInclusionsTable.slot].toPlainString() == tip.slot
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
-                it[observedSlot] = tip.slot.toBigDecimal(); it[observedHash] = tip.hash.hexToByteArray()
+                it[observedSlot] = tip.slot.toBigDecimal()
+                it[observedHash] = tip.hash.hexToByteArray()
                 if (row[SyncStatesTable.status] in setOf("complete", "syncing")) {
-                    it[status] = if (caughtUp) "complete" else "syncing"; it[reason] = if (caughtUp) null else "Following adopted chain"
+                    it[status] = if (caughtUp) "complete" else "syncing"
+                    it[reason] = if (caughtUp) null else "Following adopted chain"
                 }
             }
             caughtUp && row[SyncStatesTable.status] in setOf("complete", "syncing")
@@ -109,7 +150,14 @@ class ChainIngestionCoordinator(
         publish(networkKey, force = firstReady, refresh = firstReady)
     }
 
-    fun adopt(networkKey: String, generation: Long, era: Int, decoded: DecodedLedgerBlock, expectedPoint: ChainPoint, resolvedLeios: LeiosContentResolver.Closure? = null) {
+    fun adopt(
+        networkKey: String,
+        generation: Long,
+        era: Int,
+        decoded: DecodedLedgerBlock,
+        expectedPoint: ChainPoint,
+        resolvedLeios: LeiosContentResolver.Closure? = null
+    ) {
         val bytes = decoded.encoded
         val byron = decoded.byronHeader
         val header = decoded.headerDetails
@@ -130,8 +178,9 @@ class ChainIngestionCoordinator(
                 if (existing[ChainInclusionsTable.adopted] && existing[ChainInclusionsTable.complete]) return@transaction false
             }
             val tip = state[SyncStatesTable.completeInclusion]?.let(::inclusion)
-            if (tip != null) check(previous?.contentEquals(tip[ChainInclusionsTable.hash]) == true) { "Block predecessor is not the last complete point" }
-            else {
+            if (tip != null) {
+                check(previous?.contentEquals(tip[ChainInclusionsTable.hash]) == true) { "Block predecessor is not the last complete point" }
+            } else {
                 val genesis = NetworkGenesisTable.selectAll().where { NetworkGenesisTable.network eq networkKey }.single()
                 check(previous == null || previous.contentEquals(genesis[NetworkGenesisTable.hash])) { "Replay must begin at verified genesis" }
             }
@@ -141,34 +190,58 @@ class ChainIngestionCoordinator(
                     ?: throw IllegalStateException("Certified predecessor announcement missing")
                 check(announcement[LeiosAnnouncementsTable.hash].contentEquals(resolvedLeios.ebHash)) { "Certified closure does not match predecessor announcement" }
             }
-            val id = existing?.get(ChainInclusionsTable.id)?.value ?: ChainInclusionsTable.insert {
-                it[network] = networkKey; it[ChainInclusionsTable.hash] = hash; it[ChainInclusionsTable.slot] = slot.toBigDecimal()
-                it[ChainInclusionsTable.height] = height.toBigDecimal(); it[previousHash] = previous; it[ChainInclusionsTable.era] = era
-                it[ChainInclusionsTable.header] = decoded.header.bytes(); it[body] = bytes; it[adopted] = true; it[complete] = false
-                it[sourceKind] = if (resolvedLeios == null) "direct" else "direct+endorsed"
-            }[ChainInclusionsTable.id].value
+            val id = existing?.get(ChainInclusionsTable.id)?.value ?: ChainInclusionsTable
+                .insert {
+                    it[network] = networkKey
+                    it[ChainInclusionsTable.hash] = hash
+                    it[ChainInclusionsTable.slot] = slot.toBigDecimal()
+                    it[ChainInclusionsTable.height] = height.toBigDecimal()
+                    it[previousHash] = previous
+                    it[ChainInclusionsTable.era] = era
+                    it[ChainInclusionsTable.header] = decoded.header.bytes()
+                    it[body] = bytes
+                    it[adopted] = true
+                    it[complete] = false
+                    it[sourceKind] = if (resolvedLeios == null) "direct" else "direct+endorsed"
+                }[ChainInclusionsTable.id]
+                .value
             if (existing != null) {
                 ReversibleChangesTable.deleteWhere { ReversibleChangesTable.inclusion eq id }
                 ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) { it[adopted] = true }
             }
             header?.announcement?.let { announcement ->
-                if (LeiosAnnouncementsTable.selectAll().where { LeiosAnnouncementsTable.inclusion eq id }.empty()) LeiosAnnouncementsTable.insert {
-                    it[LeiosAnnouncementsTable.inclusion] = id; it[LeiosAnnouncementsTable.hash] = announcement.hash
-                    it[size] = announcement.size.toBigDecimal(); it[raw] = header.body.bytes()
+                if (LeiosAnnouncementsTable.selectAll().where { LeiosAnnouncementsTable.inclusion eq id }.empty()) {
+                    LeiosAnnouncementsTable.insert {
+                        it[LeiosAnnouncementsTable.inclusion] = id
+                        it[LeiosAnnouncementsTable.hash] = announcement.hash
+                        it[size] = announcement.size.toBigDecimal()
+                        it[raw] = header.body.bytes()
+                    }
                 }
             }
             var ordinal = 0
             val context = LedgerRepository.ProjectionContext(networkKey, id, height.toBigDecimal(), slot.toBigDecimal(), isNewInclusion = existing == null)
             // Musashi applies the predecessor's endorsed closure before this block's direct sequence.
             resolvedLeios?.let { closure ->
-                val certification = LeiosCertificationsTable.select(LeiosCertificationsTable.id).where { LeiosCertificationsTable.inclusion eq id }.singleOrNull()?.get(LeiosCertificationsTable.id)?.value
-                    ?: LeiosCertificationsTable.insert {
-                        it[LeiosCertificationsTable.inclusion] = id; it[announcementHash] = closure.ebHash
-                        it[raw] = requireNotNull(decoded.leiosCertificate).bytes(); it[complete] = true
-                    }[LeiosCertificationsTable.id].value
-                val existingPositions = LeiosContentReferencesTable.select(LeiosContentReferencesTable.position)
+                val certification = LeiosCertificationsTable
+                    .select(LeiosCertificationsTable.id)
+                    .where { LeiosCertificationsTable.inclusion eq id }
+                    .singleOrNull()
+                    ?.get(LeiosCertificationsTable.id)
+                    ?.value
+                    ?: LeiosCertificationsTable
+                        .insert {
+                            it[LeiosCertificationsTable.inclusion] = id
+                            it[announcementHash] = closure.ebHash
+                            it[raw] = requireNotNull(decoded.leiosCertificate).bytes()
+                            it[complete] = true
+                        }[LeiosCertificationsTable.id]
+                        .value
+                val existingPositions = LeiosContentReferencesTable
+                    .select(LeiosContentReferencesTable.position)
                     .where { LeiosContentReferencesTable.certification eq certification }
-                    .map { it[LeiosContentReferencesTable.position] }.toSet()
+                    .map { it[LeiosContentReferencesTable.position] }
+                    .toSet()
                 val missing = closure.entries.mapIndexedNotNull { position, entry ->
                     val batch = projector.apply(context, entry.batch, position, "endorsed", ordinal++, entry.fullTransactionHash)
                     if (position in existingPositions) null else Triple(position, entry, batch)
@@ -176,8 +249,11 @@ class ChainIngestionCoordinator(
                 missing.chunked(256).forEach { rows ->
                     LeiosContentReferencesTable.batchInsert(rows, useMultiRowValues = true, shouldReturnGeneratedValues = false) { (position, entry, batch) ->
                         this[LeiosContentReferencesTable.id] = nextReferenceId
-                        this[LeiosContentReferencesTable.certification] = certification; this[LeiosContentReferencesTable.position] = position
-                        this[LeiosContentReferencesTable.fullHash] = entry.fullTransactionHash; this[LeiosContentReferencesTable.size] = entry.size.toBigDecimal(); this[LeiosContentReferencesTable.batch] = batch
+                        this[LeiosContentReferencesTable.certification] = certification
+                        this[LeiosContentReferencesTable.position] = position
+                        this[LeiosContentReferencesTable.fullHash] = entry.fullTransactionHash
+                        this[LeiosContentReferencesTable.size] = entry.size.toBigDecimal()
+                        this[LeiosContentReferencesTable.batch] = batch
                     }
                 }
             }
@@ -186,27 +262,43 @@ class ChainIngestionCoordinator(
             ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) { it[complete] = true }
             val caughtUp = state[SyncStatesTable.observedHash]?.contentEquals(hash) == true && state[SyncStatesTable.observedSlot] == slot.toBigDecimal()
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
-                it[completeInclusion] = id; it[status] = if (caughtUp) "complete" else "syncing"; it[reason] = null
+                it[completeInclusion] = id
+                it[status] = if (caughtUp) "complete" else "syncing"
+                it[reason] = null
             }
             caughtUp
         }
         if (caughtUp) markWalletReady(networkKey, generation)
-        walletLedger.confirmed(networkKey, slot,
+        walletLedger.confirmed(
+            networkKey,
+            slot,
             decoded.transactions.map { it.parent.bodyId.toHexString() } +
-                resolvedLeios?.entries.orEmpty().map { it.batch.parent.bodyId.toHexString() })
+                resolvedLeios?.entries.orEmpty().map {
+                    it.batch.parent.bodyId
+                        .toHexString()
+                }
+        )
         publish(networkKey, refresh = true)
     }
 
     class ReplayRequiredException : IllegalStateException("Re-establish intersection from complete retained history")
 
-    fun rollback(networkKey: String, point: ChainPoint?, expectedGeneration: Long): Long {
+    fun rollback(
+        networkKey: String,
+        point: ChainPoint?,
+        expectedGeneration: Long
+    ): Long {
         val outcome = transaction {
             val state = lock(networkKey)
             check(state[SyncStatesTable.generation] == expectedGeneration) { "Discarded stale session rollback" }
             val next = Math.addExact(state[SyncStatesTable.generation], 1)
             val target = point?.let { p -> ChainInclusionsTable.selectAll().where { (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.hash eq p.hash.hexToByteArray()) and (ChainInclusionsTable.slot eq p.slot.toBigDecimal()) and ChainInclusionsTable.adopted }.singleOrNull() }
             if (point != null && target == null) {
-                SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) { it[SyncStatesTable.generation] = next; it[status] = "unavailable"; it[reason] = "Rollback point outside retained history; verified replay required" }
+                SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
+                    it[SyncStatesTable.generation] = next
+                    it[status] = "unavailable"
+                    it[reason] = "Rollback point outside retained history; verified replay required"
+                }
                 return@transaction next to true
             }
             var current = state[SyncStatesTable.completeInclusion]?.let(::inclusion)
@@ -215,20 +307,33 @@ class ChainIngestionCoordinator(
                 val id = current[ChainInclusionsTable.id].value
                 LedgerRepository.rollbackProjection(networkKey, id)
                 ReversibleChangesTable.selectAll().where { ReversibleChangesTable.inclusion eq id }.orderBy(ReversibleChangesTable.sequence, SortOrder.DESC).forEach { change ->
-                    val family = change[ReversibleChangesTable.family]; val key = change[ReversibleChangesTable.key]
+                    val family = change[ReversibleChangesTable.family]
+                    val key = change[ReversibleChangesTable.key]
                     DerivedAccountGovernanceStatesTable.deleteWhere { (network eq networkKey) and (DerivedAccountGovernanceStatesTable.family eq family) and (DerivedAccountGovernanceStatesTable.key eq key) }
-                    change[ReversibleChangesTable.priorValue]?.let { value -> DerivedAccountGovernanceStatesTable.insert {
-                        it[network] = networkKey; it[DerivedAccountGovernanceStatesTable.family] = family; it[DerivedAccountGovernanceStatesTable.key] = key
-                        it[DerivedAccountGovernanceStatesTable.value] = value; it[inclusion] = requireNotNull(change[ReversibleChangesTable.priorInclusion]); it[member] = change[ReversibleChangesTable.priorMember]
-                    } }
+                    change[ReversibleChangesTable.priorValue]?.let { value ->
+                        DerivedAccountGovernanceStatesTable.insert {
+                            it[network] = networkKey
+                            it[DerivedAccountGovernanceStatesTable.family] = family
+                            it[DerivedAccountGovernanceStatesTable.key] = key
+                            it[DerivedAccountGovernanceStatesTable.value] = value
+                            it[inclusion] = requireNotNull(change[ReversibleChangesTable.priorInclusion])
+                            it[member] = change[ReversibleChangesTable.priorMember]
+                        }
+                    }
                 }
-                ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) { it[complete] = false; it[adopted] = false }
+                ChainInclusionsTable.update({ ChainInclusionsTable.id eq id }) {
+                    it[complete] = false
+                    it[adopted] = false
+                }
                 val previous = current[ChainInclusionsTable.previousHash]
                 current = previous?.let { hash -> ChainInclusionsTable.selectAll().where { (ChainInclusionsTable.network eq networkKey) and (ChainInclusionsTable.hash eq hash) and ChainInclusionsTable.adopted }.singleOrNull() }
             }
             check(targetId == null || current != null) { "Rollback ancestry is incomplete" }
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
-                it[SyncStatesTable.generation] = next; it[completeInclusion] = targetId; it[status] = "syncing"; it[reason] = "Rolled back; awaiting adopted continuation"
+                it[SyncStatesTable.generation] = next
+                it[completeInclusion] = targetId
+                it[status] = "syncing"
+                it[reason] = "Rolled back; awaiting adopted continuation"
             }
             next to false
         }
@@ -240,13 +345,18 @@ class ChainIngestionCoordinator(
         return outcome.first
     }
 
-    fun boundaryFailure(networkKey: String, reason: String, expectedGeneration: Long) {
+    fun boundaryFailure(
+        networkKey: String,
+        reason: String,
+        expectedGeneration: Long
+    ) {
         val changed = transaction {
             val state = lock(networkKey)
             if (state[SyncStatesTable.generation] != expectedGeneration) return@transaction false
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
                 it[generation] = Math.addExact(expectedGeneration, 1L)
-                it[status] = "incomplete"; it[SyncStatesTable.reason] = reason.take(240)
+                it[status] = "incomplete"
+                it[SyncStatesTable.reason] = reason.take(240)
             }
             true
         }
@@ -256,13 +366,17 @@ class ChainIngestionCoordinator(
         }
     }
 
-    fun endSession(networkKey: String, expectedGeneration: Long) {
+    fun endSession(
+        networkKey: String,
+        expectedGeneration: Long
+    ) {
         val changed = transaction {
             val state = lock(networkKey)
             if (state[SyncStatesTable.generation] != expectedGeneration) return@transaction false
             SyncStatesTable.update({ SyncStatesTable.network eq networkKey }) {
                 it[generation] = Math.addExact(expectedGeneration, 1L)
-                it[status] = "stale"; it[reason] = "Chain session ended"
+                it[status] = "stale"
+                it[reason] = "Chain session ended"
             }
             true
         }
@@ -272,60 +386,111 @@ class ChainIngestionCoordinator(
         }
     }
 
-    data class AnnouncedClosure(val slot: Long, val hash: ByteArray, val size: Long)
+    data class AnnouncedClosure(
+        val slot: Long,
+        val hash: ByteArray,
+        val size: Long
+    )
 
-    fun announcedClosure(networkKey: String, previousHash: String): AnnouncedClosure? = transaction {
-        (LeiosAnnouncementsTable innerJoin ChainInclusionsTable).select(ChainInclusionsTable.slot, LeiosAnnouncementsTable.hash, LeiosAnnouncementsTable.size).where {
-            (ChainInclusionsTable.network eq networkKey) and
-                (ChainInclusionsTable.hash eq previousHash.hexToByteArray()) and ChainInclusionsTable.adopted
-        }.singleOrNull()?.let {
-            AnnouncedClosure(it[ChainInclusionsTable.slot].longValueExact(), it[LeiosAnnouncementsTable.hash], it[LeiosAnnouncementsTable.size].longValueExact())
+    fun announcedClosure(
+        networkKey: String,
+        previousHash: String
+    ): AnnouncedClosure? =
+        transaction {
+            (LeiosAnnouncementsTable innerJoin ChainInclusionsTable)
+                .select(ChainInclusionsTable.slot, LeiosAnnouncementsTable.hash, LeiosAnnouncementsTable.size)
+                .where {
+                    (ChainInclusionsTable.network eq networkKey) and
+                        (ChainInclusionsTable.hash eq previousHash.hexToByteArray()) and ChainInclusionsTable.adopted
+                }.singleOrNull()
+                ?.let {
+                    AnnouncedClosure(it[ChainInclusionsTable.slot].longValueExact(), it[LeiosAnnouncementsTable.hash], it[LeiosAnnouncementsTable.size].longValueExact())
+                }
         }
-    }
 
-    fun intersectionPoints(networkKey: String): List<ChainPoint> = transaction {
-        ChainInclusionsTable.select(ChainInclusionsTable.slot, ChainInclusionsTable.hash).where { (ChainInclusionsTable.network eq networkKey) and ChainInclusionsTable.adopted and ChainInclusionsTable.complete }
-            .orderBy(ChainInclusionsTable.slot to SortOrder.DESC, ChainInclusionsTable.id to SortOrder.DESC).limit(64).map { point(it) }
-    }
+    fun intersectionPoints(networkKey: String): List<ChainPoint> =
+        transaction {
+            ChainInclusionsTable
+                .select(ChainInclusionsTable.slot, ChainInclusionsTable.hash)
+                .where { (ChainInclusionsTable.network eq networkKey) and ChainInclusionsTable.adopted and ChainInclusionsTable.complete }
+                .orderBy(ChainInclusionsTable.slot to SortOrder.DESC, ChainInclusionsTable.id to SortOrder.DESC)
+                .limit(64)
+                .map { point(it) }
+        }
 
-    fun status(networkKey: String): ChainReadState = transaction {
-        val state = SyncStatesTable.selectAll().where { SyncStatesTable.network eq networkKey }.forUpdate().singleOrNull()
-        readState(networkKey, state)
-    }
+    fun status(networkKey: String): ChainReadState =
+        transaction {
+            val state = SyncStatesTable
+                .selectAll()
+                .where { SyncStatesTable.network eq networkKey }
+                .forUpdate()
+                .singleOrNull()
+            readState(networkKey, state)
+        }
 
     /** Called with the network sync-state row locked, including coherent wallet snapshot reads. */
-    fun readState(networkKey: String, state: ResultRow?): ChainReadState {
+    fun readState(
+        networkKey: String,
+        state: ResultRow?
+    ): ChainReadState {
         if (state == null) return ChainReadState(networkKey, "unavailable", "No verified indexed coverage", null, null, false, "0")
         val observed = state[SyncStatesTable.observedHash]?.let { ChainPoint(requireNotNull(state[SyncStatesTable.observedSlot]).toPlainString(), it.toHexString()) }
         val complete = state[SyncStatesTable.completeInclusion]?.let(::inclusion)
         val generation = state[SyncStatesTable.generation]
-        val ready = isWalletReady(networkKey, generation, state[SyncStatesTable.status],
-            complete?.get(ChainInclusionsTable.complete) == true && complete[ChainInclusionsTable.adopted])
-        return ChainReadState(networkKey, state[SyncStatesTable.status], state[SyncStatesTable.reason], observed,
-            complete?.let(::point), ready, generation.toString())
+        val ready = isWalletReady(
+            networkKey,
+            generation,
+            state[SyncStatesTable.status],
+            complete?.get(ChainInclusionsTable.complete) == true && complete[ChainInclusionsTable.adopted]
+        )
+        return ChainReadState(
+            networkKey,
+            state[SyncStatesTable.status],
+            state[SyncStatesTable.reason],
+            observed,
+            complete?.let(::point),
+            ready,
+            generation.toString()
+        )
     }
 
     /** The caller holds the network sync row lock; this never opens another connection. */
-    fun isWalletReady(networkKey: String, generation: Long, status: String, hasComplete: Boolean): Boolean =
-        liveWalletGenerations[networkKey] == generation && hasComplete && status in setOf("complete", "syncing")
+    fun isWalletReady(
+        networkKey: String,
+        generation: Long,
+        status: String,
+        hasComplete: Boolean
+    ): Boolean = liveWalletGenerations[networkKey] == generation && hasComplete && status in setOf("complete", "syncing")
 
     fun refreshWallet() {
-        try { walletRefresh.update { (it ?: 0L) + 1L } }
-        catch (failure: Exception) { log.warn("Unable to request wallet refresh after committed state change", failure) }
+        try {
+            walletRefresh.update { (it ?: 0L) + 1L }
+        } catch (failure: Exception) {
+            log.warn("Unable to request wallet refresh after committed state change", failure)
+        }
     }
 
-    private fun markWalletReady(network: String, generation: Long): Boolean = transaction {
-        val state = lock(network)
-        if (state[SyncStatesTable.generation] != generation || state[SyncStatesTable.status] !in setOf("complete", "syncing")) return@transaction false
-        val complete = state[SyncStatesTable.completeInclusion]?.let(::inclusion) ?: return@transaction false
-        if (!complete[ChainInclusionsTable.complete] || !complete[ChainInclusionsTable.adopted]) return@transaction false
-        liveWalletGenerations.put(network, generation) != generation
-    }
+    private fun markWalletReady(
+        network: String,
+        generation: Long
+    ): Boolean =
+        transaction {
+            val state = lock(network)
+            if (state[SyncStatesTable.generation] != generation || state[SyncStatesTable.status] !in setOf("complete", "syncing")) return@transaction false
+            val complete = state[SyncStatesTable.completeInclusion]?.let(::inclusion) ?: return@transaction false
+            if (!complete[ChainInclusionsTable.complete] || !complete[ChainInclusionsTable.adopted]) return@transaction false
+            liveWalletGenerations.put(network, generation) != generation
+        }
 
     private fun inclusion(id: Long): ResultRow = ChainInclusionsTable.selectAll().where { ChainInclusionsTable.id eq id }.single()
+
     private fun point(row: ResultRow) = ChainPoint(row[ChainInclusionsTable.slot].toPlainString(), row[ChainInclusionsTable.hash].toHexString())
 
-    private fun publish(network: String, force: Boolean = false, refresh: Boolean = false) {
+    private fun publish(
+        network: String,
+        force: Boolean = false,
+        refresh: Boolean = false
+    ) {
         val state = status(network)
         val now = System.nanoTime()
         val last = lastProgressNotification[network]

@@ -29,13 +29,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** Fetches exactly the headers delivered on this connection, never from a global tip. */
-class BlockFetchProtocol(private val session: NetworkChainSession, private val leios: LeiosFetchProtocol, scope: CoroutineScope) : MiniProtocol(protocolId = 0x0003.toShort()) {
+class BlockFetchProtocol(
+    private val session: NetworkChainSession,
+    private val leios: LeiosFetchProtocol,
+    scope: CoroutineScope
+) : MiniProtocol(protocolId = 0x0003.toShort()) {
     private val log = LoggerFactory.getLogger("LedgerDao")
     private var nextLogTime = Long.MIN_VALUE
     override val rxBufferSize = 8_388_608
+
     private enum class State { Idle, Busy, Streaming, Done }
+
     @Volatile private var state = State.Idle
-        set(value) { field = value; agencyUpdates.tryEmit(agency) }
+        set(value) {
+            field = value
+            agencyUpdates.tryEmit(agency)
+        }
     private val agencyUpdates = MutableSharedFlow<Agency>(replay = 1, extraBufferCapacity = 4).apply { tryEmit(agency) }
     override val agencyFlow: Flow<Agency> = agencyUpdates
     override val agency: Agency get() = when (state) {
@@ -43,13 +52,23 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
         State.Busy, State.Streaming -> Agency.Server
         State.Done -> Agency.None
     }
-    private data class FetchedBlock(val request: NetworkChainSession.Request, val payload: Result<Pair<Int, ByteArray>>)
+
+    private data class FetchedBlock(
+        val request: NetworkChainSession.Request,
+        val payload: Result<Pair<Int, ByteArray>>
+    )
+
     private val permits = Semaphore(2)
     private val wireLock = Any()
     private var current: NetworkChainSession.Request? = null
     private var received = false
     private var pending: Pair<Int, ByteArray>? = null
-    private fun release() { session.release(); permits.release() }
+
+    private fun release() {
+        session.release()
+        permits.release()
+    }
+
     private val blocks = Channel<FetchedBlock>(1, onUndeliveredElement = { release() })
     private val worker = scope.launch(Dispatchers.IO) {
         for (block in blocks) {
@@ -151,8 +170,9 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
             current = null
             pending = null
             received = false
-            if (blocks.trySend(item).isSuccess) state = State.Idle
-            else {
+            if (blocks.trySend(item).isSuccess) {
+                state = State.Idle
+            } else {
                 release()
                 failed = true
             }
@@ -164,11 +184,13 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
         val request = block.request
         var fetchingLeios = false
         var commitment: String? = null
+
         fun failure(cause: Exception): IllegalStateException {
             val content = commitment?.let { "Leios commitment $it" } ?: "Block"
             val contextual = IllegalStateException("$content at ${request.point}: ${cause.message ?: "acquisition failed"}", cause)
-            if (request.generation == session.generation)
+            if (request.generation == session.generation) {
                 session.coordinator.boundaryFailure(session.networkKey, requireNotNull(contextual.message), request.generation)
+            }
             return contextual
         }
         try {
@@ -182,7 +204,9 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
                 }
                 commitment = announced.hash.toHexString()
                 leios.acquire(announced.slot, announced.hash, announced.size, request.generation)
-            } else null
+            } else {
+                null
+            }
             currentCoroutineContext().ensureActive()
             if (request.generation == session.generation) {
                 session.coordinator.adopt(session.networkKey, request.generation, era, decoded, request.point, closure)
@@ -195,7 +219,11 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
             throw failure(e)
         }
     }
-    internal fun logSavedBlock(blockNumber: Long, now: Long = System.nanoTime()) {
+
+    internal fun logSavedBlock(
+        blockNumber: Long,
+        now: Long = System.nanoTime()
+    ) {
         if (!log.isInfoEnabled) return
         val periodic = now >= nextLogTime
         val tip = maxOf(blockNumber, session.tipBlockNumber)
@@ -204,6 +232,7 @@ class BlockFetchProtocol(private val session: NetworkChainSession, private val l
         val percent = if (tip == 0L) 100.0 else floor(blockNumber.toDouble() / tip * 10000.0) / 100.0
         log.info("BlckFetch: Saved block: $blockNumber of $tip, %.2f%% synced".format(Locale.ROOT, percent))
     }
+
     override fun shutdown() {
         synchronized(wireLock) {
             state = State.Done

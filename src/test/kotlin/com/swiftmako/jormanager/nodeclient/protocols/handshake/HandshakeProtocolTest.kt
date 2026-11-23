@@ -10,12 +10,13 @@ import org.junit.jupiter.api.Test
 class HandshakeProtocolTest {
     private fun bytes(hex: String): ByteArray = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
-    private fun exchange(hex: String): HandshakeProtocol = runBlocking {
-        HandshakeProtocol(42).also {
-            it.sendData()
-            it.receiveData(ByteBuffer.wrap(bytes(hex)))
+    private fun exchange(hex: String): HandshakeProtocol =
+        runBlocking {
+            HandshakeProtocol(42).also {
+                it.sendData()
+                it.receiveData(ByteBuffer.wrap(bytes(hex)))
+            }
         }
-    }
 
     @Test
     fun proposesAscendingVersionsWithVersionSpecificData() {
@@ -23,13 +24,15 @@ class HandshakeProtocolTest {
         MsgProposeVersions(42).writeToBuffer(buffer)
         buffer.flip()
         val encoded = ByteArray(buffer.remaining()).also { buffer.get(it) }
-        assertThat(encoded).isEqualTo(bytes(
-            "8200a4" +
-                "0d84182af500f4" +
-                "0e84182af500f4" +
-                "0f84182af500f4" +
-                "1085182af500f4f4"
-        ))
+        assertThat(encoded).isEqualTo(
+            bytes(
+                "8200a4" +
+                    "0d84182af500f4" +
+                    "0e84182af500f4" +
+                    "0f84182af500f4" +
+                    "1085182af500f4f4"
+            )
+        )
     }
 
     @Test

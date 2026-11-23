@@ -143,7 +143,11 @@ class LeiosControllerTest {
         )
 
         val response = controller.status(statusRequest) as SocketResponse.Success<LeiosController.Status>
-        val installation = requireNotNull(response.data.keys.single { it.keyId == 10L }.installation)
+        val installation = requireNotNull(
+            response.data.keys
+                .single { it.keyId == 10L }
+                .installation
+        )
         assertThat(installation.state).isEqualTo("installed")
         assertThat(installation.stale).isFalse()
     }
@@ -180,8 +184,16 @@ class LeiosControllerTest {
         )
 
         val response = controller.status(statusRequest) as SocketResponse.Success<LeiosController.Status>
-        val older = requireNotNull(response.data.keys.single { it.keyId == 10L }.installation)
-        val latest = requireNotNull(response.data.keys.single { it.keyId == 20L }.installation)
+        val older = requireNotNull(
+            response.data.keys
+                .single { it.keyId == 10L }
+                .installation
+        )
+        val latest = requireNotNull(
+            response.data.keys
+                .single { it.keyId == 20L }
+                .installation
+        )
         assertThat(older.stale).isTrue()
         assertThat(latest.stale).isFalse()
     }
@@ -205,7 +217,9 @@ class LeiosControllerTest {
             ),
         )
         val failedInstall = (controller.status(statusRequest) as SocketResponse.Success<LeiosController.Status>)
-            .data.keys.single().installation!!
+            .data.keys
+            .single()
+            .installation!!
         assertThat(failedInstall.stale).isTrue()
 
         // 2. Loaded fingerprint differs from installed fingerprint
@@ -224,7 +238,9 @@ class LeiosControllerTest {
             ),
         )
         val mismatched = (controller.status(statusRequest) as SocketResponse.Success<LeiosController.Status>)
-            .data.keys.single().installation!!
+            .data.keys
+            .single()
+            .installation!!
         assertThat(mismatched.stale).isTrue()
 
         // 3. Observation refresh throws / returns null for healthy installed key
@@ -244,7 +260,9 @@ class LeiosControllerTest {
             ),
         )
         val offline = (controller.status(statusRequest) as SocketResponse.Success<LeiosController.Status>)
-            .data.keys.single().installation!!
+            .data.keys
+            .single()
+            .installation!!
         assertThat(offline.stale).isTrue()
     }
 
@@ -303,7 +321,12 @@ class LeiosControllerTest {
         val childRequest = LeiosController.StatusRequest("req-child", LeiosController.Target(1, 3, "child-pool", "network"))
         val response = controller.status(childRequest) as SocketResponse.Success<LeiosController.Status>
         assertThat(response.data.era).isEqualTo("dijkstra")
-        assertThat(response.data.keys.single().installation?.stale).isFalse()
+        assertThat(
+            response.data.keys
+                .single()
+                .installation
+                ?.stale
+        ).isFalse()
 
         // Fallback to default node when parentId is null
         val orphanChildPool = childPool.copy(id = 4, parentId = null)

@@ -6,7 +6,10 @@ internal class CborMessageFramer {
     private var offset = 0
     private var stringBytes = 0L
 
-    fun advance(bytes: ByteArray, available: Int): Int? {
+    fun advance(
+        bytes: ByteArray,
+        available: Int
+    ): Int? {
         while (true) {
             if (stringBytes > 0) {
                 val count = minOf(stringBytes, (available - offset).toLong()).toInt()
@@ -27,7 +30,13 @@ internal class CborMessageFramer {
                 continue
             }
             require(ai < 28 || ai == 31 && major in 2..5) { "Invalid CBOR initial byte" }
-            val extra = when (ai) { 24 -> 1; 25 -> 2; 26 -> 4; 27 -> 8; else -> 0 }
+            val extra = when (ai) {
+                24 -> 1
+                25 -> 2
+                26 -> 4
+                27 -> 8
+                else -> 0
+            }
             if (available - offset < 1 + extra) return null
             var argument = if (ai < 24) ai.toLong() else 0L
             repeat(extra) { i ->

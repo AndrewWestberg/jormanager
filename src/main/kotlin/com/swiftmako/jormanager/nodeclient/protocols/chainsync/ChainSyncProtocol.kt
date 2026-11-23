@@ -136,8 +136,11 @@ class ChainSyncProtocol(
         if (session != null && node != null && cardanoRepository != null) {
             launch {
                 for (era in eras) {
-                    try { cardanoRepository.observeBlockEra(host, node, era) }
-                    catch (e: Exception) { log.warn("Current-era refresh failed for node ${node.id}", e) }
+                    try {
+                        cardanoRepository.observeBlockEra(host, node, era)
+                    } catch (e: Exception) {
+                        log.warn("Current-era refresh failed for node ${node.id}", e)
+                    }
                 }
             }
         }
@@ -347,7 +350,11 @@ class ChainSyncProtocol(
         }
     }
 
-    private fun observeTip(active: NetworkChainSession, point: ChainPoint?, force: Boolean) {
+    private fun observeTip(
+        active: NetworkChainSession,
+        point: ChainPoint?,
+        force: Boolean
+    ) {
         if (point == null) {
             lastPersistedTip = null
             return
@@ -359,8 +366,7 @@ class ChainSyncProtocol(
         }
     }
 
-    private fun parsePoint(point: CborArray): ChainPoint? =
-        if (point.size() == 0) null else ChainPoint(point.elementToLong(0).toString(), point.elementToHexString(1))
+    private fun parsePoint(point: CborArray): ChainPoint? = if (point.size() == 0) null else ChainPoint(point.elementToLong(0).toString(), point.elementToHexString(1))
 
     private fun rollbackHeaders(point: ChainPoint?) {
         transaction {
@@ -368,8 +374,11 @@ class ChainSyncProtocol(
                 chainRepository.deleteAll()
             } else {
                 val block = chainRepository.findBySlot(point.slot.toLong())
-                if (block != null && block.hash == point.hash) chainRepository.deleteByBlockNumberAndAbove(block.blockNumber + 1)
-                else chainRepository.deleteAll()
+                if (block != null && block.hash == point.hash) {
+                    chainRepository.deleteByBlockNumberAndAbove(block.blockNumber + 1)
+                } else {
+                    chainRepository.deleteAll()
+                }
             }
         }
     }
@@ -380,16 +389,26 @@ class ChainSyncProtocol(
             chainRepository.deleteByBlockNumberAndAbove(msg.blockNumber)
             val previous = chainRepository.findByBlockNumber(msg.blockNumber - 1)?.etaV?.hexToByteArray() ?: shelleyGenesisHash
             val eta = SodiumLibrary.cryptoBlake2bHash(msg.etaVrf.hexToByteArray(), null)
-            chainRepository.save(ChainBlock(
-                blockNumber = msg.blockNumber, slotNumber = msg.slotNumber, hash = msg.hash,
-                prevHash = msg.prevHash, etaV = SodiumLibrary.cryptoBlake2bHash(previous + eta, null).toHexString(),
-                poolId = producer, leaderVrf = msg.leaderVrf,
-            ))
+            chainRepository.save(
+                ChainBlock(
+                    blockNumber = msg.blockNumber,
+                    slotNumber = msg.slotNumber,
+                    hash = msg.hash,
+                    prevHash = msg.prevHash,
+                    etaV = SodiumLibrary.cryptoBlake2bHash(previous + eta, null).toHexString(),
+                    poolId = producer,
+                    leaderVrf = msg.leaderVrf,
+                )
+            )
         }
         logSavedBlock(msg, producer)
     }
 
-    internal fun logSavedBlock(msg: MsgRollForward, producer: String, now: Long = System.nanoTime()) {
+    internal fun logSavedBlock(
+        msg: MsgRollForward,
+        producer: String,
+        now: Long = System.nanoTime()
+    ) {
         if (!log.isInfoEnabled) return
         val periodic = now >= nextLogTime
         val isTip = msg.hash == msg.chainTip.hash || msg.blockNumber >= msg.chainTip.block
@@ -459,7 +478,6 @@ class ChainSyncProtocol(
         return output.toHexString()
     }
 
-
     enum class State {
         Idle,
         Intersect,
@@ -467,5 +485,4 @@ class ChainSyncProtocol(
         MustReply,
         Done
     }
-
 }

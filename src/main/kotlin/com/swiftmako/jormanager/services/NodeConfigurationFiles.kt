@@ -19,16 +19,31 @@ import java.time.Instant
 
 /** Validates ordinary catalog selections before any node files are installed. */
 @Service
-class NodeConfigurationFiles(private val files: FileRepository) {
-    private val mapper = JsonMapper.builder()
+class NodeConfigurationFiles(
+    private val files: FileRepository
+) {
+    private val mapper = JsonMapper
+        .builder()
         .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
         .build()
-    private val assetNames = setOf("byron-genesis.json", "shelley-genesis.json", "alonzo-genesis.json", "conway-genesis.json",
-        "dijkstra-genesis.json", "config.json", "topology.json", "peer-snapshot.json", "checkpoints.json")
+    private val assetNames = setOf(
+        "byron-genesis.json",
+        "shelley-genesis.json",
+        "alonzo-genesis.json",
+        "conway-genesis.json",
+        "dijkstra-genesis.json",
+        "config.json",
+        "topology.json",
+        "peer-snapshot.json",
+        "checkpoints.json"
+    )
 
     fun resolve(request: CreateNodeRequest): Map<String, ByteArray> {
-        fun selected(id: Long, name: String) = requireNotNull(files.findByIdOrNull(id)) { "Selected $name file not found: $id" }
+        fun selected(
+            id: Long,
+            name: String
+        ) = requireNotNull(files.findByIdOrNull(id)) { "Selected $name file not found: $id" }
         val configFile = selected(request.configFileId, "config")
         val assets = linkedMapOf(
             "byron-genesis.json" to selected(request.genesisByronFileId, "Byron genesis").content.toByteArray(Charsets.UTF_8),
@@ -44,7 +59,8 @@ class NodeConfigurationFiles(private val files: FileRepository) {
         if (config.hasNonNull("CheckpointsFile")) {
             val name = configFile.name.removeSuffix("-config.json") + "-checkpoints.json"
             assets["checkpoints.json"] = requireNotNull(files.findByName(name)) { "Referenced checkpoints file not found: $name" }
-                .content.toByteArray(Charsets.UTF_8)
+                .content
+                .toByteArray(Charsets.UTF_8)
         }
         validate(assets, config)
         return assets
@@ -54,11 +70,24 @@ class NodeConfigurationFiles(private val files: FileRepository) {
         validate(assets, parse(requireNotNull(assets["config.json"]) { "Selected config file is required" }, "config.json"))
     }
 
-    private fun validate(assets: Map<String, ByteArray>, config: JsonNode) {
+    private fun validate(
+        assets: Map<String, ByteArray>,
+        config: JsonNode
+    ) {
         require(assetNames.containsAll(assets.keys)) { "Unsupported configuration filename" }
         val trees = assets.mapValues { (name, bytes) -> if (name == "config.json") config else parse(bytes, name) }
-        rejectUnsupportedFileReferences(config, setOf("GenesisFile", "ByronGenesisFile", "ShelleyGenesisFile",
-            "AlonzoGenesisFile", "ConwayGenesisFile", "DijkstraGenesisFile", "CheckpointsFile"))
+        rejectUnsupportedFileReferences(
+            config,
+            setOf(
+                "GenesisFile",
+                "ByronGenesisFile",
+                "ShelleyGenesisFile",
+                "AlonzoGenesisFile",
+                "ConwayGenesisFile",
+                "DijkstraGenesisFile",
+                "CheckpointsFile"
+            )
+        )
         val eras = listOf("Byron", "Shelley", "Alonzo", "Conway") + if (config.hasNonNull("DijkstraGenesisFile")) listOf("Dijkstra") else emptyList()
         require(config.hasNonNull("DijkstraGenesisFile") == assets.containsKey("dijkstra-genesis.json")) {
             "Select Dijkstra genesis exactly when the selected config references DijkstraGenesisFile"
@@ -72,8 +101,11 @@ class NodeConfigurationFiles(private val files: FileRepository) {
             val expected = config.get("${era}GenesisHash")
             if (expected != null) {
                 require(expected.isString && expected.asString().matches(Regex("[0-9a-fA-F]{64}"))) { "Invalid configured $era genesis hash" }
-                val matches = if (era == "Byron") GenesisLedgerDecoder.verifyByronGenesisHash(utf8(bytes), expected.asString().hexToByteArray())
-                    else Blake2b.hash256(bytes).toHexString().equals(expected.asString(), ignoreCase = true)
+                val matches = if (era == "Byron") {
+                    GenesisLedgerDecoder.verifyByronGenesisHash(utf8(bytes), expected.asString().hexToByteArray())
+                } else {
+                    Blake2b.hash256(bytes).toHexString().equals(expected.asString(), ignoreCase = true)
+                }
                 require(matches) { "$era genesis hash does not match the selected config" }
             }
         }
@@ -84,8 +116,10 @@ class NodeConfigurationFiles(private val files: FileRepository) {
         val byronMagic = byron.path("protocolConsts").path("protocolMagic")
         require(byronMagic.isIntegralNumber && byronMagic.canConvertToLong() && byronMagic.asLong() == magic.asLong()) { "Genesis network magic mismatch" }
         val start = byron.path("startTime")
-        require(start.isIntegralNumber && start.canConvertToLong() && start.asLong() >= 0 &&
-            Instant.parse(shelley.path("systemStart").stringValue()).epochSecond == start.asLong()) { "Genesis system start mismatch" }
+        require(
+            start.isIntegralNumber && start.canConvertToLong() && start.asLong() >= 0 &&
+                Instant.parse(shelley.path("systemStart").stringValue()).epochSecond == start.asLong()
+        ) { "Genesis system start mismatch" }
         require(config.path("RequiresNetworkMagic").asString() in setOf("RequiresMagic", "RequiresNoMagic")) { "Invalid network magic policy" }
         val topology = requireNotNull(trees["topology.json"]) { "Selected topology file is required" }
         rejectUnsupportedFileReferences(topology, setOf("peerSnapshotFile"))
@@ -96,8 +130,10 @@ class NodeConfigurationFiles(private val files: FileRepository) {
             require(peerReference.isString && peerReference.asString().isNotBlank()) { "Invalid peer snapshot reference" }
             val peers = trees.getValue("peer-snapshot.json")
             val peerMagic = peers.path("NetworkMagic")
-            require(peerMagic.isIntegralNumber && peerMagic.canConvertToLong() && peerMagic.asLong() == magic.asLong() &&
-                peers.path("Point").isObject && peers.path("bigLedgerPools").isArray) { "Peer snapshot does not match the selected network" }
+            require(
+                peerMagic.isIntegralNumber && peerMagic.canConvertToLong() && peerMagic.asLong() == magic.asLong() &&
+                    peers.path("Point").isObject && peers.path("bigLedgerPools").isArray
+            ) { "Peer snapshot does not match the selected network" }
         }
         if (config.hasNonNull("CheckpointsFile")) {
             require(config.path("CheckpointsFile").isString && assets.containsKey("checkpoints.json")) { "Referenced checkpoints file is required" }
@@ -115,18 +151,33 @@ class NodeConfigurationFiles(private val files: FileRepository) {
 
     private val fileReference = Regex("(file|files|path|paths|directory|directories|folder|folders)$", RegexOption.IGNORE_CASE)
 
-    private fun rejectUnsupportedFileReferences(node: JsonNode, allowed: Set<String> = emptySet()) {
-        if (node.isObject) node.properties().forEach { (key, value) ->
-            require(!fileReference.containsMatchIn(key) || key in allowed || value.isNull) { "Unsupported local file reference: $key" }
-            if (value.isContainer) rejectUnsupportedFileReferences(value)
-        } else if (node.isArray) node.forEach { rejectUnsupportedFileReferences(it) }
+    private fun rejectUnsupportedFileReferences(
+        node: JsonNode,
+        allowed: Set<String> = emptySet()
+    ) {
+        if (node.isObject) {
+            node.properties().forEach { (key, value) ->
+                require(!fileReference.containsMatchIn(key) || key in allowed || value.isNull) { "Unsupported local file reference: $key" }
+                if (value.isContainer) rejectUnsupportedFileReferences(value)
+            }
+        } else if (node.isArray) {
+            node.forEach { rejectUnsupportedFileReferences(it) }
+        }
     }
 
-    private fun parse(bytes: ByteArray, name: String): JsonNode = mapper.readTree(utf8(bytes)).also {
-        require(it != null && it.isObject) { "Invalid JSON object in $name" }
-    }
+    private fun parse(
+        bytes: ByteArray,
+        name: String
+    ): JsonNode =
+        mapper.readTree(utf8(bytes)).also {
+            require(it != null && it.isObject) { "Invalid JSON object in $name" }
+        }
 
-    private fun utf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-        .decode(ByteBuffer.wrap(bytes)).toString()
+    private fun utf8(bytes: ByteArray): String =
+        Charsets.UTF_8
+            .newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
 }

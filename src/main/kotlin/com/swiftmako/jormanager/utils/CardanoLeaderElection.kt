@@ -30,8 +30,7 @@ object CardanoLeaderElection {
             return calculateQ(certNat)
         }
 
-        private fun calculateQ(certNat: BigInteger): BigInteger =
-            if (certNat == maximum) maximum * CardanoFixedPoint.SCALE else CardanoFixedPoint.fromRatio(maximum, maximum - certNat)
+        private fun calculateQ(certNat: BigInteger): BigInteger = if (certNat == maximum) maximum * CardanoFixedPoint.SCALE else CardanoFixedPoint.fromRatio(maximum, maximum - certNat)
     }
 
     fun prepareActiveSlotCoefficient(f: BigDecimal): ActiveSlotCoefficient {
