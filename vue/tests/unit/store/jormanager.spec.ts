@@ -359,56 +359,40 @@ describe('store/jormanager - getters', () => {
     })
   })
 
-  describe('saveTxFee and invalidateSendAdaFees (SDK planner metadata)', () => {
+  describe('wallet fee planner metadata', () => {
     it('stores selectionMode, inputCount, outputCount, and estimatedTxSize from fee response', () => {
       const store = useJorManagerStore()
 
-      store.saveTxFee({
-        txFee: 342100,
-        tokenFees: [0],
-        tokenKeepFee: 1450000,
-        tokenLocked: 0,
+      store.connected = true
+      store.requestFeesUUID = 'test-uuid-defrag'
+      store.handleMessage({ type: 'calculatefee', data: {
+        txFee: '342100',
+        tokenFees: ['0'],
+        tokenKeepFee: '1450000',
+        tokenLocked: '0',
         selectionMode: 'DEFRAGMENT',
         inputCount: 84,
         outputCount: 4,
         estimatedTxSize: 4920,
         uuid: 'test-uuid-defrag'
-      })
+      } })
 
-      expect(store.txFee).toBe(342100)
-      expect(store.tokenKeepFee).toBe(1450000)
+      expect(store.txFee).toBe('342100')
+      expect(store.tokenKeepFee).toBe('1450000')
       expect(store.planSelectionMode).toBe('DEFRAGMENT')
       expect(store.planInputCount).toBe(84)
       expect(store.planOutputCount).toBe(4)
       expect(store.planEstimatedTxSize).toBe(4920)
       expect(store.responseFeesUUID).toBe('test-uuid-defrag')
-    })
 
-    it('defaults planner metadata cleanly when omitted and resets counts on invalidateSendAdaFees', () => {
-      const store = useJorManagerStore()
-
-      store.saveTxFee({
-        txFee: 175000,
-        tokenFees: [],
-        tokenKeepFee: 0,
-        tokenLocked: 0,
-        uuid: 'legacy-uuid'
-      })
-
+      store.invalidateSendAdaFees()
       expect(store.planSelectionMode).toBe('STANDARD')
       expect(store.planInputCount).toBe(0)
       expect(store.planOutputCount).toBe(0)
       expect(store.planEstimatedTxSize).toBe(0)
 
-      store.planInputCount = 12
-      store.planOutputCount = 2
-      store.planEstimatedTxSize = 812
-      store.invalidateSendAdaFees()
-
-      expect(store.planInputCount).toBe(0)
-      expect(store.planOutputCount).toBe(0)
-      expect(store.planEstimatedTxSize).toBe(0)
-      expect(store.requestFeesUUID).not.toBe(store.responseFeesUUID)
+      expect(store.requestFeesUUID).toBe('')
+      expect(store.responseFeesUUID).toBe('')
     })
   })
 })
@@ -454,6 +438,15 @@ describe('direct transaction requests', () => {
     expect(store.toastError?.message).toBe('Rejected')
     store.submitTransaction(request)
     expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes the wallet after direct defragmentation so pending balances can be shown', () => {
+    const { store, send } = setup()
+    store.connected = true
+    store.submitTransaction({ fromId: 1, txFee: '170000', selectionMode: 'DEFRAGMENT' })
+    store.handleMessage({ type: 'submittransaction', data: 'Submitted' })
+    expect(store.walletSubmitting).toBe(false)
+    expect(send).toHaveBeenLastCalledWith('/jormanager/wallet')
   })
 
   it('sends governance directly and preserves a public failure code', async () => {
@@ -502,9 +495,13 @@ describe('fee estimates', () => {
     const data = { uuid: 'first', txFee: '9007199254740999', tokenKeepFee: '0', tokenLocked: '0', tokenFees: ['123'] }
     store.handleMessage({ type: 'calculatefee', data })
     expect(store.responseFeesUUID).toBe('')
+    store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second', txFee: 175000 } })
+    expect(store.responseFeesUUID).toBe('')
     store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second' } })
     expect(store.txFee).toBe('9007199254740999')
     expect(store.responseFeesUUID).toBe('second')
+    expect(store.planSelectionMode).toBe('STANDARD')
+    expect(store.planInputCount).toBe(0)
     expect(send).toHaveBeenCalledTimes(2)
     store.invalidateSendAdaFees()
     store.handleMessage({ type: 'calculatefee', data: { ...data, uuid: 'second' } })

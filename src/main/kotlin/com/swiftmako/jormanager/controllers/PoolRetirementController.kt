@@ -177,12 +177,14 @@ class PoolRetirementController(
                         cert
                     )
                 )
+                val validUntil = Math.addExact(slot.asLong(), 21600L)
+                val inputs = builder.selectAdminInputs(utxos, payer.paymentAddr, params, validUntil, 2, 128)
                 t.connection.commandWriteFile(protocolPath, params)
                 val built = builder.build(
                     t.host,
                     t.connection,
                     t.era,
-                    utxos,
+                    inputs,
                     emptyList(),
                     payer.paymentAddr,
                     extraArgs = listOf("--certificate-file", cert),
@@ -190,8 +192,8 @@ class PoolRetirementController(
                     protocolPath = protocolPath,
                     witnessCount = 2,
                     bodyPath = body,
-                    validUntil = Math.addExact(slot.asLong(), 21600L),
-                    referenceScriptSize = walletUtils.queryReferenceScriptSize(t.host, t.connection, t.magic, t.socket, t.era, utxos)
+                    validUntil = validUntil,
+                    referenceScriptSize = walletUtils.queryReferenceScriptSize(t.host, t.connection, t.magic, t.socket, t.era, inputs)
                 )
                 val fee = CborSpans
                     .parse(
@@ -220,13 +222,7 @@ class PoolRetirementController(
                 args += listOf("--out-file", signed)
                 cmd(t, args)
                 val envelope = t.connection.commandReadFile(signed)
-                require(
-                    json
-                        .readTree(envelope)
-                        .path("cborHex")
-                        .asString()
-                        .isNotBlank()
-                ) { "Invalid signed transaction" }
+                builder.validateSignedEnvelopeSize(envelope, params)
                 cmd(
                     t,
                     listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", signed) + t.network +

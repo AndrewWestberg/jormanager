@@ -39,8 +39,12 @@ async function setup(claim = false) {
   }
   const fee = (overrides: Record<string, unknown> = {}) => store.handleMessage({ type: 'calculatefee', data: { uuid: store.requestFeesUUID, txFee: '170000', tokenKeepFee: '0', tokenLocked: '0', tokenFees: ['0'], ...overrides } })
   const button = () => Array.from(modal.querySelectorAll('button')).find(item => item.textContent?.trim() === 'Send')!
+  const confirmPassword = () => {
+    const { action, data } = prompt.mock.lastCall![0]
+    emitter.emit('confirm-spending-password-with-action', { action, password: 'secret', originalData: data })
+  }
   const cleanup = () => { emitter.off('show-spending-password-modal', prompt); wrapper.unmount() }
-  return { store, source, destination, send, prompt, modal, select, input, fee, button, cleanup }
+  return { store, source, destination, send, prompt, modal, select, input, fee, button, confirmPassword, cleanup }
 }
 
 async function entry(ctx: { modal: HTMLElement; select: (index: number, value: string) => void; input: (element: HTMLInputElement, value: string) => void }, type: 'amount' | 'percent', value: string) {
@@ -57,6 +61,7 @@ describe('send form fees', () => {
     const c = await setup()
     const submit = vi.spyOn(c.store, 'submitTransaction')
     await entry(c, 'amount', '10')
+    expect(c.send).toHaveBeenLastCalledWith('/jormanager/calculatefee', expect.objectContaining({ selectionMode: 'STANDARD' }))
     expect(c.button().disabled).toBe(true)
     c.fee({ uuid: 'old' })
     await nextTick()
@@ -66,12 +71,14 @@ describe('send form fees', () => {
     expect(c.modal.textContent).toContain('TxFee: ₳0.170000')
     c.button().click()
     await nextTick()
-    const p = c.prompt.mock.lastCall![0]
-    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
-    emitter.emit('confirm-spending-password-with-action', { action: p.action, password: 'secret', originalData: p.data })
+    c.confirmPassword()
+    c.confirmPassword()
     await flushPromises()
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ spendingPassword: 'secret', txFee: '170000', toAccounts: [expect.objectContaining({ amount: '10000000' })] }))
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      spendingPassword: 'secret', selectionMode: 'STANDARD', txFee: '170000',
+      toAccounts: [expect.objectContaining({ amount: '10000000' })]
+    }))
     c.store.handleMessage({ type: 'submittransaction', exception: { message: 'submission failed' } })
     expect(c.store.toastError?.message).toBe('submission failed')
     c.cleanup()
@@ -86,7 +93,7 @@ describe('send form fees', () => {
     expect(c.modal.textContent).toContain('Remaining:')
     c.button().click()
     await nextTick()
-    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    c.confirmPassword()
     expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({ toAccounts: [expect.objectContaining({ amount: '9007199251070999' })] }))
     c.cleanup()
   })
@@ -99,7 +106,7 @@ describe('send form fees', () => {
     await nextTick()
     c.button().click()
     await nextTick()
-    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    c.confirmPassword()
     expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({ toAccounts: [expect.objectContaining({ amount: '9007199254740999' })] }))
     c.cleanup()
   })
@@ -107,16 +114,45 @@ describe('send form fees', () => {
   it('combines multi-claim rewards and identifies the selected fee payer', async () => {
     const c = await setup(true)
     await entry(c, 'percent', '100')
+    expect(c.modal.querySelector('[data-testid="selection-mode-group"]')).toBeNull()
     c.fee()
     await nextTick()
     expect(c.modal.textContent).toContain('Fee payer')
     c.button().click()
     await nextTick()
-    emitter.emit('confirm-spending-password-with-action', { action: 'submit-wallet-send', password: 'secret', originalData: null })
+    c.confirmPassword()
     expect(c.send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({
-      isClaim: true, fromIds: [1, 2], toAccounts: [expect.objectContaining({ amount: '12000000' })]
+      isClaim: true, selectionMode: 'STANDARD', fromIds: [1, 2], toAccounts: [expect.objectContaining({ amount: '12000000' })]
     }))
     c.cleanup()
   })
 
+  it('replans on mode change, preserving the payment draft without submitting an old password prompt', async () => {
+    const c = await setup()
+    await entry(c, 'amount', '10')
+    c.fee({ inputCount: 1, outputCount: 2, estimatedTxSize: 224 })
+    await nextTick()
+    expect(c.modal.querySelector('[data-testid="tx-plan-summary"]')?.textContent).toContain('1 input')
+    c.button().click()
+    expect(c.prompt).toHaveBeenCalledOnce()
+
+    ;(c.modal.querySelector('input[value="DEFRAGMENT"]') as HTMLInputElement).click()
+    await flushPromises()
+    expect(c.modal.querySelector('[data-testid="tx-plan-summary"]')).toBeNull()
+    expect(c.send).toHaveBeenLastCalledWith('/jormanager/calculatefee', expect.objectContaining({
+      selectionMode: 'DEFRAGMENT',
+      toAccounts: [expect.objectContaining({ account: 1, percent: 100 })]
+    }))
+    c.fee({ selectionMode: 'DEFRAGMENT' })
+    c.confirmPassword()
+    expect(c.send).not.toHaveBeenCalledWith('/jormanager/submittransaction', expect.anything())
+
+    ;(c.modal.querySelector('input[value="STANDARD"]') as HTMLInputElement).click()
+    await flushPromises()
+    expect(c.send).toHaveBeenLastCalledWith('/jormanager/calculatefee', expect.objectContaining({
+      selectionMode: 'STANDARD',
+      toAccounts: [expect.objectContaining({ account: 2, amount: '10000000', percent: null })]
+    }))
+    c.cleanup()
+  })
 })

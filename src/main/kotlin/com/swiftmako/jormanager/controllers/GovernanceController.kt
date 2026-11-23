@@ -181,12 +181,20 @@ class GovernanceController(
                 }
                 val tip = target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "query", "tip") + target.magic + target.socket + "--output-json")
                 val ttl = Math.addExact(requireNotNull(tipAdapter.fromJson(tip)).slot, 21600L)
+                val inputs = builder.selectAdminInputs(
+                    utxos,
+                    payer.paymentAddr,
+                    params,
+                    ttl,
+                    pools.size + 1,
+                    pools.size * (if (anchor == null) 120 else 240),
+                )
                 target.connection.commandWriteFile(paramsPath, params)
                 val built = builder.build(
                     target.host,
                     target.connection,
                     target.era,
-                    utxos,
+                    inputs,
                     emptyList(),
                     payer.paymentAddr,
                     extraArgs = votes.flatMap { listOf("--vote-file", it) },
@@ -201,7 +209,7 @@ class GovernanceController(
                         target.magic.joinToString(" "),
                         target.socket.joinToString(" "),
                         target.era,
-                        utxos
+                        inputs
                     )
                 )
                 val fee = CborSpans
@@ -230,13 +238,7 @@ class GovernanceController(
                 args.addAll(listOf("--out-file", signed))
                 target.connection.commandArgs(args)
                 val envelope = target.connection.commandReadFile(signed)
-                require(
-                    json
-                        .readTree(envelope)
-                        .path("cborHex")
-                        .asString()
-                        .isNotBlank()
-                ) { "Invalid signed transaction" }
+                builder.validateSignedEnvelopeSize(envelope, params)
                 target.connection.commandArgs(listOf(target.host.cardanoCliPath, target.era, "transaction", "submit", "--tx-file", signed) + target.magic + target.socket)
                 ledger.recordSubmitted(target.host, target.node, target.era, built.txId, envelope)
                 Result(input.requestId, built.txId, eras.networkKey(target.node), target.era, fee.toString(), "0", "0", "submitted")

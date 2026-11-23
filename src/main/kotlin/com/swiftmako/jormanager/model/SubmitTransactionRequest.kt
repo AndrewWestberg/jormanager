@@ -28,6 +28,5 @@ data class SubmitTransactionRequest(
     // Get all from IDs, preferring fromIds list if not empty, otherwise falling back to single fromId
     fun getEffectiveFromIds(): List<Long> = fromIds.ifEmpty { listOf(fromId) }
 
-    override fun toString(): String =
-        "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata, selectionMode=$selectionMode)"
+    override fun toString(): String = "SubmitTransactionRequest(spendingPassword='************', fromId=$fromId, fromIds=$fromIds, txFee=$txFee, toAccounts=$toAccounts, isClaim=$isClaim, metadata=$metadata, selectionMode=$selectionMode)"
 }

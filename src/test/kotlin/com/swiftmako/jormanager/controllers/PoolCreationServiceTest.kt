@@ -284,6 +284,8 @@ class PoolCreationServiceTest {
             every { ledger.recordSubmitted(host, eraObserver, era, txIdHex, any()) } answers {
                 events += "recordSubmitted"
             }
+            every { txBuilder.selectAdminInputs(any(), any(), any(), any(), any(), any(), any()) } answers { firstArg() }
+            every { txBuilder.validateSignedEnvelopeSize(any(), any()) } returns Unit
 
             every {
                 txBuilder.build(
@@ -305,6 +307,7 @@ class PoolCreationServiceTest {
                     bodyPath = any(),
                     referenceScriptSize = any(),
                     outputsForFee = any(),
+                    changeLayout = any(),
                 )
             } returns WalletTransactionBuilder.CliBody("""{"cborHex":"00"}""", txIdHex)
 

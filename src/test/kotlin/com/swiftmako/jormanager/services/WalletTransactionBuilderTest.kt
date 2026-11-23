@@ -33,7 +33,7 @@ class WalletTransactionBuilderTest {
     private inner class Fixture {
         val host = mockk<Host>()
         val connection = mockk<HostConnection>()
-        val builder = WalletTransactionBuilder(ObjectMapper())
+        val builder = WalletTransactionBuilder(ObjectMapper(), mockk())
         val builds = mutableListOf<List<String>>()
         val commands = mutableListOf<List<String>>()
         var minimum = 1_000_000L
@@ -117,6 +117,15 @@ class WalletTransactionBuilderTest {
                 .indices
                 .filter { builds.last()[it] == "--tx-out" }
                 .map { builds.last()[it + 1] }
+    }
+
+    @Test
+    fun signedEnvelopeOverCurrentSizeLimitIsRejected() {
+        val builder = WalletTransactionBuilder(ObjectMapper(), mockk())
+        val params = """{"maxTxSize":4}"""
+        assertThrows<IllegalArgumentException> {
+            builder.validateSignedEnvelopeSize("""{"cborHex":"${"00".repeat(5)}"}""", params)
+        }
     }
 
     @Test fun balancesAndConvergesWithoutLosingAssets() {

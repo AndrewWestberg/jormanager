@@ -35,10 +35,13 @@ export interface FileOption {
   [key: string]: unknown
 }
 
+export type SelectionMode = 'STANDARD' | 'DEFRAGMENT'
+
 export interface WalletItem {
   id: number
   name: string
   paymentAddress: string
+  paymentAddrUtxoCount?: number | null
   paymentAddrLovelace: string | null
   stakingAddress?: string
   stakingAddrLovelace: string | null
@@ -138,6 +141,10 @@ export interface TxFeeData {
   tokenKeepFee: string
   tokenLocked: string
   uuid: string
+  selectionMode?: SelectionMode
+  inputCount?: number
+  outputCount?: number
+  estimatedTxSize?: number
 }
 
 export interface ToAccount {

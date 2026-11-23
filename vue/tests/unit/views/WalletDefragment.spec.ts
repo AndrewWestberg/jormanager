@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
+import { createBootstrap } from 'bootstrap-vue-next'
 import Wallet from '@/views/Wallet.vue'
 import SendAdaModal from '@/components/SendAdaModal.vue'
 import { useJorManagerStore } from '@/stores/jormanager'
@@ -19,17 +20,13 @@ const BModalStub = {
 }
 
 const commonGlobalConfig = (pinia: ReturnType<typeof createPinia>) => ({
-  plugins: [pinia],
+  plugins: [pinia, createBootstrap()],
   directives: {
     'b-tooltip': () => {}
   },
   stubs: {
     'font-awesome-icon': { template: '<i />' },
     AddWalletEntryWizard: { template: '<div />' },
-    CurrencyInput: {
-      props: ['modelValue'],
-      template: '<input :value="modelValue" />'
-    },
     BModal: BModalStub
   }
 })
@@ -55,10 +52,10 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
       hasPaymentKeys: true,
       paymentAddr: 'addr_test1qpz9v4j2k8h0x7m3n5l6q2w4e8r0t2y4u6i8o0p2a4s6d8f0g2h4j6k8l0z9x8c7v6b5n4m3q2w8e7r6t5y4u3i2o1p0s5x0v9',
       paymentAddress: 'addr_test1qpz9v4j2k8h0x7m3n5l6q2w4e8r0t2y4u6i8o0p2a4s6d8f0g2h4j6k8l0z9x8c7v6b5n4m3q2w8e7r6t5y4u3i2o1p0s5x0v9',
-      paymentAddrLovelace: 85_000_000,
+      paymentAddrLovelace: '85000000',
       paymentAddrUtxoCount: 47,
       stakingAddr: '',
-      stakingAddrLovelace: 0,
+      stakingAddrLovelace: '0',
       nativeAssetMap: {}
     }
     const singleUtxoWallet = {
@@ -68,10 +65,10 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
       hasPaymentKeys: true,
       paymentAddr: 'addr_test1vqwyf8g87u0x2ex9mjczrceyh65zj77fra23nfylnf4gxhqwz3dvu',
       paymentAddress: 'addr_test1vqwyf8g87u0x2ex9mjczrceyh65zj77fra23nfylnf4gxhqwz3dvu',
-      paymentAddrLovelace: 20_000_000,
+      paymentAddrLovelace: '20000000',
       paymentAddrUtxoCount: 1,
       stakingAddr: '',
-      stakingAddrLovelace: 0,
+      stakingAddrLovelace: '0',
       nativeAssetMap: {}
     }
     const addressOnlyEntry = {
@@ -81,14 +78,14 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
       hasPaymentKeys: false,
       paymentAddr: 'addr_test1vqwyf8g87u0x2ex9mjczrceyh65zj77fra23nfylnf4gxhqwz3dvu',
       paymentAddress: 'addr_test1vqwyf8g87u0x2ex9mjczrceyh65zj77fra23nfylnf4gxhqwz3dvu',
-      paymentAddrLovelace: 50_000_000,
+      paymentAddrLovelace: '50000000',
       paymentAddrUtxoCount: 12,
       stakingAddr: '',
-      stakingAddrLovelace: 0,
+      stakingAddrLovelace: '0',
       nativeAssetMap: {}
     }
 
-    store.walletItems = [fragmentedWallet, singleUtxoWallet, addressOnlyEntry] as any
+    store.walletItems = [fragmentedWallet, singleUtxoWallet, addressOnlyEntry]
 
     const emittedPayloads: unknown[] = []
     emitter.on('show-send-ada-modal', (payload) => emittedPayloads.push(payload))
@@ -106,8 +103,12 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
 
     expect(wrapper.text()).toContain('47 UTxOs')
     expect(wrapper.text()).toContain('1 UTxO')
+    expect(wrapper.find('[data-testid="defragment-utxos-btn"]').exists()).toBe(false)
 
-    // Only fragmentedWallet (paymentAddrUtxoCount > 1 && type !== 'address') gets the Defragment button
+    store.connected = true
+    await nextTick()
+
+    // Only the funded, spendable multi-UTxO wallet can defragment.
     const defragButtons = wrapper.findAll('[data-testid="defragment-utxos-btn"]')
     expect(defragButtons).toHaveLength(1)
 
@@ -118,10 +119,12 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
       isClaim: false,
       isDefragment: true
     })
+    wrapper.unmount()
   })
 
   it('auto-configures DEFRAGMENT mode in SendAdaModal, displays planned UTxO summary, and submits selectionMode', async () => {
     const store = useJorManagerStore()
+    store.connected = true
     const walletItem = {
       id: 7,
       name: 'dusty-ops',
@@ -129,28 +132,16 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
       hasPaymentKeys: true,
       paymentAddr: 'addr_test1qpz9v4j2k8h0x7m3n5l6q2w4e8r0t2y4u6i8o0p2a4s6d8f0g2h4j6k8l0z9x8c7v6b5n4m3q2w8e7r6t5y4u3i2o1p0s5x0v9',
       paymentAddress: 'addr_test1qpz9v4j2k8h0x7m3n5l6q2w4e8r0t2y4u6i8o0p2a4s6d8f0g2h4j6k8l0z9x8c7v6b5n4m3q2w8e7r6t5y4u3i2o1p0s5x0v9',
-      paymentAddrLovelace: 120_000_000,
+      paymentAddrLovelace: '120000000',
       paymentAddrUtxoCount: 64,
-      stakingAddrLovelace: 0,
+      stakingAddrLovelace: '0',
       nativeAssetMap: {}
     }
-    store.walletItems = [walletItem] as any
+    store.walletItems = [walletItem]
 
-    const calcSpy = vi.spyOn(store, 'calculateSendAdaFees').mockImplementation((req) => {
-      store.requestFeesUUID = req.uuid
-      store.saveTxFee({
-        txFee: 385_000,
-        tokenFees: [0],
-        tokenKeepFee: 1_350_000,
-        tokenLocked: 0,
-        selectionMode: (req.selectionMode as any) || 'STANDARD',
-        inputCount: 64,
-        outputCount: 3,
-        estimatedTxSize: 3_840,
-        uuid: req.uuid
-      })
-    })
-    const submitSpy = vi.spyOn(store, 'submitTransaction').mockImplementation(() => {})
+    const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+    const prompt = vi.fn()
+    emitter.on('show-spending-password-modal', prompt)
 
     const wrapper = mount(SendAdaModal, {
       global: commonGlobalConfig(pinia)
@@ -167,13 +158,28 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
     expect(wrapper.find('[data-testid="modal-title"]').text()).toContain('Defragmenting: ₳120.000000')
     expect(wrapper.find('[data-testid="selection-mode-group"]').exists()).toBe(true)
 
-    // Verify calculateSendAdaFees was dispatched immediately with DEFRAGMENT and 100% self-consolidation
-    expect(calcSpy).toHaveBeenCalled()
-    const lastCalcArg = calcSpy.mock.calls[calcSpy.mock.calls.length - 1][0] as any
-    expect(lastCalcArg.selectionMode).toBe('DEFRAGMENT')
-    expect(lastCalcArg.fromId).toBe(7)
-    expect(lastCalcArg.toAccounts[0].account).toBe(7)
-    expect(lastCalcArg.toAccounts[0].percent).toBe(100)
+    expect(send).toHaveBeenCalledWith('/jormanager/calculatefee', expect.objectContaining({
+      selectionMode: 'DEFRAGMENT',
+      fromId: 7,
+      fromIds: [7],
+      toAccounts: [expect.objectContaining({ currency: 'ada', account: 7, percent: 100 })]
+    }))
+
+    const submit = wrapper.findAll('button').find(button => button.text() === 'Defragment UTxOs')!
+    expect(submit.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="tx-plan-summary"]').exists()).toBe(false)
+    store.handleMessage({ type: 'calculatefee', data: {
+      txFee: '385000',
+      tokenFees: ['0'],
+      tokenKeepFee: '1350000',
+      tokenLocked: '118265000',
+      selectionMode: 'DEFRAGMENT',
+      inputCount: 64,
+      outputCount: 3,
+      estimatedTxSize: 3840,
+      uuid: store.requestFeesUUID
+    } })
+    await nextTick()
 
     // Verify live SDK transaction plan summary renders input/output counts and 16KB budget percentage
     const summary = wrapper.find('[data-testid="tx-plan-summary"]')
@@ -182,18 +188,24 @@ describe('Wallet Defragment UTxOs UI & SendAdaModal Coin Selection', () => {
     expect(summary.text()).toContain('3 outputs')
     expect(summary.text()).toContain('3,840 / 16,384 bytes')
 
-    // Confirm spending password and verify submitTransaction receives selectionMode: 'DEFRAGMENT'
+    await submit.trigger('click')
+    expect(prompt).toHaveBeenCalledWith({ action: 'submit-wallet-send', data: store.responseFeesUUID })
     emitter.emit('confirm-spending-password-with-action', {
-      action: 'send-ada',
+      action: 'submit-wallet-send',
       password: 'test-password',
-      originalData: null
+      originalData: prompt.mock.lastCall![0].data
     })
     await nextTick()
 
-    expect(submitSpy).toHaveBeenCalledTimes(1)
-    const submitted = submitSpy.mock.calls[0][0] as any
-    expect(submitted.selectionMode).toBe('DEFRAGMENT')
-    expect(submitted.fromId).toBe(7)
-    expect(submitted.txFee).toBe(385_000)
+    expect(send).toHaveBeenCalledWith('/jormanager/submittransaction', expect.objectContaining({
+      selectionMode: 'DEFRAGMENT',
+      spendingPassword: 'test-password',
+      fromId: 7,
+      txFee: '385000',
+      tokenKeepFee: '1350000',
+      toAccounts: [expect.objectContaining({ account: 7, percent: 100, amount: '0' })]
+    }))
+    emitter.off('show-spending-password-modal', prompt)
+    wrapper.unmount()
   })
 })

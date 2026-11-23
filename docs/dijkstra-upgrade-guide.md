@@ -178,6 +178,8 @@ Wallet send/claim/staking, governance, pool edits and retirement use the ordinar
 
 The wallet has one **Balance** column. Multi-claim, multiple recipients, percentages, metadata and selectable stake-registration fee accounts remain. Exact integer calculations preserve fees, native assets, minimum outputs and deposits/refunds; transaction validity remains six hours. The server builds, signs and submits directly under a process-local submission lock.
 
+Wallet sends use SDK coin selection. On a spendable wallet with multiple UTxOs, **Defragment UTxOs** opens a self-send that consolidates inputs within the current transaction-size limit and shows the planned input and output counts. The era-specific CLI still validates and balances the transaction before signing.
+
 Only an acknowledged CLI submission updates the in-memory pending-input/change cache and transaction-ID history. Confirmation removes its provisional effects; baseline rollback replay applies only to acknowledged transactions retained in that process. Restart clears the cache. There are no persisted input/reward reservations, mempool polling, authorization fingerprints or expiry reconciliation.
 
 A rejected submission leaves local funds unchanged. An interrupted submission can still have reached the node: inspect chain state before retrying. Removing old reservations does not revoke already-signed transactions. Migration never resubmits them.

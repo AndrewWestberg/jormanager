@@ -1,6 +1,7 @@
 package com.swiftmako.jormanager.controllers
 
 import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonDataException
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.controllers.utils.WalletUtils
 import com.swiftmako.jormanager.entities.File
@@ -15,9 +16,11 @@ import com.swiftmako.jormanager.model.DeleteWalletEntryRequest
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
+import com.swiftmako.jormanager.model.SelectionMode
 import com.swiftmako.jormanager.model.WalletItem
 import com.swiftmako.jormanager.model.SubmitTransactionRequest
 import com.swiftmako.jormanager.model.UpdateStakingAddressRequest
+import com.swiftmako.jormanager.model.WithdrawalItem
 import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.model.toNativeAssetMap
 import com.swiftmako.jormanager.repositories.CardanoRepository
@@ -26,10 +29,12 @@ import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.ProtocolParametersRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
+import com.swiftmako.jormanager.services.TransactionPlannerService
+import com.swiftmako.jormanager.services.WalletAccountLineItem
 import com.swiftmako.jormanager.services.WalletTransactionBuilder
 import com.swiftmako.jormanager.model.NativeAsset
-import com.swiftmako.jormanager.ktx.hexToByteArray
-import com.swiftmako.jormanager.utils.CborSpans
+import com.swiftmako.jormanager.model.TransactionPlan
+import com.swiftmako.jormanager.model.Utxo
 import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -74,6 +79,7 @@ class WalletController
         private val ledgerDao: LedgerDao,
         private val transactionBuilder: WalletTransactionBuilder,
         private val json: ObjectMapper,
+        private val transactionPlannerService: TransactionPlannerService = TransactionPlannerService(),
     ) : CoroutineScope {
         private val log by lazy { KotlinLogging.logger("WalletController") }
 
@@ -151,7 +157,7 @@ class WalletController
                 require(entries.isNotEmpty() && entries.map { it.id }.distinct().size == entries.size)
                 val candidates = if (request.isClaim) {
                     request.toAccounts
-                        .mapNotNull { it.account.takeIf { id -> id > 0 } }
+                        .mapNotNull { it.account.takeIf { id -> id > 0 && !it.isAddress } }
                         .distinct()
                         .map { id ->
                             walletRepository.findByIdOrNull(id)?.takeUnless { it.deleted }
@@ -170,7 +176,6 @@ class WalletController
                 }
                 val utxos = candidateUtxos[payer.id].orEmpty()
                 require(utxos.isNotEmpty()) { "Fee payer has no available inputs" }
-                val referenceSize = walletUtils.queryReferenceScriptSize(defaultHost, defaultHostConnection, magicString, socketPath, era, utxos)
                 val rewards = if (request.isClaim) {
                     entries.map { entry ->
                         walletUtils
@@ -189,14 +194,43 @@ class WalletController
                             ?: throw IOException("Destination account not found")
                     }
                 }
-                require(addresses.isNotEmpty() && addresses.all { it.isNotBlank() }) { "No destination" }
+                require(addresses.all { it.isNotBlank() }) { "Invalid destination" }
+                val selectionMode = SelectionMode.fromString(request.selectionMode)
+                val items = request.toAccounts.mapIndexed { index, item ->
+                    require(item.percent == null || item.percent in 1..100) { "Invalid percentage" }
+                    walletLine(addresses[index], item.currency, item.amount, item.percent, request.isClaim && item.account == payer.id)
+                }
+                requireWalletDestinations(selectionMode, request.isClaim, entries.size, payer.paymentAddr, items)
+                val sourceAssets = utxos.toNativeAssetMap()
+                val totalLovelace = utxos.sumByBigInteger { it.lovelace }
+
+                fun amounts(availableAda: BigInteger): List<BigInteger> {
+                    val remaining = sourceAssets.toMutableMap()
+                    remaining["ada"] = availableAda
+                    val percentages = mutableMapOf<String, Int>()
+                    return items.map { item ->
+                        val currency = item.currency
+                        val amount = if (!item.isPercent) {
+                            percentages[currency] = 0
+                            item.amount
+                        } else {
+                            val previous = percentages[currency] ?: 0
+                            require(item.percent in 1..100 && previous + item.percent <= 100) { "Invalid percentage" }
+                            val denominator = BigInteger.valueOf((100 - previous).toLong())
+                            percentages[currency] = previous + item.percent
+                            ((remaining[currency] ?: BigInteger.ZERO) * BigInteger.valueOf(item.percent.toLong()) + denominator / BigInteger.TWO) / denominator
+                        }
+                        require(amount.signum() > 0) { "Invalid output amount" }
+                        remaining[currency] = (remaining[currency] ?: BigInteger.ZERO) - amount
+                        amount
+                    }
+                }
                 val prefix = "/tmp/jormanager-fee-${UUID.randomUUID()}"
                 val paramsPath = "$prefix.params"
                 val bodyPath = "$prefix.body"
                 val metadataPath = "$prefix.metadata"
                 val cleanup = mutableListOf(paramsPath, bodyPath)
                 val tokenFees = MutableList(request.toAccounts.size) { BigInteger.ZERO }
-                var tokenKeepFee = BigInteger.ZERO
                 try {
                     defaultHostConnection.commandWriteFile(paramsPath, protocolParams)
                     val extra = mutableListOf<String>()
@@ -206,10 +240,10 @@ class WalletController
                         cleanup += metadataPath
                         extra += listOf("--metadata-json-file", metadataPath)
                     }
-                    if (request.isClaim) {
-                        entries.forEachIndexed { index, entry ->
-                            extra += listOf("--withdrawal", "${requireNotNull(entry.stakingAddr)}+${rewards[index]}")
-                        }
+                    val withdrawals = rewards.mapIndexed { index, reward ->
+                        val address = requireNotNull(entries[index].stakingAddr)
+                        extra += listOf("--withdrawal", "$address+$reward")
+                        WithdrawalItem(address, reward)
                     }
                     val tip = requireNotNull(
                         queryTipAdapter.fromJson(
@@ -220,7 +254,38 @@ class WalletController
                         )
                     )
                     require(tip.slot >= 0) { "Invalid node tip" }
-                    val sourceAssets = utxos.toNativeAssetMap()
+                    val validUntil = Math.addExact(tip.slot, 21600L)
+                    val planItems = if (selectionMode == SelectionMode.DEFRAGMENT) {
+                        emptyList()
+                    } else {
+                        val provisionalAmounts = amounts(if (request.isClaim) totalRewards else totalLovelace)
+                        items.mapIndexed { index, item -> item.copy(amount = provisionalAmounts[index]) }
+                    }
+                    val plan = planWallet(
+                        era,
+                        protocolParams,
+                        utxos,
+                        payer.paymentAddr,
+                        planItems,
+                        selectionMode,
+                        request.isClaim,
+                        withdrawals,
+                        request.metadata,
+                        validUntil,
+                        1 + withdrawals.size,
+                        isPreview = true
+                    )
+                    val inputs = plan?.selectedUtxos ?: utxos
+                    val tokenLocked = plan?.tokenLocked ?: BigInteger.ZERO
+                    val groups = addresses.indices.groupBy { addresses[it] }
+                    // The planner places change after the grouped recipients; CLI determines its exact lovelace.
+                    val changeLayout = if (request.isClaim) null else plan?.outputs?.drop(if (selectionMode == SelectionMode.DEFRAGMENT) 0 else groups.size)
+                    val referenceSize = walletUtils.queryReferenceScriptSize(defaultHost, defaultHostConnection, magicString, socketPath, era, inputs)
+                    val remainingAssets = inputs.toNativeAssetMap().toMutableMap()
+                    planItems.filter { it.currency != "ada" }.forEach { item ->
+                        remainingAssets[item.currency] = (remainingAssets[item.currency] ?: BigInteger.ZERO) - item.amount
+                    }
+                    require(remainingAssets.values.all { it.signum() >= 0 }) { "Insufficient native assets" }
 
                     fun minimum(
                         address: String,
@@ -247,65 +312,44 @@ class WalletController
                             .toBigInteger()
                     }
 
+                    val changeAssets = remainingAssets.filterValues { it.signum() > 0 }
+                    val tokenKeepFee = when {
+                        changeAssets.isEmpty() -> BigInteger.ZERO
+                        changeLayout == null -> minimum(payer.paymentAddr, BigInteger("1000000"), changeAssets)
+                        else -> changeLayout.filter { it.nativeAssets.isNotEmpty() }.sumByBigInteger { output ->
+                            minimum(
+                                payer.paymentAddr,
+                                output.lovelace,
+                                output.nativeAssets.associate { asset -> "${asset.policy}.${asset.name}".trimEnd('.') to asset.amount }
+                            )
+                        }
+                    }
+
                     fun outputs(fee: BigInteger): List<WalletTransactionBuilder.Output> {
                         repeat(16) {
-                            val remaining = sourceAssets.toMutableMap()
-                            remaining["ada"] = if (request.isClaim) {
+                            val availableAda = if (request.isClaim) {
                                 totalRewards
                             } else {
-                                utxos.sumByBigInteger { it.lovelace } - fee - tokenKeepFee - tokenFees.fold(BigInteger.ZERO, BigInteger::add)
+                                totalLovelace - tokenLocked - fee - tokenKeepFee - tokenFees.fold(BigInteger.ZERO, BigInteger::add)
                             }
-                            val percentages = mutableMapOf<String, Int>()
-                            val amounts = request.toAccounts.map { item ->
-                                val currency = item.currency.trimEnd('.')
-                                val amount = if (item.percent == null) {
-                                    percentages[currency] = 0
-                                    item.amount ?: BigInteger.ZERO
-                                } else {
-                                    val previous = percentages[currency] ?: 0
-                                    require(item.percent in 1..100 && previous + item.percent <= 100) { "Invalid percentage" }
-                                    val denominator = BigInteger.valueOf((100 - previous).toLong())
-                                    percentages[currency] = previous + item.percent
-                                    ((remaining[currency] ?: BigInteger.ZERO) * BigInteger.valueOf(item.percent.toLong()) + denominator / BigInteger.TWO) / denominator
-                                }
-                                require(amount.signum() > 0) { "Invalid output amount" }
-                                remaining[currency] = (remaining[currency] ?: BigInteger.ZERO) - amount
-                                amount
-                            }
-                            val groups = addresses.indices.groupBy { addresses[it] }
+                            val amounts = amounts(availableAda)
                             val nextFees = MutableList(tokenFees.size) { BigInteger.ZERO }
                             val result = groups.map { (address, indices) ->
-                                val ada = indices.filter { request.toAccounts[it].currency == "ada" }.fold(BigInteger.ZERO) { sum, i -> sum + amounts[i] }
+                                val ada = indices.filter { items[it].currency == "ada" }.fold(BigInteger.ZERO) { sum, i -> sum + amounts[i] }
                                 val assets = sortedMapOf<String, BigInteger>()
                                 var previous = BigInteger.ZERO
-                                indices.filter { request.toAccounts[it].currency != "ada" }.forEach { i ->
-                                    val unit = request.toAccounts[i].currency.trimEnd('.')
-                                    require(unit.matches(Regex("[0-9a-fA-F]{56}(\\.[0-9a-fA-F]{0,64})?"))) { "Invalid asset" }
+                                indices.filter { items[it].currency != "ada" }.forEach { i ->
+                                    val unit = items[i].currency
                                     assets[unit] = (assets[unit] ?: BigInteger.ZERO) + amounts[i]
                                     val needed = (minimum(address, ada.max(BigInteger("1000000")), assets) - ada).max(BigInteger.ZERO)
                                     nextFees[i] = needed - previous
                                     previous = needed
                                 }
-                                WalletTransactionBuilder.Output(
-                                    address,
-                                    ada + previous,
-                                    assets.map { (unit, value) ->
-                                        val parts = unit.split(".", limit = 2)
-                                        NativeAsset(parts.getOrElse(1) { "" }, parts[0], value)
-                                    }
-                                )
+                                WalletTransactionBuilder.Output(address, ada + previous, nativeAssets(assets))
                             }
-                            val changeAssets = remaining.filter { it.key != "ada" && it.value.signum() > 0 }
-                            require(remaining.filterKeys { it != "ada" }.values.all { it.signum() >= 0 }) { "Insufficient native assets" }
-                            val nextKeep = if (changeAssets.isEmpty()) {
-                                BigInteger.ZERO
-                            } else {
-                                minimum(payer.paymentAddr, BigInteger("1000000"), changeAssets)
-                            }
-                            if (nextFees == tokenFees && nextKeep == tokenKeepFee) return result
+                            if (nextFees == tokenFees) return result
                             tokenFees.clear()
                             tokenFees.addAll(nextFees)
-                            tokenKeepFee = nextKeep
                         }
                         throw IllegalArgumentException("Output minimum ADA did not converge")
                     }
@@ -313,38 +357,35 @@ class WalletController
                         defaultHost,
                         defaultHostConnection,
                         era,
-                        utxos,
+                        inputs,
                         emptyList(),
                         payer.paymentAddr,
                         withdrawals = totalRewards,
                         extraArgs = extra,
-                        validUntil = Math.addExact(tip.slot, 21600L),
+                        validUntil = validUntil,
                         protocolParameters = protocolParams,
                         protocolPath = paramsPath,
-                        witnessCount = 1 + if (request.isClaim) entries.size else 0,
+                        witnessCount = 1 + withdrawals.size,
                         bodyPath = bodyPath,
                         referenceScriptSize = referenceSize,
-                        outputsForFee = ::outputs
+                        outputsForFee = if (selectionMode == SelectionMode.DEFRAGMENT) null else ::outputs,
+                        changeLayout = changeLayout
                     )
-                    val body = CborSpans
-                        .parse(
-                            json
-                                .readTree(built.textEnvelope)
-                                .path("cborHex")
-                                .asString()
-                                .hexToByteArray()
-                        ).array()
-                        .first()
-                    val lovelace = body
-                        .entries()
-                        .single { it.first.integer() == BigInteger.TWO }
-                        .second
-                        .integer()
                     webSocketTemplate.convertAndSend(
                         "/topic/messages",
                         SocketResponse.Success(
                             type = "calculatefee",
-                            data = CalculateFeeResponse(lovelace, tokenFees.toList(), tokenKeepFee, BigInteger.ZERO, request.uuid)
+                            data = CalculateFeeResponse(
+                                built.fee,
+                                tokenFees.toList(),
+                                tokenKeepFee,
+                                tokenLocked,
+                                request.uuid,
+                                selectionMode.name,
+                                inputs.size,
+                                built.outputCount,
+                                built.estimatedTxSize
+                            )
                         )
                     )
                 } finally {
@@ -720,8 +761,8 @@ class WalletController
                         ?: throw IOException("No Account found capable of covering the claim fee!")
                 else -> sources.first()
             }
-            val inputs = walletUtils.getUtxos(host, connection, magic, socket, era, payer.paymentAddr)
-            require(inputs.isNotEmpty()) { "Fee payer has no available inputs" }
+            val candidates = walletUtils.getUtxos(host, connection, magic, socket, era, payer.paymentAddr)
+            require(candidates.isNotEmpty()) { "Fee payer has no available inputs" }
             val stakes = if (stakeRequest != null || request!!.isClaim) sources else emptyList()
             val prefix = "/tmp/jormanager-wallet-${UUID.randomUUID()}"
             val body = "$prefix.body"
@@ -731,7 +772,7 @@ class WalletController
             try {
                 connection.commandWriteFile(params, parameters)
                 val args = mutableListOf<String>()
-                var withdrawals = BigInteger.ZERO
+                val withdrawals = mutableListOf<WithdrawalItem>()
                 var deposit = BigInteger.ZERO
                 var refund = BigInteger.ZERO
                 if (stakeRequest != null) {
@@ -765,10 +806,11 @@ class WalletController
                 } else {
                     if (request!!.isClaim) {
                         stakes.forEach { stake ->
-                            val reward = walletUtils.getStakeAddressInfo(host, connection, magic, socket, era, requireNotNull(stake.stakingAddr)).single().rewardAccountBalance
+                            val address = requireNotNull(stake.stakingAddr)
+                            val reward = walletUtils.getStakeAddressInfo(host, connection, magic, socket, era, address).single().rewardAccountBalance
                             require(reward.signum() >= 0)
-                            withdrawals += reward
-                            args += listOf("--withdrawal", "${stake.stakingAddr}+$reward")
+                            withdrawals += WithdrawalItem(address, reward)
+                            args += listOf("--withdrawal", "$address+$reward")
                         }
                     }
                     if (!request.metadata.isNullOrBlank()) {
@@ -779,34 +821,60 @@ class WalletController
                         args += listOf("--metadata-json-file", metadata)
                     }
                 }
-                val outputs = request?.toAccounts?.groupBy { if (it.isAddress) it.address else entry(it.account).paymentAddr }?.map { (address, items) ->
-                    require(address.isNotBlank())
-                    var ada = BigInteger.ZERO
-                    val assets = sortedMapOf<String, BigInteger>()
-                    items.forEach { item ->
-                        val amount = requireNotNull(item.amount)
-                        require(amount.signum() > 0 && item.tokenFee.signum() >= 0) { "Invalid output amount" }
-                        if (item.currency == "ada") {
-                            ada += amount
-                        } else {
-                            val unit = item.currency.trimEnd('.')
-                            require(unit.matches(Regex("[0-9a-fA-F]{56}(\\.[0-9a-fA-F]{0,64})?"))) { "Invalid asset" }
-                            assets[unit] = (assets[unit] ?: BigInteger.ZERO) + amount
-                            ada += item.tokenFee
+                val selectionMode = SelectionMode.fromString(request?.selectionMode)
+                val items = request
+                    ?.let { transfer ->
+                        transfer.toAccounts.map { item ->
+                            val address = if (item.isAddress) item.address else entry(item.account).paymentAddr
+                            walletLine(address, item.currency, item.amount, item.percent, transfer.isClaim && item.account == payer.id)
                         }
+                    }.orEmpty()
+                if (request != null) requireWalletDestinations(selectionMode, request.isClaim, sources.size, payer.paymentAddr, items)
+                val outputs = if (request == null || selectionMode == SelectionMode.DEFRAGMENT) {
+                    emptyList()
+                } else {
+                    items.indices.groupBy { items[it].address }.map { (address, indices) ->
+                        var ada = BigInteger.ZERO
+                        val assets = sortedMapOf<String, BigInteger>()
+                        indices.forEach { index ->
+                            val item = items[index]
+                            val tokenFee = request.toAccounts[index].tokenFee
+                            require(item.amount.signum() > 0 && tokenFee.signum() >= 0) { "Invalid output amount" }
+                            if (item.currency == "ada") {
+                                ada += item.amount
+                            } else {
+                                assets[item.currency] = (assets[item.currency] ?: BigInteger.ZERO) + item.amount
+                                ada += tokenFee
+                            }
+                        }
+                        WalletTransactionBuilder.Output(address, ada, nativeAssets(assets))
                     }
-                    WalletTransactionBuilder.Output(
-                        address,
-                        ada,
-                        assets.map { (unit, amount) ->
-                            val parts = unit.split(".", limit = 2)
-                            NativeAsset(parts.getOrElse(1) { "" }, parts[0], amount)
-                        }
-                    )
-                } ?: emptyList()
-                if (request != null) require(outputs.isNotEmpty()) { "No destination" }
+                }
                 val tip = requireNotNull(queryTipAdapter.fromJson(connection.commandArgs(listOf(host.cardanoCliPath, era, "query", "tip") + magic.split(" ") + socket.split(" ") + "--output-json")))
                 require(tip.slot >= 0) { "Invalid node tip" }
+                val validUntil = Math.addExact(tip.slot, 21600L)
+                val plan = request?.let {
+                    planWallet(
+                        era,
+                        parameters,
+                        candidates,
+                        payer.paymentAddr,
+                        if (selectionMode == SelectionMode.DEFRAGMENT) emptyList() else items,
+                        selectionMode,
+                        it.isClaim,
+                        withdrawals,
+                        it.metadata,
+                        validUntil,
+                        1 + stakes.size,
+                        quotedFee = it.txFee
+                    )
+                }
+                val inputs = if (stakeRequest != null && QueryTip(era).eraNumber >= QueryTip.ERA_BABBAGE) {
+                    transactionBuilder.selectAdminInputs(candidates, payer.paymentAddr, parameters, validUntil, 1 + stakes.size, 128, deposit - refund)
+                } else {
+                    plan?.selectedUtxos ?: candidates
+                }
+                val changeLayout = if (request?.isClaim == true) null else plan?.outputs?.drop(outputs.size)
                 val referenceSize = walletUtils.queryReferenceScriptSize(host, connection, magic, socket, era, inputs)
                 val built = transactionBuilder.build(
                     host,
@@ -815,16 +883,17 @@ class WalletController
                     inputs,
                     outputs,
                     payer.paymentAddr,
-                    withdrawals = withdrawals,
+                    withdrawals = withdrawals.sumByBigInteger { it.lovelace },
                     deposits = deposit,
                     refunds = refund,
                     extraArgs = args,
-                    validUntil = Math.addExact(tip.slot, 21600L),
+                    validUntil = validUntil,
                     protocolParameters = parameters,
                     protocolPath = params,
                     witnessCount = 1 + stakes.size,
                     bodyPath = body,
-                    referenceScriptSize = referenceSize
+                    referenceScriptSize = referenceSize,
+                    changeLayout = changeLayout
                 )
                 val keys = listOf(requireNotNull(payer.paymentSkey)) + stakes.map { requireNotNull(it.stakingSkey) }
                 val signing = mutableListOf(host.cardanoCliPath, era, "transaction", "sign", "--tx-body-file", body)
@@ -838,18 +907,92 @@ class WalletController
                 signing += listOf("--out-file", signed)
                 connection.commandArgs(signing)
                 val envelope = connection.commandReadFile(signed)
-                require(
-                    json
-                        .readTree(envelope)
-                        .path("cborHex")
-                        .asString()
-                        .isNotBlank()
-                ) { "Invalid signed transaction" }
+                transactionBuilder.validateSignedEnvelopeSize(envelope, parameters)
                 connection.commandArgs(listOf(host.cardanoCliPath, era, "transaction", "submit", "--tx-file", signed) + magic.split(" ") + socket.split(" "))
                 ledgerDao.recordSubmitted(host, node, era, built.txId, envelope)
                 return built.txId
             } finally {
                 connection.commandArgs(listOf("rm", "-f") + cleanup)
             }
+        }
+
+        private fun walletLine(
+            address: String,
+            currency: String,
+            amount: BigInteger?,
+            percent: Int?,
+            isFeePayerClaimAccount: Boolean
+        ): WalletAccountLineItem {
+            require(address.isNotBlank()) { "Invalid destination" }
+            val unit = currency.trimEnd('.').lowercase()
+            require(unit == "ada" || unit.matches(Regex("[0-9a-f]{56}(\\.([0-9a-f]{2}){1,32})?"))) { "Invalid asset" }
+            require(percent == null || percent in 0..100) { "Invalid percentage" }
+            return WalletAccountLineItem(address, address, unit, amount ?: BigInteger.ZERO, (percent ?: 0) != 0, percent ?: 0, isFeePayerClaimAccount)
+        }
+
+        private fun nativeAssets(assets: Map<String, BigInteger>): List<NativeAsset> =
+            assets.map { (unit, amount) ->
+                NativeAsset(unit.substringAfter('.', ""), unit.substringBefore('.'), amount)
+            }
+
+        private fun requireWalletDestinations(
+            selectionMode: SelectionMode,
+            isClaim: Boolean,
+            sourceCount: Int,
+            payerAddress: String,
+            items: List<WalletAccountLineItem>
+        ) {
+            if (selectionMode == SelectionMode.DEFRAGMENT) {
+                val selfSweep = items.singleOrNull()?.let { it.address == payerAddress && it.currency == "ada" && it.percent == 100 } == true
+                require(!isClaim && sourceCount == 1 && (items.isEmpty() || selfSweep)) {
+                    "Defragmentation requires a single source wallet and a 100% ADA transfer back to itself"
+                }
+            } else {
+                require(items.isNotEmpty()) { "No destination" }
+            }
+        }
+
+        private fun planWallet(
+            era: String,
+            rawParameters: String,
+            candidates: List<Utxo>,
+            payerAddress: String,
+            items: List<WalletAccountLineItem>,
+            selectionMode: SelectionMode,
+            isClaim: Boolean,
+            withdrawals: List<WithdrawalItem>,
+            metadata: String?,
+            validUntil: Long,
+            witnessCount: Int,
+            isPreview: Boolean = false,
+            quotedFee: BigInteger = BigInteger.ZERO
+        ): TransactionPlan? {
+            val parameters = if (QueryTip(era).eraNumber >= QueryTip.ERA_BABBAGE && json.readTree(rawParameters).hasNonNull("protocolVersion")) {
+                try {
+                    protocolParamsAdapter.fromJson(rawParameters)
+                } catch (_: JsonDataException) {
+                    null
+                }
+            } else {
+                null
+            }
+            if (parameters == null) {
+                require(selectionMode != SelectionMode.DEFRAGMENT) { "Defragmentation requires protocol parameters supported by the wallet planner" }
+                return null
+            }
+            return transactionPlannerService.planWalletTransaction(
+                utxos = candidates,
+                changeAddress = payerAddress,
+                toAccountItems = items,
+                protocolParameters = parameters,
+                isClaim = isClaim,
+                withdrawals = withdrawals,
+                metadataJson = metadata,
+                ttl = validUntil,
+                witnessCount = witnessCount,
+                selectionMode = selectionMode,
+                fixedFeeOverride = quotedFee.takeIf { selectionMode == SelectionMode.STANDARD && it.signum() > 0 },
+                isPreview = isPreview && selectionMode == SelectionMode.STANDARD
+            )
         }
     }

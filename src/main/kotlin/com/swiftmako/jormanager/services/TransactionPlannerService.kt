@@ -485,7 +485,11 @@ class TransactionPlannerService(
         val recipientTokenTopUpAda = tokenFees.sumByBigInteger { it }
         val totalRecipientAda = explicitAdaRequested + recipientTokenTopUpAda
 
-        val uniqueDestinations = toAccountItems.map { it.destinationKey }.distinct().size.coerceAtLeast(1)
+        val uniqueDestinations = toAccountItems
+            .map { it.destinationKey }
+            .distinct()
+            .size
+            .coerceAtLeast(1)
         val maxInputs = computeMaxSafeInputCount(maxTxSize, witnessCount, metadataJson?.length ?: 0, uniqueDestinations + 3)
 
         val isFullAdaSweep =
@@ -994,26 +998,6 @@ class TransactionPlannerService(
         val actualBytes = cborHex.length / 2
         validateTransactionSize(actualBytes, maxTxSize)
         return actualBytes
-    }
-
-    /**
-     * Estimates extra CBOR payload bytes contributed by CLI text-envelope `.cert` or `.vote` JSON contents
-     * (or falls back to conservative byte estimates per certificate/vote when mocked in unit tests).
-     */
-    fun estimateEnvelopePayloadBytes(
-        envelopeJsons: List<String>,
-        fallbackBytesPerItem: Int = 180,
-    ): Int {
-        if (envelopeJsons.isEmpty()) return 0
-        var total = 8 // CBOR map key + array/map header overhead
-        envelopeJsons.forEach { json ->
-            val hexLen =
-                runCatching { txEnvelopeAdapter.fromJson(json)?.cborHex?.trim()?.length }
-                    .getOrNull()
-                    ?: 0
-            total += if (hexLen > 0) (hexLen / 2) + 4 else fallbackBytesPerItem
-        }
-        return total
     }
 
     private fun planClaimRewardsTransaction(
@@ -1905,11 +1889,12 @@ class TransactionPlannerService(
     ): List<PlannedOutput> {
         if (feeDelta <= BigInteger.ZERO) return outputs
         val idx =
-            outputs.indexOfLast {
-                it.address == changeAddress &&
-                    it.nativeAssets.isEmpty() &&
-                    it.lovelace - feeDelta >= minPureAda
-            }.takeIf { it >= 0 }
+            outputs
+                .indexOfLast {
+                    it.address == changeAddress &&
+                        it.nativeAssets.isEmpty() &&
+                        it.lovelace - feeDelta >= minPureAda
+                }.takeIf { it >= 0 }
                 ?: outputs.indexOfLast {
                     it.address == changeAddress && it.lovelace - feeDelta >= minPureAda
                 }
@@ -2032,8 +2017,7 @@ class TransactionPlannerService(
         return (availableForInputs / APPROX_INPUT_CBOR_BYTES).coerceIn(1, 400)
     }
 
-    private fun resolveMaxTxSize(protocolParameters: ProtocolParameters): Int =
-        protocolParameters.maxTxSize.toInt().takeIf { it > 0 } ?: DEFAULT_MAX_TX_SIZE
+    private fun resolveMaxTxSize(protocolParameters: ProtocolParameters): Int = protocolParameters.maxTxSize.toInt().takeIf { it > 0 } ?: DEFAULT_MAX_TX_SIZE
 
     private fun serializeDummySignedTransaction(
         selectedUtxos: List<Utxo>,
@@ -2178,8 +2162,7 @@ class TransactionPlannerService(
         return Asset(encodedName, nativeAsset.amount)
     }
 
-    private fun toSdkUnit(nativeAsset: NativeAsset): String =
-        AssetUtil.getUnit(normalizePolicyId(nativeAsset.policy), toSdkAsset(nativeAsset))
+    private fun toSdkUnit(nativeAsset: NativeAsset): String = AssetUtil.getUnit(normalizePolicyId(nativeAsset.policy), toSdkAsset(nativeAsset))
 
     private fun buildRequestedAmounts(
         requestedLovelace: BigInteger,

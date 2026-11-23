@@ -1,12 +1,13 @@
 import mitt from 'mitt'
+import type { WalletItem } from '@/types'
 
 // Define the events that can be emitted
 type Events = {
   'edit-host': unknown
   'add-host': void
   'show-send-ada-modal': {
-    walletItem?: unknown
-    walletItems?: unknown[]
+    walletItem?: WalletItem
+    walletItems?: WalletItem[]
     isClaim: boolean
     isMultiClaim?: boolean
     isDefragment?: boolean

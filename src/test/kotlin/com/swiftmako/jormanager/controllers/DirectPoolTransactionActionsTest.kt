@@ -288,6 +288,8 @@ class DirectPoolTransactionActionsTest {
         every { walletUtils.getUtxos(any(), any(), any(), any(), any(), any()) } returns
             listOf(Utxo("a".repeat(64), 0, BigInteger.valueOf(10_000_000L), emptyList()))
         every { walletUtils.queryReferenceScriptSize(any(), any(), any(), any(), any(), any()) } returns 0
+        every { builder.selectAdminInputs(any(), any(), any(), any(), any(), any(), any()) } answers { firstArg() }
+        every { builder.validateSignedEnvelopeSize(any(), any()) } returns Unit
         every { ledger.withSubmissionLock(any<() -> PoolRegistrationController.Result>()) } answers {
             firstArg<() -> PoolRegistrationController.Result>()()
         }
@@ -305,6 +307,7 @@ class DirectPoolTransactionActionsTest {
             )
         every {
             builder.build(
+                any(),
                 any(),
                 any(),
                 any(),
