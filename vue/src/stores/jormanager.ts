@@ -19,6 +19,7 @@ import type {
   NodeIndexStatus,
   LedgerReplayCoverage,
   TransactionResult,
+  SelectionMode,
   TxFeeData
 } from '@/types'
 
@@ -100,6 +101,10 @@ interface JorManagerState {
   tokenFees: string[]
   tokenKeepFee: string
   tokenLocked: string
+  planSelectionMode: SelectionMode
+  planInputCount: number
+  planOutputCount: number
+  planEstimatedTxSize: number
   requestFeesUUID: string
   responseFeesUUID: string
 
@@ -163,6 +168,10 @@ export const useJorManagerStore = defineStore('jormanager', {
     tokenFees: [],
     tokenKeepFee: '0',
     tokenLocked: '0',
+    planSelectionMode: 'STANDARD',
+    planInputCount: 0,
+    planOutputCount: 0,
+    planEstimatedTxSize: 0,
     requestFeesUUID: '',
     responseFeesUUID: '',
 
@@ -457,12 +466,16 @@ export const useJorManagerStore = defineStore('jormanager', {
         }
         case 'calculatefee': {
           const data = message.data as TxFeeData | undefined
-          if (data && this.connected && data.uuid === this.requestFeesUUID && Array.isArray(data.tokenFees) &&
+          if (data && this.connected && this.requestFeesUUID && data.uuid === this.requestFeesUUID && Array.isArray(data.tokenFees) &&
               [data.txFee, data.tokenKeepFee, data.tokenLocked, ...data.tokenFees].every(value => typeof value === 'string' && /^\d+$/.test(value))) {
             this.txFee = data.txFee
             this.tokenFees = data.tokenFees
             this.tokenKeepFee = data.tokenKeepFee
             this.tokenLocked = data.tokenLocked
+            this.planSelectionMode = data.selectionMode ?? 'STANDARD'
+            this.planInputCount = data.inputCount ?? 0
+            this.planOutputCount = data.outputCount ?? 0
+            this.planEstimatedTxSize = data.estimatedTxSize ?? 0
             this.responseFeesUUID = data.uuid
           } else if (!data) {
             this.toastError = { title: 'CalculateFee Error', message: message.exception?.message || 'Could not calculate fee' }
@@ -968,6 +981,10 @@ export const useJorManagerStore = defineStore('jormanager', {
     invalidateSendAdaFees() {
       this.requestFeesUUID = ''
       this.responseFeesUUID = ''
+      this.planSelectionMode = 'STANDARD'
+      this.planInputCount = 0
+      this.planOutputCount = 0
+      this.planEstimatedTxSize = 0
     },
 
     requestAppVersion() {

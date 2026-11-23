@@ -19,20 +19,7 @@ data class PlannedOutput(
     val address: String,
     val lovelace: BigInteger,
     val nativeAssets: List<NativeAsset> = emptyList(),
-) {
-    fun toCliTxOutArg(): String {
-        val sb = StringBuilder()
-        sb.append("'").append(address).append("+").append(lovelace)
-        nativeAssets
-            .filter { it.amount > BigInteger.ZERO }
-            .forEach { asset ->
-                val currency = "${asset.policy}.${asset.name}".trimEnd('.')
-                sb.append("+").append(asset.amount).append(" ").append(currency)
-            }
-        sb.append("'")
-        return sb.toString()
-    }
-}
+)
 
 data class TransactionPlan(
     val selectedUtxos: List<Utxo>,

@@ -1074,12 +1074,21 @@ class PoolCreationService(
                 val allCerts = registrationCerts + poolCertPath + delegationCertPath
                 // Signers: fee payer payment skey + cold skey + distinct staking skeys
                 val witnessCount = 2 + extraStakingSkeyFiles.size
+                val selectedInputs = txBuilder.selectAdminInputs(
+                    inputs,
+                    payer.paymentAddr,
+                    protocolRaw,
+                    validUntil,
+                    witnessCount,
+                    400 + 128 * allCerts.size,
+                    poolDeposit + stakeDeposit,
+                )
                 val built =
                     txBuilder.build(
                         host = observerHost,
                         connection = observerConnection,
                         era = era,
-                        inputs = inputs,
+                        inputs = selectedInputs,
                         outputs = emptyList(),
                         changeAddress = payer.paymentAddr,
                         deposits = poolDeposit + stakeDeposit,
@@ -1090,7 +1099,7 @@ class PoolCreationService(
                         bodyPath = bodyPath,
                         validUntil = validUntil,
                         referenceScriptSize =
-                            walletUtils.queryReferenceScriptSize(observerHost, observerConnection, magicString, socketFlag, era, inputs),
+                            walletUtils.queryReferenceScriptSize(observerHost, observerConnection, magicString, socketFlag, era, selectedInputs),
                     )
 
                 val signingKeyPaths = mutableListOf<String>()
@@ -1109,13 +1118,7 @@ class PoolCreationService(
                 observerConnection.commandArgs(signArgs)
 
                 val signedEnvelope = observerConnection.commandReadFile(signedPath)
-                require(
-                    json
-                        .readTree(signedEnvelope)
-                        .path("cborHex")
-                        .asString()
-                        .isNotBlank()
-                ) { "Signed transaction envelope is empty" }
+                txBuilder.validateSignedEnvelopeSize(signedEnvelope, protocolRaw)
                 observerConnection.commandArgs(
                     listOf(observerHost.cardanoCliPath, era, "transaction", "submit", "--tx-file", signedPath) +
                         networkArgs +

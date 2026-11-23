@@ -390,22 +390,33 @@ class PoolRegistrationController(
                 }
             }
             val signingIds = signers.sorted()
+            val certificates = registrationCerts + cert.certPath + delegationCerts
+            val validUntil = expiry(t)
+            val selectedInputs = builder.selectAdminInputs(
+                inputs,
+                payer.paymentAddr,
+                protocol,
+                validUntil,
+                signingIds.size + 1,
+                400 + 128 * certificates.size,
+                cert.deposit + stakeDeposit,
+            )
             t.connection.commandWriteFile(protocolPath, protocol)
             val built = builder.build(
                 host = t.host,
                 connection = t.connection,
                 era = t.era,
-                inputs = inputs,
+                inputs = selectedInputs,
                 outputs = emptyList(),
                 changeAddress = payer.paymentAddr,
                 deposits = cert.deposit + stakeDeposit,
-                extraArgs = (registrationCerts + cert.certPath + delegationCerts).flatMap { listOf("--certificate-file", it) },
+                extraArgs = certificates.flatMap { listOf("--certificate-file", it) },
                 protocolParameters = protocol,
                 protocolPath = protocolPath,
                 witnessCount = signingIds.size + 1,
                 bodyPath = body,
-                validUntil = expiry(t),
-                referenceScriptSize = walletUtils.queryReferenceScriptSize(t.host, t.connection, t.magic, t.socket, t.era, inputs)
+                validUntil = validUntil,
+                referenceScriptSize = walletUtils.queryReferenceScriptSize(t.host, t.connection, t.magic, t.socket, t.era, selectedInputs)
             )
             val signed = "$prefix.signed"
             val paths = mutableListOf<String>()
@@ -422,13 +433,7 @@ class PoolRegistrationController(
                 args += listOf("--out-file", signed)
                 cmd(t, args)
                 val envelope = t.connection.commandReadFile(signed)
-                require(
-                    json
-                        .readTree(envelope)
-                        .path("cborHex")
-                        .asString()
-                        .isNotBlank()
-                )
+                builder.validateSignedEnvelopeSize(envelope, protocol)
                 cmd(
                     t,
                     listOf(t.host.cardanoCliPath, t.era, "transaction", "submit", "--tx-file", signed) + t.network +

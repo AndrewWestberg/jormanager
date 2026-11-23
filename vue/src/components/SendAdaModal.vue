@@ -11,23 +11,65 @@
     >
       <template #footer="{ cancel }">
         <div class="w-100 d-flex justify-content-between align-items-center">
-          <BButton variant="outline-primary" :disabled="reviewing" @click="addPaymentEntry">
+          <BButton variant="outline-primary" :disabled="reviewing || isDefragment" @click="addPaymentEntry">
             +&nbsp;Add Entry
           </BButton>
           <div>
             <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
-            <BButton variant="primary" :disabled="reviewing || !store.connected || !sourcesReady || !feeReady" @click="reviewSend">{{ reviewing ? 'Submitting…' : 'Send' }}</BButton>
+            <BButton variant="primary" :disabled="reviewing || !store.connected || !sourcesReady || !feeReady" @click="reviewSend">
+              {{ reviewing ? 'Submitting…' : isDefragment ? 'Defragment UTxOs' : 'Send' }}
+            </BButton>
           </div>
         </div>
       </template>
       <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
       <BForm ref="sendAdaForm" @submit.stop.prevent>
         <fieldset :disabled="reviewing">
+        <BCard v-if="!formSendAda.isClaim" no-body class="mb-3 border border-secondary bg-dark">
+          <BCardBody class="py-2 px-3">
+            <BFormGroup label="Coin Selection" label-for="wallet-selection-mode" label-cols-md="3" label-align-md="right" class="mb-1">
+              <BFormRadioGroup id="wallet-selection-mode" aria-label="Coin selection" v-model="formSendAda.selectionMode" class="pt-2" data-testid="selection-mode-group">
+                <BFormRadio value="STANDARD" class="me-4">
+                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="me-1 text-primary" />
+                  Standard (Random-Improve)
+                </BFormRadio>
+                <BFormRadio value="DEFRAGMENT">
+                  <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" class="me-1 text-info" />
+                  Defragment UTxOs (Unfrack)
+                </BFormRadio>
+              </BFormRadioGroup>
+              <small class="text-muted d-block mt-1">
+                <span v-if="isDefragment">
+                  Sweeps 100% of the selected inputs back to {{ fromWalletItems[0]?.name || 'this wallet' }}, consolidating dust and native tokens by policy.
+                </span>
+                <span v-else>
+                  Uses Cardano SDK Random-Improve with Largest-First fallback to preserve wallet concurrency.
+                </span>
+              </small>
+            </BFormGroup>
+            <div
+              v-if="feeReady && store.planInputCount > 0"
+              class="mt-2 pt-2 border-top border-secondary d-flex flex-wrap justify-content-between align-items-center small"
+              :class="store.planSelectionMode === 'DEFRAGMENT' ? 'text-info' : 'text-light'"
+              data-testid="tx-plan-summary"
+              role="status"
+            >
+              <span>
+                <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" />
+                <strong>Planned UTxOs:</strong> {{ store.planInputCount }} input{{ store.planInputCount === 1 ? '' : 's' }} &rarr; {{ store.planOutputCount }} output{{ store.planOutputCount === 1 ? '' : 's' }}
+              </span>
+              <span title="Compared with the default transaction size limit">
+                <strong>Estimated Tx Size:</strong> {{ store.planEstimatedTxSize.toLocaleString() }} / {{ defaultMaxTxBytes.toLocaleString() }} bytes
+                ({{ (store.planEstimatedTxSize / defaultMaxTxBytes * 100).toFixed(1) }}%)
+              </span>
+            </div>
+          </BCardBody>
+        </BCard>
         <div class="accordion" role="tablist">
           <BCard
             no-body
             class="mb-3 border-0"
-            v-for="(toAccount, index) in formSendAda.toAccounts"
+            v-for="(toAccount, index) in isDefragment ? [] : formSendAda.toAccounts"
             :key="index"
           >
             <BCardHeader header-tag="header" class="p-0" role="tab">
@@ -249,6 +291,7 @@ import {
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { generateUUID } from '@/utils/filters'
+import type { SelectionMode, WalletItem } from '@/types'
 
 interface ToAccount {
   currency: string
@@ -260,13 +303,7 @@ interface ToAccount {
   percent: number
 }
 
-interface WalletItemRef {
-  id: number
-  name: string
-  paymentAddrLovelace: string | null
-  stakingAddrLovelace: string | null
-  nativeAssetMap: Record<string, string> | null
-}
+const defaultMaxTxBytes = 16_384
 
 const store = useJorManagerStore()
 const { walletItems } = storeToRefs(store)
@@ -278,44 +315,35 @@ const reviewError = ref('')
 
 function formSignature() {
   const form = formSendAda.value
-  return JSON.stringify([form.fromId, form.fromIds, form.isClaim, form.toAccounts, form.metadata])
+  return JSON.stringify([form.fromId, form.fromIds, form.isClaim, form.selectionMode, form.toAccounts, form.metadata])
 }
 
 function reviewSend() {
   if (reviewing.value || !store.connected || !sourcesReady.value || !feeReady.value) return
-  if (!metadataState.value || formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) {
+  if (!metadataState.value || (!isDefragment.value && paymentEntries.value.some((entry, index) => headerVariant(index, entry) !== 'success'))) {
     reviewError.value = 'Complete all payment entries and correct any invalid metadata.'
     return
   }
-  const outputs = formSendAda.value.toAccounts.map((entry, index) => ({
-    currency: entry.currency,
-    account: entry.destination === 'account' ? entry.account : -1,
-    address: entry.destination === 'address' ? entry.address : '',
-    amount: String(calculateSpent(index + 1).amount[entry.currency] || 0n)
-  }))
-  if (outputs.some(output => BigInt(output.amount) <= 0n)) {
-    reviewError.value = 'Every payment must have a positive exact amount.'
-    return
-  }
-  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-send' })
+  emitter.emit('show-spending-password-modal', { action: 'submit-wallet-send', data: store.responseFeesUUID })
 }
 
-function onPasswordConfirmed(data: { action: string; password: string }) {
+function onPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   if (data.action !== 'submit-wallet-send' || reviewing.value || !isVisible.value ||
-      !store.connected || !sourcesReady.value || !feeReady.value || !metadataState.value ||
-      formSendAda.value.toAccounts.some((entry, index) => headerVariant(index, entry) !== 'success')) return
-  const toAccounts = formSendAda.value.toAccounts.map((entry, index) => ({
+      !store.connected || !sourcesReady.value || !feeReady.value || data.originalData !== store.responseFeesUUID || !metadataState.value ||
+      (!isDefragment.value && paymentEntries.value.some((entry, index) => headerVariant(index, entry) !== 'success'))) return
+  const toAccounts = paymentEntries.value.map((entry, index) => ({
     currency: entry.currency,
     account: entry.destination === 'account' ? entry.account : -1,
     address: entry.destination === 'address' ? entry.address : '',
     type: entry.type,
     amount: String(calculateSpent(index + 1).amount[entry.currency] || 0n),
-    percent: entry.percent,
+    percent: entry.type === 'percent' ? Number(entry.percent) : null,
     tokenFee: store.tokenFees[index] || '0'
   }))
   store.submitTransaction({
     spendingPassword: data.password, fromId: formSendAda.value.fromId,
     fromIds: [...formSendAda.value.fromIds], isClaim: formSendAda.value.isClaim,
+    selectionMode: formSendAda.value.selectionMode,
     txFee: store.txFee, tokenKeepFee: store.tokenKeepFee, toAccounts, metadata: formSendAda.value.metadata
   })
 }
@@ -323,25 +351,29 @@ function onPasswordConfirmed(data: { action: string; password: string }) {
 watch(() => store.toastSuccess, toast => {
   if (toast?.title === 'Ada Sent') isVisible.value = false
 })
-const remainingLovelace = ref(0n)
-const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID)
+const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID &&
+  store.planSelectionMode === formSendAda.value.selectionMode)
 
 const formSendAda = ref({
   fromId: null as number | null,
   fromIds: [] as number[],
   isClaim: false,
   isMultiClaim: false,
+  selectionMode: 'STANDARD' as SelectionMode,
   toAccounts: [] as ToAccount[],
   metadata: null as string | null,
   metadataError: null as string | null,
-  valid: false
 })
+const isDefragment = computed(() => formSendAda.value.selectionMode === 'DEFRAGMENT')
+const paymentEntries = computed<ToAccount[]>(() => isDefragment.value
+  ? [{ ...createEmptyToAccount(), account: formSendAda.value.fromId, type: 'percent', percent: 100 }]
+  : formSendAda.value.toAccounts)
 watch(formSignature, scheduleFeeCalculation, { flush: 'sync' })
 const fromWalletItems = computed(() => formSendAda.value.fromIds
   .map(id => walletItems.value.find(item => item.id === id))
   .filter((item): item is NonNullable<typeof item> => item != null))
-const fromWalletItem = computed<WalletItemRef>(() => fromWalletItems.value[0] ?? {
-  id: 0, name: '', paymentAddrLovelace: null, stakingAddrLovelace: null, nativeAssetMap: null
+const fromWalletItem = computed(() => fromWalletItems.value[0] ?? {
+  id: 0, paymentAddrLovelace: null, stakingAddrLovelace: null, nativeAssetMap: null
 })
 const sourcesReady = computed(() => formSendAda.value.fromIds.length > 0 &&
   fromWalletItems.value.length === formSendAda.value.fromIds.length &&
@@ -406,8 +438,8 @@ const sendingAmount = computed(() => formSendAda.value.isMultiClaim
 const modalTitle = computed(() => {
   const prefix = formSendAda.value.isMultiClaim
     ? `Claiming from ${fromWalletItems.value.length} addresses`
-    : formSendAda.value.isClaim ? 'Claiming' : 'Sending'
-  return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${formatAda(store.txFee)}, Remaining: ${formatAda(calculateSpent(formSendAda.value.toAccounts.length).remaining.ada || 0n)}`
+    : formSendAda.value.isClaim ? 'Claiming' : isDefragment.value ? 'Defragmenting' : 'Sending'
+  return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${formatAda(store.txFee)}, Remaining: ${formatAda(calculateSpent(paymentEntries.value.length).remaining.ada || 0n)}`
 })
 
 const metadataState = computed(() => {
@@ -439,10 +471,10 @@ function clearFormSendAda() {
     fromIds: [],
     isClaim: false,
     isMultiClaim: false,
+    selectionMode: 'STANDARD',
     toAccounts: [createEmptyToAccount()],
     metadata: null,
     metadataError: null,
-    valid: false,
   }
   openIndex.value = 0
   metadataOpen.value = false
@@ -465,17 +497,17 @@ function createEmptyToAccount(): ToAccount {
   }
 }
 
-function showSendAdaModal(walletItem: WalletItemRef, isClaim: boolean) {
+function showSendAdaModal(walletItem: WalletItem, isClaim: boolean, isDefragment?: boolean) {
   clearFormSendAda()
   formSendAda.value.fromId = walletItem.id
   formSendAda.value.fromIds = [walletItem.id]
   formSendAda.value.isClaim = isClaim
-  formSendAda.value.isMultiClaim = false
+  if (!isClaim && isDefragment) formSendAda.value.selectionMode = 'DEFRAGMENT'
   isVisible.value = true
   scheduleFeeCalculation()
 }
 
-function showMultiClaimModal(items: WalletItemRef[]) {
+function showMultiClaimModal(items: WalletItem[]) {
   clearFormSendAda()
   formSendAda.value.fromId = items[0].id
   formSendAda.value.fromIds = items.map(item => item.id)
@@ -518,7 +550,6 @@ function removePaymentEntry(index: number) {
 }
 
 function currencyState(currency: string): boolean {
-  recalculateRemaining()
   return currency != null
 }
 
@@ -527,7 +558,6 @@ function destinationState(destination: string): boolean {
 }
 
 function accountState(toAccount: ToAccount): boolean {
-  recalculateRemaining()
   if (toAccount.destination === 'address') return true
   if (toAccount.destination === 'account') return toAccount.account != null
   return false
@@ -549,12 +579,10 @@ function addressState(toAccount: ToAccount): boolean | null {
 }
 
 function typeState(type: string | null): boolean {
-  recalculateRemaining()
   return type != null
 }
 
 function amountState(index: number, amount: string | null, currency: string): boolean | null {
-  recalculateRemaining()
   if (amount != null && amount !== '') {
     const tokens = parseAmount(amount, currency)
     const remaining = calculateSpent(index + 1).remaining[currency] || 0n
@@ -564,7 +592,6 @@ function amountState(index: number, amount: string | null, currency: string): bo
 }
 
 function percentState(index: number, percent: number, currency: string): boolean | null {
-  recalculateRemaining()
   if (percent != null && Number.isInteger(Number(percent)) && percent > 0 && percent <= 100) {
     const spent = calculateSpent(index + 1)
     const tokens = spent.amount[currency] || 0n
@@ -645,10 +672,6 @@ function onTypeChange(toAccount: ToAccount) {
   }
 }
 
-function recalculateRemaining() {
-  remainingLovelace.value = calculateSpent(formSendAda.value.toAccounts.length).remaining['ada'] || 0n
-}
-
 const feePayerId = computed(() => formSendAda.value.isClaim
   ? formSendAda.value.toAccounts.map(entry => entry.destination === 'account' ? walletItems.value.find(item => item.id === entry.account) : undefined)
     .find(item => item?.hasPaymentKeys && item.paymentAddrLovelace !== null && integer(item.paymentAddrLovelace) >= 1000000n)?.id
@@ -667,11 +690,12 @@ function calculateSpent(index: number): { remaining: Record<string, bigint>, amo
     ? rewards
     : integer(fromWalletItem.value.paymentAddrLovelace) - integer(store.txFee) - integer(store.tokenKeepFee) -
       integer(store.tokenLocked) - store.tokenFees.reduce((sum, fee) => sum + integer(fee), 0n)
+  if (isDefragment.value && baseAmount.ada < 0n) baseAmount.ada = 0n
 
   const spentPercentages: Record<string, number> = {}
   const amount: Record<string, bigint> = {}
   for (let i = 0; i < index; i++) {
-    const account = formSendAda.value.toAccounts[i]
+    const account = paymentEntries.value[i]
     const currency = account.currency
     amount[currency] = 0n
     if (account.type === 'amount') {
@@ -721,11 +745,11 @@ function scheduleFeeCalculation() {
 function prepareCalculateSendAdaFees() {
   store.invalidateSendAdaFees()
   if (!isVisible.value || !store.connected || !sourcesReady.value || !metadataState.value ||
-      formSendAda.value.toAccounts.some(entry => !currencyState(entry.currency) || !destinationState(entry.destination) ||
+      paymentEntries.value.some(entry => !currencyState(entry.currency) || !destinationState(entry.destination) ||
         !accountState(entry) || !addressState(entry) || !typeState(entry.type) ||
         (entry.type === 'amount' && (parseAmount(entry.amount, entry.currency) ?? 0n) <= 0n) ||
         (entry.type === 'percent' && (!Number.isInteger(Number(entry.percent)) || entry.percent <= 0 || entry.percent > 100)))) return
-  const toAccounts = formSendAda.value.toAccounts.map((entry, index) => ({
+  const toAccounts = paymentEntries.value.map((entry, index) => ({
     currency: entry.currency,
     account: entry.destination === 'account' ? entry.account : -1,
     address: entry.destination === 'address' ? entry.address : '',
@@ -736,17 +760,18 @@ function prepareCalculateSendAdaFees() {
   store.calculateSendAdaFees({
     fromId: formSendAda.value.fromId, fromIds: [...formSendAda.value.fromIds], toAccounts,
     txOut: destinations.size + (calculateSpent(toAccounts.length).remaining.ada > 0n ? 1 : 0),
-    isClaim: formSendAda.value.isClaim, metadata: formSendAda.value.metadata, uuid: generateUUID()
+    isClaim: formSendAda.value.isClaim, selectionMode: formSendAda.value.selectionMode,
+    metadata: formSendAda.value.metadata, uuid: generateUUID()
   })
 }
 
 watch(() => JSON.stringify([walletItems.value, store.connected]), scheduleFeeCalculation, { flush: 'sync' })
 
-function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: WalletItemRef[]; isClaim: boolean; isMultiClaim?: boolean }) {
+function onShowSendAdaModal(data: { walletItem?: WalletItem; walletItems?: WalletItem[]; isClaim: boolean; isMultiClaim?: boolean; isDefragment?: boolean }) {
   if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {
     showMultiClaimModal(data.walletItems)
   } else if (data.walletItem) {
-    showSendAdaModal(data.walletItem, data.isClaim)
+    showSendAdaModal(data.walletItem, data.isClaim, data.isDefragment)
   }
 }
 
@@ -754,12 +779,12 @@ function onShowSendAdaModal(data: { walletItem?: WalletItemRef; walletItems?: Wa
 
 onMounted(() => {
   clearFormSendAda()
-  emitter.on('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.on('show-send-ada-modal', onShowSendAdaModal)
   emitter.on('confirm-spending-password-with-action', onPasswordConfirmed)
 })
 
 onUnmounted(() => {
-  emitter.off('show-send-ada-modal', onShowSendAdaModal as any)
+  emitter.off('show-send-ada-modal', onShowSendAdaModal)
   emitter.off('confirm-spending-password-with-action', onPasswordConfirmed)
 })
 </script>

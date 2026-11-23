@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.entities.SocketResponse
 import com.swiftmako.jormanager.entities.WalletEntry
 import com.swiftmako.jormanager.model.GenesisShelley
 import com.swiftmako.jormanager.model.NodeVoteSelection
+import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.repositories.CardanoRepository
@@ -82,8 +83,8 @@ class DirectTransactionActionsTest {
         every { eras.getEra(any(), any(), any(), any()) } returns "conway"
         every { eras.networkKey(any()) } returns "network"
         every { parameters.query(any(), any(), any(), any(), any(), any()) } returns "{}"
-        every { wallets.getUtxos(any(), any(), any(), any(), any(), any()) } returns
-            listOf(Utxo("a".repeat(64), 0, BigInteger.TEN, emptyList()))
+        val candidates = List(500) { Utxo(it.toString(16).padStart(64, '0'), 0, BigInteger.valueOf(10_000_000), emptyList()) }
+        every { wallets.getUtxos(any(), any(), any(), any(), any(), any()) } returns candidates
         every { wallets.queryReferenceScriptSize(any(), any(), any(), any(), any(), any()) } returns 0L
         every { wallets.isValidSpendingPassword("secret") } returns true
         every { ledger.withSubmissionLock<GovernanceController.Result>(any()) } answers { firstArg<() -> GovernanceController.Result>().invoke() }
@@ -91,7 +92,14 @@ class DirectTransactionActionsTest {
         val controller = GovernanceController(nodes, hosts, files, accounts, wallets, eras, parameters, builder, ledger, nodeController, genesis, tip, json)
         val request = GovernanceController.VoteRequest(Bech32.encode("gov_action", ByteArray(33)), listOf(NodeVoteSelection(1, "YES")), 2)
         every { tip.fromJson(any<String>()) } returns mockk<QueryTip> { every { slot } returns 100L }
-        every { builder.build(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws IllegalStateException("fixture builder failure")
+        val protocolAdapter = mockk<JsonAdapter<ProtocolParameters>> {
+            every { fromJson("{}") } returns ProtocolParameters.conwayDefaults()
+        }
+        val selector = WalletTransactionBuilder(json, protocolAdapter)
+        every { builder.selectAdminInputs(any(), any(), any(), any(), any(), any(), any()) } answers {
+            selector.selectAdminInputs(arg(0), arg(1), arg(2), arg(3), arg(4), arg(5), arg(6))
+        }
+        every { builder.build(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws IllegalStateException("fixture builder failure")
         mockkConstructor(HostConnection::class)
         try {
             every { anyConstructed<HostConnection>().commandArgs(any()) } returns ""
@@ -109,7 +117,9 @@ class DirectTransactionActionsTest {
             verify(exactly = 1) { nodeController.uploadGovernanceRationale("failure") }
             verify(exactly = 1) { anyConstructed<HostConnection>().commandArgs(match { "vote" in it && "--anchor-url" !in it }) }
             verify(exactly = 1) { anyConstructed<HostConnection>().commandArgs(match { "vote" in it && "--anchor-url" in it && "https://example.test/rationale" in it && "a".repeat(64) in it }) }
-            verify(exactly = 2) { builder.build(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 2) {
+                builder.build(any(), any(), any(), match { it.isNotEmpty() && it.size < candidates.size && candidates.containsAll(it) }, any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            }
             verify(exactly = 0) { ledger.recordSubmitted(any(), any(), any(), any(), any()) }
         } finally {
             unmockkConstructor(HostConnection::class)

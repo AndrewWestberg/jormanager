@@ -76,11 +76,11 @@
           <template #cell(paymentAddrLovelace)="{ item, value }">
             <div class="text-right">
               <span
-                v-if="Number((item as any).paymentAddrUtxoCount) > 0"
+                v-if="((item as WalletItem).paymentAddrUtxoCount ?? 0) > 0"
                 class="badge bg-secondary me-2"
-                v-b-tooltip.hover.bottom="{ title: `${(item as any).paymentAddrUtxoCount} unspent UTxO(s)`, variant: 'secondary' }"
+                v-b-tooltip.hover.bottom="{ title: `${(item as WalletItem).paymentAddrUtxoCount} unspent UTxO(s)`, variant: 'secondary' }"
               >
-                {{ (item as any).paymentAddrUtxoCount }} UTxO{{ Number((item as any).paymentAddrUtxoCount) === 1 ? '' : 's' }}
+                {{ (item as WalletItem).paymentAddrUtxoCount }} UTxO{{ (item as WalletItem).paymentAddrUtxoCount === 1 ? '' : 's' }}
               </span>
               {{ formatAda(value) }}
               <span
@@ -91,15 +91,17 @@
               >
                 <font-awesome-icon :icon="['fas', 'hand-holding-usd']" />
               </span>
-              <span
-                v-if="canSend(item as WalletItem) && Number((item as any).paymentAddrUtxoCount) > 1"
-                class="clickable text-info d-inline-block ms-2"
+              <BButton
+                v-if="canDefragment(item as WalletItem)"
+                variant="link"
+                class="text-info p-0 ms-2"
+                aria-label="Defragment UTxOs"
                 data-testid="defragment-utxos-btn"
                 v-b-tooltip.hover.bottom="{ title: 'Defragment UTxOs', variant: 'info' }"
-                @click="defragmentUtxosClick((item as any).name)"
+                @click="defragmentUtxosClick((item as WalletItem).name)"
               >
                 <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" />
-              </span>
+              </BButton>
             </div>
             <hr v-if="hasNativeAssets((item as any).name)" />
             <div
@@ -313,6 +315,10 @@ function canSend(item: WalletItem): boolean {
   return balanceReady(item) && item.type !== 'address' && item.type !== 'pledge' && positive(item.paymentAddrLovelace)
 }
 
+function canDefragment(item: WalletItem): boolean {
+  return canSend(item) && item.hasPaymentKeys === true && item.nativeAssetMap !== null && (item.paymentAddrUtxoCount ?? 0) > 1
+}
+
 function canClaim(item: WalletItem): boolean {
   return balanceReady(item) && item.type === 'stake' && positive(item.stakingAddrLovelace)
 }
@@ -402,7 +408,7 @@ function sendAdaClick(name: string) {
 
 function defragmentUtxosClick(name: string) {
   const item = findWalletItemByName(name)
-  if (item && canSend(item)) {
+  if (item && canDefragment(item)) {
     emitter.emit('show-send-ada-modal', { walletItem: item, isClaim: false, isDefragment: true })
   }
 }

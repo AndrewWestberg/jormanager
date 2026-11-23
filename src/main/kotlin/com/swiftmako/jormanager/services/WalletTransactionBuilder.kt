@@ -2,9 +2,12 @@ package com.swiftmako.jormanager.services
 
 import com.google.iot.cbor.CborArray
 import com.google.iot.cbor.CborByteString
+import com.squareup.moshi.JsonAdapter
 import com.swiftmako.jormanager.controllers.utils.HostConnection
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.model.NativeAsset
+import com.swiftmako.jormanager.model.PlannedOutput
+import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.utils.CborSpan
@@ -14,8 +17,33 @@ import java.math.BigInteger
 
 @Service
 class WalletTransactionBuilder(
-    private val json: ObjectMapper
+    private val json: ObjectMapper,
+    private val protocolParamsAdapter: JsonAdapter<ProtocolParameters>,
+    private val planner: TransactionPlannerService = TransactionPlannerService(),
 ) {
+    fun selectAdminInputs(
+        candidates: List<Utxo>,
+        changeAddress: String,
+        protocolParameters: String,
+        validUntil: Long,
+        witnessCount: Int,
+        extraPayloadBytes: Int,
+        netDeposit: BigInteger = BigInteger.ZERO,
+    ): List<Utxo> {
+        if (candidates.size <= 1) return candidates
+        return planner
+            .planAdminTransaction(
+                utxos = candidates,
+                changeAddress = changeAddress,
+                protocolParameters = requireNotNull(protocolParamsAdapter.fromJson(protocolParameters)),
+                deposit = netDeposit.max(BigInteger.ZERO),
+                depositRefund = netDeposit.negate().max(BigInteger.ZERO),
+                ttl = validUntil,
+                witnessCount = witnessCount,
+                extraPayloadBytes = extraPayloadBytes,
+            ).selectedUtxos
+    }
+
     data class Output(
         val address: String,
         val lovelace: BigInteger,
@@ -24,7 +52,10 @@ class WalletTransactionBuilder(
 
     data class CliBody(
         val textEnvelope: String,
-        val txId: String
+        val txId: String,
+        val fee: BigInteger = BigInteger.ZERO,
+        val outputCount: Int = 0,
+        val estimatedTxSize: Int = 0
     )
 
     fun build(
@@ -46,6 +77,7 @@ class WalletTransactionBuilder(
         bodyPath: String,
         referenceScriptSize: Long = 0,
         outputsForFee: ((BigInteger) -> List<Output>)? = null,
+        changeLayout: List<PlannedOutput>? = null,
     ): CliBody {
         val eraNumber = QueryTip(era).eraNumber
         require(eraNumber in QueryTip.ERA_SHELLEY..QueryTip.ERA_DIJKSTRA) { "Unsupported transaction era" }
@@ -102,6 +134,35 @@ class WalletTransactionBuilder(
         }
 
         fun minimum(output: Output): BigInteger = amount(command("calculate-min-required-utxo", "--protocol-params-file", protocolPath, "--tx-out", outputArg(output)))
+
+        fun plannedChange(
+            lovelace: BigInteger,
+            assets: List<NativeAsset>
+        ): List<Output> {
+            val layout = requireNotNull(changeLayout)
+            val remainingAssets = assets.associateBy { it.policy to it.name }.toMutableMap()
+            val tokenOutputs = layout
+                .mapNotNull { planned ->
+                    val group = planned.nativeAssets.mapNotNull { remainingAssets.remove(it.policy.lowercase() to it.name.lowercase()) }
+                    if (group.isEmpty()) null else Output(changeAddress, minimum(Output(changeAddress, planned.lovelace, group)), group)
+                }.toMutableList()
+            require(remainingAssets.isEmpty()) { "Selected inputs differ from planned change assets" }
+
+            val cleanAda = lovelace - tokenOutputs.fold(BigInteger.ZERO) { total, output -> total + output.lovelace }
+            require(cleanAda.signum() >= 0) { "Insufficient change ADA; reduce the requested amount or add funds" }
+            if (cleanAda.signum() == 0) return tokenOutputs
+            val half = cleanAda / BigInteger.TWO
+            if (layout.count { it.nativeAssets.isEmpty() } > 1 && half >= minimum(Output(changeAddress, half))) {
+                tokenOutputs.add(0, Output(changeAddress, cleanAda - half))
+                tokenOutputs.add(0, Output(changeAddress, half))
+            } else if (cleanAda >= minimum(Output(changeAddress, cleanAda))) {
+                tokenOutputs.add(0, Output(changeAddress, cleanAda))
+            } else if (tokenOutputs.isNotEmpty()) {
+                tokenOutputs[0] = tokenOutputs[0].copy(lovelace = tokenOutputs[0].lovelace + cleanAda)
+            }
+            return tokenOutputs
+        }
+
         var fee = BigInteger.ZERO
         repeat(16) {
             val currentOutputs = outputsForFee?.invoke(fee) ?: outputs
@@ -118,7 +179,7 @@ class WalletTransactionBuilder(
             var change = available - fee
             require(change.signum() >= 0) { "Insufficient funds for fee; reduce the requested amount or add funds" }
             var exactChange = false
-            if (outputsForFee == null && (change.signum() > 0 || changeAssets.isNotEmpty())) {
+            if (changeLayout == null && outputsForFee == null && (change.signum() > 0 || changeAssets.isNotEmpty())) {
                 val minChange = minimum(Output(changeAddress, change, changeAssets))
                 if (change < minChange) {
                     val retained = if (changeAssets.isEmpty()) BigInteger.ZERO else minChange
@@ -129,7 +190,12 @@ class WalletTransactionBuilder(
                 }
             }
             val finalOutputs = currentOutputs.toMutableList()
-            if (change.signum() != 0 || changeAssets.isNotEmpty()) {
+            if (changeLayout != null) {
+                val planned = plannedChange(change, changeAssets)
+                if (planned.isEmpty() && currentOutputs.isNotEmpty()) fee += change
+                require(planned.isNotEmpty() || currentOutputs.isNotEmpty()) { "Insufficient ADA for a defragmentation output" }
+                finalOutputs.addAll(planned)
+            } else if (change.signum() != 0 || changeAssets.isNotEmpty()) {
                 val output = Output(changeAddress, change, changeAssets)
                 finalOutputs.add(output)
             }
@@ -162,8 +228,9 @@ class WalletTransactionBuilder(
                 val text = connection.commandReadFile(bodyPath)
                 val cbor = json.readTree(text).path("cborHex").asString()
                 val decoded = SubmittedTransactionDecoder.decodeSubmitted(cbor, era)
-                if (change.signum() != 0 || changeAssets.isNotEmpty()) {
-                    require(change >= minimum(finalOutputs.last())) { "Insufficient change ADA; reduce the requested amount or add funds" }
+                for (index in currentOutputs.size until finalOutputs.size) {
+                    val output = finalOutputs[index]
+                    require(output.lovelace >= minimum(output)) { "Insufficient change ADA; reduce the requested amount or add funds" }
                 }
                 val actualFee = decoded.body
                     .entries()
@@ -195,10 +262,26 @@ class WalletTransactionBuilder(
                 require(BigInteger.valueOf(envelopeSize) <= maxTxSize) { "Transaction exceeds maximum transaction size" }
                 val txId = command("txid", "--tx-body-file", bodyPath, "--output-text").trim().lowercase()
                 require(txId == decoded.id) { "CLI transaction ID does not match transaction body" }
-                return CliBody(text, txId)
+                return CliBody(text, txId, actualFee, decoded.batch.parent.outputs.size, Math.toIntExact(envelopeSize))
             }
             fee = fee.max(requiredFee)
         }
         throw IllegalArgumentException("Transaction fee did not converge after 16 iterations")
+    }
+
+    fun validateSignedEnvelopeSize(
+        envelope: String,
+        protocolParameters: String
+    ) {
+        val cbor = json.readTree(envelope).path("cborHex").asString()
+        require(cbor.isNotEmpty() && cbor.length % 2 == 0 && cbor.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+            "Invalid signed transaction"
+        }
+        val maxTxSize = json
+            .readTree(protocolParameters)
+            .path("maxTxSize")
+            .asString()
+            .toBigInteger()
+        require(BigInteger.valueOf((cbor.length / 2).toLong()) <= maxTxSize) { "Signed transaction exceeds maximum transaction size" }
     }
 }

@@ -72,8 +72,11 @@ class WalletFeeEstimatorTest {
         every { wallets.getWalletItem(any(), any(), any(), any(), any(), any()) } returns mockk<WalletItem> { every { stakingAddrLovelace } returns n(2_000_000) }
         val response = slot<Any>()
         every { messages.convertAndSend(any<String>(), capture(response)) } just Runs
-        val builder = WalletTransactionBuilder(json)
-        val controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), messages, cardano, protocols, mockk(), builder, json)
+        val protocolAdapter = mockk<JsonAdapter<ProtocolParameters>> {
+            every { fromJson(params) } returns null
+        }
+        val builder = WalletTransactionBuilder(json, protocolAdapter)
+        val controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, protocolAdapter, messages, cardano, protocols, mockk(), builder, json)
         val destinations = if (asset) {
             listOf(
                 ToAccountFeeRequest("$policy.01", -1, "destination", n(4)),

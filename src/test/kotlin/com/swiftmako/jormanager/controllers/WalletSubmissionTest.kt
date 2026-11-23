@@ -25,7 +25,8 @@ class WalletSubmissionTest {
     private fun n(value: Long) = BigInteger.valueOf(value)
 
     private inner class Fixture(
-        val era: String
+        val era: String,
+        extraFunds: List<Utxo> = emptyList(),
     ) {
         val json = jacksonObjectMapper()
         val wallets = mockk<WalletUtils>()
@@ -45,8 +46,8 @@ class WalletSubmissionTest {
         val funds = WalletEntry(1, "funds", "payment", fundsAddress, paymentSkey = key)
         val stake = WalletEntry(2, "stake", "stake", stakeAddress, paymentSkey = key, stakingAddr = "stake-address", stakingSkey = key, stakingVkey = key)
         val roots = mapOf(
-            fundsAddress to Utxo("11".repeat(32), 0, n(10_000_000), emptyList()),
-            stakeAddress to Utxo("22".repeat(32), 0, n(5_000_000), emptyList())
+            fundsAddress to (listOf(Utxo("11".repeat(32), 0, n(10_000_000), emptyList())) + extraFunds),
+            stakeAddress to listOf(Utxo("22".repeat(32), 0, n(5_000_000), emptyList())),
         )
         val ledger = LedgerDao(eras, json, mockk(relaxed = true), MutableStateFlow(null))
         var envelope = ""
@@ -71,21 +72,25 @@ class WalletSubmissionTest {
             every { tip.fromJson(any<String>()) } returns QueryTip(era, slot = 100)
             every { eras.getEra(any(), any(), any(), any()) } returns era
             every { eras.networkKey(node) } returns "network"
-            every { parameters.query(any(), any(), any(), any(), any(), any()) } returns """{"maxTxSize":16384,"maxValueSize":5000,"stakeAddressDeposit":2000000}"""
+            every { parameters.query(any(), any(), any(), any(), any(), any()) } returns
+                """{"maxTxSize":16384,"maxValueSize":5000,"stakeAddressDeposit":2000000,"protocolVersion":{"major":12,"minor":0}}"""
             every { wallets.isValidSpendingPassword("secret") } returns true
             every { wallets.getUtxos(any(), any(), any(), any(), any(), any()) } answers {
                 val address = arg<String>(5)
-                ledger.liveUtxos("network", address, listOf(roots.getValue(address)))
+                ledger.liveUtxos("network", address, roots.getValue(address))
             }
             every { wallets.getStakeAddressInfo(any(), any(), any(), any(), any(), any()) } answers {
                 if (registered) listOf(StakeAddressInfo("stake-address", stakeAddressDeposit = n(2_000_000))) else emptyList()
             }
             every { wallets.queryReferenceScriptSize(any(), any(), any(), any(), any(), any()) } returns 0
             every { wallets.getSKeyContent(key, "secret") } returns "signing-key"
-            controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, mockk(), mockk(), eras, parameters, ledger, WalletTransactionBuilder(json), json)
+            val protocolAdapter = mockk<JsonAdapter<ProtocolParameters>> {
+                every { fromJson(any<String>()) } returns ProtocolParameters.conwayDefaults()
+            }
+            controller = WalletController(wallets, accounts, files, nodes, hosts, tip, genesis, protocolAdapter, mockk(), eras, parameters, ledger, WalletTransactionBuilder(json, protocolAdapter), json)
         }
 
-        fun balance(address: String) = ledger.liveUtxos("network", address, listOf(roots.getValue(address))).sumOf { it.lovelace }
+        fun balance(address: String) = ledger.liveUtxos("network", address, roots.getValue(address)).sumOf { it.lovelace }
 
         fun run(action: () -> Unit) {
             mockkConstructor(HostConnection::class)
@@ -183,6 +188,46 @@ class WalletSubmissionTest {
             assertTrue(f.controller.submitTransaction(request) is SocketResponse.Success)
             assertEquals(n(8_800_000), f.balance(f.fundsAddress))
             assertEquals(n(6_000_000), f.balance(f.stakeAddress))
+        }
+    }
+
+    @Test
+    fun stakingRegistrationDoesNotSpendUnusedInputs() {
+        val dust = Utxo("33".repeat(32), 0, n(1_000_000), emptyList())
+        val f = Fixture("dijkstra", listOf(dust))
+        f.run {
+            val response = f.controller.updateStakingAddress(UpdateStakingAddressRequest(2, "secret", 1, true))
+            assertTrue(response is SocketResponse.Success)
+            val body = f.commands.last { "build-raw" in it }
+            assertEquals(1, body.count { it == "--tx-in" })
+            assertEquals(n(8_800_000), f.balance(f.fundsAddress))
+        }
+    }
+
+    @Test
+    fun defragmentConsolidatesInputsIntoWalletChange() {
+        val extraFunds = listOf(
+            Utxo("33".repeat(32), 0, n(1_000_000), emptyList()),
+            Utxo("44".repeat(32), 0, n(1_000_000), emptyList()),
+        )
+        val f = Fixture("dijkstra", extraFunds)
+        f.run {
+            val request = SubmitTransactionRequest(
+                "secret",
+                1,
+                emptyList(),
+                n(200_000),
+                BigInteger.ZERO,
+                listOf(ToAccount("ada", 1, "", n(11_800_000), 100, BigInteger.ZERO)),
+                false,
+                null,
+                "DEFRAGMENT",
+            )
+            assertTrue(f.controller.submitTransaction(request) is SocketResponse.Success)
+            val body = f.commands.last { "build-raw" in it }
+            assertEquals(3, body.count { it == "--tx-in" })
+            assertEquals(2, body.count { it == "--tx-out" })
+            assertEquals(n(11_800_000), f.balance(f.fundsAddress))
         }
     }
 
