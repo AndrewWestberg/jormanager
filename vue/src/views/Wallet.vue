@@ -1,156 +1,231 @@
 <template>
   <div>
     <div v-if="!showAddWalletEntryWizard">
-      <div>
-        <BButton
-          variant="outline-primary"
-          @click="showAddWalletEntryWizard = true"
-          v-b-tooltip.hover.bottom="'Create a new wallet entry.'"
-        >
-          +&nbsp;Create Entry
-        </BButton>&nbsp;
-        <BButton
-          variant="outline-primary"
-          @click="backupClicked"
-          v-b-tooltip.hover.bottom="'Download all of your wallet and pool keys.'"
-        >
-          <font-awesome-icon :icon="['fas', 'file-archive']" />&nbsp;Save Backup
-        </BButton>&nbsp;
-        <BButton
-          v-if="hasSelectedClaims"
-          variant="success"
-          @click="claimMultipleClick"
-          v-b-tooltip.hover.bottom="'Claim rewards from selected stake addresses'"
-        >
-          <font-awesome-icon :icon="['fas', 'cash-register']" />&nbsp;Claim Selected ({{ visibleSelectedCount }})
-        </BButton>
+      <div class="jm-page-header">
+        <div>
+          <h1 class="jm-page-title">Wallet &amp; Treasury</h1>
+          <p class="jm-page-subtitle">Exact lovelace balances, UTxO defragmentation, stake registrations, and reward claims</p>
+        </div>
+        <div class="jm-action-group">
+          <BButton
+            v-if="hasSelectedClaims"
+            variant="success"
+            @click="claimMultipleClick"
+            v-b-tooltip.hover.bottom="'Claim rewards from selected stake addresses'"
+          >
+            <font-awesome-icon :icon="['fas', 'cash-register']" class="me-1" aria-hidden="true" />
+            Claim Selected ({{ visibleSelectedCount }})
+          </BButton>
+          <BButton
+            variant="secondary"
+            @click="backupClicked"
+            v-b-tooltip.hover.bottom="'Download all of your wallet and pool keys.'"
+          >
+            <font-awesome-icon :icon="['fas', 'file-archive']" class="me-1" aria-hidden="true" />
+            Save Backup
+          </BButton>
+          <BButton
+            variant="primary"
+            @click="showAddWalletEntryWizard = true"
+            v-b-tooltip.hover.bottom="'Create a new wallet entry.'"
+          >
+            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />
+            Create Entry
+          </BButton>
+        </div>
       </div>
-      <hr />
-      <BContainer fluid>
-        <BRow>
-          <BCol lg="6" class="my-1">
-            <BFormGroup
-              label="Filter"
-              label-for="filter-input"
-              label-cols-sm="3"
-              label-align-sm="right"
-              label-size="sm"
-            >
-              <BInputGroup size="sm">
-                <BFormInput
-                  id="filter-input"
-                  v-model="filter"
-                  type="search"
-                  placeholder="Type to Search"
-                />
-                <template #append>
-                  <BButton :disabled="!filter" @click="filter = ''">Clear</BButton>
-                </template>
-              </BInputGroup>
-            </BFormGroup>
-          </BCol>
-        </BRow>
+
+      <!-- Exact BigInt Portfolio Summary Strip -->
+      <div v-if="walletItems.length > 0" class="jm-summary-grid-4">
+        <div class="jm-card jm-kpi-card">
+          <span class="jm-kpi-label">Total Balance</span>
+          <div class="jm-kpi-value jm-mono jm-summary-ada">{{ totalPaymentBalanceFormatted }}</div>
+          <span class="small text-secondary">Exact lovelace sum</span>
+        </div>
+        <div class="jm-card jm-kpi-card">
+          <span class="jm-kpi-label">Unclaimed Rewards</span>
+          <div class="jm-kpi-value jm-mono jm-summary-ada text-success">{{ totalRewardsFormatted }}</div>
+          <span class="small text-secondary">{{ claimableCount }} stake account{{ claimableCount === 1 ? '' : 's' }} claimable</span>
+        </div>
+        <div class="jm-card jm-kpi-card">
+          <span class="jm-kpi-label">Wallet Entries</span>
+          <div class="jm-kpi-value jm-mono">{{ walletItems.length }}</div>
+          <span class="small" :class="fragmentedCount > 0 ? 'text-warning' : 'text-secondary'">
+            {{ fragmentedCount > 0 ? `${fragmentedCount} multi-UTxO wallet${fragmentedCount === 1 ? '' : 's'}` : 'All UTxOs tidy' }}
+          </span>
+        </div>
+        <div class="jm-card jm-kpi-card">
+          <span class="jm-kpi-label">Native Assets</span>
+          <div class="jm-kpi-value jm-mono" style="color: var(--jm-indigo);">{{ distinctNativeAssetCount }}</div>
+          <span class="small text-secondary">Distinct policy assets</span>
+        </div>
+      </div>
+
+      <!-- Filter & Search Bar -->
+      <div class="jm-toolbar">
+        <div class="jm-chip-group" role="group" aria-label="Filter wallet entries by type">
+          <button
+            v-for="tab in typeFilterTabs"
+            :key="tab.value"
+            type="button"
+            class="jm-chip-btn"
+            :class="{ active: typeFilter === tab.value }"
+            @click="typeFilter = tab.value"
+          >
+            {{ tab.label }} ({{ tab.count }})
+          </button>
+        </div>
+        <div class="jm-wallet-search">
+          <BInputGroup size="sm">
+            <BFormInput
+              id="filter-input"
+              v-model="filter"
+              type="search"
+              placeholder="Search name, type, address…"
+              aria-label="Filter wallet entries"
+            />
+            <template #append>
+              <BButton variant="secondary" :disabled="!filter" @click="filter = ''">Clear</BButton>
+            </template>
+          </BInputGroup>
+        </div>
+      </div>
+
+      <div
+        v-show="walletItems.length > 0"
+        class="jm-table-wrapper"
+        tabindex="0"
+        role="region"
+        aria-label="Wallet Entries"
+      >
         <BTable
           small
           hover
-          dark
-          bordered
           striped
-          head-variant="light"
-          :items="walletItems"
+          :items="displayedWalletItems"
           :fields="fields"
-          :filter="filter || undefined"
-          :filter-included-fields="filterOn"
-          v-show="walletItems.length > 0"
         >
-          <template #cell(paymentAddr)="{ value }">
-            {{ String(value).substring(0, 14) }}...
-            <span
-              class="clickable text-secondary d-inline-block"
-              v-b-tooltip.hover.right="{ title: 'Copy to clipboard', variant: 'secondary' }"
-              @click="copyToClipboard(String(value))"
-            >
-              <font-awesome-icon :icon="['fas', 'copy']" />
+          <template #cell(name)="{ value }">
+            <span class="jm-mono fw-semibold">{{ value }}</span>
+          </template>
+
+          <template #cell(type)="{ value }">
+            <span class="jm-pill text-capitalize" :class="walletTypePillClass(String(value))">
+              {{ value }}
             </span>
           </template>
-          <template #cell(paymentAddrLovelace)="{ item, value }">
-            <div class="text-right">
-              <span
-                v-if="((item as WalletItem).paymentAddrUtxoCount ?? 0) > 0"
-                class="badge bg-secondary me-2"
-                v-b-tooltip.hover.bottom="{ title: `${(item as WalletItem).paymentAddrUtxoCount} unspent UTxO(s)`, variant: 'secondary' }"
+
+          <template #cell(paymentAddr)="{ value }">
+            <div class="jm-addr-chip jm-mono">
+              <span>{{ String(value).substring(0, 14) }}...</span>
+              <button
+                type="button"
+                class="jm-icon-btn cyan jm-mini-copy"
+                aria-label="Copy payment address"
+                v-b-tooltip.hover.right="{ title: 'Copy to clipboard', variant: 'secondary' }"
+                @click="copyToClipboard(String(value))"
               >
-                {{ (item as WalletItem).paymentAddrUtxoCount }} UTxO{{ (item as WalletItem).paymentAddrUtxoCount === 1 ? '' : 's' }}
-              </span>
-              {{ formatAda(value) }}
-              <span
-                v-if="canSend(item as WalletItem)"
-                class="clickable text-success d-inline-block ms-1"
-                v-b-tooltip.hover.bottom="{ title: 'Send', variant: 'success' }"
-                @click="sendAdaClick((item as any).name)"
-              >
-                <font-awesome-icon :icon="['fas', 'hand-holding-usd']" />
-              </span>
-              <BButton
-                v-if="canDefragment(item as WalletItem)"
-                variant="link"
-                class="text-info p-0 ms-2"
-                aria-label="Defragment UTxOs"
-                data-testid="defragment-utxos-btn"
-                v-b-tooltip.hover.bottom="{ title: 'Defragment UTxOs', variant: 'info' }"
-                @click="defragmentUtxosClick((item as WalletItem).name)"
-              >
-                <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" />
-              </BButton>
-            </div>
-            <hr v-if="hasNativeAssets((item as any).name)" />
-            <div
-              v-for="(name, index) in getNativeAssetKeys((item as any).name)"
-              :key="index"
-            >
-              {{ hex2ascii(name.substring(name.indexOf('.') + 1)) }} ({{ name }}) -
-              {{ getNativeAssetAmount((item as any).name, name) }}
-              <span
-                class="text-warning d-inline-block"
-                v-b-tooltip.hover.bottom="{ title: 'Native Asset', variant: 'warning' }"
-              >
-                <font-awesome-icon :icon="['fas', 'coins']" />
-              </span>
+                <font-awesome-icon :icon="['fas', 'copy']" aria-hidden="true" />
+              </button>
             </div>
           </template>
+
+          <template #cell(paymentAddrUtxoCount)="{ item }">
+            <span
+              v-if="((item as WalletItem).paymentAddrUtxoCount ?? 0) > 0"
+              class="jm-pill jm-mono jm-utxo-pill"
+              :class="((item as WalletItem).paymentAddrUtxoCount ?? 0) > 20 ? 'jm-pill-amber' : 'jm-pill-slate'"
+              v-b-tooltip.hover.bottom="{ title: `${(item as WalletItem).paymentAddrUtxoCount} unspent UTxO(s)`, variant: 'secondary' }"
+            >
+              {{ (item as WalletItem).paymentAddrUtxoCount }} UTxO{{ (item as WalletItem).paymentAddrUtxoCount === 1 ? '' : 's' }}
+            </span>
+            <span v-else class="text-secondary">—</span>
+          </template>
+
+          <template #cell(paymentAddrLovelace)="{ item, value }">
+            <div class="jm-balance-row">
+              <span class="jm-mono fw-semibold">{{ formatAda(value) }}</span>
+              <span class="jm-balance-actions">
+                <button
+                  v-if="canSend(item as WalletItem)"
+                  type="button"
+                  class="jm-icon-btn emerald"
+                  aria-label="Send ADA"
+                  v-b-tooltip.hover.bottom="{ title: 'Send', variant: 'success' }"
+                  @click="sendAdaClick((item as any).name)"
+                >
+                  <font-awesome-icon :icon="['fas', 'hand-holding-usd']" aria-hidden="true" />
+                </button>
+                <BButton
+                  v-if="canDefragment(item as WalletItem)"
+                  variant="link"
+                  class="jm-icon-btn cyan p-0"
+                  aria-label="Defragment UTxOs"
+                  data-testid="defragment-utxos-btn"
+                  v-b-tooltip.hover.bottom="{ title: 'Defragment UTxOs', variant: 'info' }"
+                  @click="defragmentUtxosClick((item as WalletItem).name)"
+                >
+                  <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" aria-hidden="true" />
+                </BButton>
+              </span>
+            </div>
+            <div
+              v-if="hasNativeAssets((item as any).name)"
+              class="jm-assets-list mt-2 pt-2"
+            >
+              <div
+                v-for="(name, index) in getNativeAssetKeys((item as any).name)"
+                :key="index"
+                class="jm-pill jm-pill-indigo jm-mono"
+              >
+                <font-awesome-icon :icon="['fas', 'coins']" class="text-warning" aria-hidden="true" />
+                <span>{{ hex2ascii(name.substring(name.indexOf('.') + 1)) }}</span>
+                <span class="opacity-75">({{ name.slice(0, 8) }}…)</span>
+                <strong>{{ getNativeAssetAmount((item as any).name, name) }}</strong>
+              </div>
+            </div>
+          </template>
+
           <template #cell(stakingAddr)="{ item, value }">
-            <div v-if="value && String(value).length > 0">
-              {{ String(value).substring(0, 15) }}... &nbsp;
+            <div v-if="value && String(value).length > 0" class="d-inline-flex align-items-center gap-2 flex-wrap">
+              <span class="jm-addr-chip jm-mono">{{ String(value).substring(0, 15) }}...</span>
               <span
                 v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === true"
-                class="clickable text-success d-inline-block"
+                class="jm-pill jm-pill-emerald clickable"
                 v-b-tooltip.hover.bottom="{ title: 'Registered on chain. Click to de-register.', variant: 'success' }"
                 @click="deregisterStakingAddress((item as any).name)"
               >
-                <font-awesome-icon :icon="['fas', 'link']" />
+                <font-awesome-icon :icon="['fas', 'link']" aria-hidden="true" />
+                Registered
               </span>
               <span
                 v-if="balanceReady(item as WalletItem) && (item as any).stakingAddrRegistered === false"
-                class="clickable text-warning d-inline-block"
+                class="jm-pill jm-pill-amber clickable"
                 v-b-tooltip.hover.bottom="{ title: 'Not registered on chain. Click to register.', variant: 'warning' }"
                 @click="registerStakingAddress((item as any).name)"
               >
-                <font-awesome-icon :icon="['fas', 'unlink']" />
+                <font-awesome-icon :icon="['fas', 'unlink']" aria-hidden="true" />
+                Unregistered
               </span>
             </div>
-            <div v-else class="text-center">---</div>
+            <div v-else class="text-secondary">—</div>
           </template>
+
           <template #cell(stakingAddrLovelace)="{ item, value }">
-            <div class="text-right d-flex align-items-center justify-content-end gap-2" v-if="(item as any).type === 'stake'">
-              <span>{{ formatAda(value) }}</span>
-              <span
+            <div class="d-flex align-items-center justify-content-end gap-2" v-if="(item as any).type === 'stake'">
+              <span class="jm-mono fw-semibold" :class="positive(value) ? 'text-success' : 'text-secondary'">
+                {{ formatAda(value) }}
+              </span>
+              <button
                 v-if="canClaim(item as WalletItem)"
-                class="clickable text-success flex-shrink-0"
+                type="button"
+                class="jm-icon-btn emerald flex-shrink-0"
+                aria-label="Claim Rewards"
                 v-b-tooltip.hover.bottom="{ title: 'Claim Rewards', variant: 'success' }"
                 @click="claimAdaClick((item as any).name)"
               >
-                <font-awesome-icon :icon="['fas', 'cash-register']" />
-              </span>
+                <font-awesome-icon :icon="['fas', 'cash-register']" aria-hidden="true" />
+              </button>
               <BFormCheckbox
                 v-if="canClaim(item as WalletItem)"
                 :model-value="selectedClaimIds.has((item as any).id)"
@@ -159,25 +234,40 @@
                 v-b-tooltip.hover.bottom="{ title: 'Select for multi-claim', variant: 'info' }"
               />
             </div>
-            <div class="text-center" v-else>---</div>
+            <div class="text-end text-secondary" v-else>—</div>
           </template>
+
           <template #cell(edit)="{ item }">
-            <span
-              class="clickable text-danger d-inline-block"
-              v-b-tooltip.hover.right="{ title: 'Delete this Entry', variant: 'danger' }"
+            <button
+              type="button"
+              class="jm-icon-btn rose"
+              aria-label="Delete this Entry"
+              v-b-tooltip.hover.left="{ title: 'Delete this Entry', variant: 'danger' }"
               @click="deleteItem((item as any).name)"
             >
-              <font-awesome-icon :icon="['fas', 'trash-alt']" />
-            </span>
+              <font-awesome-icon :icon="['fas', 'trash-alt']" aria-hidden="true" />
+            </button>
           </template>
         </BTable>
-      </BContainer>
+      </div>
+
+      <div v-if="walletItems.length === 0" class="jm-card jm-empty-state">
+        <div class="jm-empty-icon">
+          <font-awesome-icon :icon="['fas', 'wallet']" aria-hidden="true" />
+        </div>
+        <h2 class="h6 mb-1">No wallet entries yet</h2>
+        <p class="small mb-3">Create a payment, stake, pledge, or watch-only address entry to begin.</p>
+        <BButton variant="primary" size="sm" @click="showAddWalletEntryWizard = true">+ Create Entry</BButton>
+      </div>
     </div>
+
     <AddWalletEntryWizard
       v-if="showAddWalletEntryWizard"
       @hide-wallet-entry-wizard="showAddWalletEntryWizard = false"
     />
+
     <SendAdaModal />
+
     <BModal
       id="modal-staking-address"
       v-model="showStakingModal"
@@ -191,26 +281,26 @@
         <BButton variant="primary" :disabled="stakingBusy || !store.connected || !stakingFeesAccountState" @click="confirmStaking">Submit</BButton>
       </template>
       <fieldset :disabled="stakingBusy">
-      <BFormGroup
-        label="Fees Account"
-        label-for="staking-fees-account-select"
-        label-cols-md="2"
-        label-align="right"
-      >
-        <BFormSelect
-          aria-describedby="staking-fees-account-live-feedback"
-          v-model="stakingAddressForm.stakingFeesAccount"
-          :options="stakingFeesOptions"
-          :state="stakingFeesAccountState"
+        <BFormGroup
+          label="Fees Account"
+          label-for="staking-fees-account-select"
+          label-cols-md="3"
+          label-align="right"
         >
-          <template #first>
-            <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-          </template>
-        </BFormSelect>
-        <BFormInvalidFeedback id="staking-fees-account-live-feedback">
-          Account must hold enough to pay fees and/or deposit.
-        </BFormInvalidFeedback>
-      </BFormGroup>
+          <BFormSelect
+            aria-describedby="staking-fees-account-live-feedback"
+            v-model="stakingAddressForm.stakingFeesAccount"
+            :options="stakingFeesOptions"
+            :state="stakingFeesAccountState"
+          >
+            <template #first>
+              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+            </template>
+          </BFormSelect>
+          <BFormInvalidFeedback id="staking-fees-account-live-feedback">
+            Account must hold enough to pay fees and/or deposit.
+          </BFormInvalidFeedback>
+        </BFormGroup>
       </fieldset>
     </BModal>
   </div>
@@ -222,9 +312,6 @@ import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
 import {
   BButton,
-  BContainer,
-  BRow,
-  BCol,
   BFormGroup,
   BInputGroup,
   BFormInput,
@@ -250,6 +337,7 @@ const showAddWalletEntryWizard = ref(false)
 const showStakingModal = ref(false)
 const stakingAddressModalTitle = ref('')
 const filter = ref<string>('')
+const typeFilter = ref<'all' | 'payment' | 'stake' | 'pledge' | 'address'>('all')
 const filterOn = ref<string[]>(['name', 'type', 'paymentAddr', 'stakingAddr'])
 const selectedClaimIds = ref<Set<number>>(new Set())
 const pendingAction = ref<string | null>(null)
@@ -289,10 +377,11 @@ const fields = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'type', label: 'Item Type', sortable: true },
   { key: 'paymentAddr', label: 'Payment Address' },
-  { key: 'paymentAddrLovelace', label: 'Balance', class: 'text-right', sortable: true },
+  { key: 'paymentAddrUtxoCount', label: 'UTxOs', thClass: 'text-center', tdClass: 'text-center', sortable: true },
+  { key: 'paymentAddrLovelace', label: 'Balance', thClass: 'text-end', tdClass: 'text-end', sortable: true },
   { key: 'stakingAddr', label: 'Reward Address' },
-  { key: 'stakingAddrLovelace', label: 'Rewards' },
-  { key: 'edit', label: '' }
+  { key: 'stakingAddrLovelace', label: 'Rewards', thClass: 'text-end', tdClass: 'text-end' },
+  { key: 'edit', label: '', thClass: 'text-end', tdClass: 'text-end' }
 ]
 
 function exactInteger(value: unknown): bigint | null {
@@ -331,17 +420,69 @@ function formatAda(value: unknown): string {
   return `${sign}₳${absolute / 1000000n}.${(absolute % 1000000n).toString().padStart(6, '0')}`
 }
 
+function formatAdaGrouped(amount: bigint): string {
+  const sign = amount < 0n ? '-' : ''
+  const absolute = amount < 0n ? -amount : amount
+  const whole = (absolute / 1000000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const fraction = (absolute % 1000000n).toString().padStart(6, '0')
+  return `${sign}₳${whole}.${fraction}`
+}
+
+function walletTypePillClass(type: string): string {
+  switch (type) {
+    case 'stake': return 'jm-pill-emerald'
+    case 'pledge': return 'jm-pill-indigo'
+    case 'payment': return 'jm-pill-cyan'
+    default: return 'jm-pill-slate'
+  }
+}
+
+const totalPaymentBalanceFormatted = computed(() => {
+  const sum = walletItems.value.reduce((acc, item) => acc + (exactInteger(item.paymentAddrLovelace) ?? 0n), 0n)
+  return formatAdaGrouped(sum)
+})
+
+const totalRewardsFormatted = computed(() => {
+  const sum = walletItems.value.reduce((acc, item) => {
+    if (item.type !== 'stake') return acc
+    return acc + (exactInteger(item.stakingAddrLovelace) ?? 0n)
+  }, 0n)
+  return formatAdaGrouped(sum)
+})
+
+const claimableCount = computed(() => walletItems.value.filter(item => canClaim(item)).length)
+
+const fragmentedCount = computed(() => walletItems.value.filter(item => canDefragment(item)).length)
+
+const distinctNativeAssetCount = computed(() => {
+  const set = new Set<string>()
+  for (const item of walletItems.value) {
+    for (const key of Object.keys(item.nativeAssetMap || {})) set.add(key)
+  }
+  return set.size
+})
+
+const typeFilterTabs = computed(() => [
+  { value: 'all' as const, label: 'All', count: walletItems.value.length },
+  { value: 'payment' as const, label: 'Payment', count: walletItems.value.filter(i => i.type === 'payment').length },
+  { value: 'stake' as const, label: 'Stake', count: walletItems.value.filter(i => i.type === 'stake').length },
+  { value: 'pledge' as const, label: 'Pledge', count: walletItems.value.filter(i => i.type === 'pledge').length },
+  { value: 'address' as const, label: 'Address', count: walletItems.value.filter(i => i.type === 'address').length }
+])
+
 const stakingFeesAccountState = computed(() => stakingFeesOptions.value.some(option => option.value === stakingAddressForm.value.stakingFeesAccount))
 const stakingFeesOptions = computed(() => walletItems.value
   .filter(item => item.type !== 'address' && item.hasPaymentKeys && positive(item.paymentAddrLovelace))
   .map(item => ({ value: item.id, text: `${item.name} - ${formatAda(item.paymentAddrLovelace)}` }))
   .sort((a, b) => a.text.localeCompare(b.text)))
 
-// Compute filtered wallet items based on current filter
 const filteredWalletItems = computed(() => {
-  if (!filter.value) return walletItems.value
+  const byType = typeFilter.value === 'all'
+    ? walletItems.value
+    : walletItems.value.filter(item => item.type === typeFilter.value)
+  if (!filter.value) return byType
   const searchLower = filter.value.toLowerCase()
-  return walletItems.value.filter(item => {
+  return byType.filter(item => {
     const searchableFields = filterOn.value.length > 0 ? filterOn.value : Object.keys(item)
     return searchableFields.some(field => {
       const val = (item as any)[field]
@@ -350,7 +491,8 @@ const filteredWalletItems = computed(() => {
   })
 })
 
-// Count only visible selected items for button label
+const displayedWalletItems = computed(() => filteredWalletItems.value)
+
 const visibleSelectedCount = computed(() => {
   return filteredWalletItems.value.filter(item =>
     selectedClaimIds.value.has(item.id) && canClaim(item)
@@ -359,11 +501,9 @@ const visibleSelectedCount = computed(() => {
 
 const hasSelectedClaims = computed(() => visibleSelectedCount.value > 0)
 
-// Clear selections when filter changes
-watch(filter, () => {
+watch([filter, typeFilter], () => {
   selectedClaimIds.value = new Set()
 })
-
 
 watch(() => store.connected, connected => {
   if (connected) store.fetchWalletItems()
@@ -471,7 +611,6 @@ function deregisterStakingAddress(name: string) {
   showStakingModal.value = true
 }
 
-
 function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   if (data.action === 'submit-wallet-stake') {
     void submitStaking(data)
@@ -496,11 +635,50 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.clickable:hover {
-  cursor: pointer;
+.jm-summary-ada {
+  font-size: 1.25rem;
 }
 
-/* Fix checkbox positioning in rewards column */
+.jm-wallet-search {
+  min-width: 240px;
+  flex: 0 1 320px;
+}
+
+.jm-mini-copy {
+  width: 22px;
+  height: 22px;
+  font-size: 0.72rem;
+}
+
+.jm-utxo-pill {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+.jm-balance-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.jm-balance-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.2rem;
+  min-width: 64px;
+}
+
+.jm-assets-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  border-top: 1px dashed var(--jm-border-subtle);
+}
+
 .rewards-checkbox {
   position: relative !important;
   display: inline-flex !important;

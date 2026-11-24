@@ -1,386 +1,448 @@
 <template>
   <div id="add_node">
-    <FormWizard
-      ref="wizard"
-      :key="wizardKey"
-      step-size="sm"
-      color="#28a745"
-      title=""
-      subtitle=""
-      finish-button-text="Confirm"
-      back-button-text="Back"
-      next-button-text="Next"
-      @on-complete="onComplete"
+    <div class="jm-page-header">
+      <div>
+        <h1 class="jm-page-title">
+          {{ parentId != null ? 'Add Child Pool' : 'Provision Cardano Node' }}
+        </h1>
+        <p class="jm-page-subtitle">
+          Configure node identity, network files, keys, and pool parameters step by step
+        </p>
+      </div>
+      <BButton variant="outline-secondary" @click="handleCancel">
+        <font-awesome-icon :icon="['fas', 'arrow-left']" class="me-1" aria-hidden="true" />
+        Back to Nodes
+      </BButton>
+    </div>
+
+    <StepWizard
+      :steps="wizardSteps"
+      finish-text="Confirm"
+      back-text="Back"
+      next-text="Next"
+      cancel-text="Cancel"
+      :busy="creationBusy"
+      @complete="onComplete"
+      @cancel="handleCancel"
     >
       <!-- Step 1: Node Basics (Always shown) -->
-      <TabContent title="Node Basics" icon="fas fa-dice-d20" :before-change="validateStep1">
-        <h4>Node Basics</h4>
-        
-        <BFormGroup label="Other Node Colors" label-cols-md="2" v-if="nodeColors.length > 0">
-          <span v-for="(nodeColor, index) in nodeColors" :key="index">
-            <font-awesome-icon :style="{ color: nodeColor }" :icon="['fas', 'circle']" />
-          </span>
-        </BFormGroup>
-        
-        <BFormGroup label="Color" label-cols-md="2">
-          <BFormInput v-model="formNode.color" type="color" />
-        </BFormGroup>
-        
-        <BFormGroup label="Host" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.host"
-            :state="hostState"
-            :options="hostSelectOptions"
-            :disabled="parentId != null"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Name (TICKER)" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.name"
-            :state="nameState"
-            maxlength="6"
-            placeholder="e.g. tickr, relay2, etc..."
-            trim
-          />
-          <BFormInvalidFeedback>{{ nameError }}</BFormInvalidFeedback>
-        </BFormGroup>
-        
-        <BFormGroup label="Node Type" label-cols-md="2">
-          <BFormRadioGroup v-model="formNode.type" :state="typeState" :disabled="parentId != null">
-            <BFormRadio value="relay">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-danger" />&nbsp;Relay
-            </BFormRadio>
-            <BFormRadio value="core">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success" />&nbsp;Core
-            </BFormRadio>
-            <BFormRadio value="pool" v-show="parentId != null">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-primary" />&nbsp;Pool
-            </BFormRadio>
-          </BFormRadioGroup>
-        </BFormGroup>
-        
-        <BFormGroup label-cols-md="2" v-if="formNode.type === 'relay'">
-          <BFormCheckbox v-model="formNode.isDefault">
+      <template #basics>
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Identity &amp; Role</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Node Type">
+              <BFormRadioGroup v-model="formNode.type" :state="typeState" :disabled="parentId != null">
+                <BFormRadio value="relay" class="me-3">
+                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-danger me-1" />Relay
+                </BFormRadio>
+                <BFormRadio value="core" class="me-3">
+                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success me-1" />Core
+                </BFormRadio>
+                <BFormRadio value="pool" v-show="parentId != null">
+                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-primary me-1" />Pool
+                </BFormRadio>
+              </BFormRadioGroup>
+            </BFormGroup>
+
+            <BFormGroup label="Name (TICKER)">
+              <BFormInput
+                v-model="formNode.name"
+                :state="nameState"
+                maxlength="6"
+                placeholder="e.g. tickr, relay2, etc..."
+                class="jm-mono"
+                trim
+              />
+              <BFormInvalidFeedback>{{ nameError }}</BFormInvalidFeedback>
+            </BFormGroup>
+
+            <BFormGroup label="Host">
+              <BFormSelect
+                v-model="formNode.host"
+                :state="hostState"
+                :options="hostSelectOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Telemetry Color">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <BFormInput v-model="formNode.color" type="color" class="jm-color-input" />
+                <span class="jm-mono small text-secondary">{{ formNode.color }}</span>
+                <div v-if="nodeColors.length > 0" class="d-flex align-items-center gap-1 ms-auto">
+                  <span class="small text-secondary me-1">In use:</span>
+                  <span
+                    v-for="(nodeColor, index) in nodeColors"
+                    :key="index"
+                    class="jm-dot"
+                    :style="{ backgroundColor: nodeColor }"
+                  />
+                </div>
+              </div>
+            </BFormGroup>
+          </div>
+
+          <BFormCheckbox v-if="formNode.type === 'relay'" v-model="formNode.isDefault" class="mt-2">
             Make this node the default for sending transactions
           </BFormCheckbox>
-        </BFormGroup>
-        
-        <BFormGroup label="Listen Address" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.listen"
-            :disabled="parentId != null"
-            :state="listenState"
-            placeholder="e.g. 0.0.0.0, 127.0.0.1, 192.168.16.12"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Node Port" label-cols-md="2">
-          <BFormInput
-            type="number"
-            step="1"
-            min="1024"
-            max="65535"
-            :state="portState"
-            placeholder="e.g. 3001"
-            v-model="formNode.port"
-            :disabled="parentId != null"
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Processor Threads" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.processorThreads"
-            :state="processorThreadsState"
-            :disabled="parentId != null"
-            type="range"
-            min="0"
-            max="8"
-            step="1"
-          />
-          <p class="text-center">{{ formNode.processorThreads }} Threads</p>
-        </BFormGroup>
+        </div>
 
-        <BFormGroup label="Prometheus Bind" label-cols-md="2">
-          <BFormRadioGroup v-model="formNode.prometheusListen">
-            <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
-            <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
-          </BFormRadioGroup>
-        </BFormGroup>
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Networking &amp; Telemetry</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Listen Address">
+              <BFormInput
+                v-model="formNode.listen"
+                :disabled="parentId != null"
+                :state="listenState"
+                placeholder="e.g. 0.0.0.0, 127.0.0.1, 192.168.16.12"
+                class="jm-mono"
+                trim
+              />
+            </BFormGroup>
 
-        <BFormGroup label-cols-md="2">
-          <BFormCheckbox v-model="formNode.enableTracingListener">
-            Enable tracing listener for JorManager
-          </BFormCheckbox>
-        </BFormGroup>
+            <BFormGroup label="Node Port">
+              <BFormInput
+                type="number"
+                step="1"
+                min="1024"
+                max="65535"
+                :state="portState"
+                placeholder="e.g. 3001"
+                v-model="formNode.port"
+                :disabled="parentId != null"
+                class="jm-mono"
+              />
+            </BFormGroup>
 
-        <BFormGroup label="Tracing Bind" label-cols-md="2" v-if="formNode.enableTracingListener">
-          <BFormRadioGroup v-model="formNode.tracingListen">
-            <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
-            <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
-          </BFormRadioGroup>
-        </BFormGroup>
-        
-        <BFormGroup label="Genesis Byron" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.genesisByron"
-            :state="genesisByronState"
-            :options="genesisFileOptions"
-            :disabled="parentId != null"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Genesis Shelley" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.genesisShelley"
-            :state="genesisShelleyState"
-            :options="genesisFileOptions"
-            :disabled="parentId != null"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Genesis Alonzo" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.genesisAlonzo"
-            :state="genesisAlonzoState"
-            :options="genesisFileOptions"
-            :disabled="parentId != null"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Genesis Conway" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.genesisConway"
-            :state="genesisConwayState"
-            :options="genesisFileOptions"
-            :disabled="parentId != null"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        <BFormGroup label="Genesis Dijkstra (optional)" label-cols-md="2">
-          <BFormSelect v-model="formNode.genesisDijkstra" :options="jsonFileOptions" :disabled="parentId != null">
-            <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
-          </BFormSelect>
-        </BFormGroup>
-        <BFormGroup label="Config" label-cols-md="2">
-          <BFormSelect v-model="formNode.config" :state="formNode.config != null" :options="jsonFileOptions" :disabled="parentId != null">
-            <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
-          </BFormSelect>
-        </BFormGroup>
-        <BFormGroup label="Topology" label-cols-md="2">
-          <BFormSelect v-model="formNode.topology" :state="parentId != null ? null : formNode.topology != null" :options="jsonFileOptions" :disabled="parentId != null">
-            <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
-          </BFormSelect>
-        </BFormGroup>
-        <BFormGroup label="Peer snapshot (optional)" label-cols-md="2">
-          <BFormSelect v-model="formNode.peerSnapshot" :options="jsonFileOptions" :disabled="parentId != null">
-            <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
-          </BFormSelect>
-        </BFormGroup>
-      </TabContent>
-      
+            <BFormGroup label="Processor Threads">
+              <div class="d-flex align-items-center gap-3">
+                <BFormInput
+                  v-model="formNode.processorThreads"
+                  :state="processorThreadsState"
+                  :disabled="parentId != null"
+                  type="range"
+                  min="0"
+                  max="8"
+                  step="1"
+                />
+                <span class="jm-pill jm-pill-cyan jm-mono">{{ formNode.processorThreads }} Threads</span>
+              </div>
+            </BFormGroup>
+
+            <BFormGroup label="Prometheus Bind">
+              <BFormRadioGroup v-model="formNode.prometheusListen" class="pt-1">
+                <BFormRadio value="127.0.0.1" class="me-3">127.0.0.1</BFormRadio>
+                <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
+              </BFormRadioGroup>
+            </BFormGroup>
+
+            <BFormGroup label="Tracing Listener">
+              <BFormCheckbox v-model="formNode.enableTracingListener" class="pt-1">
+                Enable tracing listener for JorManager
+              </BFormCheckbox>
+            </BFormGroup>
+
+            <BFormGroup v-if="formNode.enableTracingListener" label="Tracing Bind">
+              <BFormRadioGroup v-model="formNode.tracingListen" class="pt-1">
+                <BFormRadio value="0.0.0.0" class="me-3">0.0.0.0</BFormRadio>
+                <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
+              </BFormRadioGroup>
+            </BFormGroup>
+          </div>
+        </div>
+
+        <div class="jm-sub-panel">
+          <h2 class="jm-sub-panel-title">Genesis &amp; Network Configuration Files</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Genesis Byron">
+              <BFormSelect
+                v-model="formNode.genesisByron"
+                :state="genesisByronState"
+                :options="genesisFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Genesis Shelley">
+              <BFormSelect
+                v-model="formNode.genesisShelley"
+                :state="genesisShelleyState"
+                :options="genesisFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Genesis Alonzo">
+              <BFormSelect
+                v-model="formNode.genesisAlonzo"
+                :state="genesisAlonzoState"
+                :options="genesisFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Genesis Conway">
+              <BFormSelect
+                v-model="formNode.genesisConway"
+                :state="genesisConwayState"
+                :options="genesisFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Genesis Dijkstra (optional)">
+              <BFormSelect v-model="formNode.genesisDijkstra" :options="jsonFileOptions" :disabled="parentId != null">
+                <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Config">
+              <BFormSelect v-model="formNode.config" :state="formNode.config != null" :options="jsonFileOptions" :disabled="parentId != null">
+                <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Topology">
+              <BFormSelect v-model="formNode.topology" :state="parentId != null ? null : formNode.topology != null" :options="jsonFileOptions" :disabled="parentId != null">
+                <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Peer snapshot (optional)">
+              <BFormSelect v-model="formNode.peerSnapshot" :options="jsonFileOptions" :disabled="parentId != null">
+                <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+              </BFormSelect>
+            </BFormGroup>
+          </div>
+        </div>
+      </template>
+
       <!-- Step 2: Pool Keys (Core/Pool only) -->
-      <TabContent 
-        v-if="formNode.type !== 'relay'" 
-        title="Pool Keys" 
-        icon="fas fa-key"
-        :before-change="validateStep2"
-      >
-        <h4>Pool Keys</h4>
-        
-        <!-- COLD Keys Group -->
-        <BFormGroup label="Pool COLD Keys">
-          <BFormCheckbox v-model="formNode.generateColdKeys">Generate</BFormCheckbox>
-          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateColdKeys"
-              @change="handleFileUpload($event, 'coldSKey')" 
-            />
-          </BFormGroup>
-          <BFormGroup label="vkey" label-cols-md="1">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateColdKeys"
-              @change="handleFileUpload($event, 'coldVKey')" 
-            />
-          </BFormGroup>
-          <BFormGroup label="counter" label-cols-md="1">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateColdKeys"
-              @change="handleFileUpload($event, 'coldCounter')" 
-            />
-          </BFormGroup>
-        </BFormGroup>
-        
-        <!-- VRF Keys Group -->
-        <BFormGroup label="Pool VRF Keys">
-          <BFormCheckbox v-model="formNode.generateVRFKeys">Generate</BFormCheckbox>
-          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateVRFKeys"
-              @change="handleFileUpload($event, 'vrfSKey')" 
-            />
-          </BFormGroup>
-          <BFormGroup label="vkey" label-cols-md="1">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateVRFKeys"
-              @change="handleFileUpload($event, 'vrfVKey')" 
-            />
-          </BFormGroup>
-        </BFormGroup>
-        
-        <!-- KES Keys Group -->
-        <BFormGroup label="Pool KES Keys">
-          <BFormCheckbox v-model="formNode.generateKESKeys">Generate</BFormCheckbox>
-          <BFormGroup label="skey" label-cols-md="1" class="mt-2">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateKESKeys"
-              @change="handleFileUpload($event, 'kesSKey')" 
-            />
-          </BFormGroup>
-          <BFormGroup label="vkey" label-cols-md="1">
-            <input 
-              type="file" 
-              class="form-control" 
-              :disabled="formNode.generateKESKeys"
-              @change="handleFileUpload($event, 'kesVKey')" 
-            />
-          </BFormGroup>
-        </BFormGroup>
-      </TabContent>
-      
-      <!-- Step 3: Pool Config (Core/Pool only) -->
-      <TabContent 
-        v-if="formNode.type !== 'relay'" 
-        title="Pool Config" 
-        icon="fas fa-percent"
-        :before-change="validateStep3"
-      >
-        <h4>Pool Configuration</h4>
-        
-        <BFormGroup label="Fees Account" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.registrationFeesAccount"
-            :state="registrationFeesAccountState"
-            :options="feeAccountOptions"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Owner (Pledge) Account" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.ownerStakingAccount"
-            :state="ownerStakingAccountState"
-            :options="stakingAccountOptions"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Rewards Account" label-cols-md="2">
-          <BFormSelect
-            v-model="formNode.rewardsStakingAccount"
-            :state="rewardsStakingAccountState"
-            :options="rewardsAccountOptions"
-          >
-            <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-            </template>
-          </BFormSelect>
-        </BFormGroup>
-        
-        <BFormGroup label="Pledge" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.poolPledge"
-            :state="poolPledgeState"
-            placeholder="e.g. 250000"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Cost" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.poolCost"
-            :state="poolCostState"
-            placeholder="e.g. 340"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Margin" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.poolMargin"
-            :state="poolMarginState"
-            placeholder="e.g. 0.06"
-            type="number"
-            min="0.00"
-            max="1.00"
-            step="0.001"
-          />
-          <p class="text-center">{{ (formNode.poolMargin * 100).toFixed(2) }}%</p>
-        </BFormGroup>
-      </TabContent>
-      
-      <!-- Step 4: Relays (Core/Pool only) -->
-      <TabContent 
-        v-if="formNode.type !== 'relay'" 
-        title="Relays" 
-        icon="fas fa-project-diagram"
-        :before-change="validateStep4"
-      >
-        <h4>Relay Configuration</h4>
-        
-        <div v-for="(relay, index) in formNode.relays" :key="index" class="mb-3">
-          <BCard class="bg-dark">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <h5>Relay {{ index + 1 }}</h5>
-              <BButton variant="outline-danger" size="sm" @click="formNode.relays.splice(index, 1)">✕</BButton>
+      <template #keys>
+        <div class="jm-key-cards-grid">
+          <!-- COLD Keys -->
+          <div class="jm-sub-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="jm-sub-panel-title mb-0">Pool COLD Keys</h2>
+              <BFormCheckbox v-model="formNode.generateColdKeys" switch>Generate</BFormCheckbox>
             </div>
-            <BFormGroup label="Address" label-cols-md="2">
+            <BFormGroup label="skey" class="mb-2">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateColdKeys"
+                @change="handleFileUpload($event, 'coldSKey')"
+              />
+            </BFormGroup>
+            <BFormGroup label="vkey" class="mb-2">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateColdKeys"
+                @change="handleFileUpload($event, 'coldVKey')"
+              />
+            </BFormGroup>
+            <BFormGroup label="counter">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateColdKeys"
+                @change="handleFileUpload($event, 'coldCounter')"
+              />
+            </BFormGroup>
+          </div>
+
+          <!-- VRF Keys -->
+          <div class="jm-sub-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="jm-sub-panel-title mb-0">Pool VRF Keys</h2>
+              <BFormCheckbox v-model="formNode.generateVRFKeys" switch>Generate</BFormCheckbox>
+            </div>
+            <BFormGroup label="skey" class="mb-2">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateVRFKeys"
+                @change="handleFileUpload($event, 'vrfSKey')"
+              />
+            </BFormGroup>
+            <BFormGroup label="vkey">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateVRFKeys"
+                @change="handleFileUpload($event, 'vrfVKey')"
+              />
+            </BFormGroup>
+          </div>
+
+          <!-- KES Keys -->
+          <div class="jm-sub-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="jm-sub-panel-title mb-0">Pool KES Keys</h2>
+              <BFormCheckbox v-model="formNode.generateKESKeys" switch>Generate</BFormCheckbox>
+            </div>
+            <BFormGroup label="skey" class="mb-2">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateKESKeys"
+                @change="handleFileUpload($event, 'kesSKey')"
+              />
+            </BFormGroup>
+            <BFormGroup label="vkey">
+              <input
+                type="file"
+                class="form-control"
+                :disabled="formNode.generateKESKeys"
+                @change="handleFileUpload($event, 'kesVKey')"
+              />
+            </BFormGroup>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step 3: Pool Config (Core/Pool only) -->
+      <template #config>
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Staking &amp; Fee Accounts</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Fees Account">
+              <BFormSelect
+                v-model="formNode.registrationFeesAccount"
+                :state="registrationFeesAccountState"
+                :options="feeAccountOptions"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Owner (Pledge) Account">
+              <BFormSelect
+                v-model="formNode.ownerStakingAccount"
+                :state="ownerStakingAccountState"
+                :options="stakingAccountOptions"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+
+            <BFormGroup label="Rewards Account">
+              <BFormSelect
+                v-model="formNode.rewardsStakingAccount"
+                :state="rewardsStakingAccountState"
+                :options="rewardsAccountOptions"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                </template>
+              </BFormSelect>
+            </BFormGroup>
+          </div>
+        </div>
+
+        <div class="jm-sub-panel">
+          <h2 class="jm-sub-panel-title">Pledge, Cost &amp; Margin</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Pledge">
+              <BFormInput
+                v-model="formNode.poolPledge"
+                :state="poolPledgeState"
+                placeholder="e.g. 250000"
+                class="jm-mono"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Cost">
+              <BFormInput
+                v-model="formNode.poolCost"
+                :state="poolCostState"
+                placeholder="e.g. 340"
+                class="jm-mono"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Margin">
+              <div class="d-flex align-items-center gap-3">
+                <BFormInput
+                  v-model="formNode.poolMargin"
+                  :state="poolMarginState"
+                  placeholder="e.g. 0.06"
+                  type="number"
+                  min="0.00"
+                  max="1.00"
+                  step="0.001"
+                  class="jm-mono"
+                />
+                <span class="jm-pill jm-pill-cyan jm-mono">{{ (formNode.poolMargin * 100).toFixed(2) }}%</span>
+              </div>
+            </BFormGroup>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step 4: Relays (Core/Pool only) -->
+      <template #relays>
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h2 class="jm-sub-panel-title mb-0">Relay Topology Registration</h2>
+          <BButton variant="primary" size="sm" @click="addRelay">
+            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />Add Relay
+          </BButton>
+        </div>
+
+        <div v-if="formNode.relays.length === 0" class="jm-sub-panel jm-empty-state">
+          <div class="jm-empty-icon">
+            <font-awesome-icon :icon="['fas', 'project-diagram']" aria-hidden="true" />
+          </div>
+          <p class="mb-2">No relays added yet.</p>
+          <BButton variant="outline-primary" size="sm" @click="addRelay">+ Add First Relay</BButton>
+        </div>
+
+        <div v-for="(relay, index) in formNode.relays" :key="index" class="jm-sub-panel mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="jm-pill jm-pill-indigo">Relay {{ index + 1 }}</span>
+            <BButton variant="outline-danger" size="sm" @click="formNode.relays.splice(index, 1)">
+              <font-awesome-icon :icon="['fas', 'times']" aria-hidden="true" />
+            </BButton>
+          </div>
+          <div class="jm-form-grid">
+            <BFormGroup label="Address">
               <BFormInput
                 v-model="relay.addr"
                 :state="relayAddrState(relay.addr)"
                 placeholder="e.g. 240.116.25.34, relay1.mystakepool.com"
+                class="jm-mono"
                 trim
               />
             </BFormGroup>
-            <BFormGroup label="Port" label-cols-md="2">
+            <BFormGroup label="Port">
               <BFormInput
                 v-model="relay.port"
                 type="number"
@@ -389,352 +451,363 @@
                 max="65535"
                 :state="relayPortState(relay.port)"
                 placeholder="e.g. 3001"
+                class="jm-mono"
               />
             </BFormGroup>
-          </BCard>
+          </div>
         </div>
-        
-        <BButton variant="primary" @click="addRelay">+&nbsp;Add Relay</BButton>
-      </TabContent>
-      
-      <!-- Step 5: Metadata (Core/Pool only) -->
-      <TabContent 
-        v-if="formNode.type !== 'relay'" 
-        title="Metadata" 
-        icon="fas fa-info-circle"
-        :before-change="validateStep5"
-      >
-        <h4>Metadata</h4>
-        
-        <h5>Primary (Required)</h5>
-        <BFormGroup label="Ticker" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.ticker"
-            :state="tickerState"
-            placeholder="e.g. TICKR, ABC1, etc..."
-            maxlength="5"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Name" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.name"
-            :state="metadataNameState"
-            placeholder="e.g. My Awesome Stakepool"
-            maxlength="50"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Description" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.description"
-            :state="metadataDescriptionState"
-            placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
-            maxlength="255"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Homepage" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.homepage"
-            :state="metadataHomepageState"
-            placeholder="e.g. https://flippin-stakes.com"
-            trim
-          />
-        </BFormGroup>
-        
-        <h5 class="mt-4">ITN Ticker Validation (Optional)</h5>
-        <BFormGroup label="ITN Pool prv" label-cols-md="2">
-          <input 
-            ref="itnPrivateFileInput"
-            type="file" 
-            class="form-control" 
-            @change="handleFileUpload($event, 'itnPrivateKey')" 
-          />
-          <BButton v-if="fileContents.itnPrivateKey" variant="outline-secondary" class="mt-2" @click="clearItnPrivateKey">Remove private key</BButton>
-        </BFormGroup>
-        
-        <BFormGroup label="ITN Pool pub" label-cols-md="2">
-          <input 
-            type="file" 
-            class="form-control" 
-            @change="handleFileUpload($event, 'itnPublicKey')" 
-          />
-        </BFormGroup>
-        
-        <h5 class="mt-4">Extended (Optional)</h5>
-        <BFormGroup label="Icon 64x64 URL" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.icon64"
-            :state="metadataIcon64State"
-            placeholder="e.g. https://flippin-stakes.com/icon64.png"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Logo URL" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.logo"
-            :state="metadataLogoState"
-            placeholder="e.g. https://flippin-stakes.com/logo512.png"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Location" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.location"
-            placeholder="e.g. United States, North America"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Twitter" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.twitter"
-            placeholder="e.g. IOHK_Charles"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Telegram" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.telegram"
-            placeholder="e.g. flippin_stakes_group"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Facebook" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.facebook"
-            placeholder="e.g. flippin_stakes"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="YouTube" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.youtube"
-            placeholder="e.g. flippin_stakes"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Twitch" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.twitch"
-            placeholder="e.g. flippin_stakes"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Discord" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.discord"
-            placeholder="e.g. FlippinStakes"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="GitHub" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.social.github"
-            placeholder="e.g. FlippinStakes"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="RSS" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.rss"
-            placeholder="e.g. https://flippin-stakes/feed.atom"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Company Name" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.name"
-            placeholder="e.g. Flippin Stakes, LLC."
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Company Address" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.addr"
-            placeholder="e.g. 123 Backflip Lane"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Company City" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.city"
-            placeholder="e.g. Flippin, AK"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Company Country" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.country"
-            placeholder="e.g. United States"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Company ID" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.company_id"
-            placeholder="e.g. 27-0641272"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="VAT ID" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.company.vat_id"
-            placeholder="e.g. J-30595991-8"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="About Me" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.about.me"
-            placeholder="e.g. 10-year veteran as a DevOps Engineer"
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="About Server" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.about.server"
-            placeholder="e.g. Cloud Hosted at AWS around the world."
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="About Company" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.info.about.company"
-            placeholder="e.g. Founded in 2020 for stakepool operations..."
-            trim
-          />
-        </BFormGroup>
-        
-        <BFormGroup label="Telegram Admin" label-cols-md="2">
-          <BFormInput
-            v-model="formNode.metadata.extended.telegramAdminHandle"
-            placeholder="e.g. CottonEyedJoe"
-            trim
-          />
-        </BFormGroup>
-      </TabContent>
-      
-      <!-- Step 6: Review & Confirmation (All node types) -->
-      <TabContent 
-        title="Review & Confirm" 
-        icon="fas fa-check-circle"
-      >
-        <h4>Review & Confirm</h4>
-        
-        <div class="mb-4">
-          <h5>Node Basics</h5>
-          <table class="table table-dark table-sm">
-            <tbody>
-              <tr>
-                <th style="width: 30%">Name (TICKER)</th>
-                <td>{{ formNode.name }}</td>
-              </tr>
-              <tr>
-                <th>Type</th>
-                <td><span class="text-capitalize">{{ formNode.type }}</span></td>
-              </tr>
-              <tr>
-                <th>Host</th>
-                <td>{{ selectedHost?.hostname }}</td>
-              </tr>
-              <tr v-for="file in selectedFiles" :key="file.label">
-                <th>{{ file.label }}</th>
-                <td>{{ file.name }}</td>
-              </tr>
-              <tr v-if="formNode.listen">
-                <th>Listen Address</th>
-                <td>{{ formNode.listen }}</td>
-              </tr>
-              <tr v-if="formNode.port">
-                <th>Port</th>
-                <td>{{ formNode.port }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-if="creationError" class="text-danger">{{ creationError }}</p>
-
-
-        <div v-if="formNode.type !== 'relay'" class="mb-4">
-          <h5>Pool Configuration</h5>
-          <table class="table table-dark table-sm">
-            <tbody>
-              <tr>
-                <th style="width: 30%">Pledge</th>
-                <td>{{ formNode.poolPledge }}</td>
-              </tr>
-              <tr>
-                <th>Fixed Cost</th>
-                <td>{{ formNode.poolCost }}</td>
-              </tr>
-              <tr>
-                <th>Margin</th>
-                <td>{{ (formNode.poolMargin * 100).toFixed(2) }}%</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h5>Relays</h5>
-          <table class="table table-dark table-sm" v-if="formNode.relays.length > 0">
-            <thead>
-              <tr>
-                <th>Address</th>
-                <th>Port</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(relay, idx) in formNode.relays" :key="idx">
-                <td>{{ relay.addr }}</td>
-                <td>{{ relay.port }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-else>No relays configured.</p>
-        </div>
-
-
-        <h5>SUDO Authentication</h5>
-        <p>
-          Creating a node requires <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
-          Leave empty if your host does not require a sudo password.
-        </p>
-        <BFormGroup label="SUDO Password" label-cols-md="2">
-          <BFormInput
-            type="password"
-            v-model="formNode.sudoPassword"
-            placeholder="Enter sudo password (optional)"
-          />
-        </BFormGroup>
-      </TabContent>
-      
-      <!-- Custom cancel button -->
-      <template #custom-buttons-left>
-        <BButton variant="outline-secondary" @click="handleCancel">Cancel</BButton>
       </template>
-    </FormWizard>
+
+      <!-- Step 5: Metadata (Core/Pool only) -->
+      <template #metadata>
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Primary Metadata (Required)</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Ticker">
+              <BFormInput
+                v-model="formNode.metadata.ticker"
+                :state="tickerState"
+                placeholder="e.g. TICKR, ABC1, etc..."
+                maxlength="5"
+                class="jm-mono"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Name">
+              <BFormInput
+                v-model="formNode.metadata.name"
+                :state="metadataNameState"
+                placeholder="e.g. My Awesome Stakepool"
+                maxlength="50"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Description" class="jm-grid-span-2">
+              <BFormInput
+                v-model="formNode.metadata.description"
+                :state="metadataDescriptionState"
+                placeholder="e.g. The best stakepool located in Flippin, Arkansas!"
+                maxlength="255"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Homepage" class="jm-grid-span-2">
+              <BFormInput
+                v-model="formNode.metadata.homepage"
+                :state="metadataHomepageState"
+                placeholder="e.g. https://flippin-stakes.com"
+                class="jm-mono"
+                trim
+              />
+            </BFormGroup>
+          </div>
+        </div>
+
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">ITN Ticker Validation (Optional)</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="ITN Pool prv">
+              <input
+                ref="itnPrivateFileInput"
+                type="file"
+                class="form-control"
+                @change="handleFileUpload($event, 'itnPrivateKey')"
+              />
+              <BButton
+                v-if="fileContents.itnPrivateKey"
+                variant="outline-secondary"
+                size="sm"
+                class="mt-2"
+                @click="clearItnPrivateKey"
+              >
+                Remove private key
+              </BButton>
+            </BFormGroup>
+
+            <BFormGroup label="ITN Pool pub">
+              <input
+                type="file"
+                class="form-control"
+                @change="handleFileUpload($event, 'itnPublicKey')"
+              />
+            </BFormGroup>
+          </div>
+        </div>
+
+        <div class="jm-sub-panel">
+          <h2 class="jm-sub-panel-title">Extended Metadata (Optional)</h2>
+          <div class="jm-form-grid">
+            <BFormGroup label="Icon 64x64 URL">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.icon64"
+                :state="metadataIcon64State"
+                placeholder="e.g. https://flippin-stakes.com/icon64.png"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Logo URL">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.logo"
+                :state="metadataLogoState"
+                placeholder="e.g. https://flippin-stakes.com/logo512.png"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Location">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.location"
+                placeholder="e.g. United States, North America"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="RSS">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.rss"
+                placeholder="e.g. https://flippin-stakes/feed.atom"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Twitter">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.twitter"
+                placeholder="e.g. IOHK_Charles"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Telegram">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.telegram"
+                placeholder="e.g. flippin_stakes_group"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Facebook">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.facebook"
+                placeholder="e.g. flippin_stakes"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="YouTube">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.youtube"
+                placeholder="e.g. flippin_stakes"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Twitch">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.twitch"
+                placeholder="e.g. flippin_stakes"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Discord">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.discord"
+                placeholder="e.g. FlippinStakes"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="GitHub">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.social.github"
+                placeholder="e.g. FlippinStakes"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Telegram Admin">
+              <BFormInput
+                v-model="formNode.metadata.extended.telegramAdminHandle"
+                placeholder="e.g. CottonEyedJoe"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Company Name">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.name"
+                placeholder="e.g. Flippin Stakes, LLC."
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Company Address">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.addr"
+                placeholder="e.g. 123 Backflip Lane"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Company City">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.city"
+                placeholder="e.g. Flippin, AK"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Company Country">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.country"
+                placeholder="e.g. United States"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="Company ID">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.company_id"
+                placeholder="e.g. 27-0641272"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="VAT ID">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.company.vat_id"
+                placeholder="e.g. J-30595991-8"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="About Me">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.about.me"
+                placeholder="e.g. 10-year veteran as a DevOps Engineer"
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="About Server">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.about.server"
+                placeholder="e.g. Cloud Hosted at AWS around the world."
+                trim
+              />
+            </BFormGroup>
+
+            <BFormGroup label="About Company" class="jm-grid-span-2">
+              <BFormInput
+                v-model="formNode.metadata.extended.info.about.company"
+                placeholder="e.g. Founded in 2020 for stakepool operations..."
+                trim
+              />
+            </BFormGroup>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step 6: Review & Confirm (All node types) -->
+      <template #review>
+        <div class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Node Basics Review</h2>
+          <div class="jm-table-wrapper">
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr>
+                  <th style="width: 30%">Name (TICKER)</th>
+                  <td class="jm-mono fw-semibold">{{ formNode.name }}</td>
+                </tr>
+                <tr>
+                  <th>Type</th>
+                  <td><span class="text-capitalize jm-pill jm-pill-cyan">{{ formNode.type }}</span></td>
+                </tr>
+                <tr>
+                  <th>Host</th>
+                  <td class="jm-mono">{{ selectedHost?.hostname }}</td>
+                </tr>
+                <tr v-for="file in selectedFiles" :key="file.label">
+                  <th>{{ file.label }}</th>
+                  <td class="jm-mono">{{ file.name }}</td>
+                </tr>
+                <tr v-if="formNode.listen">
+                  <th>Listen Address</th>
+                  <td class="jm-mono">{{ formNode.listen }}</td>
+                </tr>
+                <tr v-if="formNode.port">
+                  <th>Port</th>
+                  <td class="jm-mono">{{ formNode.port }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-if="creationError" class="alert alert-danger" role="alert">{{ creationError }}</div>
+
+        <div v-if="formNode.type !== 'relay'" class="jm-sub-panel mb-3">
+          <h2 class="jm-sub-panel-title">Pool Configuration &amp; Relays</h2>
+          <div class="jm-table-wrapper mb-3">
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr>
+                  <th style="width: 30%">Pledge</th>
+                  <td class="jm-mono">{{ formNode.poolPledge }}</td>
+                </tr>
+                <tr>
+                  <th>Fixed Cost</th>
+                  <td class="jm-mono">{{ formNode.poolCost }}</td>
+                </tr>
+                <tr>
+                  <th>Margin</th>
+                  <td class="jm-mono">{{ (formNode.poolMargin * 100).toFixed(2) }}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-if="formNode.relays.length > 0" class="jm-table-wrapper">
+            <table class="table table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>Relay Address</th>
+                  <th>Port</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(relay, idx) in formNode.relays" :key="idx">
+                  <td class="jm-mono">{{ relay.addr }}</td>
+                  <td class="jm-mono">{{ relay.port }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="text-secondary small mb-0">No relays configured.</p>
+        </div>
+
+        <div class="jm-sub-panel">
+          <h2 class="jm-sub-panel-title">SUDO Authentication</h2>
+          <p class="small text-secondary mb-3">
+            Creating a node requires <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
+            Leave empty if your host does not require a sudo password.
+          </p>
+          <BFormGroup label="SUDO Password" label-cols-md="3">
+            <BFormInput
+              type="password"
+              v-model="formNode.sudoPassword"
+              placeholder="Enter sudo password (optional)"
+              autocomplete="off"
+            />
+          </BFormGroup>
+        </div>
+      </template>
+    </StepWizard>
   </div>
 </template>
 
@@ -742,8 +815,6 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { find } from 'lodash-es'
-import { FormWizard, TabContent } from 'vue3-form-wizard'
-import 'vue3-form-wizard/dist/style.css'
 import {
   BButton,
   BFormGroup,
@@ -753,9 +824,9 @@ import {
   BFormRadioGroup,
   BFormRadio,
   BFormCheckbox,
-  BFormInvalidFeedback,
-  BCard
+  BFormInvalidFeedback
 } from 'bootstrap-vue-next'
+import StepWizard, { type WizardStep } from '@/components/StepWizard.vue'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
 import { isCustomTracingListen, syncTracingListenForHost } from '@/utils/tracing'
@@ -821,7 +892,6 @@ const store = useJorManagerStore()
 const { hostSelectOptions, nodes } = storeToRefs(store)
 const emitter = useEventBus()
 
-const wizard = ref<InstanceType<typeof FormWizard> | null>(null)
 const fileContents = ref<Record<string, File | null>>({})
 const itnPrivateFileInput = ref<HTMLInputElement | null>(null)
 const hasCustomizedTracingListen = ref(false)
@@ -836,7 +906,7 @@ const formNode = ref({
   spendingPassword: null as string | null,
   sudoPassword: null as string | null,
   parentId: null as number | null,
-  color: '#4A412A',
+  color: '#38bdf8',
   host: null as number | null,
   name: '',
   type: null as 'relay' | 'core' | 'pool' | null,
@@ -899,6 +969,22 @@ const formNode = ref({
   } as Metadata
 })
 
+const wizardSteps = computed<WizardStep[]>(() => {
+  const steps: WizardStep[] = [
+    { key: 'basics', title: 'Node Basics', icon: ['fas', 'dice-d20'], beforeChange: validateStep1 }
+  ]
+  if (formNode.value.type !== 'relay') {
+    steps.push(
+      { key: 'keys', title: 'Pool Keys', icon: ['fas', 'key'], beforeChange: validateStep2 },
+      { key: 'config', title: 'Pool Config', icon: ['fas', 'percent'], beforeChange: validateStep3 },
+      { key: 'relays', title: 'Relays', icon: ['fas', 'project-diagram'], beforeChange: validateStep4 },
+      { key: 'metadata', title: 'Metadata', icon: ['fas', 'info-circle'], beforeChange: validateStep5 }
+    )
+  }
+  steps.push({ key: 'review', title: 'Review & Confirm', icon: ['fas', 'check-circle'] })
+  return steps
+})
+
 const nodeColors = computed(() => nodes.value.map(n => n.color))
 const selectedHost = computed(() => store.hosts.find(host => host.id === formNode.value.host) ?? null)
 const fileRevision = ref(0)
@@ -912,7 +998,7 @@ async function buildCreateRequest(): Promise<Record<string, unknown>> {
   const request = JSON.parse(JSON.stringify(formNode.value)) as Record<string, any>
   request.spendingPassword = ''
   request.sudoPassword = ''
-  for (const field of ['coldSKey', 'coldVKey', 'coldCounter', 'vrfSKey', 'vrfVKey', 'kesSKey', 'kesVKey']) {
+  for (const field of ['coldSKey', 'vrfSKey', 'kesSKey', 'coldVKey', 'coldCounter', 'vrfVKey', 'kesVKey']) {
     if (fileContents.value[field]) request[field] = await fileContents.value[field]!.text()
   }
   if (fileContents.value.itnPrivateKey) request.metadata.extended.itn.privateKey = await fileContents.value.itnPrivateKey.text()
@@ -922,9 +1008,6 @@ async function buildCreateRequest(): Promise<Record<string, unknown>> {
 
 watch(() => formNode.value.type, type => { if (type !== 'relay') formNode.value.isDefault = false })
 
-
-
-
 watch(intentSignature, signature => {
   if (requestSignature && requestSignature !== signature) {
     requestId = generateUUID()
@@ -932,17 +1015,12 @@ watch(intentSignature, signature => {
   }
 }, { flush: 'sync' })
 
-
-
-
-// Key for FormWizard - changes when type changes to force re-render with correct tabs
-const wizardKey = computed(() => `wizard-${formNode.value.type || 'none'}`)
-
 const feeAccountOptions = computed(() => store.registrationFeesSelectOptions())
 const stakingAccountOptions = computed(() => store.stakingSelectOptions())
 const rewardsAccountOptions = computed(() => store.rewardsSelectOptions())
 const jsonFileOptions = computed(() => store.files.filter(file => /\.json$/i.test(String(file.text))))
 const genesisFileOptions = jsonFileOptions
+
 watch(() => formNode.value.genesisByron, id => {
   if (props.parentId != null) return
   const matches = matchingNetworkFiles(id, store.files)
@@ -950,6 +1028,7 @@ watch(() => formNode.value.genesisByron, id => {
     if (formNode.value[key] == null) formNode.value[key] = matches[key] ?? null
   }
 })
+
 const selectedFiles = computed(() => [
   ['Genesis Byron', formNode.value.genesisByron], ['Genesis Shelley', formNode.value.genesisShelley],
   ['Genesis Alonzo', formNode.value.genesisAlonzo], ['Genesis Conway', formNode.value.genesisConway],
@@ -1024,7 +1103,6 @@ watch(
     if (previousValue === undefined) {
       return
     }
-
     if (isCustomTracingListen(nextValue, selectedHost.value)) {
       hasCustomizedTracingListen.value = true
     }
@@ -1037,12 +1115,12 @@ function handleFileUpload(event: Event, field: string) {
   fileContents.value[field] = target.files?.[0] || null
   fileRevision.value++
 }
+
 function clearItnPrivateKey() {
   fileContents.value.itnPrivateKey = null
   if (itnPrivateFileInput.value) itnPrivateFileInput.value.value = ''
   fileRevision.value++
 }
-
 
 function relayAddrState(addr: string | null): boolean | null {
   if (!addr) return null
@@ -1059,7 +1137,6 @@ function addRelay() {
   formNode.value.relays.push({ addr: null, port: 3000 })
 }
 
-// Validation functions for beforeChange
 function validateStep1(): boolean {
   if (!hostState.value || !nameState.value || !typeState.value ||
       !processorThreadsState.value || !listenState.value || !portState.value ||
@@ -1073,7 +1150,6 @@ function validateStep1(): boolean {
 }
 
 function validateStep2(): boolean {
-  // Pool keys step - no strict validation, files are optional if generating
   return true
 }
 
@@ -1215,51 +1291,38 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-#add_node {
-  padding: 1rem;
+.jm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1.15rem;
 }
 
-/* Override vue3-form-wizard styles for dark theme */
-:deep(.wizard-header) {
-  display: none;
+.jm-grid-span-2 {
+  grid-column: 1 / -1;
 }
 
-:deep(.wizard-nav-pills) {
-  background: transparent;
+.jm-key-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
 }
 
-:deep(.wizard-icon-circle) {
-  background: #333 !important;
-  border-color: #28a745 !important;
+.jm-color-input {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
+  cursor: pointer;
 }
 
-:deep(.wizard-icon-circle .wizard-icon) {
-  color: #fff !important;
+@media (max-width: 960px) {
+  .jm-key-cards-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-:deep(.stepTitle) {
-  color: #ccc !important;
-}
-
-:deep(.wizard-tab-content) {
-  background: #333;
-  padding: 1.5rem;
-  border-radius: 0.5rem;
-  margin-top: 1rem;
-}
-
-:deep(.wizard-footer-left),
-:deep(.wizard-footer-right) {
-  margin-top: 1rem;
-}
-
-:deep(.wizard-btn) {
-  background-color: #28a745 !important;
-  border-color: #28a745 !important;
-}
-
-:deep(.wizard-btn:hover) {
-  background-color: #218838 !important;
-  border-color: #1e7e34 !important;
+@media (max-width: 720px) {
+  .jm-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -1,85 +1,188 @@
 <template>
-  <section>
-    <p v-if="node">
-      Pool {{ node.name }} (node {{ nodeId }}, host {{ node.hostId }}, pool ID {{ node.poolId || 'unavailable' }}).
-    </p>
-    <p v-else class="text-warning">The selected node is no longer available.</p>
-    <BButton variant="outline-info" :disabled="!node || !store.connected" @click="refresh">Refresh status</BButton>
-    <p v-if="!store.connected" class="text-warning mt-2">Disconnected: status cannot be refreshed.</p>
-    <p v-if="store.leiosStatusError" class="text-danger">{{ store.leiosStatusError }}</p>
+  <section class="jm-leios-panel">
+    <div class="jm-sub-panel mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <p v-if="node" class="mb-0">
+          Pool <strong class="jm-mono">{{ node.name }}</strong>
+          <span class="text-secondary small ms-2 jm-mono">(node {{ nodeId }}, host {{ node.hostId }}, pool ID {{ node.poolId || 'unavailable' }})</span>
+        </p>
+        <p v-else class="text-warning mb-0">The selected node is no longer available.</p>
+      </div>
+      <BButton variant="outline-primary" size="sm" :disabled="!node || !store.connected" @click="refresh">Refresh status</BButton>
+    </div>
+
+    <div v-if="!store.connected" class="alert alert-warning py-2 small" role="status">
+      Disconnected: status cannot be refreshed.
+    </div>
+    <div v-if="store.leiosStatusError" class="alert alert-danger py-2 small" role="alert">
+      {{ store.leiosStatusError }}
+    </div>
+
     <template v-if="status">
-      <h5 class="mt-3">Observation</h5>
-      <dl>
-        <dt>Read state</dt><dd>{{ statusHistorical ? 'historical / stale' : (status.readState?.status || 'unavailable') }}</dd>
-        <dt>As of</dt><dd>{{ status.readState?.asOf || 'not observed' }}</dd>
-        <dt>Observed point</dt><dd>{{ status.readState?.observedPoint ?? 'not observed' }}</dd>
-        <dt>Last complete point</dt><dd>{{ status.readState?.lastCompletePoint ?? 'not observed' }}</dd>
-        <dt>Reason</dt><dd>{{ status.readState?.reasonCode || 'none reported' }}</dd>
-        <dt>Affected data</dt><dd>{{ status.readState?.affectedData ?? 'not reported' }}</dd>
-      </dl>
-      <h5>Public key history</h5>
-      <p v-if="!status.keys?.length">No public keys returned.</p>
-      <div v-for="key in status.keys" :key="key.keyId ?? key.publicKeyHex" class="border rounded p-2 mb-2">
-        <dl class="mb-0">
-          <dt>Key ID</dt><dd>{{ key.keyId }}</dd>
-          <dt>Public key</dt><dd class="text-break">{{ key.publicKeyHex || 'unavailable' }}</dd>
-          <dt>Proof validated</dt><dd>{{ key.proofValidated ? 'yes' : 'not verified' }}</dd>
-          <dt>Registration{{ statusHistorical ? ' (historical, not current)' : '' }}</dt><dd>{{ key.registration ?? 'not observed' }}</dd>
-          <template v-if="key.registration">
-            <dt>Effective epoch</dt><dd>{{ key.registration.effectiveEpoch ?? 'unavailable' }}</dd>
-            <dt>Registration epoch</dt><dd>{{ key.registration.registrationEpoch ?? 'unavailable' }}</dd>
-          </template>
-          <dt>Eligibility / snapshots{{ statusHistorical ? ' (historical, not current)' : '' }}</dt><dd>{{ key.eligibility ?? 'not observed' }}</dd>
-          <dt>Installation / loaded fingerprint</dt><dd>{{ key.installation ?? 'not observed' }}</dd>
+      <div class="jm-sub-panel mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+          <h5 class="jm-sub-panel-title mb-0">Observation</h5>
+          <span class="jm-pill" :class="statusHistorical ? 'jm-pill-amber' : 'jm-pill-emerald'">
+            {{ statusHistorical ? 'historical / stale' : (status.readState?.status || 'unavailable') }}
+          </span>
+        </div>
+        <dl class="jm-dl-grid mb-0">
+          <div>
+            <dt>Read state</dt>
+            <dd class="jm-mono">{{ statusHistorical ? 'historical / stale' : (status.readState?.status || 'unavailable') }}</dd>
+          </div>
+          <div>
+            <dt>As of</dt>
+            <dd class="jm-mono">{{ status.readState?.asOf || 'not observed' }}</dd>
+          </div>
+          <div>
+            <dt>Observed point</dt>
+            <dd class="jm-mono text-break">{{ status.readState?.observedPoint ?? 'not observed' }}</dd>
+          </div>
+          <div>
+            <dt>Last complete point</dt>
+            <dd class="jm-mono text-break">{{ status.readState?.lastCompletePoint ?? 'not observed' }}</dd>
+          </div>
+          <div>
+            <dt>Reason</dt>
+            <dd class="jm-mono">{{ status.readState?.reasonCode || 'none reported' }}</dd>
+          </div>
+          <div>
+            <dt>Affected data</dt>
+            <dd class="jm-mono">{{ status.readState?.affectedData ?? 'not reported' }}</dd>
+          </div>
         </dl>
-        <BButton variant="outline-info" :disabled="key.keyId == null || !targetReady() || !!pending"
-          @click="requestKeyAction('install', key.keyId!)">Install key</BButton>
+      </div>
+
+      <div class="jm-sub-panel mb-3">
+        <h5 class="jm-sub-panel-title">Public key history</h5>
+        <p v-if="!status.keys?.length" class="text-secondary small mb-0">No public keys returned.</p>
+        <div v-for="key in status.keys" :key="key.keyId ?? key.publicKeyHex" class="jm-key-entry mb-2">
+          <dl class="jm-dl-grid mb-2">
+            <div>
+              <dt>Key ID</dt>
+              <dd class="jm-mono">{{ key.keyId }}</dd>
+            </div>
+            <div>
+              <dt>Proof validated</dt>
+              <dd>
+                <span class="jm-pill" :class="key.proofValidated ? 'jm-pill-emerald' : 'jm-pill-amber'">
+                  {{ key.proofValidated ? 'yes' : 'not verified' }}
+                </span>
+              </dd>
+            </div>
+            <div class="jm-dl-full">
+              <dt>Public key</dt>
+              <dd class="jm-mono text-break">{{ key.publicKeyHex || 'unavailable' }}</dd>
+            </div>
+            <div>
+              <dt>Registration{{ statusHistorical ? ' (historical, not current)' : '' }}</dt>
+              <dd class="jm-mono text-break">{{ key.registration ?? 'not observed' }}</dd>
+            </div>
+            <template v-if="key.registration">
+              <div>
+                <dt>Effective epoch</dt>
+                <dd class="jm-mono">{{ key.registration.effectiveEpoch ?? 'unavailable' }}</dd>
+              </div>
+              <div>
+                <dt>Registration epoch</dt>
+                <dd class="jm-mono">{{ key.registration.registrationEpoch ?? 'unavailable' }}</dd>
+              </div>
+            </template>
+            <div>
+              <dt>Eligibility / snapshots{{ statusHistorical ? ' (historical, not current)' : '' }}</dt>
+              <dd class="jm-mono text-break">{{ key.eligibility ?? 'not observed' }}</dd>
+            </div>
+            <div>
+              <dt>Installation / loaded fingerprint</dt>
+              <dd class="jm-mono text-break">{{ key.installation ?? 'not observed' }}</dd>
+            </div>
+          </dl>
+          <BButton
+            variant="outline-primary"
+            size="sm"
+            :disabled="key.keyId == null || !targetReady() || !!pending"
+            @click="requestKeyAction('install', key.keyId!)"
+          >
+            Install key
+          </BButton>
+        </div>
       </div>
     </template>
-    <h5 class="mt-3">Key preparation and import</h5>
-    <p>Current era: {{ status?.era ?? 'unavailable' }}. Network: {{ status?.target?.networkKey ?? 'unavailable' }}.</p>
-    <div class="border rounded p-3">
-      <label for="leios-signing-key">Signing key envelope for import</label>
-      <textarea id="leios-signing-key" v-model="signingKey" class="form-control mb-2" autocomplete="off" rows="3"></textarea>
-      <label for="leios-public-key">Claimed public key (optional)</label>
-      <input id="leios-public-key" v-model="publicKeyHex" class="form-control mb-2">
-      <label for="leios-proof">Claimed proof (optional)</label>
-      <input id="leios-proof" v-model="proofOfPossessionHex" class="form-control mb-2">
-      <BButton variant="outline-success" :disabled="!canAct()" @click="requestKeyAction('prepare')">Prepare key</BButton>
-      <BButton class="ms-2" variant="outline-success" :disabled="!canAct() || !signingKey" @click="requestKeyAction('import')">Import key</BButton>
-      <p v-if="actionError" class="text-danger mt-2">{{ actionError }}</p>
-      <p v-if="actionResult" class="mt-2">{{ actionResult }}</p>
+
+    <div class="jm-sub-panel mb-3">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+        <h5 class="jm-sub-panel-title mb-0">Key preparation and import</h5>
+        <span class="jm-pill jm-pill-slate jm-mono">
+          Current era: {{ status?.era ?? 'unavailable' }} • Network: {{ status?.target?.networkKey ?? 'unavailable' }}
+        </span>
+      </div>
+      <div class="mb-2">
+        <label for="leios-signing-key" class="form-label">Signing key envelope for import</label>
+        <textarea id="leios-signing-key" v-model="signingKey" class="form-control jm-mono" autocomplete="off" rows="3"></textarea>
+      </div>
+      <div class="row g-2 mb-3">
+        <div class="col-md-6">
+          <label for="leios-public-key" class="form-label">Claimed public key (optional)</label>
+          <input id="leios-public-key" v-model="publicKeyHex" class="form-control jm-mono">
+        </div>
+        <div class="col-md-6">
+          <label for="leios-proof" class="form-label">Claimed proof (optional)</label>
+          <input id="leios-proof" v-model="proofOfPossessionHex" class="form-control jm-mono">
+        </div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <BButton variant="outline-success" size="sm" :disabled="!canAct()" @click="requestKeyAction('prepare')">Prepare key</BButton>
+        <BButton variant="outline-success" size="sm" :disabled="!canAct() || !signingKey" @click="requestKeyAction('import')">Import key</BButton>
+      </div>
+      <p v-if="actionError" class="text-danger small mt-2 mb-0">{{ actionError }}</p>
+      <p v-if="actionResult" class="text-success small mt-2 mb-0">{{ actionResult }}</p>
     </div>
-    <label class="d-block mt-3">Sudo password for installation (if needed)
-      <input v-model="sudoPassword" class="form-control" type="password" autocomplete="off">
-    </label>
-    <p v-if="installResult" class="mt-2">Installation: {{ installResult.state }}; installed fingerprint: {{ installResult.installedFingerprint ?? 'unavailable' }}; loaded fingerprint: {{ installResult.loadedFingerprint ?? 'not observed' }}. {{ installResult.reason }}</p>
-    <p v-if="installError" class="text-danger">{{ installError }}</p>
-    <div class="border rounded p-3 mt-3">
-      <h5>Registration, rotation and retirement cancellation</h5>
-      <label class="d-block">Action
-        <select v-model="registrationAction" class="form-select" :disabled="!!pending || registrationBusy">
-          <option value="register">Register pool</option>
-          <option value="rotate">Rotate registered key</option>
-          <option value="cancel">Cancel scheduled retirement</option>
-        </select>
+
+    <div class="jm-sub-panel mb-3">
+      <label class="form-label d-block mb-1">
+        Sudo password for installation (if needed)
+        <input v-model="sudoPassword" class="form-control mt-1" type="password" autocomplete="off">
       </label>
-      <label v-if="registrationAction !== 'cancel' && status?.era === 'dijkstra'" class="d-block mt-2">Prepared key
-        <select v-model="registrationKeyId" class="form-select" :disabled="!!pending || registrationBusy">
-          <option :value="null">Select a key</option>
-          <option v-for="key in status?.keys?.filter(item => item.keyId != null && item.proofValidated)" :key="key.keyId!" :value="key.keyId">
-            {{ key.keyId }} — {{ key.publicKeyHex }}
-          </option>
-        </select>
-      </label>
-      <label class="d-block mt-2">Fee payer
-        <select v-model="registrationPayer" class="form-select" :disabled="!!pending || registrationBusy">
-          <option :value="null">Select an account</option>
-          <option v-for="option in store.registrationFeesSelectOptions()" :key="option.value" :value="option.value">{{ option.text }}</option>
-        </select>
-      </label>
-      <BButton class="mt-2" variant="success" :disabled="!canSubmitRegistration" @click="requestRegistration">Submit</BButton>
-      <p v-if="registrationError" class="text-danger mt-2">{{ registrationError }}</p>
+      <p v-if="installResult" class="small mt-2 mb-0 jm-mono">
+        Installation: {{ installResult.state }}; installed fingerprint: {{ installResult.installedFingerprint ?? 'unavailable' }}; loaded fingerprint: {{ installResult.loadedFingerprint ?? 'not observed' }}. {{ installResult.reason }}
+      </p>
+      <p v-if="installError" class="text-danger small mt-2 mb-0">{{ installError }}</p>
+    </div>
+
+    <div class="jm-sub-panel">
+      <h5 class="jm-sub-panel-title">Registration, rotation and retirement cancellation</h5>
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label d-block">Action
+            <select v-model="registrationAction" class="form-select mt-1" :disabled="!!pending || registrationBusy">
+              <option value="register">Register pool</option>
+              <option value="rotate">Rotate registered key</option>
+              <option value="cancel">Cancel scheduled retirement</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="registrationAction !== 'cancel' && status?.era === 'dijkstra'" class="col-md-4">
+          <label class="form-label d-block">Prepared key
+            <select v-model="registrationKeyId" class="form-select mt-1" :disabled="!!pending || registrationBusy">
+              <option :value="null">Select a key</option>
+              <option v-for="key in status?.keys?.filter(item => item.keyId != null && item.proofValidated)" :key="key.keyId!" :value="key.keyId">
+                {{ key.keyId }} — {{ key.publicKeyHex }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label d-block">Fee payer
+            <select v-model="registrationPayer" class="form-select mt-1" :disabled="!!pending || registrationBusy">
+              <option :value="null">Select an account</option>
+              <option v-for="option in store.registrationFeesSelectOptions()" :key="option.value" :value="option.value">{{ option.text }}</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <BButton class="mt-2" variant="success" size="sm" :disabled="!canSubmitRegistration" @click="requestRegistration">Submit</BButton>
+      <p v-if="registrationError" class="text-danger small mt-2 mb-0">{{ registrationError }}</p>
     </div>
   </section>
 </template>
@@ -275,12 +378,11 @@ async function submitKeyAction(request: KeyAction, password: string) {
   }
 }
 
-
-
 function refresh() {
   if (!node.value || !store.connected) return
   store.requestLeiosStatus({ nodeId: props.nodeId, hostId: node.value.hostId, poolId: node.value.poolId || undefined })
 }
+
 function onPasswordModalHidden(data: { action: string }) {
   if (data.action === 'submit-leios-key') {
     promptedAction = null
@@ -288,7 +390,6 @@ function onPasswordModalHidden(data: { action: string }) {
     sudoPassword.value = ''
   }
 }
-
 
 onMounted(() => {
   refresh()
@@ -302,3 +403,42 @@ onUnmounted(() => {
   emitter.off('confirm-spending-password-with-action', onSpendingPasswordConfirmed)
 })
 </script>
+
+<style scoped>
+.jm-dl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+}
+
+.jm-dl-full {
+  grid-column: 1 / -1;
+}
+
+.jm-dl-grid dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--jm-text-muted);
+  font-weight: 600;
+}
+
+.jm-dl-grid dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.83rem;
+  color: var(--jm-text-primary);
+}
+
+.jm-key-entry {
+  background: var(--jm-bg-surface);
+  border: 1px solid var(--jm-border-subtle);
+  border-radius: var(--jm-radius-sm);
+  padding: 0.9rem;
+}
+
+@media (max-width: 720px) {
+  .jm-dl-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
