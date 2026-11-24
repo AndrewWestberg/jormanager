@@ -28,7 +28,7 @@
     "lodash-es": "^4.17.21",
     "mitt": "^3.0.1",
     "moment-timezone": "^0.5.46",
-    "pinia": "^2.2.8",
+    "pinia": "^4.1.0",
     "sockjs-client": "^1.6.1",
     "vue": "^3.5.46",
     "vue-currency-input": "^3.1.0",
