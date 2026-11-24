@@ -51,6 +51,18 @@ jobs:
           cache-provider: enhanced
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
+      - name: Install IOG libsodium for VRF tests
+        run: |
+          cd "$(mktemp -d "$RUNNER_TEMP/libsodium.XXXXXX")"
+          git init -q
+          git fetch --depth=1 https://github.com/input-output-hk/libsodium.git dbb48cce5429cb6585c9034f002568964f1ce567
+          git checkout --detach FETCH_HEAD
+          DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
+          ./configure --prefix=/usr/local
+          make -j"$(nproc)"
+          sudo make install
+          sudo ldconfig
+
       - name: Check formatting, run tests, and build
         run: ./gradlew ktlintCheck test bootJar --build-cache --stacktrace
 

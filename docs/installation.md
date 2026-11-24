@@ -65,7 +65,7 @@ Press <enter> to keep the current choice[*], or type selection number:
 
 ### IOG libsodium
 
-In order to do things like calculate leader logs, JorManager needs the version of libsodium from IOG.
+Leader logs and the default backend tests require the IOG build of libsodium at `/usr/local/lib/libsodium.so`. The stock distribution package does not provide the Cardano VRF symbols. CI builds the same pinned revision shown below.
 
 ```
 #!bash
@@ -77,7 +77,7 @@ $ git clone https://github.com/input-output-hk/libsodium
 $ cd libsodium
 $ git checkout dbb48cce
 HEAD is now at dbb48cce
-$ ./autogen.sh
+$ DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
 ...
 ...
 
