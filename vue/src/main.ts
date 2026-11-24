@@ -3,12 +3,12 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 
-// Bootstrap and BootstrapVueNext
-import { createBootstrap } from 'bootstrap-vue-next'
+// Bootstrap 5.3 and BootstrapVueNext 1.x
+import { createBootstrap, vBTooltip, vBToggle } from 'bootstrap-vue-next'
 import 'bootstrap/dist/css/bootstrap.css'
 import 'bootstrap-vue-next/dist/bootstrap-vue-next.css'
 
-// FontAwesome
+// FontAwesome 7 SVG Icons (zero external CDN CSS)
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import {
@@ -46,17 +46,33 @@ import {
   faPlusCircle,
   faChevronDown,
   faCompressArrowsAlt,
-  faLayerGroup
+  faLayerGroup,
+  faExclamationTriangle,
+  faCheckToSlot,
+  faShieldHalved,
+  faEye,
+  faEyeSlash,
+  faSearch,
+  faPlus,
+  faCheck,
+  faArrowUpRightFromSquare,
+  faTimes,
+  faTimesCircle,
+  faRotate,
+  faBars,
+  faNetworkWired,
+  faArrowLeft,
+  faArrowRight,
+  faLock
 } from '@fortawesome/free-solid-svg-icons'
 
-// ApexCharts
+// ApexCharts 8
 import VueApexCharts from 'vue3-apexcharts'
 
-// Custom styles
-import './assets/bootstrap.css'
+// JorManager Dark Mission Control Design System
 import './App.css'
 
-// Add FontAwesome icons to library
+// Register FontAwesome icons
 library.add(
   faWallet,
   faDiceD20,
@@ -92,7 +108,24 @@ library.add(
   faPlusCircle,
   faChevronDown,
   faCompressArrowsAlt,
-  faLayerGroup
+  faLayerGroup,
+  faExclamationTriangle,
+  faCheckToSlot,
+  faShieldHalved,
+  faEye,
+  faEyeSlash,
+  faSearch,
+  faPlus,
+  faCheck,
+  faArrowUpRightFromSquare,
+  faTimes,
+  faTimesCircle,
+  faRotate,
+  faBars,
+  faNetworkWired,
+  faArrowLeft,
+  faArrowRight,
+  faLock
 )
 
 // Create app
@@ -109,7 +142,6 @@ app.component('font-awesome-icon', FontAwesomeIcon)
 app.component('apexchart', VueApexCharts)
 
 // Register global directives
-import { vBTooltip, vBToggle } from 'bootstrap-vue-next'
 app.directive('b-tooltip', vBTooltip)
 app.directive('b-toggle', vBToggle)
 

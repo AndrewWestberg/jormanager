@@ -1,85 +1,122 @@
 <template>
   <div>
-  <BModal
+    <BModal
       id="modal-edit-host"
       v-model="isVisible"
       title="Add/Edit Host"
+      size="lg"
       :no-close-on-backdrop="true"
-      ok-title="Validate &amp; Save"
+      ok-title="Validate & Save"
       @ok="handleSubmitAddHost"
     >
       <BForm ref="editHostFormRef" @submit.stop.prevent="handleValidateAndSave">
-        <!-- Form Fields -->
-        <BFormGroup label="Type" label-for="type-radio">
-          <BFormRadioGroup id="type-radio" v-model="formHost.type" required>
-            <BFormRadio value="local">Local</BFormRadio>
-            <BFormRadio value="remote">Remote</BFormRadio>
-          </BFormRadioGroup>
-        </BFormGroup>
-        <BFormGroup label="Hostname" label-for="hostname-input">
-          <BFormInput
-            id="hostname-input"
-            placeholder="e.g. 'server.mystakepool.io' or '192.168.0.77'"
-            v-model="formHost.hostname"
-            required
-          />
-        </BFormGroup>
-        <BFormGroup v-if="isFormRemote" label="SSH Port" label-for="ssh-port-input">
-          <BFormInput
-            id="ssh-port-input"
-            type="number"
-            placeholder="e.g. 22"
-            v-model="formHost.sshPort"
-            :required="isFormRemote"
-          />
-        </BFormGroup>
-        <BFormGroup :label="userFormLabel" label-for="ssh-user-input">
-          <BFormInput
-            id="ssh-user-input"
-            placeholder="e.g. ec2-user"
-            v-model="formHost.sshUser"
-            :required="isFormRemote"
-          />
-        </BFormGroup>
-        <BFormGroup v-if="isFormRemote" label="SSH Key" label-for="ssh-key-input">
-          <BFormInput
-            id="ssh-key-input"
-            placeholder="e.g. /home/<username>/.ssh/id_rsa"
-            v-model="formHost.sshPemPath"
-            :required="isFormRemote"
-          />
-        </BFormGroup>
-        <BFormGroup label="cardano-cli Path" label-for="cardano-cli-input">
-          <BFormInput
-            id="cardano-cli-input"
-            placeholder="e.g. /home/<username>/.local/bin/cardano-cli"
-            v-model="formHost.cardanoCliPath"
-            required
-          />
-        </BFormGroup>
-        <BFormGroup label="cardano-node Path" label-for="cardano-node-input">
-          <BFormInput
-            id="cardano-node-input"
-            placeholder="e.g. /home/<username>/.local/bin/cardano-node"
-            v-model="formHost.cardanoNodePath"
-            required
-          />
-        </BFormGroup>
-        <BFormGroup label="Home Folder for Nodes" label-for="node-home-path-input">
-          <BFormInput
-            id="node-home-path-input"
-            placeholder="e.g. /home/<username>/haskell"
-            v-model="formHost.nodeHomePath"
-            required
-          />
-        </BFormGroup>
-        <BFormGroup label="ITN JCLI Path (Optional)" label-for="jcli-input">
-          <BFormInput
-            id="jcli-input"
-            placeholder="e.g. /home/<username>/.cargo/bin/jcli"
-            v-model="formHost.jcliPath"
-          />
-        </BFormGroup>
+        <div class="jm-sub-panel mb-3">
+          <h6 class="jm-sub-panel-title">Connection</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <BFormGroup label="Type" label-for="type-radio">
+                <BFormRadioGroup id="type-radio" v-model="formHost.type" required class="pt-1">
+                  <BFormRadio value="local" class="me-3">Local</BFormRadio>
+                  <BFormRadio value="remote">Remote</BFormRadio>
+                </BFormRadioGroup>
+              </BFormGroup>
+            </div>
+            <div class="col-md-6">
+              <BFormGroup label="Hostname" label-for="hostname-input">
+                <BFormInput
+                  id="hostname-input"
+                  placeholder="e.g. 'server.mystakepool.io' or '192.168.0.77'"
+                  v-model="formHost.hostname"
+                  class="jm-mono"
+                  required
+                />
+              </BFormGroup>
+            </div>
+            <div class="col-md-6">
+              <BFormGroup :label="userFormLabel" label-for="ssh-user-input">
+                <BFormInput
+                  id="ssh-user-input"
+                  placeholder="e.g. ec2-user"
+                  v-model="formHost.sshUser"
+                  class="jm-mono"
+                  :required="isFormRemote"
+                />
+              </BFormGroup>
+            </div>
+            <div v-if="isFormRemote" class="col-md-6">
+              <BFormGroup label="SSH Port" label-for="ssh-port-input">
+                <BFormInput
+                  id="ssh-port-input"
+                  type="number"
+                  placeholder="e.g. 22"
+                  v-model="formHost.sshPort"
+                  class="jm-mono"
+                  :required="isFormRemote"
+                />
+              </BFormGroup>
+            </div>
+            <div v-if="isFormRemote" class="col-12">
+              <BFormGroup label="SSH Key" label-for="ssh-key-input">
+                <BFormInput
+                  id="ssh-key-input"
+                  placeholder="e.g. /home/<username>/.ssh/id_rsa"
+                  v-model="formHost.sshPemPath"
+                  class="jm-mono"
+                  :required="isFormRemote"
+                />
+              </BFormGroup>
+            </div>
+          </div>
+        </div>
+
+        <div class="jm-sub-panel">
+          <h6 class="jm-sub-panel-title">Cardano Binary &amp; Node Paths</h6>
+          <div class="row g-3">
+            <div class="col-12">
+              <BFormGroup label="cardano-cli Path" label-for="cardano-cli-input">
+                <BFormInput
+                  id="cardano-cli-input"
+                  placeholder="e.g. /home/<username>/.local/bin/cardano-cli"
+                  v-model="formHost.cardanoCliPath"
+                  class="jm-mono"
+                  required
+                />
+              </BFormGroup>
+            </div>
+            <div class="col-12">
+              <BFormGroup label="cardano-node Path" label-for="cardano-node-input">
+                <BFormInput
+                  id="cardano-node-input"
+                  placeholder="e.g. /home/<username>/.local/bin/cardano-node"
+                  v-model="formHost.cardanoNodePath"
+                  class="jm-mono"
+                  required
+                />
+              </BFormGroup>
+            </div>
+            <div class="col-12">
+              <BFormGroup label="Home Folder for Nodes" label-for="node-home-path-input">
+                <BFormInput
+                  id="node-home-path-input"
+                  placeholder="e.g. /home/<username>/haskell"
+                  v-model="formHost.nodeHomePath"
+                  class="jm-mono"
+                  required
+                />
+              </BFormGroup>
+            </div>
+            <div class="col-12">
+              <BFormGroup label="ITN JCLI Path (Optional)" label-for="jcli-input">
+                <BFormInput
+                  id="jcli-input"
+                  placeholder="e.g. /home/<username>/.cargo/bin/jcli"
+                  v-model="formHost.jcliPath"
+                  class="jm-mono"
+                />
+              </BFormGroup>
+            </div>
+          </div>
+        </div>
       </BForm>
     </BModal>
   </div>
@@ -171,8 +208,7 @@ function clickEditHost(host: Host) {
 
 function handleValidateAndSave(event?: Event) {
   if (event) event.preventDefault()
-  
-  // validation logic
+
   if (!checkFormValidity()) {
     reportFormValidity()
     return
@@ -181,12 +217,10 @@ function handleValidateAndSave(event?: Event) {
 }
 
 function handleSubmitAddHost(event: any) {
-  // Prevent modal from closing automatically
   event.preventDefault()
   handleValidateAndSave()
 }
 
-// Watch for successful save to close modal
 watch(toastSuccess, (toast) => {
   if (toast?.title === 'Host Saved') {
     isVisible.value = false

@@ -10,23 +10,40 @@
       @hidden="clearFormSendAda"
     >
       <template #footer="{ cancel }">
-        <div class="w-100 d-flex justify-content-between align-items-center">
+        <div class="w-100 d-flex justify-content-between align-items-center flex-wrap gap-2">
           <BButton variant="outline-primary" :disabled="reviewing || isDefragment" @click="addPaymentEntry">
-            +&nbsp;Add Entry
+            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />Add Entry
           </BButton>
-          <div>
-            <BButton variant="secondary" @click="cancel()" class="me-2">Cancel</BButton>
+          <div class="d-flex gap-2">
+            <BButton variant="secondary" @click="cancel()">Cancel</BButton>
             <BButton variant="primary" :disabled="reviewing || !store.connected || !sourcesReady || !feeReady" @click="reviewSend">
               {{ reviewing ? 'Submitting…' : isDefragment ? 'Defragment UTxOs' : 'Send' }}
             </BButton>
           </div>
         </div>
       </template>
+
       <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
+
+      <!-- Transaction Telemetry Summary Strip -->
+      <div class="jm-tx-strip mb-3">
+        <div class="jm-sub-panel jm-tx-stat">
+          <span class="jm-kpi-label">{{ formSendAda.isClaim ? 'Claiming Total' : 'Available Source' }}</span>
+          <span class="jm-mono fw-bold">{{ formatAda(sendingAmount) }}</span>
+        </div>
+        <div class="jm-sub-panel jm-tx-stat">
+          <span class="jm-kpi-label">Calculated Tx Fee</span>
+          <span class="jm-mono fw-bold text-warning">{{ formatAda(store.txFee) }}</span>
+        </div>
+        <div class="jm-sub-panel jm-tx-stat">
+          <span class="jm-kpi-label">Remaining Change</span>
+          <span class="jm-mono fw-bold text-success">{{ formatAda(calculateSpent(paymentEntries.length).remaining.ada || 0n) }}</span>
+        </div>
+      </div>
+
       <BForm ref="sendAdaForm" @submit.stop.prevent>
         <fieldset :disabled="reviewing">
-        <BCard v-if="!formSendAda.isClaim" no-body class="mb-3 border border-secondary bg-dark">
-          <BCardBody class="py-2 px-3">
+          <div v-if="!formSendAda.isClaim" class="jm-sub-panel mb-3">
             <BFormGroup label="Coin Selection" label-for="wallet-selection-mode" label-cols-md="3" label-align-md="right" class="mb-1">
               <BFormRadioGroup id="wallet-selection-mode" aria-label="Coin selection" v-model="formSendAda.selectionMode" class="pt-2" data-testid="selection-mode-group">
                 <BFormRadio value="STANDARD" class="me-4">
@@ -38,7 +55,7 @@
                   Defragment UTxOs (Unfrack)
                 </BFormRadio>
               </BFormRadioGroup>
-              <small class="text-muted d-block mt-1">
+              <small class="text-secondary d-block mt-1">
                 <span v-if="isDefragment">
                   Sweeps 100% of the selected inputs back to {{ fromWalletItems[0]?.name || 'this wallet' }}, consolidating dust and native tokens by policy.
                 </span>
@@ -47,220 +64,234 @@
                 </span>
               </small>
             </BFormGroup>
+
             <div
               v-if="feeReady && store.planInputCount > 0"
-              class="mt-2 pt-2 border-top border-secondary d-flex flex-wrap justify-content-between align-items-center small"
+              class="mt-3 pt-2 border-top small"
               :class="store.planSelectionMode === 'DEFRAGMENT' ? 'text-info' : 'text-light'"
               data-testid="tx-plan-summary"
               role="status"
             >
-              <span>
-                <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" />
-                <strong>Planned UTxOs:</strong> {{ store.planInputCount }} input{{ store.planInputCount === 1 ? '' : 's' }} &rarr; {{ store.planOutputCount }} output{{ store.planOutputCount === 1 ? '' : 's' }}
-              </span>
-              <span title="Compared with the default transaction size limit">
-                <strong>Estimated Tx Size:</strong> {{ store.planEstimatedTxSize.toLocaleString() }} / {{ defaultMaxTxBytes.toLocaleString() }} bytes
-                ({{ (store.planEstimatedTxSize / defaultMaxTxBytes * 100).toFixed(1) }}%)
-              </span>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span>
+                  <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+                  <strong>Planned UTxOs:</strong>
+                  <span class="jm-mono ms-1">{{ store.planInputCount }} input{{ store.planInputCount === 1 ? '' : 's' }} &rarr; {{ store.planOutputCount }} output{{ store.planOutputCount === 1 ? '' : 's' }}</span>
+                </span>
+                <span class="jm-mono" title="Compared with the default transaction size limit">
+                  <strong>Estimated Tx Size:</strong> {{ store.planEstimatedTxSize.toLocaleString() }} / {{ defaultMaxTxBytes.toLocaleString() }} bytes
+                  ({{ txSizePercent.toFixed(1) }}%)
+                </span>
+              </div>
+              <div class="jm-budget-track mt-2" aria-hidden="true">
+                <div
+                  class="jm-budget-fill"
+                  :class="txSizeBarClass"
+                  :style="{ width: `${Math.min(100, txSizePercent)}%` }"
+                />
+              </div>
             </div>
-          </BCardBody>
-        </BCard>
-        <div class="accordion" role="tablist">
-          <BCard
-            no-body
-            class="mb-3 border-0"
-            v-for="(toAccount, index) in isDefragment ? [] : formSendAda.toAccounts"
-            :key="index"
-          >
-            <BCardHeader header-tag="header" class="p-0" role="tab">
-              <BButton
-                block
-                @click="toggleAccordion(index)"
-                :variant="(headerVariant(index, toAccount) as any)"
-                class="text-start d-flex align-items-center justify-content-between w-100 p-2 text-wrap"
+          </div>
+
+          <div class="accordion" role="tablist">
+            <BCard
+              no-body
+              class="mb-3"
+              v-for="(toAccount, index) in isDefragment ? [] : formSendAda.toAccounts"
+              :key="index"
+            >
+              <BCardHeader header-tag="header" class="p-0" role="tab">
+                <BButton
+                  block
+                  @click="toggleAccordion(index)"
+                  :variant="(headerVariant(index, toAccount) as any)"
+                  class="text-start d-flex align-items-center justify-content-between w-100 p-2 px-3 text-wrap"
+                >
+                  <div class="d-flex align-items-center flex-wrap gap-2 me-3 jm-mono small">
+                    <span v-if="feePayerId === toAccount.account && toAccount.destination === 'account'" class="jm-pill jm-pill-cyan">Fee payer</span>
+                    <span>Available: {{ entryAvailableLabel(index, toAccount.currency) }} | Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}</span>
+                  </div>
+                  <div class="d-flex align-items-center">
+                    <span
+                      class="clickable me-3"
+                      v-show="index > 0"
+                      @click.stop="removePaymentEntry(index)"
+                      title="Remove Entry"
+                    >✕</span>
+                    <font-awesome-icon
+                      :icon="['fas', 'chevron-down']"
+                      class="transition-transform"
+                      :class="{ 'rotate-180': openIndex === index }"
+                    />
+                  </div>
+                </BButton>
+              </BCardHeader>
+              <BCollapse
+                :id="'accordion-' + index"
+                :model-value="openIndex === index"
+                role="tabpanel"
               >
-                <div class="d-flex align-items-center w-100 me-3">
-                  <span v-if="feePayerId === toAccount.account && toAccount.destination === 'account'" class="me-2">Fee payer</span>
-                  <span>Available: {{ entryAvailableLabel(index, toAccount.currency) }} | Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}</span>
-                </div>
-                <div class="d-flex align-items-center">
-                  <span
-                    class="clickable me-3"
-                    v-show="index > 0"
-                    @click.stop="removePaymentEntry(index)"
-                    title="Remove Entry"
-                  >✕</span>
+                <BCardBody>
+                  <BFormGroup
+                    label="Currency"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                  >
+                    <BFormSelect
+                      v-model="toAccount.currency"
+                      :state="currencyState(toAccount.currency)"
+                      :options="currencyOptions"
+                      @change="onCurrencyChange(toAccount)"
+                    />
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="Destination"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                  >
+                    <BFormRadioGroup
+                      v-model="toAccount.destination"
+                      :state="destinationState(toAccount.destination)"
+                      @change="onDestinationChange(toAccount)"
+                      class="pt-2"
+                    >
+                      <BFormRadio value="account" class="me-3">Account</BFormRadio>
+                      <BFormRadio value="address">Address</BFormRadio>
+                    </BFormRadioGroup>
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="To Account"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                    v-show="toAccount.destination === 'account'"
+                  >
+                    <BFormSelect
+                      v-model="toAccount.account"
+                      :state="accountState(toAccount)"
+                      :options="paymentOptions"
+                    >
+                      <template #first>
+                        <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                      </template>
+                    </BFormSelect>
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="To Address"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                    v-show="toAccount.destination === 'address'"
+                  >
+                    <BFormInput
+                      v-model="toAccount.address"
+                      :state="addressState(toAccount)"
+                      placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
+                      class="jm-mono"
+                      trim
+                    />
+                    <BFormInvalidFeedback>Enter a valid wallet address.</BFormInvalidFeedback>
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="Entry Type"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                  >
+                    <BFormRadioGroup
+                      v-model="toAccount.type"
+                      :state="typeState(toAccount.type)"
+                      @change="onTypeChange(toAccount)"
+                      class="pt-2"
+                    >
+                      <BFormRadio value="amount" class="me-3">
+                        <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
+                      </BFormRadio>
+                      <BFormRadio value="percent">
+                        <font-awesome-icon :icon="['fas', 'balance-scale-right']" />&nbsp;Percent
+                      </BFormRadio>
+                    </BFormRadioGroup>
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="Amount"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                    v-show="toAccount.type === 'amount'"
+                  >
+                    <BFormInput
+                      v-model="toAccount.amount"
+                      :state="amountState(index, toAccount.amount, toAccount.currency)"
+                      :placeholder="amountPlaceholder(toAccount.currency)"
+                      class="jm-mono"
+                      trim
+                    />
+                    <BFormInvalidFeedback>
+                      Enter an amount between {{ minAmountLabel(toAccount.currency) }} and {{ amountRemainingLabel(index, toAccount.currency) }}
+                    </BFormInvalidFeedback>
+                  </BFormGroup>
+
+                  <BFormGroup
+                    label="Percent"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-3"
+                    v-show="toAccount.type === 'percent'"
+                  >
+                    <BFormInput
+                      v-model="toAccount.percent"
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      :state="percentState(index, toAccount.percent, toAccount.currency)"
+                    />
+                    <p class="text-center jm-mono mt-2 mb-0">{{ percentLabel(index, toAccount.percent, toAccount.currency) }}</p>
+                  </BFormGroup>
+                </BCardBody>
+              </BCollapse>
+            </BCard>
+
+            <!-- Metadata Card -->
+            <BCard no-body class="mb-1">
+              <BCardHeader header-tag="header" class="p-1" role="tab">
+                <BButton
+                  block
+                  @click="toggleMetadata"
+                  :variant="metadataState ? 'outline-success' : 'outline-danger'"
+                  class="text-start d-flex align-items-center justify-content-between w-100 p-2 px-3"
+                >
+                  <span>Transaction Metadata (Optional JSON)</span>
                   <font-awesome-icon
                     :icon="['fas', 'chevron-down']"
                     class="transition-transform"
-                    :class="{ 'rotate-180': openIndex === index }" 
+                    :class="{ 'rotate-180': metadataOpen }"
                   />
-                </div>
-              </BButton>
-            </BCardHeader>
-            <BCollapse
-              :id="'accordion-' + index"
-              :model-value="openIndex === index"
-              role="tabpanel"
-            >
-              <BCardBody>
-                <BFormGroup
-                  label="Currency"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                >
-                  <BFormSelect
-                    v-model="toAccount.currency"
-                    :state="currencyState(toAccount.currency)"
-                    :options="currencyOptions"
-                    @change="onCurrencyChange(toAccount)"
-                  />
-                </BFormGroup>
-                
-                <BFormGroup
-                  label="Destination"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                >
-                  <BFormRadioGroup
-                    v-model="toAccount.destination"
-                    :state="destinationState(toAccount.destination)"
-                    @change="onDestinationChange(toAccount)"
-                    class="pt-2"
-                  >
-                    <BFormRadio value="account" class="me-3">Account</BFormRadio>
-                    <BFormRadio value="address">Address</BFormRadio>
-                  </BFormRadioGroup>
-                </BFormGroup>
-
-                <BFormGroup
-                  label="To Account"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                  v-show="toAccount.destination === 'account'"
-                >
-                  <BFormSelect
-                    v-model="toAccount.account"
-                    :state="accountState(toAccount)"
-                    :options="paymentOptions"
-                  >
-                    <template #first>
-                      <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
-                    </template>
-                  </BFormSelect>
-                </BFormGroup>
-
-                <BFormGroup
-                  label="To Address"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                  v-show="toAccount.destination === 'address'"
-                >
-                  <BFormInput
-                    v-model="toAccount.address"
-                    :state="addressState(toAccount)"
-                    placeholder="e.g. addr1v805z8cn8z...xrrqj4t30l"
-                    trim
-                  />
-                  <BFormInvalidFeedback>Enter a valid wallet address.</BFormInvalidFeedback>
-                </BFormGroup>
-
-                <BFormGroup
-                  label="Entry Type"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                >
-                  <BFormRadioGroup
-                    v-model="toAccount.type"
-                    :state="typeState(toAccount.type)"
-                    @change="onTypeChange(toAccount)"
-                    class="pt-2"
-                  >
-                    <BFormRadio value="amount" class="me-3">
-                      <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
-                    </BFormRadio>
-                    <BFormRadio value="percent">
-                      <font-awesome-icon :icon="['fas', 'balance-scale-right']" />&nbsp;Percent
-                    </BFormRadio>
-                  </BFormRadioGroup>
-                </BFormGroup>
-
-                <BFormGroup
-                  label="Amount"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                  v-show="toAccount.type === 'amount'"
-                >
-                  <BFormInput
-                    v-model="toAccount.amount"
-                    :state="amountState(index, toAccount.amount, toAccount.currency)"
-                    :placeholder="amountPlaceholder(toAccount.currency)"
-                    trim
-                  />
-                  <BFormInvalidFeedback>
-                    Enter an amount between {{ minAmountLabel(toAccount.currency) }} and {{ amountRemainingLabel(index, toAccount.currency) }}
-                  </BFormInvalidFeedback>
-                </BFormGroup>
-
-                <BFormGroup
-                  label="Percent"
-                  label-cols-md="3"
-                  label-align-md="right"
-                  class="mb-3"
-                  v-show="toAccount.type === 'percent'"
-                >
-                  <BFormInput
-                    v-model="toAccount.percent"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    :state="percentState(index, toAccount.percent, toAccount.currency)"
-                  />
-                  <p class="text-center mt-2">{{ percentLabel(index, toAccount.percent, toAccount.currency) }}</p>
-                </BFormGroup>
-              </BCardBody>
-            </BCollapse>
-          </BCard>
-          
-          <!-- Metadata Card -->
-          <BCard no-body class="mb-1 border-0">
-            <BCardHeader header-tag="header" class="p-1" role="tab">
-              <BButton 
-                block 
-                @click="toggleMetadata" 
-                :variant="metadataState ? 'outline-success' : 'outline-danger'"
-                class="text-start d-flex align-items-center justify-content-between w-100 p-2"
-              >
-                <span>Metadata</span>
-                <font-awesome-icon
-                  :icon="['fas', 'chevron-down']"
-                  class="transition-transform"
-                  :class="{ 'rotate-180': metadataOpen }" 
-                />
-              </BButton>
-            </BCardHeader>
-            <BCollapse id="accordion-metadata" v-model="metadataOpen" accordion="accounts-accordion" role="tabpanel">
-              <BCardBody>
-                <BFormGroup label="Metadata" label-cols-md="3" label-align-md="right" class="mb-3">
-                  <BFormTextarea
-                    v-model="formSendAda.metadata"
-                    :state="metadataState"
-                    rows="5"
-                    :placeholder="metadataPlaceholder"
-                  />
-                  <BFormInvalidFeedback>{{ formSendAda.metadataError }}</BFormInvalidFeedback>
-                </BFormGroup>
-              </BCardBody>
-            </BCollapse>
-          </BCard>
-        </div>
+                </BButton>
+              </BCardHeader>
+              <BCollapse id="accordion-metadata" v-model="metadataOpen" accordion="accounts-accordion" role="tabpanel">
+                <BCardBody>
+                  <BFormGroup label="Metadata" label-cols-md="3" label-align-md="right" class="mb-0">
+                    <BFormTextarea
+                      v-model="formSendAda.metadata"
+                      :state="metadataState"
+                      rows="5"
+                      class="jm-mono"
+                      :placeholder="metadataPlaceholder"
+                    />
+                    <BFormInvalidFeedback>{{ metadataError }}</BFormInvalidFeedback>
+                  </BFormGroup>
+                </BCardBody>
+              </BCollapse>
+            </BCard>
+          </div>
         </fieldset>
       </BForm>
     </BModal>
@@ -351,8 +382,17 @@ function onPasswordConfirmed(data: { action: string; password: string; originalD
 watch(() => store.toastSuccess, toast => {
   if (toast?.title === 'Ada Sent') isVisible.value = false
 })
+
 const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID &&
   store.planSelectionMode === formSendAda.value.selectionMode)
+
+const txSizePercent = computed(() => (store.planEstimatedTxSize / defaultMaxTxBytes) * 100)
+
+const txSizeBarClass = computed(() => {
+  if (txSizePercent.value >= 90) return 'danger'
+  if (txSizePercent.value >= 70) return 'warning'
+  return 'normal'
+})
 
 const formSendAda = ref({
   fromId: null as number | null,
@@ -361,14 +401,15 @@ const formSendAda = ref({
   isMultiClaim: false,
   selectionMode: 'STANDARD' as SelectionMode,
   toAccounts: [] as ToAccount[],
-  metadata: null as string | null,
-  metadataError: null as string | null,
+  metadata: null as string | null
 })
+
 const isDefragment = computed(() => formSendAda.value.selectionMode === 'DEFRAGMENT')
 const paymentEntries = computed<ToAccount[]>(() => isDefragment.value
   ? [{ ...createEmptyToAccount(), account: formSendAda.value.fromId, type: 'percent', percent: 100 }]
   : formSendAda.value.toAccounts)
 watch(formSignature, scheduleFeeCalculation, { flush: 'sync' })
+
 const fromWalletItems = computed(() => formSendAda.value.fromIds
   .map(id => walletItems.value.find(item => item.id === id))
   .filter((item): item is NonNullable<typeof item> => item != null))
@@ -393,7 +434,6 @@ const metadataPlaceholder = `{
   }
 }`
 
-// Computed
 const currencyOptions = computed(() => {
   const options = [{ value: 'ada', text: '₳ - Ada' }]
   if (fromWalletItem.value?.nativeAssetMap) {
@@ -442,28 +482,24 @@ const modalTitle = computed(() => {
   return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${formatAda(store.txFee)}, Remaining: ${formatAda(calculateSpent(paymentEntries.value.length).remaining.ada || 0n)}`
 })
 
-const metadataState = computed(() => {
-  if (!formSendAda.value.metadata) return true
+// Pure computed metadata validation (resolves vue/no-side-effects-in-computed-properties warnings)
+const metadataValidation = computed<{ valid: boolean; error: string | null }>(() => {
+  if (!formSendAda.value.metadata) return { valid: true, error: null }
   try {
     const parsed = JSON.parse(formSendAda.value.metadata)
     const error = validateMetadataItem(parsed)
-    if (error) {
-      formSendAda.value.metadataError = error
-      return false
-    }
-    formSendAda.value.metadataError = null
-    return true
+    return error ? { valid: false, error } : { valid: true, error: null }
   } catch {
-    formSendAda.value.metadataError = 'Invalid JSON'
-    return false
+    return { valid: false, error: 'Invalid JSON' }
   }
 })
 
-// Reactive state
+const metadataState = computed(() => metadataValidation.value.valid)
+const metadataError = computed(() => metadataValidation.value.error)
+
 const openIndex = ref<number>(0)
 const metadataOpen = ref(false)
 
-// Methods
 function clearFormSendAda() {
   reviewError.value = ''
   formSendAda.value = {
@@ -473,8 +509,7 @@ function clearFormSendAda() {
     isMultiClaim: false,
     selectionMode: 'STANDARD',
     toAccounts: [createEmptyToAccount()],
-    metadata: null,
-    metadataError: null,
+    metadata: null
   }
   openIndex.value = 0
   metadataOpen.value = false
@@ -520,32 +555,29 @@ function showMultiClaimModal(items: WalletItem[]) {
 function addPaymentEntry() {
   formSendAda.value.toAccounts.push(createEmptyToAccount())
   openIndex.value = formSendAda.value.toAccounts.length - 1
-  metadataOpen.value = false // Ensure metadata is closed when adding new payment (focus shifts)
+  metadataOpen.value = false
 }
 
 function toggleAccordion(index: number) {
   openIndex.value = openIndex.value === index ? -1 : index
   if (openIndex.value !== -1) {
-    metadataOpen.value = false // Close metadata if opening an entry
+    metadataOpen.value = false
   }
 }
 
 function toggleMetadata() {
   metadataOpen.value = !metadataOpen.value
   if (metadataOpen.value) {
-    openIndex.value = -1 // Close account entries if opening metadata
+    openIndex.value = -1
   }
 }
 
 function removePaymentEntry(index: number) {
   formSendAda.value.toAccounts.splice(index, 1)
-  // If we closed the current one or one before it, we might need to adjust openIndex
-  // But defaulting to -1 (all closed) or keeping previous is fine.
-  // Let's ensure if we remove the open one, we close.
   if (openIndex.value === index) {
-      openIndex.value = -1 // Close
+    openIndex.value = -1
   } else if (openIndex.value > index) {
-      openIndex.value-- // Shift up
+    openIndex.value--
   }
 }
 
@@ -677,7 +709,6 @@ const feePayerId = computed(() => formSendAda.value.isClaim
     .find(item => item?.hasPaymentKeys && item.paymentAddrLovelace !== null && integer(item.paymentAddrLovelace) >= 1000000n)?.id
   : fromWalletItem.value.id)
 
-
 function calculateSpent(index: number): { remaining: Record<string, bigint>, amount: Record<string, bigint> } {
   const baseAmount: Record<string, bigint> = {}
   for (const [asset, quantity] of Object.entries(fromWalletItem.value.nativeAssetMap || {})) {
@@ -711,7 +742,6 @@ function calculateSpent(index: number): { remaining: Record<string, bigint>, amo
       }
     }
     baseAmount[currency] = (baseAmount[currency] || 0n) - amount[currency]
-    // Claim fees come from the selected receiving account's payment inputs.
   }
   return { remaining: baseAmount, amount }
 }
@@ -775,8 +805,6 @@ function onShowSendAdaModal(data: { walletItem?: WalletItem; walletItems?: Walle
   }
 }
 
-
-
 onMounted(() => {
   clearFormSendAda()
   emitter.on('show-send-ada-modal', onShowSendAdaModal)
@@ -790,21 +818,47 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.transition-transform {
-  transition: transform 0.3s ease;
+.jm-tx-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
-.rotate-180 {
-  transform: rotate(180deg);
+.jm-tx-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.95rem;
 }
-</style>
 
-<style scoped>
-.collapsed .when-open,
-.not-collapsed .when-closed {
-  display: none;
+.jm-budget-track {
+  height: 7px;
+  border-radius: 99px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
 }
-.clickable:hover {
-  cursor: pointer;
+
+.jm-budget-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+
+.jm-budget-fill.normal {
+  background: linear-gradient(90deg, var(--jm-cyan), var(--jm-indigo));
+}
+
+.jm-budget-fill.warning {
+  background: var(--jm-amber);
+}
+
+.jm-budget-fill.danger {
+  background: var(--jm-rose);
+}
+
+@media (max-width: 720px) {
+  .jm-tx-strip {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
