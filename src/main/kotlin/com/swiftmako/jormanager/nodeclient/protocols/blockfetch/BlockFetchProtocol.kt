@@ -69,7 +69,7 @@ class BlockFetchProtocol(
         permits.release()
     }
 
-    private val blocks = Channel<FetchedBlock>(1, onUndeliveredElement = { release() })
+    private val blocks = Channel<FetchedBlock>(2, onUndeliveredElement = { release() })
     private val worker = scope.launch(Dispatchers.IO) {
         for (block in blocks) {
             try {
