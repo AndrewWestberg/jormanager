@@ -815,6 +815,7 @@ class TransactionPlannerService(
                         netAvailablePureAda = netAvailablePureAda,
                         nonSweepAdaRequested = nonSweepAdaRequested,
                         minPureAda = minPureAda,
+                        inputCount = candidateUtxos.size,
                         isSelfConsolidation = isSelfConsolidation,
                         isFullPercentSweep = isFullPercentSweep,
                         isPreview = isPreview,
@@ -860,6 +861,7 @@ class TransactionPlannerService(
                     netAvailablePureAda = convergedPureAda,
                     nonSweepAdaRequested = nonSweepAdaRequested,
                     minPureAda = minPureAda,
+                    inputCount = candidateUtxos.size,
                     isSelfConsolidation = isSelfConsolidation,
                     isFullPercentSweep = isFullPercentSweep,
                     isPreview = isPreview,
@@ -1727,6 +1729,7 @@ class TransactionPlannerService(
         netAvailablePureAda: BigInteger,
         nonSweepAdaRequested: BigInteger,
         minPureAda: BigInteger,
+        inputCount: Int,
         isSelfConsolidation: Boolean,
         isFullPercentSweep: Boolean,
         isPreview: Boolean,
@@ -1735,7 +1738,9 @@ class TransactionPlannerService(
             return null
         }
 
-        // Self-consolidation ("Defragment UTxOs" workflow): create 1–2 clean pure-ADA outputs + grouped token outputs
+        // Self-consolidation ("Defragment UTxOs" workflow): consolidate pure-ADA wallets into a single
+        // clean output; only split spendable pure ADA into 2 outputs alongside native token bundles
+        // when doing so still strictly reduces total UTxO count.
         if (isSelfConsolidation && (recipientItems.isEmpty() || isFullPercentSweep)) {
             if (netAvailablePureAda < BigInteger.ZERO && !isPreview) {
                 return null
@@ -1752,8 +1757,13 @@ class TransactionPlannerService(
                 }
             }
             val safePureAda = netAvailablePureAda.max(minPureAda)
+            val shouldSplitPureAda =
+                tokenOutputs.isNotEmpty() &&
+                    inputCount > tokenOutputs.size + 2 &&
+                    safePureAda >= DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE &&
+                    safePureAda >= minPureAda.multiply(BigInteger.TWO)
             val pureAdaOutputs =
-                if (safePureAda >= DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE && safePureAda >= minPureAda.multiply(BigInteger.TWO)) {
+                if (shouldSplitPureAda) {
                     val half = safePureAda.divide(BigInteger.TWO)
                     val secondHalf = safePureAda - half
                     listOf(

@@ -5,10 +5,14 @@ import com.swiftmako.jormanager.entities.File
 import com.swiftmako.jormanager.entities.Host
 import com.swiftmako.jormanager.entities.Node
 import com.swiftmako.jormanager.entities.WalletEntry
+import com.swiftmako.jormanager.model.ChainPoint
+import com.swiftmako.jormanager.model.ChainReadState
+import com.swiftmako.jormanager.model.QueryTip
 import com.swiftmako.jormanager.model.StakeAddressInfo
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.moshi.adapters.QueryUtxoJsonAdapter
 import com.swiftmako.jormanager.repositories.*
+import com.swiftmako.jormanager.services.ChainIngestionCoordinator
 import io.mockk.*
 import java.io.IOException
 import java.math.BigInteger
@@ -50,6 +54,12 @@ class WalletUtilsTest {
         val files = mockk<FileRepository>()
         val encoder = mockk<Argon2PasswordEncoder>()
         val staking = mockk<JsonAdapter<List<StakeAddressInfo>>>()
+        val tipAdapter = mockk<JsonAdapter<QueryTip>>()
+        val coordinator = mockk<ChainIngestionCoordinator> {
+            val syncing = ChainReadState("network", "syncing", null, null, null, false, "1")
+            every { status(any()) } returns syncing
+            every { walletIndexState(any()) } returns ChainIngestionCoordinator.WalletIndexState(syncing, null)
+        }
         val utils = WalletUtils(
             hostRepository = mockk { every { findById(1L) } returns Optional.of(host) },
             nodeRepository = mockk { every { findDefault() } returns node },
@@ -61,8 +71,8 @@ class WalletUtilsTest {
             queryUtxoJsonAdapter = QueryUtxoJsonAdapter(),
             regCertAdapter = mockk(),
             genesisAdapter = mockk(),
-            queryTipAdapter = mockk(),
-            chainIngestionCoordinator = mockk(),
+            queryTipAdapter = tipAdapter,
+            chainIngestionCoordinator = coordinator,
             ledgerDao = ledger,
             cardanoRepository = cardano,
         )
@@ -145,5 +155,60 @@ class WalletUtilsTest {
         assertEquals(cleartext, Utf8.decode(current.decrypt(Hex.decode(migrated.content))))
         assertEquals(cleartext, f.utils.getSKeyContent(migrated, password))
         verify(exactly = 1) { f.files.save(any()) }
+    }
+
+    @Test
+    fun `indexed UTxO fast-path skips CLI UTxO scan when index matches live node tip`() {
+        val f = Fixture()
+        val tipPoint = ChainPoint("12345", "ab".repeat(32))
+        val readyState = ChainReadState("network", "complete", null, tipPoint, tipPoint, true, "2")
+        every { f.coordinator.walletIndexState("network") } returns ChainIngestionCoordinator.WalletIndexState(readyState, 500L)
+        every { f.tipAdapter.fromJson(any<String>()) } returns QueryTip("dijkstra", block = 500L, hash = tipPoint.hash, slot = 12345L)
+        val indexedUtxo = Utxo("11".repeat(32), 0, BigInteger.valueOf(5_000_000L), emptyList())
+        val connection = mockk<HostConnection> {
+            every { commandArgs(match { "tip" in it }) } returns """{"era":"Dijkstra","block":500,"hash":"${tipPoint.hash}","slot":12345}"""
+        }
+        mockkObject(LedgerRepository)
+        try {
+            every { LedgerRepository.queryUtxos("network", setOf("payment-address")) } returns mapOf("payment-address" to listOf(indexedUtxo))
+            val result = f.utils.getUtxos(f.host, connection, "--mainnet", "--socket-path /node/default/db/socket", "dijkstra", "payment-address")
+            assertEquals(listOf(indexedUtxo), result)
+            verify(exactly = 0) { connection.commandArgs(match { "utxo" in it }) }
+        } finally {
+            unmockkObject(LedgerRepository)
+        }
+    }
+
+    @Test
+    fun `indexed UTxO fast-path tolerates being 1 block behind tip and falls back at 2 blocks behind`() {
+        val f = Fixture()
+        val completePoint = ChainPoint("12345", "ab".repeat(32))
+        val observedPoint = ChainPoint("12365", "cd".repeat(32))
+        val followingState = ChainReadState("network", "syncing", "Following adopted chain", observedPoint, completePoint, true, "2")
+        every { f.coordinator.walletIndexState("network") } returns ChainIngestionCoordinator.WalletIndexState(followingState, 500L)
+        val indexedUtxo = Utxo("11".repeat(32), 0, BigInteger.valueOf(5_000_000L), emptyList())
+        val cliUtxoHash = "22".repeat(32)
+        val connection = mockk<HostConnection> {
+            every { commandArgs(match { "tip" in it }) } returns """{"era":"Dijkstra"}"""
+            every { commandArgs(match { "utxo" in it }) } returns """{"$cliUtxoHash#0":{"value":{"lovelace":9000000}}}"""
+        }
+        mockkObject(LedgerRepository)
+        try {
+            every { LedgerRepository.queryUtxos("network", setOf("payment-address")) } returns mapOf("payment-address" to listOf(indexedUtxo))
+
+            // 1 block behind tip -> uses indexed PostgreSQL UTxOs without calling CLI query utxo
+            every { f.tipAdapter.fromJson(any<String>()) } returns QueryTip("dijkstra", block = 501L, hash = observedPoint.hash, slot = 12365L)
+            val oneBehind = f.utils.getUtxos(f.host, connection, "--mainnet", "--socket-path /node/default/db/socket", "dijkstra", "payment-address")
+            assertEquals(listOf(indexedUtxo), oneBehind)
+            verify(exactly = 0) { connection.commandArgs(match { "utxo" in it }) }
+
+            // 2 blocks behind tip -> falls back to CLI query utxo
+            every { f.tipAdapter.fromJson(any<String>()) } returns QueryTip("dijkstra", block = 502L, hash = "ef".repeat(32), slot = 12385L)
+            val twoBehind = f.utils.getUtxos(f.host, connection, "--mainnet", "--socket-path /node/default/db/socket", "dijkstra", "payment-address")
+            assertEquals(listOf(Utxo(cliUtxoHash, 0, BigInteger.valueOf(9_000_000L), emptyList())), twoBehind)
+            verify(exactly = 1) { connection.commandArgs(match { "utxo" in it }) }
+        } finally {
+            unmockkObject(LedgerRepository)
+        }
     }
 }

@@ -418,6 +418,24 @@ class ChainIngestionCoordinator(
                 .map { point(it) }
         }
 
+    data class WalletIndexState(
+        val readState: ChainReadState,
+        val lastCompleteHeight: Long?,
+    )
+
+    fun walletIndexState(networkKey: String): WalletIndexState =
+        transaction {
+            val state = SyncStatesTable
+                .selectAll()
+                .where { SyncStatesTable.network eq networkKey }
+                .singleOrNull()
+            val complete = state?.get(SyncStatesTable.completeInclusion)?.let(::inclusion)
+            WalletIndexState(
+                readState = readState(networkKey, state),
+                lastCompleteHeight = complete?.get(ChainInclusionsTable.height)?.longValueExact(),
+            )
+        }
+
     fun status(networkKey: String): ChainReadState =
         transaction {
             val state = SyncStatesTable

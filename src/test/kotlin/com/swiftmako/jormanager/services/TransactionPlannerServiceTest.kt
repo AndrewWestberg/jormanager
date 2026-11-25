@@ -343,6 +343,32 @@ class TransactionPlannerServiceTest {
     }
 
     @Test
+    fun `defragment mode consolidates ada-only UTxOs into a single output without splitting`() {
+        val twoPureAdaUtxos =
+            listOf(
+                Utxo(hash = txHash(7_001), ix = 0, lovelace = BigInteger.valueOf(4_998_662_750L), nativeAssets = emptyList()),
+                Utxo(hash = txHash(7_002), ix = 1, lovelace = BigInteger.valueOf(4_998_662_750L), nativeAssets = emptyList()),
+            )
+
+        val plan =
+            planner.planWalletTransaction(
+                utxos = twoPureAdaUtxos,
+                changeAddress = senderAddress,
+                toAccountItems = emptyList(),
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.DEFRAGMENT,
+            )
+
+        assertThat(plan.selectionMode).isEqualTo(SelectionMode.DEFRAGMENT)
+        assertThat(plan.selectedUtxos).hasSize(2)
+        assertThat(plan.outputs).hasSize(1)
+        assertThat(plan.outputs.single().address).isEqualTo(senderAddress)
+        assertThat(plan.outputs.single().nativeAssets).isEmpty()
+        assertThat(plan.outputs.single().lovelace + plan.fee)
+            .isEqualTo(twoPureAdaUtxos.sumByBigInteger { it.lovelace })
+    }
+
+    @Test
     fun `defragment mode binary-searches maximum safe UTxO prefix within 16KB on 1,000-UTxO wallet`() {
         val massiveUtxos =
             (1..1_000).map { idx ->

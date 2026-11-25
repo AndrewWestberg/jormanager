@@ -33,12 +33,29 @@
         </div>
         <div class="jm-sub-panel jm-tx-stat">
           <span class="jm-kpi-label">Calculated Tx Fee</span>
-          <span class="jm-mono fw-bold text-warning">{{ formatAda(store.txFee) }}</span>
+          <span v-if="calculatingFee" class="jm-mono fw-bold text-info" data-testid="fee-calculating-label">Calculating…</span>
+          <span v-else class="jm-mono fw-bold text-warning">{{ formatAda(store.txFee) }}</span>
         </div>
         <div class="jm-sub-panel jm-tx-stat">
           <span class="jm-kpi-label">Remaining Change</span>
           <span class="jm-mono fw-bold text-success">{{ formatAda(calculateSpent(paymentEntries.length).remaining.ada || 0n) }}</span>
         </div>
+      </div>
+
+      <div
+        v-if="formSendAda.isClaim && calculatingFee"
+        class="jm-sub-panel mb-3 small text-info"
+        data-testid="tx-plan-loading"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <span>
+            <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+            <strong>Calculating claim fee…</strong>
+          </span>
+        </div>
+        <progress class="jm-budget-progress mt-2" aria-label="Calculating claim fee" />
       </div>
 
       <BForm ref="sendAdaForm" @submit.stop.prevent>
@@ -50,14 +67,17 @@
                   <font-awesome-icon :icon="['fas', 'dice-d20']" class="me-1 text-primary" />
                   Standard (Random-Improve)
                 </BFormRadio>
-                <BFormRadio value="DEFRAGMENT">
+                <BFormRadio value="DEFRAGMENT" :disabled="!canDefragmentSource">
                   <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" class="me-1 text-info" />
                   Defragment UTxOs (Unfrack)
                 </BFormRadio>
               </BFormRadioGroup>
               <small class="text-secondary d-block mt-1">
                 <span v-if="isDefragment">
-                  Sweeps 100% of the selected inputs back to {{ fromWalletItems[0]?.name || 'this wallet' }}, consolidating dust and native tokens by policy.
+                  Sweeps 100% of the selected inputs back to {{ fromWalletItems[0]?.name || 'this wallet' }}, consolidating pure ADA into a single UTxO and grouping native tokens by policy.
+                </span>
+                <span v-else-if="!canDefragmentSource">
+                  Uses Cardano SDK Random-Improve with Largest-First fallback. This wallet already holds a single pure-ADA UTxO.
                 </span>
                 <span v-else>
                   Uses Cardano SDK Random-Improve with Largest-First fallback to preserve wallet concurrency.
@@ -66,11 +86,31 @@
             </BFormGroup>
 
             <div
-              v-if="feeReady && store.planInputCount > 0"
+              v-if="calculatingFee"
+              class="mt-3 pt-2 border-top small text-info"
+              data-testid="tx-plan-loading"
+              role="status"
+              aria-live="polite"
+            >
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span>
+                  <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+                  <strong>{{ isDefragment ? 'Planning UTxO defragmentation & fee…' : 'Calculating transaction plan & fee…' }}</strong>
+                </span>
+              </div>
+              <progress
+                class="jm-budget-progress mt-2"
+                :aria-label="isDefragment ? 'Planning UTxO defragmentation and fee' : 'Calculating transaction plan and fee'"
+              />
+            </div>
+
+            <div
+              v-else-if="feeReady && store.planInputCount > 0"
               class="mt-3 pt-2 border-top small"
               :class="store.planSelectionMode === 'DEFRAGMENT' ? 'text-info' : 'text-light'"
               data-testid="tx-plan-summary"
               role="status"
+              aria-live="polite"
             >
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <span>
@@ -83,13 +123,13 @@
                   ({{ txSizePercent.toFixed(1) }}%)
                 </span>
               </div>
-              <div class="jm-budget-track mt-2" aria-hidden="true">
-                <div
-                  class="jm-budget-fill"
-                  :class="txSizeBarClass"
-                  :style="{ width: `${Math.min(100, txSizePercent)}%` }"
-                />
-              </div>
+              <progress
+                class="jm-budget-progress mt-2"
+                :class="txSizeBarClass"
+                :value="Math.min(defaultMaxTxBytes, store.planEstimatedTxSize)"
+                :max="defaultMaxTxBytes"
+                :aria-label="`Estimated transaction size: ${store.planEstimatedTxSize.toLocaleString()} of ${defaultMaxTxBytes.toLocaleString()} bytes`"
+              />
             </div>
           </div>
 
@@ -386,6 +426,9 @@ watch(() => store.toastSuccess, toast => {
 const feeReady = computed(() => !!store.requestFeesUUID && store.requestFeesUUID === store.responseFeesUUID &&
   store.planSelectionMode === formSendAda.value.selectionMode)
 
+const calculatingFee = computed(() => isVisible.value && store.connected && !!store.requestFeesUUID &&
+  store.requestFeesUUID !== store.responseFeesUUID)
+
 const txSizePercent = computed(() => (store.planEstimatedTxSize / defaultMaxTxBytes) * 100)
 
 const txSizeBarClass = computed(() => {
@@ -414,7 +457,12 @@ const fromWalletItems = computed(() => formSendAda.value.fromIds
   .map(id => walletItems.value.find(item => item.id === id))
   .filter((item): item is NonNullable<typeof item> => item != null))
 const fromWalletItem = computed(() => fromWalletItems.value[0] ?? {
-  id: 0, paymentAddrLovelace: null, stakingAddrLovelace: null, nativeAssetMap: null
+  id: 0, paymentAddrLovelace: null, paymentAddrUtxoCount: null, stakingAddrLovelace: null, nativeAssetMap: null
+})
+const canDefragmentSource = computed(() => {
+  const item = fromWalletItem.value
+  const hasNativeAssets = Object.keys(item.nativeAssetMap || {}).length > 0
+  return hasNativeAssets || item.paymentAddrUtxoCount == null || item.paymentAddrUtxoCount > 1
 })
 const sourcesReady = computed(() => formSendAda.value.fromIds.length > 0 &&
   fromWalletItems.value.length === formSendAda.value.fromIds.length &&
@@ -479,7 +527,8 @@ const modalTitle = computed(() => {
   const prefix = formSendAda.value.isMultiClaim
     ? `Claiming from ${fromWalletItems.value.length} addresses`
     : formSendAda.value.isClaim ? 'Claiming' : isDefragment.value ? 'Defragmenting' : 'Sending'
-  return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${formatAda(store.txFee)}, Remaining: ${formatAda(calculateSpent(paymentEntries.value.length).remaining.ada || 0n)}`
+  const feeLabel = calculatingFee.value ? 'Calculating…' : formatAda(store.txFee)
+  return `${prefix}: ${formatAda(sendingAmount.value)}, TxFee: ${feeLabel}, Remaining: ${formatAda(calculateSpent(paymentEntries.value.length).remaining.ada || 0n)}`
 })
 
 // Pure computed metadata validation (resolves vue/no-side-effects-in-computed-properties warnings)
@@ -795,7 +844,25 @@ function prepareCalculateSendAdaFees() {
   })
 }
 
-watch(() => JSON.stringify([walletItems.value, store.connected]), scheduleFeeCalculation, { flush: 'sync' })
+watch(
+  () => {
+    if (!isVisible.value) return null
+    return JSON.stringify([
+      store.connected,
+      fromWalletItems.value.map(item => ({
+        id: item.id,
+        paymentAddrLovelace: item.paymentAddrLovelace,
+        paymentAddrUtxoCount: item.paymentAddrUtxoCount,
+        stakingAddrLovelace: item.stakingAddrLovelace,
+        nativeAssetMap: item.nativeAssetMap
+      }))
+    ])
+  },
+  (next, prev) => {
+    if (next !== null && next !== prev) scheduleFeeCalculation()
+  },
+  { flush: 'sync' }
+)
 
 function onShowSendAdaModal(data: { walletItem?: WalletItem; walletItems?: WalletItem[]; isClaim: boolean; isMultiClaim?: boolean; isDefragment?: boolean }) {
   if (data.isMultiClaim && data.walletItems && data.walletItems.length > 0) {
@@ -831,34 +898,86 @@ onUnmounted(() => {
   padding: 0.75rem 0.95rem;
 }
 
-.jm-budget-track {
+.jm-budget-progress {
+  display: block;
+  width: 100%;
   height: 7px;
+  appearance: none;
+  border: 0 solid;
   border-radius: 99px;
+  overflow: clip;
+  container-type: inline-size;
   background: rgba(148, 163, 184, 0.18);
-  overflow: hidden;
+  --progress-bar-radius: 99px;
+  --progress-bar-fill: linear-gradient(90deg, var(--jm-cyan), var(--jm-indigo));
+  --progress-bar-indeterminate-size: 32%;
+  --progress-bar-indeterminate-animation-duration: 1.4s;
 }
 
-.jm-budget-fill {
-  height: 100%;
-  border-radius: 99px;
-  transition: width 0.25s ease;
+.jm-budget-progress.warning {
+  --progress-bar-fill: var(--jm-amber);
 }
 
-.jm-budget-fill.normal {
-  background: linear-gradient(90deg, var(--jm-cyan), var(--jm-indigo));
+.jm-budget-progress.danger {
+  --progress-bar-fill: var(--jm-rose);
 }
 
-.jm-budget-fill.warning {
-  background: var(--jm-amber);
+.jm-budget-progress:indeterminate {
+  --progress-bar-animation: var(
+    --progress-bar-indeterminate-animation,
+    jm-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear
+  );
 }
 
-.jm-budget-fill.danger {
-  background: var(--jm-rose);
+.jm-budget-progress:dir(rtl) {
+  --progress-bar-indeterminate-animation: jm-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear reverse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jm-budget-progress {
+    --progress-bar-indeterminate-animation-duration: 10s;
+  }
+}
+
+.jm-budget-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.jm-budget-progress::-webkit-progress-value {
+  background: var(--progress-bar-fill);
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.25s ease;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+.jm-budget-progress::-moz-progress-bar {
+  background: var(--progress-bar-fill);
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.25s ease;
+  animation: var(--progress-bar-animation, revert-rule);
 }
 
 @media (max-width: 720px) {
   .jm-tx-strip {
     grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<style>
+@keyframes jm-progress-indeterminate {
+  from,
+  to {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+  }
+
+  from {
+    translate: -100%;
+  }
+
+  to {
+    translate: 100cqi;
   }
 }
 </style>

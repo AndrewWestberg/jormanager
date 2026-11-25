@@ -396,7 +396,16 @@ class WalletController
                 log.error(e) { error }
                 webSocketTemplate.convertAndSend(
                     "/topic/messages",
-                    SocketResponse.Error(type = "calculatefee", exception = e)
+                    SocketResponse.Error(
+                        type = "calculatefee",
+                        exception = SocketResponse.PublicFailure(
+                            code = e.javaClass.simpleName,
+                            message = "Operation failed; inspect the protected server diagnostics.",
+                            operation = "calculatefee",
+                            retryDisposition = "retry",
+                            requestId = request.uuid,
+                        )
+                    )
                 )
             }
         }
