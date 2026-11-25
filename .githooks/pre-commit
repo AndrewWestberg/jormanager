@@ -48,16 +48,16 @@ if [ "${#VUE_LINT_FILES[@]}" -gt 0 ]; then
     NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)
   fi
 
-  if [ "$NODE_MAJOR" -lt 24 ]; then
+  if [ "$NODE_MAJOR" -lt 26 ]; then
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     if [ -s "$NVM_DIR/nvm.sh" ]; then
       set +u
       # shellcheck disable=SC1091
       source "$NVM_DIR/nvm.sh"
-      nvm use 24 >/dev/null
+      nvm use 26 >/dev/null
       set -u
     else
-      echo "Commit blocked: Node.js >= 24 is required for frontend linting (found v${NODE_MAJOR})." >&2
+      echo "Commit blocked: Node.js >= 26 is required for frontend linting (found v${NODE_MAJOR})." >&2
       exit 1
     fi
   fi
