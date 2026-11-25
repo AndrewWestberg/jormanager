@@ -227,7 +227,7 @@ class WalletSubmissionTest {
             assertTrue(f.controller.submitTransaction(request) is SocketResponse.Success)
             val body = f.commands.last { "build-raw" in it }
             assertEquals(3, body.count { it == "--tx-in" })
-            assertEquals(2, body.count { it == "--tx-out" })
+            assertEquals(1, body.count { it == "--tx-out" })
             assertEquals(n(11_800_000), f.balance(f.fundsAddress))
         }
     }

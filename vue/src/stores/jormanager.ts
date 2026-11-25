@@ -478,6 +478,9 @@ export const useJorManagerStore = defineStore('jormanager', {
             this.planEstimatedTxSize = data.estimatedTxSize ?? 0
             this.responseFeesUUID = data.uuid
           } else if (!data) {
+            if (!message.exception?.requestId || message.exception.requestId === this.requestFeesUUID) {
+              this.requestFeesUUID = ''
+            }
             this.toastError = { title: 'CalculateFee Error', message: message.exception?.message || 'Could not calculate fee' }
           }
           break

@@ -24,6 +24,7 @@ import com.swiftmako.jormanager.repositories.CardanoRepository
 import com.swiftmako.jormanager.repositories.FileRepository
 import com.swiftmako.jormanager.repositories.HostRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
+import com.swiftmako.jormanager.repositories.LedgerRepository
 import com.swiftmako.jormanager.repositories.NodeRepository
 import com.swiftmako.jormanager.repositories.WalletRepository
 import com.swiftmako.jormanager.services.ChainIngestionCoordinator
@@ -75,8 +76,22 @@ class WalletUtils
             val host = hostRepository.findByIdOrNull(node.hostId) ?: throw IOException("Host for default node not found")
             val connection = HostConnection(host, node)
             val socket = "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
-            return walletRepository.findAllNotDeleted().map { entry ->
-                getWalletItem(host, connection, magicString, socket, era, entry).also { delay(1L) }
+            val entries = walletRepository.findAllNotDeleted()
+            if (entries.isEmpty()) return emptyList()
+            val network = cardanoRepository.networkKey(node)
+            val indexedByAddress =
+                indexedUtxosIfCurrent(
+                    network = network,
+                    host = host,
+                    hostConnection = connection,
+                    magicString = magicString,
+                    socketPath = socket,
+                    era = era,
+                    addresses = entries.mapTo(LinkedHashSet()) { it.paymentAddr }
+                )
+            return entries.map { entry ->
+                val confirmedUtxos = indexedByAddress?.let { it[entry.paymentAddr].orEmpty() }
+                getWalletItem(host, connection, magicString, socket, era, entry, confirmedUtxos, network).also { delay(1L) }
             }
         }
 
@@ -87,8 +102,15 @@ class WalletUtils
             socketPath: String,
             era: String,
             walletEntry: WalletEntry,
+            preloadedConfirmedUtxos: List<Utxo>? = null,
+            preloadedNetwork: String? = null,
         ): WalletItem {
-            val utxos = getUtxos(host, hostConnection, magicString, socketPath, era, walletEntry.paymentAddr)
+            val utxos =
+                if (preloadedConfirmedUtxos != null && preloadedNetwork != null) {
+                    ledgerDao.liveUtxos(preloadedNetwork, walletEntry.paymentAddr, preloadedConfirmedUtxos)
+                } else {
+                    getUtxos(host, hostConnection, magicString, socketPath, era, walletEntry.paymentAddr)
+                }
 
             val start = System.currentTimeMillis()
             val stakingInfo =
@@ -205,11 +227,78 @@ class WalletUtils
                 node.hostId == host.id &&
                     socketPath == "--socket-path ${host.nodeHomePath}/${node.name}/db/socket"
             ) { "Wallet target node changed" }
+            val network = cardanoRepository.networkKey(node)
+            val indexed =
+                indexedUtxosIfCurrent(
+                    network = network,
+                    host = host,
+                    hostConnection = hostConnection,
+                    magicString = magicString,
+                    socketPath = socketPath,
+                    era = era,
+                    addresses = setOf(paymentAddr)
+                )
+            if (indexed != null) {
+                return ledgerDao.liveUtxos(network, paymentAddr, indexed[paymentAddr].orEmpty())
+            }
             val args = listOf(host.cardanoCliPath, era, "query", "utxo", "--address", paymentAddr) +
                 magicString.split(" ") + socketPath.split(" ") + "--output-json"
             val confirmed = queryUtxoJsonAdapter.fromJson(hostConnection.commandArgs(args))
                 ?: throw IOException("Invalid UTxO response")
-            return ledgerDao.liveUtxos(cardanoRepository.networkKey(node), paymentAddr, confirmed)
+            return ledgerDao.liveUtxos(network, paymentAddr, confirmed)
+        }
+
+        /**
+         * Reads confirmed UTxOs from the local PostgreSQL projection when the chain index is wallet-ready
+         * and within [MAX_INDEX_LAG_BLOCKS] block(s) of the live node tip, avoiding slow per-address CLI
+         * scans while falling back to `cardano-cli query utxo` whenever the index is further behind or unavailable.
+         */
+        private fun indexedUtxosIfCurrent(
+            network: String,
+            host: Host,
+            hostConnection: HostConnection,
+            magicString: String,
+            socketPath: String,
+            era: String,
+            addresses: Set<String>,
+        ): Map<String, List<Utxo>>? {
+            if (addresses.isEmpty()) return emptyMap()
+            return try {
+                val before = chainIngestionCoordinator.walletIndexState(network)
+                val beforeState = before.readState
+                val completePoint = beforeState.lastCompletePoint
+                if (!beforeState.walletReady || completePoint == null) {
+                    return null
+                }
+                val tipArgs = listOf(host.cardanoCliPath, era, "query", "tip") +
+                    magicString.split(" ") + socketPath.split(" ") + "--output-json"
+                val tipJson = queryTipAdapter.fromJson(hostConnection.commandArgs(tipArgs)) ?: return null
+                if (tipJson.hash.isBlank()) return null
+                val tipPoint = ChainPoint(tipJson.slot.toString(), tipJson.hash.lowercase())
+                val completeSlot = completePoint.slot.toLongOrNull()
+                val withinTolerance =
+                    tipPoint == completePoint ||
+                        (
+                            tipJson.block > 0L &&
+                                before.lastCompleteHeight != null &&
+                                completeSlot != null &&
+                                tipJson.block >= before.lastCompleteHeight &&
+                                tipJson.block - before.lastCompleteHeight <= MAX_INDEX_LAG_BLOCKS &&
+                                tipJson.slot >= completeSlot
+                        )
+                if (!withinTolerance) {
+                    return null
+                }
+                val indexed = LedgerRepository.queryUtxos(network, addresses)
+                val after = chainIngestionCoordinator.walletIndexState(network).readState
+                if (!after.walletReady || after.generation != beforeState.generation) {
+                    return null
+                }
+                indexed
+            } catch (e: Exception) {
+                log.debug("Falling back to CLI UTxO query because local index lookup was unavailable", e)
+                null
+            }
         }
 
         fun queryReferenceScriptSize(
@@ -369,6 +458,7 @@ class WalletUtils
 
         companion object {
             const val S = "4b38652a506b513742655764375270794e3273473961596266670a"
+            private const val MAX_INDEX_LAG_BLOCKS = 1L
             private val HEX_REGEX = Regex("^[0-9a-fA-F]+$")
             private val REFERENCE_SCRIPT_SIZE_REGEX = Regex("Reference inputs scripts size is ([0-9]+) bytes\\.")
             val String.isHex: Boolean
