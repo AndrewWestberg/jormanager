@@ -230,22 +230,24 @@ spring.datasource.password=myPa$$w0rD
 ```
 
 
-Next, download the latest JorManager jar file from bitbucket and put it into a location you control. I put everything in ~/haskell/jormanager or ~/haskell/jormanager_test if I'm configuring a testnet setup.
+Next, download the desired JorManager release JAR and `.sha256` checksum file from [GitHub Releases](https://github.com/AndrewWestberg/jormanager/releases) into a directory you control (for example, `~/haskell/jormanager` or `~/haskell/jormanager_test` for a testnet setup), then verify both the SHA-256 checksum and GitHub OIDC build provenance before running the installer.
 
-[JorManager Downloads](https://bitbucket.org/muamw10/jormanager/downloads/)
+[JorManager GitHub Releases](https://github.com/AndrewWestberg/jormanager/releases)
 
+```bash
+cd ~/haskell/jormanager
+VERSION="11.4.0" # Replace with the release version you are installing
+wget "https://github.com/AndrewWestberg/jormanager/releases/download/v${VERSION}/jormanager-${VERSION}.jar"
+wget "https://github.com/AndrewWestberg/jormanager/releases/download/v${VERSION}/jormanager-${VERSION}.jar.sha256"
+sha256sum -c "jormanager-${VERSION}.jar.sha256"
+# Expected: jormanager-11.4.0.jar: OK
+gh attestation verify "jormanager-${VERSION}.jar" --repo AndrewWestberg/jormanager
+rm "jormanager-${VERSION}.jar.sha256"
+mv "jormanager-${VERSION}.jar" jormanager.jar
+java -jar jormanager.jar install
 ```
-#!bash
 
-$ cd ~/haskell/jormanager
-$ wget https://bitbucket.org/muamw10/jormanager/downloads/jormanager-8.0.0-SNAPSHOT.jar.sha256
-$ wget https://bitbucket.org/muamw10/jormanager/downloads/jormanager-8.0.0-SNAPSHOT.jar
-$ sha256sum -c jormanager-8.0.0-SNAPSHOT.jar.sha256
-jormanager-8.0.0-SNAPSHOT.jar: OK
-$ rm jormanager-8.0.0-SNAPSHOT.jar.sha256
-$ mv jormanager-*.jar jormanager.jar
-$ java -jar jormanager.jar install
-```
+> **Note**: `gh attestation verify` requires the [GitHub CLI](https://cli.github.com/) (`gh auth login`) and verifies OIDC build provenance recorded by `.github/workflows/release.yml` for tags published after automated OIDC release publishing was enabled. Earlier historical tags do not carry OIDC provenance attestations.
 ![JorManager Installer](images/install.png)
 
 **SAVE YOUR SPENDING PASSWORD** in a secure location!!! If you lose this password, you lose any secret keys stored in JorManager. You're done, kaput, mount your picture on the stakepool operator wall of shame.
