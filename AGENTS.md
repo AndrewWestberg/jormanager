@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This guide documents local setup, build, lint, type-check, test, security scanning, packaging, and Gradle cache verification commands that mirror `.github/workflows/build.yml`.
+This guide documents local setup, build, lint, type-check, test, security scanning, packaging, release verification, and Gradle cache verification commands that mirror `.github/workflows/build.yml` and `.github/workflows/release.yml`.
 
 ## Prerequisites
 
@@ -93,6 +93,13 @@ Optional Gradle wrappers `./gradlew testVue` and `./gradlew buildVue` remain ava
   ```bash
   ./gradlew bootJar -PprebuiltFrontend=true --build-cache --stacktrace
   ```
+- **Generate and verify local release JAR checksum**:
+  ```bash
+  ./sha256sum.sh
+  # or pass an explicit version matching build.gradle.kts:
+  ./sha256sum.sh 11.4.0
+  ```
+  `sha256sum.sh` hashes only `build/libs/jormanager-<version>.jar` (never `*-plain.jar`), writes `build/libs/jormanager-<version>.jar.sha256`, and self-verifies with `sha256sum -c`.
 - **Run the application locally** (builds `vue/dist` and serves compiled SPA assets alongside Spring Boot static locations):
   ```bash
   ./gradlew bootRun
@@ -119,6 +126,20 @@ Optional Gradle wrappers `./gradlew testVue` and `./gradlew buildVue` remain ava
   ```bash
   osv-scanner --offline --download-offline-databases --lockfile=vue/package-lock.json --lockfile=gradle.lockfile
   ```
+
+## Automated GitHub Releases & Verification
+
+`.github/workflows/release.yml` automates GitHub Releases on `v*` tag pushes while `.github/workflows/build.yml` remains dedicated to branch pushes and pull requests:
+
+- **Version alignment**: Before creating and pushing a `v*` tag (such as `v11.5.0` or pre-release `v11.5.0-alpha1`), ensure `version = "<version>"` in `build.gradle.kts` matches `${tag#v}`. Tag mismatches fail immediately in the read-only `build` job before `publish` runs.
+- **Privilege isolation**: `.github/workflows/release.yml` sets `permissions: contents: read` at the workflow root. Only the isolated `publish` job receives `contents: write`, `id-token: write`, and `attestations: write`, and it never checks out repository code or runs Gradle/repository scripts.
+- **Published artifacts**: `publish` attests `jormanager-<version>.jar` with `actions/attest-build-provenance` and attaches `jormanager-<version>.jar` and `jormanager-<version>.jar.sha256` to the GitHub Release (marking hyphenated versions such as `-alpha` as pre-releases and excluding `*-plain.jar`).
+- **Verifying a published GitHub Release**:
+  ```bash
+  sha256sum -c jormanager-<version>.jar.sha256
+  gh attestation verify jormanager-<version>.jar --repo AndrewWestberg/jormanager
+  ```
+  *(Note: OIDC provenance verification applies to releases published by `.github/workflows/release.yml`; historical tags predating this workflow do not have GitHub OIDC attestations, and local builds are not release qualification.)*
 
 ## Git Hooks
 
