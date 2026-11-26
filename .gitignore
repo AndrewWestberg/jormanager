@@ -37,6 +37,7 @@ out/
 dist-newstyle
 
 ### Generated artifacts and local configuration ###
+.osv-cache/
 node_modules/
 dist/
 *.class
