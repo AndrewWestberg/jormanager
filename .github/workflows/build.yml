@@ -15,6 +15,45 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  osv-scan:
+    name: Scan Lockfiles (OSV-Scanner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Get UTC date for OSV database cache
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache OSV offline databases
+        uses: actions/cache@v6
+        with:
+          path: .osv-cache
+          key: osv-db-${{ runner.os }}-${{ steps.date.outputs.date }}
+          restore-keys: |
+            osv-db-${{ runner.os }}-
+
+      - name: Scan npm and Gradle lockfiles
+        uses: google/osv-scanner-action/osv-scanner-action@v2.7.1
+        env:
+          OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: .osv-cache
+        with:
+          scan-args: |-
+            --offline
+            --download-offline-databases
+            --lockfile=vue/package-lock.json
+            --lockfile=gradle.lockfile
+
+      - name: Normalize OSV cache permissions
+        if: always()
+        run: |
+          if [ -d .osv-cache ]; then
+            sudo chown -R "$USER:$USER" .osv-cache
+          fi
+
   build:
     name: Build, Lint & Test
     runs-on: ubuntu-latest
