@@ -51,17 +51,38 @@ jobs:
           cache-provider: enhanced
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
+      - name: Cache IOG libsodium prefix
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/iog-libsodium-dbb48cce
+          key: iog-libsodium-${{ runner.os }}-${{ runner.arch }}-dbb48cce5429cb6585c9034f002568964f1ce567
+
+      - name: Build IOG libsodium on cache miss
+        run: |
+          LIBSODIUM_PREFIX="$HOME/.cache/iog-libsodium-dbb48cce"
+          if [ ! -f "$LIBSODIUM_PREFIX/lib/libsodium.so" ] || [ ! -f "$LIBSODIUM_PREFIX/include/sodium.h" ]; then
+            rm -rf "$LIBSODIUM_PREFIX"
+            BUILD_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/libsodium.XXXXXX")"
+            trap 'rm -rf "$BUILD_DIR"' EXIT
+            cd "$BUILD_DIR"
+            git init -q
+            git fetch --depth=1 https://github.com/input-output-hk/libsodium.git dbb48cce5429cb6585c9034f002568964f1ce567
+            git checkout --detach FETCH_HEAD
+            DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
+            ./configure --prefix="$LIBSODIUM_PREFIX"
+            make -j"$(nproc)"
+            make install
+          fi
+
       - name: Install IOG libsodium for VRF tests
         run: |
-          cd "$(mktemp -d "$RUNNER_TEMP/libsodium.XXXXXX")"
-          git init -q
-          git fetch --depth=1 https://github.com/input-output-hk/libsodium.git dbb48cce5429cb6585c9034f002568964f1ce567
-          git checkout --detach FETCH_HEAD
-          DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
-          ./configure --prefix=/usr/local
-          make -j"$(nproc)"
-          sudo make install
+          LIBSODIUM_PREFIX="$HOME/.cache/iog-libsodium-dbb48cce"
+          sudo mkdir -p /usr/local/lib /usr/local/include
+          sudo cp -a --no-preserve=ownership "$LIBSODIUM_PREFIX/lib/." /usr/local/lib/
+          sudo cp -a --no-preserve=ownership "$LIBSODIUM_PREFIX/include/." /usr/local/include/
           sudo ldconfig
+          nm -D /usr/local/lib/libsodium.so | grep -E ' T crypto_vrf_ietfdraft03_proof_to_hash$' >/dev/null
+          nm -D /usr/local/lib/libsodium.so | grep -E ' T crypto_vrf_ietfdraft03_verify$' >/dev/null
 
       - name: Check formatting, run tests, and build
         run: ./gradlew ktlintCheck test bootJar --build-cache --stacktrace
