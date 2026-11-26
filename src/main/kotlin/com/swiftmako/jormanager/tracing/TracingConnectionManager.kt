@@ -163,7 +163,6 @@ class TracingConnectionManager(
             val connection =
                 ManagedTracingConnection(
                     target = target,
-                    connectionRunner = connectionRunner,
                     job = launch { runConnectionLoop(target, connectionRunner) },
                     messageSink = messageSink,
                 )
@@ -186,8 +185,12 @@ class TracingConnectionManager(
             try {
                 log.info { "Opening tracing connection to ${target.hostname}:${target.tracingPort} for node ${target.nodeId}" }
                 tracingRuntimeProfiler.recordConnectionOpened(target.nodeId)
-                connectionRunner.runConnection(target.hostname, target.tracingPort) { message ->
+                connectionRunner.runConnection(target.hostname, target.tracingPort).collect { message ->
                     messageSink.onMessage(target.nodeId, message)
+                }
+                if (shouldKeepRunning(target)) {
+                    tracingRuntimeProfiler.recordConnectionClosed(target.nodeId, expected = true)
+                    log.info { "Tracing connection stream completed for node ${target.nodeId}; reconnecting in ${reconnectDelayMillis}ms" }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -211,7 +214,6 @@ class TracingConnectionManager(
         }
         tracingRuntimeProfiler.recordConnectionClosed(target.nodeId, expected = true)
         messageSink.clearNode(target.nodeId)
-        connectionRunner.close()
     }
 
     private suspend fun shouldKeepRunning(target: TracingNodeTarget): Boolean =
@@ -274,13 +276,11 @@ class TracingConnectionManager(
 
     private data class ManagedTracingConnection(
         val target: TracingNodeTarget,
-        val connectionRunner: TraceForwardConnectionRunner,
         val job: Job,
         val messageSink: TracingRawCaptureService,
     ) {
         fun shutdown() {
             messageSink.clearNode(target.nodeId)
-            connectionRunner.close()
             job.cancel()
         }
     }

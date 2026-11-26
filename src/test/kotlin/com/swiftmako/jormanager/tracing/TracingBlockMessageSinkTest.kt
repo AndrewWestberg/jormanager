@@ -26,6 +26,7 @@ import java.util.Optional
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -87,17 +88,10 @@ class TracingBlockMessageSinkTest {
                     nodesChannel = MutableSharedFlow(extraBufferCapacity = 8),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
-                                    onMessage(adoptedBlockReply())
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
+                                    emit(adoptedBlockReply())
                                     awaitCancellation()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },

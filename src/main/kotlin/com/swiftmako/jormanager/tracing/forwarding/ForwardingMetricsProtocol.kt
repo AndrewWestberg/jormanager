@@ -16,9 +16,11 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 
 sealed interface ForwardingMetricsRequest {
     data object GetAllMetrics : ForwardingMetricsRequest
@@ -52,9 +54,13 @@ class ForwardingMetricsProtocol(
                 State.Done -> Agency.None
             }
 
-    private val _messages = MutableSharedFlow<TraceForwardMessage>(extraBufferCapacity = 4)
-    val messages: Flow<TraceForwardMessage> = _messages
+    private val _messages = Channel<TraceForwardMessage>(capacity = 4)
+    val messages: Flow<TraceForwardMessage> = _messages.receiveAsFlow()
     private var nextRequestAtNanos: Long? = null
+
+    internal fun closeMessages() {
+        _messages.close()
+    }
 
     override fun shutdown() {
         state = if (state == State.Reply) State.DoneToSend else State.Done
@@ -96,7 +102,7 @@ class ForwardingMetricsProtocol(
                 ?: error("Expected metrics reply array")
             when ((cborArray.elementAt(0) as? CborInteger)?.longValue()) {
                 MSG_METRICS_REPLY_ID -> {
-                    _messages.tryEmit(
+                    _messages.trySend(
                         TraceForwardMessage.MetricsReply(
                             metrics = decodeMetrics(cborArray.elementAt(1)),
                             rawJson = cborArray.toJsonString(),
