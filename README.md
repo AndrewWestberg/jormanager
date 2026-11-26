@@ -26,9 +26,19 @@ JorManager is a GUI-based Cardano stakepool management system.
 
 ## Get Started
 
-Head over to our Wiki site for how to install and configure JorManager.
+Read the repository documentation to install, verify, and configure JorManager:
 
-[JorManager Wiki Home](https://bitbucket.org/muamw10/jormanager/wiki/Home)
+- [Documentation Overview](docs/README.md)
+- [Installation Guide](docs/installation.md)
+- [Default Node Setup](docs/defaultnode.md)
+- [GitHub Releases](https://github.com/AndrewWestberg/jormanager/releases)
+
+Before running a downloaded release binary (`jormanager-<version>.jar`) from [GitHub Releases](https://github.com/AndrewWestberg/jormanager/releases), verify its SHA-256 checksum and GitHub OIDC build provenance attestation:
+
+```bash
+sha256sum -c jormanager-<version>.jar.sha256
+gh attestation verify jormanager-<version>.jar --repo AndrewWestberg/jormanager
+```
 
 ### Dijkstra-aware implementation
 
