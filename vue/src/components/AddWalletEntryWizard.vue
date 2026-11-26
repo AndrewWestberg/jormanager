@@ -2,11 +2,22 @@
   <div id="add_wallet">
     <div class="jm-page-header">
       <div>
-        <h1 class="jm-page-title">Create Wallet Entry</h1>
-        <p class="jm-page-subtitle">Add a watch-only address, payment wallet, stake account, or pledge-only entry</p>
+        <h1 class="jm-page-title">
+          Create Wallet Entry
+        </h1>
+        <p class="jm-page-subtitle">
+          Add a watch-only address, payment wallet, stake account, or pledge-only entry
+        </p>
       </div>
-      <BButton variant="outline-secondary" @click="handleBack">
-        <font-awesome-icon :icon="['fas', 'arrow-left']" class="me-1" aria-hidden="true" />
+      <BButton
+        variant="outline-secondary"
+        @click="handleBack"
+      >
+        <font-awesome-icon
+          :icon="['fas', 'arrow-left']"
+          class="me-1"
+          aria-hidden="true"
+        />
         Back to Wallet
       </BButton>
     </div>
@@ -14,8 +25,14 @@
     <div class="jm-card">
       <div class="p-4">
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">1. Entry Identity &amp; Type</h2>
-          <BFormGroup label="Name" label-for="name-input" class="mb-3">
+          <h2 class="jm-sub-panel-title">
+            1. Entry Identity &amp; Type
+          </h2>
+          <BFormGroup
+            label="Name"
+            label-for="name-input"
+            class="mb-3"
+          >
             <BFormInput
               id="name-input"
               v-model="formWallet.name"
@@ -30,7 +47,10 @@
             </BFormInvalidFeedback>
           </BFormGroup>
 
-          <BFormGroup label="Entry Type" label-for="type-radio">
+          <BFormGroup
+            label="Entry Type"
+            label-for="type-radio"
+          >
             <div class="jm-type-card-grid">
               <label
                 v-for="option in entryTypeOptions"
@@ -39,12 +59,12 @@
                 :class="{ selected: formWallet.type === option.value }"
               >
                 <input
+                  v-model="formWallet.type"
                   type="radio"
                   name="wallet-entry-type"
                   :value="option.value"
-                  v-model="formWallet.type"
                   class="form-check-input mt-1"
-                />
+                >
                 <div>
                   <div class="fw-semibold">{{ option.label }}</div>
                   <div class="small text-secondary">{{ option.description }}</div>
@@ -54,9 +74,17 @@
           </BFormGroup>
         </div>
 
-        <div v-if="formWallet.type === 'address' || formWallet.type === 'pledge'" class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">2. Cardano Address</h2>
-          <BFormGroup label="Address" label-for="address-input">
+        <div
+          v-if="formWallet.type === 'address' || formWallet.type === 'pledge'"
+          class="jm-sub-panel mb-3"
+        >
+          <h2 class="jm-sub-panel-title">
+            2. Cardano Address
+          </h2>
+          <BFormGroup
+            label="Address"
+            label-for="address-input"
+          >
             <BFormInput
               id="address-input"
               v-model="formWallet.paymentAddr"
@@ -72,13 +100,18 @@
           </BFormGroup>
         </div>
 
-        <div v-if="formWallet.type != null && formWallet.type !== 'address'" class="jm-sub-panel mb-3">
+        <div
+          v-if="formWallet.type != null && formWallet.type !== 'address'"
+          class="jm-sub-panel mb-3"
+        >
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-            <h2 class="jm-sub-panel-title mb-0">Key Material</h2>
+            <h2 class="jm-sub-panel-title mb-0">
+              Key Material
+            </h2>
             <BFormCheckbox
+              v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
               id="keys-generate-checkbox"
               v-model="formWallet.generateKeys"
-              v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
               switch
             >
               Generate Keys Automatically
@@ -86,56 +119,90 @@
           </div>
 
           <div class="row g-3">
-            <div v-if="formWallet.type === 'payment' || formWallet.type === 'stake'" class="col-md-6">
-              <BFormGroup label="payment skey" label-for="payment-skey-file">
+            <div
+              v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
+              class="col-md-6"
+            >
+              <BFormGroup
+                label="payment skey"
+                label-for="payment-skey-file"
+              >
                 <input
                   id="payment-skey-file"
                   type="file"
                   class="form-control"
                   :disabled="formWallet.generateKeys"
                   @change="handleFileUpload($event, 'paymentSKey')"
-                />
+                >
               </BFormGroup>
             </div>
-            <div v-if="formWallet.type === 'payment' || formWallet.type === 'stake'" class="col-md-6">
-              <BFormGroup label="payment vkey" label-for="payment-vkey-file">
+            <div
+              v-if="formWallet.type === 'payment' || formWallet.type === 'stake'"
+              class="col-md-6"
+            >
+              <BFormGroup
+                label="payment vkey"
+                label-for="payment-vkey-file"
+              >
                 <input
                   id="payment-vkey-file"
                   type="file"
                   class="form-control"
                   :disabled="formWallet.generateKeys"
                   @change="handleFileUpload($event, 'paymentVKey')"
-                />
+                >
               </BFormGroup>
             </div>
-            <div v-if="formWallet.type === 'stake' || formWallet.type === 'pledge'" class="col-md-6">
-              <BFormGroup label="staking skey" label-for="staking-skey-file">
+            <div
+              v-if="formWallet.type === 'stake' || formWallet.type === 'pledge'"
+              class="col-md-6"
+            >
+              <BFormGroup
+                label="staking skey"
+                label-for="staking-skey-file"
+              >
                 <input
                   id="staking-skey-file"
                   type="file"
                   class="form-control"
                   :disabled="formWallet.generateKeys"
                   @change="handleFileUpload($event, 'stakingSKey')"
-                />
+                >
               </BFormGroup>
             </div>
-            <div v-if="formWallet.type === 'stake' || formWallet.type === 'pledge'" class="col-md-6">
-              <BFormGroup label="staking vkey" label-for="staking-vkey-file">
+            <div
+              v-if="formWallet.type === 'stake' || formWallet.type === 'pledge'"
+              class="col-md-6"
+            >
+              <BFormGroup
+                label="staking vkey"
+                label-for="staking-vkey-file"
+              >
                 <input
                   id="staking-vkey-file"
                   type="file"
                   class="form-control"
                   :disabled="formWallet.generateKeys"
                   @change="handleFileUpload($event, 'stakingVKey')"
-                />
+                >
               </BFormGroup>
             </div>
           </div>
         </div>
 
         <div class="d-flex justify-content-between align-items-center pt-3 border-top">
-          <BButton variant="secondary" @click="handleBack">Back</BButton>
-          <BButton variant="primary" @click="handleNext">Create Wallet Entry</BButton>
+          <BButton
+            variant="secondary"
+            @click="handleBack"
+          >
+            Back
+          </BButton>
+          <BButton
+            variant="primary"
+            @click="handleNext"
+          >
+            Create Wallet Entry
+          </BButton>
         </div>
       </div>
     </div>

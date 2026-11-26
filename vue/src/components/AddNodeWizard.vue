@@ -9,8 +9,15 @@
           Configure node identity, network files, keys, and pool parameters step by step
         </p>
       </div>
-      <BButton variant="outline-secondary" @click="handleCancel">
-        <font-awesome-icon :icon="['fas', 'arrow-left']" class="me-1" aria-hidden="true" />
+      <BButton
+        variant="outline-secondary"
+        @click="handleCancel"
+      >
+        <font-awesome-icon
+          :icon="['fas', 'arrow-left']"
+          class="me-1"
+          aria-hidden="true"
+        />
         Back to Nodes
       </BButton>
     </div>
@@ -28,18 +35,42 @@
       <!-- Step 1: Node Basics (Always shown) -->
       <template #basics>
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Identity &amp; Role</h2>
+          <h2 class="jm-sub-panel-title">
+            Identity &amp; Role
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Node Type">
-              <BFormRadioGroup v-model="formNode.type" :state="typeState" :disabled="parentId != null">
-                <BFormRadio value="relay" class="me-3">
-                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-danger me-1" />Relay
+              <BFormRadioGroup
+                v-model="formNode.type"
+                :state="typeState"
+                :disabled="parentId != null"
+              >
+                <BFormRadio
+                  value="relay"
+                  class="me-3"
+                >
+                  <font-awesome-icon
+                    :icon="['fas', 'dice-d20']"
+                    class="text-danger me-1"
+                  />Relay
                 </BFormRadio>
-                <BFormRadio value="core" class="me-3">
-                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-success me-1" />Core
+                <BFormRadio
+                  value="core"
+                  class="me-3"
+                >
+                  <font-awesome-icon
+                    :icon="['fas', 'dice-d20']"
+                    class="text-success me-1"
+                  />Core
                 </BFormRadio>
-                <BFormRadio value="pool" v-show="parentId != null">
-                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="text-primary me-1" />Pool
+                <BFormRadio
+                  v-show="parentId != null"
+                  value="pool"
+                >
+                  <font-awesome-icon
+                    :icon="['fas', 'dice-d20']"
+                    class="text-primary me-1"
+                  />Pool
                 </BFormRadio>
               </BFormRadioGroup>
             </BFormGroup>
@@ -64,16 +95,28 @@
                 :disabled="parentId != null"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select an option --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
 
             <BFormGroup label="Telemetry Color">
               <div class="d-flex align-items-center gap-3 flex-wrap">
-                <BFormInput v-model="formNode.color" type="color" class="jm-color-input" />
+                <BFormInput
+                  v-model="formNode.color"
+                  type="color"
+                  class="jm-color-input"
+                />
                 <span class="jm-mono small text-secondary">{{ formNode.color }}</span>
-                <div v-if="nodeColors.length > 0" class="d-flex align-items-center gap-1 ms-auto">
+                <div
+                  v-if="nodeColors.length > 0"
+                  class="d-flex align-items-center gap-1 ms-auto"
+                >
                   <span class="small text-secondary me-1">In use:</span>
                   <span
                     v-for="(nodeColor, index) in nodeColors"
@@ -86,13 +129,19 @@
             </BFormGroup>
           </div>
 
-          <BFormCheckbox v-if="formNode.type === 'relay'" v-model="formNode.isDefault" class="mt-2">
+          <BFormCheckbox
+            v-if="formNode.type === 'relay'"
+            v-model="formNode.isDefault"
+            class="mt-2"
+          >
             Make this node the default for sending transactions
           </BFormCheckbox>
         </div>
 
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Networking &amp; Telemetry</h2>
+          <h2 class="jm-sub-panel-title">
+            Networking &amp; Telemetry
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Listen Address">
               <BFormInput
@@ -107,13 +156,13 @@
 
             <BFormGroup label="Node Port">
               <BFormInput
+                v-model="formNode.port"
                 type="number"
                 step="1"
                 min="1024"
                 max="65535"
                 :state="portState"
                 placeholder="e.g. 3001"
-                v-model="formNode.port"
                 :disabled="parentId != null"
                 class="jm-mono"
               />
@@ -135,29 +184,57 @@
             </BFormGroup>
 
             <BFormGroup label="Prometheus Bind">
-              <BFormRadioGroup v-model="formNode.prometheusListen" class="pt-1">
-                <BFormRadio value="127.0.0.1" class="me-3">127.0.0.1</BFormRadio>
-                <BFormRadio value="0.0.0.0">0.0.0.0</BFormRadio>
+              <BFormRadioGroup
+                v-model="formNode.prometheusListen"
+                class="pt-1"
+              >
+                <BFormRadio
+                  value="127.0.0.1"
+                  class="me-3"
+                >
+                  127.0.0.1
+                </BFormRadio>
+                <BFormRadio value="0.0.0.0">
+                  0.0.0.0
+                </BFormRadio>
               </BFormRadioGroup>
             </BFormGroup>
 
             <BFormGroup label="Tracing Listener">
-              <BFormCheckbox v-model="formNode.enableTracingListener" class="pt-1">
+              <BFormCheckbox
+                v-model="formNode.enableTracingListener"
+                class="pt-1"
+              >
                 Enable tracing listener for JorManager
               </BFormCheckbox>
             </BFormGroup>
 
-            <BFormGroup v-if="formNode.enableTracingListener" label="Tracing Bind">
-              <BFormRadioGroup v-model="formNode.tracingListen" class="pt-1">
-                <BFormRadio value="0.0.0.0" class="me-3">0.0.0.0</BFormRadio>
-                <BFormRadio value="127.0.0.1">127.0.0.1</BFormRadio>
+            <BFormGroup
+              v-if="formNode.enableTracingListener"
+              label="Tracing Bind"
+            >
+              <BFormRadioGroup
+                v-model="formNode.tracingListen"
+                class="pt-1"
+              >
+                <BFormRadio
+                  value="0.0.0.0"
+                  class="me-3"
+                >
+                  0.0.0.0
+                </BFormRadio>
+                <BFormRadio value="127.0.0.1">
+                  127.0.0.1
+                </BFormRadio>
               </BFormRadioGroup>
             </BFormGroup>
           </div>
         </div>
 
         <div class="jm-sub-panel">
-          <h2 class="jm-sub-panel-title">Genesis &amp; Network Configuration Files</h2>
+          <h2 class="jm-sub-panel-title">
+            Genesis &amp; Network Configuration Files
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Genesis Byron">
               <BFormSelect
@@ -167,7 +244,12 @@
                 :disabled="parentId != null"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -180,7 +262,12 @@
                 :disabled="parentId != null"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -193,7 +280,12 @@
                 :disabled="parentId != null"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -206,32 +298,77 @@
                 :disabled="parentId != null"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
 
             <BFormGroup label="Genesis Dijkstra (optional)">
-              <BFormSelect v-model="formNode.genesisDijkstra" :options="jsonFileOptions" :disabled="parentId != null">
-                <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+              <BFormSelect
+                v-model="formNode.genesisDijkstra"
+                :options="jsonFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null">
+                    -- None --
+                  </BFormSelectOption>
+                </template>
               </BFormSelect>
             </BFormGroup>
 
             <BFormGroup label="Config">
-              <BFormSelect v-model="formNode.config" :state="formNode.config != null" :options="jsonFileOptions" :disabled="parentId != null">
-                <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+              <BFormSelect
+                v-model="formNode.config"
+                :state="formNode.config != null"
+                :options="jsonFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
+                </template>
               </BFormSelect>
             </BFormGroup>
 
             <BFormGroup label="Topology">
-              <BFormSelect v-model="formNode.topology" :state="parentId != null ? null : formNode.topology != null" :options="jsonFileOptions" :disabled="parentId != null">
-                <template #first><BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption></template>
+              <BFormSelect
+                v-model="formNode.topology"
+                :state="parentId != null ? null : formNode.topology != null"
+                :options="jsonFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select --
+                  </BFormSelectOption>
+                </template>
               </BFormSelect>
             </BFormGroup>
 
             <BFormGroup label="Peer snapshot (optional)">
-              <BFormSelect v-model="formNode.peerSnapshot" :options="jsonFileOptions" :disabled="parentId != null">
-                <template #first><BFormSelectOption :value="null">-- None --</BFormSelectOption></template>
+              <BFormSelect
+                v-model="formNode.peerSnapshot"
+                :options="jsonFileOptions"
+                :disabled="parentId != null"
+              >
+                <template #first>
+                  <BFormSelectOption :value="null">
+                    -- None --
+                  </BFormSelectOption>
+                </template>
               </BFormSelect>
             </BFormGroup>
           </div>
@@ -244,24 +381,37 @@
           <!-- COLD Keys -->
           <div class="jm-sub-panel">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h2 class="jm-sub-panel-title mb-0">Pool COLD Keys</h2>
-              <BFormCheckbox v-model="formNode.generateColdKeys" switch>Generate</BFormCheckbox>
+              <h2 class="jm-sub-panel-title mb-0">
+                Pool COLD Keys
+              </h2>
+              <BFormCheckbox
+                v-model="formNode.generateColdKeys"
+                switch
+              >
+                Generate
+              </BFormCheckbox>
             </div>
-            <BFormGroup label="skey" class="mb-2">
+            <BFormGroup
+              label="skey"
+              class="mb-2"
+            >
               <input
                 type="file"
                 class="form-control"
                 :disabled="formNode.generateColdKeys"
                 @change="handleFileUpload($event, 'coldSKey')"
-              />
+              >
             </BFormGroup>
-            <BFormGroup label="vkey" class="mb-2">
+            <BFormGroup
+              label="vkey"
+              class="mb-2"
+            >
               <input
                 type="file"
                 class="form-control"
                 :disabled="formNode.generateColdKeys"
                 @change="handleFileUpload($event, 'coldVKey')"
-              />
+              >
             </BFormGroup>
             <BFormGroup label="counter">
               <input
@@ -269,23 +419,33 @@
                 class="form-control"
                 :disabled="formNode.generateColdKeys"
                 @change="handleFileUpload($event, 'coldCounter')"
-              />
+              >
             </BFormGroup>
           </div>
 
           <!-- VRF Keys -->
           <div class="jm-sub-panel">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h2 class="jm-sub-panel-title mb-0">Pool VRF Keys</h2>
-              <BFormCheckbox v-model="formNode.generateVRFKeys" switch>Generate</BFormCheckbox>
+              <h2 class="jm-sub-panel-title mb-0">
+                Pool VRF Keys
+              </h2>
+              <BFormCheckbox
+                v-model="formNode.generateVRFKeys"
+                switch
+              >
+                Generate
+              </BFormCheckbox>
             </div>
-            <BFormGroup label="skey" class="mb-2">
+            <BFormGroup
+              label="skey"
+              class="mb-2"
+            >
               <input
                 type="file"
                 class="form-control"
                 :disabled="formNode.generateVRFKeys"
                 @change="handleFileUpload($event, 'vrfSKey')"
-              />
+              >
             </BFormGroup>
             <BFormGroup label="vkey">
               <input
@@ -293,23 +453,33 @@
                 class="form-control"
                 :disabled="formNode.generateVRFKeys"
                 @change="handleFileUpload($event, 'vrfVKey')"
-              />
+              >
             </BFormGroup>
           </div>
 
           <!-- KES Keys -->
           <div class="jm-sub-panel">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h2 class="jm-sub-panel-title mb-0">Pool KES Keys</h2>
-              <BFormCheckbox v-model="formNode.generateKESKeys" switch>Generate</BFormCheckbox>
+              <h2 class="jm-sub-panel-title mb-0">
+                Pool KES Keys
+              </h2>
+              <BFormCheckbox
+                v-model="formNode.generateKESKeys"
+                switch
+              >
+                Generate
+              </BFormCheckbox>
             </div>
-            <BFormGroup label="skey" class="mb-2">
+            <BFormGroup
+              label="skey"
+              class="mb-2"
+            >
               <input
                 type="file"
                 class="form-control"
                 :disabled="formNode.generateKESKeys"
                 @change="handleFileUpload($event, 'kesSKey')"
-              />
+              >
             </BFormGroup>
             <BFormGroup label="vkey">
               <input
@@ -317,7 +487,7 @@
                 class="form-control"
                 :disabled="formNode.generateKESKeys"
                 @change="handleFileUpload($event, 'kesVKey')"
-              />
+              >
             </BFormGroup>
           </div>
         </div>
@@ -326,7 +496,9 @@
       <!-- Step 3: Pool Config (Core/Pool only) -->
       <template #config>
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Staking &amp; Fee Accounts</h2>
+          <h2 class="jm-sub-panel-title">
+            Staking &amp; Fee Accounts
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Fees Account">
               <BFormSelect
@@ -335,7 +507,12 @@
                 :options="feeAccountOptions"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select an option --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -347,7 +524,12 @@
                 :options="stakingAccountOptions"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select an option --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -359,7 +541,12 @@
                 :options="rewardsAccountOptions"
               >
                 <template #first>
-                  <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                  <BFormSelectOption
+                    :value="null"
+                    disabled
+                  >
+                    -- Please select an option --
+                  </BFormSelectOption>
                 </template>
               </BFormSelect>
             </BFormGroup>
@@ -367,7 +554,9 @@
         </div>
 
         <div class="jm-sub-panel">
-          <h2 class="jm-sub-panel-title">Pledge, Cost &amp; Margin</h2>
+          <h2 class="jm-sub-panel-title">
+            Pledge, Cost &amp; Margin
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Pledge">
               <BFormInput
@@ -411,25 +600,60 @@
       <!-- Step 4: Relays (Core/Pool only) -->
       <template #relays>
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-          <h2 class="jm-sub-panel-title mb-0">Relay Topology Registration</h2>
-          <BButton variant="primary" size="sm" @click="addRelay">
-            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />Add Relay
+          <h2 class="jm-sub-panel-title mb-0">
+            Relay Topology Registration
+          </h2>
+          <BButton
+            variant="primary"
+            size="sm"
+            @click="addRelay"
+          >
+            <font-awesome-icon
+              :icon="['fas', 'plus']"
+              class="me-1"
+              aria-hidden="true"
+            />Add Relay
           </BButton>
         </div>
 
-        <div v-if="formNode.relays.length === 0" class="jm-sub-panel jm-empty-state">
+        <div
+          v-if="formNode.relays.length === 0"
+          class="jm-sub-panel jm-empty-state"
+        >
           <div class="jm-empty-icon">
-            <font-awesome-icon :icon="['fas', 'project-diagram']" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'project-diagram']"
+              aria-hidden="true"
+            />
           </div>
-          <p class="mb-2">No relays added yet.</p>
-          <BButton variant="outline-primary" size="sm" @click="addRelay">+ Add First Relay</BButton>
+          <p class="mb-2">
+            No relays added yet.
+          </p>
+          <BButton
+            variant="outline-primary"
+            size="sm"
+            @click="addRelay"
+          >
+            + Add First Relay
+          </BButton>
         </div>
 
-        <div v-for="(relay, index) in formNode.relays" :key="index" class="jm-sub-panel mb-3">
+        <div
+          v-for="(relay, index) in formNode.relays"
+          :key="index"
+          class="jm-sub-panel mb-3"
+        >
           <div class="d-flex justify-content-between align-items-center mb-2">
             <span class="jm-pill jm-pill-indigo">Relay {{ index + 1 }}</span>
-            <BButton variant="outline-danger" size="sm" @click="formNode.relays.splice(index, 1)">
-              <font-awesome-icon :icon="['fas', 'times']" aria-hidden="true" />
+            <BButton
+              variant="outline-danger"
+              size="sm"
+              @click="formNode.relays.splice(index, 1)"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'times']"
+                aria-hidden="true"
+              />
             </BButton>
           </div>
           <div class="jm-form-grid">
@@ -461,7 +685,9 @@
       <!-- Step 5: Metadata (Core/Pool only) -->
       <template #metadata>
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Primary Metadata (Required)</h2>
+          <h2 class="jm-sub-panel-title">
+            Primary Metadata (Required)
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Ticker">
               <BFormInput
@@ -484,7 +710,10 @@
               />
             </BFormGroup>
 
-            <BFormGroup label="Description" class="jm-grid-span-2">
+            <BFormGroup
+              label="Description"
+              class="jm-grid-span-2"
+            >
               <BFormInput
                 v-model="formNode.metadata.description"
                 :state="metadataDescriptionState"
@@ -494,7 +723,10 @@
               />
             </BFormGroup>
 
-            <BFormGroup label="Homepage" class="jm-grid-span-2">
+            <BFormGroup
+              label="Homepage"
+              class="jm-grid-span-2"
+            >
               <BFormInput
                 v-model="formNode.metadata.homepage"
                 :state="metadataHomepageState"
@@ -507,7 +739,9 @@
         </div>
 
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">ITN Ticker Validation (Optional)</h2>
+          <h2 class="jm-sub-panel-title">
+            ITN Ticker Validation (Optional)
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="ITN Pool prv">
               <input
@@ -515,7 +749,7 @@
                 type="file"
                 class="form-control"
                 @change="handleFileUpload($event, 'itnPrivateKey')"
-              />
+              >
               <BButton
                 v-if="fileContents.itnPrivateKey"
                 variant="outline-secondary"
@@ -532,13 +766,15 @@
                 type="file"
                 class="form-control"
                 @change="handleFileUpload($event, 'itnPublicKey')"
-              />
+              >
             </BFormGroup>
           </div>
         </div>
 
         <div class="jm-sub-panel">
-          <h2 class="jm-sub-panel-title">Extended Metadata (Optional)</h2>
+          <h2 class="jm-sub-panel-title">
+            Extended Metadata (Optional)
+          </h2>
           <div class="jm-form-grid">
             <BFormGroup label="Icon 64x64 URL">
               <BFormInput
@@ -702,7 +938,10 @@
               />
             </BFormGroup>
 
-            <BFormGroup label="About Company" class="jm-grid-span-2">
+            <BFormGroup
+              label="About Company"
+              class="jm-grid-span-2"
+            >
               <BFormInput
                 v-model="formNode.metadata.extended.info.about.company"
                 placeholder="e.g. Founded in 2020 for stakepool operations..."
@@ -716,13 +955,19 @@
       <!-- Step 6: Review & Confirm (All node types) -->
       <template #review>
         <div class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Node Basics Review</h2>
+          <h2 class="jm-sub-panel-title">
+            Node Basics Review
+          </h2>
           <div class="jm-table-wrapper">
             <table class="table table-sm mb-0">
               <tbody>
                 <tr>
-                  <th style="width: 30%">Name (TICKER)</th>
-                  <td class="jm-mono fw-semibold">{{ formNode.name }}</td>
+                  <th style="width: 30%">
+                    Name (TICKER)
+                  </th>
+                  <td class="jm-mono fw-semibold">
+                    {{ formNode.name }}
+                  </td>
                 </tr>
                 <tr>
                   <th>Type</th>
@@ -730,49 +975,82 @@
                 </tr>
                 <tr>
                   <th>Host</th>
-                  <td class="jm-mono">{{ selectedHost?.hostname }}</td>
+                  <td class="jm-mono">
+                    {{ selectedHost?.hostname }}
+                  </td>
                 </tr>
-                <tr v-for="file in selectedFiles" :key="file.label">
+                <tr
+                  v-for="file in selectedFiles"
+                  :key="file.label"
+                >
                   <th>{{ file.label }}</th>
-                  <td class="jm-mono">{{ file.name }}</td>
+                  <td class="jm-mono">
+                    {{ file.name }}
+                  </td>
                 </tr>
                 <tr v-if="formNode.listen">
                   <th>Listen Address</th>
-                  <td class="jm-mono">{{ formNode.listen }}</td>
+                  <td class="jm-mono">
+                    {{ formNode.listen }}
+                  </td>
                 </tr>
                 <tr v-if="formNode.port">
                   <th>Port</th>
-                  <td class="jm-mono">{{ formNode.port }}</td>
+                  <td class="jm-mono">
+                    {{ formNode.port }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <div v-if="creationError" class="alert alert-danger" role="alert">{{ creationError }}</div>
+        <div
+          v-if="creationError"
+          class="alert alert-danger"
+          role="alert"
+        >
+          {{ creationError }}
+        </div>
 
-        <div v-if="formNode.type !== 'relay'" class="jm-sub-panel mb-3">
-          <h2 class="jm-sub-panel-title">Pool Configuration &amp; Relays</h2>
+        <div
+          v-if="formNode.type !== 'relay'"
+          class="jm-sub-panel mb-3"
+        >
+          <h2 class="jm-sub-panel-title">
+            Pool Configuration &amp; Relays
+          </h2>
           <div class="jm-table-wrapper mb-3">
             <table class="table table-sm mb-0">
               <tbody>
                 <tr>
-                  <th style="width: 30%">Pledge</th>
-                  <td class="jm-mono">{{ formNode.poolPledge }}</td>
+                  <th style="width: 30%">
+                    Pledge
+                  </th>
+                  <td class="jm-mono">
+                    {{ formNode.poolPledge }}
+                  </td>
                 </tr>
                 <tr>
                   <th>Fixed Cost</th>
-                  <td class="jm-mono">{{ formNode.poolCost }}</td>
+                  <td class="jm-mono">
+                    {{ formNode.poolCost }}
+                  </td>
                 </tr>
                 <tr>
                   <th>Margin</th>
-                  <td class="jm-mono">{{ (formNode.poolMargin * 100).toFixed(2) }}%</td>
+                  <td class="jm-mono">
+                    {{ (formNode.poolMargin * 100).toFixed(2) }}%
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div v-if="formNode.relays.length > 0" class="jm-table-wrapper">
+          <div
+            v-if="formNode.relays.length > 0"
+            class="jm-table-wrapper"
+          >
             <table class="table table-sm mb-0">
               <thead>
                 <tr>
@@ -781,26 +1059,43 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(relay, idx) in formNode.relays" :key="idx">
-                  <td class="jm-mono">{{ relay.addr }}</td>
-                  <td class="jm-mono">{{ relay.port }}</td>
+                <tr
+                  v-for="(relay, idx) in formNode.relays"
+                  :key="idx"
+                >
+                  <td class="jm-mono">
+                    {{ relay.addr }}
+                  </td>
+                  <td class="jm-mono">
+                    {{ relay.port }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p v-else class="text-secondary small mb-0">No relays configured.</p>
+          <p
+            v-else
+            class="text-secondary small mb-0"
+          >
+            No relays configured.
+          </p>
         </div>
 
         <div class="jm-sub-panel">
-          <h2 class="jm-sub-panel-title">SUDO Authentication</h2>
+          <h2 class="jm-sub-panel-title">
+            SUDO Authentication
+          </h2>
           <p class="small text-secondary mb-3">
             Creating a node requires <b>sudo</b> privileges to configure the systemd and rsyslog scripts.
             Leave empty if your host does not require a sudo password.
           </p>
-          <BFormGroup label="SUDO Password" label-cols-md="3">
+          <BFormGroup
+            label="SUDO Password"
+            label-cols-md="3"
+          >
             <BFormInput
-              type="password"
               v-model="formNode.sudoPassword"
+              type="password"
               placeholder="Enter sudo password (optional)"
               autocomplete="off"
             />
@@ -899,7 +1194,8 @@ const creationBusy = ref(false)
 const creationError = ref('')
 let requestId = generateUUID()
 let requestSignature = ''
-let prepared: { request: Record<string, unknown>; signature: string; sudo: string } | null = null
+type CreateNodeRequest = typeof formNode.value & { requestId?: string; [key: string]: unknown }
+let prepared: { request: CreateNodeRequest; signature: string; sudo: string } | null = null
 const privateFileInputs: Record<string, HTMLInputElement> = {}
 
 const formNode = ref({
@@ -994,11 +1290,13 @@ const intentSignature = computed(() => {
 })
 const currentSignature = computed(() => JSON.stringify([intentSignature.value, fileRevision.value]))
 
-async function buildCreateRequest(): Promise<Record<string, unknown>> {
-  const request = JSON.parse(JSON.stringify(formNode.value)) as Record<string, any>
+const keyFileFields = ['coldSKey', 'vrfSKey', 'kesSKey', 'coldVKey', 'coldCounter', 'vrfVKey', 'kesVKey'] as const
+
+async function buildCreateRequest(): Promise<CreateNodeRequest> {
+  const request = JSON.parse(JSON.stringify(formNode.value)) as CreateNodeRequest
   request.spendingPassword = ''
   request.sudoPassword = ''
-  for (const field of ['coldSKey', 'vrfSKey', 'kesSKey', 'coldVKey', 'coldCounter', 'vrfVKey', 'kesVKey']) {
+  for (const field of keyFileFields) {
     if (fileContents.value[field]) request[field] = await fileContents.value[field]!.text()
   }
   if (fileContents.value.itnPrivateKey) request.metadata.extended.itn.privateKey = await fileContents.value.itnPrivateKey.text()
@@ -1259,21 +1557,21 @@ onMounted(() => {
     if (parent) {
       formNode.value.color = parent.color
       formNode.value.type = 'pool'
-      formNode.value.host = (parent as any).hostId as number
-      formNode.value.processorThreads = (parent as any).processorThreads || 2
-      formNode.value.listen = (parent as any).listen || '0.0.0.0'
-      formNode.value.port = (parent as any).port || 3001
-      formNode.value.genesisByron = (parent as any).genesisByronFileId
-      formNode.value.genesisShelley = (parent as any).genesisShelleyFileId
-      formNode.value.genesisAlonzo = (parent as any).genesisAlonzoFileId
-      formNode.value.genesisConway = (parent as any).genesisConwayFileId
-      formNode.value.genesisDijkstra = (parent.genesisDijkstraFileId as number | null) ?? null
-      formNode.value.config = (parent.configFileId as number | null) ?? null
-      formNode.value.topology = (parent.topologyFileId as number | null) ?? null
-      formNode.value.peerSnapshot = (parent.peerSnapshotFileId as number | null) ?? null
-      formNode.value.poolPledge = (parent as any).poolPledge || 0
-      formNode.value.poolCost = (parent as any).poolCost || 340
-      formNode.value.poolMargin = (parent as any).poolMargin || 0.03
+      formNode.value.host = parent.hostId ?? null
+      formNode.value.processorThreads = parent.processorThreads || 2
+      formNode.value.listen = parent.listen || '0.0.0.0'
+      formNode.value.port = parent.port || 3001
+      formNode.value.genesisByron = parent.genesisByronFileId ?? null
+      formNode.value.genesisShelley = parent.genesisShelleyFileId ?? null
+      formNode.value.genesisAlonzo = parent.genesisAlonzoFileId ?? null
+      formNode.value.genesisConway = parent.genesisConwayFileId ?? null
+      formNode.value.genesisDijkstra = parent.genesisDijkstraFileId ?? null
+      formNode.value.config = parent.configFileId ?? null
+      formNode.value.topology = parent.topologyFileId ?? null
+      formNode.value.peerSnapshot = parent.peerSnapshotFileId ?? null
+      formNode.value.poolPledge = parent.poolPledge || 0
+      formNode.value.poolCost = parent.poolCost || 340
+      formNode.value.poolMargin = parent.poolMargin || 0.03
     }
   }
 

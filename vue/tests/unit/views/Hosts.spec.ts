@@ -83,8 +83,17 @@ describe('Hosts.vue SSH fingerprint TOFU & mismatch alerts', () => {
       message: 'Updated trusted SSH host key fingerprint'
     })
 
-    const passwordPrompts: Array<{ action: string; data: any }> = []
-    const onPrompt = (payload: any) => passwordPrompts.push(payload)
+    interface PasswordPromptEvent {
+      action: string
+      data: {
+        requestId: string
+        hostId: number
+        action: 'reset' | 'accept'
+        fingerprint?: string | null
+      }
+    }
+    const passwordPrompts: PasswordPromptEvent[] = []
+    const onPrompt = (payload: unknown) => passwordPrompts.push(payload as PasswordPromptEvent)
     emitter.on('show-spending-password-modal', onPrompt)
     try {
       await wrapper.find('[data-testid="accept-mismatch-btn"]').trigger('click')

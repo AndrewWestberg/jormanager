@@ -32,19 +32,67 @@ export interface HostFingerprintResult {
   message: string
 }
 
+export interface NodeRelay {
+  addr: string
+  port: number
+}
+
 export interface Node {
   id: number
   name: string
-  host: Host
-  status: string
+  host?: Host
+  hostId?: number | null
+  parentId?: number | null
+  status?: string
   color: string
+  type?: string
+  poolId?: string | null
+  isDefault?: boolean
+  isDeleted?: boolean
+  kesExpireTimeSec?: number | null
+  processorThreads?: number
+  listen?: string
+  port?: number
+  genesisByronFileId?: number | null
+  genesisShelleyFileId?: number | null
+  genesisAlonzoFileId?: number | null
+  genesisConwayFileId?: number | null
+  genesisDijkstraFileId?: number | null
+  configFileId?: number | null
+  topologyFileId?: number | null
+  peerSnapshotFileId?: number | null
+  registrationFeesAccountId?: number | null
+  ownerStakingAccountId?: number | null
+  rewardsStakingAccountId?: number | null
+  poolPledge?: number | null
+  poolCost?: number | null
+  poolMargin?: number | null
+  relays?: NodeRelay[]
   [key: string]: unknown
 }
 
+export interface DisplayNode {
+  id: number
+  color: string
+  name: string
+  poolId?: string | null
+  type?: string
+  host: string
+  isDefault?: boolean
+  kesExpireTimeSec?: number | null
+}
+
 export interface Block {
+  id?: number | null
+  at?: string
+  pool?: string
+  host?: string
   slot: number
   epoch: number
-  blockHash: string
+  slotInEpoch?: number
+  hash?: string
+  blockHash?: string
+  status?: string
   [key: string]: unknown
 }
 
@@ -59,10 +107,15 @@ export type SelectionMode = 'STANDARD' | 'DEFRAGMENT'
 export interface WalletItem {
   id: number
   name: string
-  paymentAddress: string
+  type?: string
+  paymentAddr?: string
+  paymentAddress?: string
+  hasPaymentKeys?: boolean
   paymentAddrUtxoCount?: number | null
   paymentAddrLovelace: string | null
+  stakingAddr?: string | null
   stakingAddress?: string
+  stakingAddrRegistered?: boolean | null
   stakingAddrLovelace: string | null
   nativeAssetMap: Record<string, string> | null
   [key: string]: unknown

@@ -1,8 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useJorManagerStore } from '@/stores/jormanager'
+import type { Block, Host, Node } from '@/types'
 
 vi.mock('sockjs-client', () => ({ default: vi.fn() }))
+
+function makeHost(overrides: Partial<Host> & Pick<Host, 'hostname'>): Host {
+  return {
+    type: 'local',
+    sshUser: '',
+    sshPort: 22,
+    sshPemPath: '',
+    cardanoCliPath: '/usr/local/bin/cardano-cli',
+    cardanoNodePath: '/usr/local/bin/cardano-node',
+    nodeHomePath: '/opt/cardano',
+    jcliPath: null,
+    ...overrides
+  }
+}
 
 describe('store/jormanager - getters', () => {
   beforeEach(() => {
@@ -44,7 +59,8 @@ describe('store/jormanager - getters', () => {
   describe('blocksCount', () => {
     it('returns the count of blocks', () => {
       const store = useJorManagerStore()
-      store.blocks = [{ slot: 1, epoch: 1 }, { slot: 2, epoch: 1 }, { slot: 3, epoch: 1 }] as any
+      const blocks: Block[] = [{ slot: 1, epoch: 1 }, { slot: 2, epoch: 1 }, { slot: 3, epoch: 1 }]
+      store.blocks = blocks
       expect(store.blocksCount).toBe(3)
     })
 
@@ -58,7 +74,7 @@ describe('store/jormanager - getters', () => {
   describe('hostsCount', () => {
     it('returns the count of hosts', () => {
       const store = useJorManagerStore()
-      store.hosts = [{ id: 1, hostname: 'a', type: 'local' }, { id: 2, hostname: 'b', type: 'local' }] as any
+      store.hosts = [makeHost({ id: 1, hostname: 'a' }), makeHost({ id: 2, hostname: 'b' })]
       expect(store.hostsCount).toBe(2)
     })
 
@@ -73,9 +89,9 @@ describe('store/jormanager - getters', () => {
     it('maps hosts to select options format', () => {
       const store = useJorManagerStore()
       store.hosts = [
-        { id: 1, hostname: 'host-a', type: 'local' },
-        { id: 2, hostname: 'host-b', type: 'local' }
-      ] as any
+        makeHost({ id: 1, hostname: 'host-a' }),
+        makeHost({ id: 2, hostname: 'host-b' })
+      ]
       const result = store.hostSelectOptions
       expect(result).toEqual([
         { value: 1, text: 'host-a' },
@@ -86,10 +102,10 @@ describe('store/jormanager - getters', () => {
     it('sorts hosts alphabetically by hostname', () => {
       const store = useJorManagerStore()
       store.hosts = [
-        { id: 2, hostname: 'zebra', type: 'local' },
-        { id: 1, hostname: 'alpha', type: 'local' },
-        { id: 3, hostname: 'beta', type: 'local' }
-      ] as any
+        makeHost({ id: 2, hostname: 'zebra' }),
+        makeHost({ id: 1, hostname: 'alpha' }),
+        makeHost({ id: 3, hostname: 'beta' })
+      ]
       const result = store.hostSelectOptions
       expect(result.map(h => h.text)).toEqual(['alpha', 'beta', 'zebra'])
     })
@@ -104,22 +120,24 @@ describe('store/jormanager - getters', () => {
   describe('epochSelectOptions', () => {
     it('maps unique epochs from blocks to options', () => {
       const store = useJorManagerStore()
-      store.blocks = [
+      const blocks: Block[] = [
         { epoch: 500, slot: 1 },
         { epoch: 500, slot: 2 },
         { epoch: 499, slot: 3 }
-      ] as any
+      ]
+      store.blocks = blocks
       const result = store.epochSelectOptions
       expect(result.map(e => e.value)).toEqual([500, 499])
     })
 
     it('orders epochs in descending order', () => {
       const store = useJorManagerStore()
-      store.blocks = [
+      const blocks: Block[] = [
         { epoch: 100, slot: 1 },
         { epoch: 300, slot: 2 },
         { epoch: 200, slot: 3 }
-      ] as any
+      ]
+      store.blocks = blocks
       const result = store.epochSelectOptions
       expect(result.map(e => e.value)).toEqual([300, 200, 100])
     })
@@ -128,21 +146,23 @@ describe('store/jormanager - getters', () => {
   describe('coreNodeSelectOptions', () => {
     it('filters out relay nodes', () => {
       const store = useJorManagerStore()
-      store.nodes = [
+      const nodes: Node[] = [
         { id: 1, name: 'core1', type: 'block-producer', color: '#000' },
         { id: 2, name: 'relay1', type: 'relay', color: '#000' },
         { id: 3, name: 'core2', type: 'bp', color: '#000' }
-      ] as any
+      ]
+      store.nodes = nodes
       const result = store.coreNodeSelectOptions
       expect(result.map(n => n.value)).toEqual(['core1', 'core2'])
     })
 
     it('sorts nodes alphabetically by name', () => {
       const store = useJorManagerStore()
-      store.nodes = [
+      const nodes: Node[] = [
         { id: 1, name: 'z-core', type: 'bp', color: '#000' },
         { id: 2, name: 'a-core', type: 'bp', color: '#000' }
-      ] as any
+      ]
+      store.nodes = nodes
       const result = store.coreNodeSelectOptions
       expect(result.map(n => n.value)).toEqual(['a-core', 'z-core'])
     })
@@ -151,12 +171,13 @@ describe('store/jormanager - getters', () => {
   describe('displayNodes', () => {
     it('joins node with host data', () => {
       const store = useJorManagerStore()
-      store.nodes = [
+      const nodes: Node[] = [
         { id: 1, name: 'node1', hostId: 10, type: 'relay', color: '#ff0000', poolId: 'pool123', isDefault: true, kesExpireTimeSec: 1000 }
-      ] as any
+      ]
+      store.nodes = nodes
       store.hosts = [
-        { id: 10, hostname: 'server1.example.com', type: 'local' }
-      ] as any
+        makeHost({ id: 10, hostname: 'server1.example.com' })
+      ]
       const result = store.displayNodes
       expect(result).toEqual([{
         id: 1,
@@ -172,10 +193,11 @@ describe('store/jormanager - getters', () => {
 
     it('returns empty host when host not found', () => {
       const store = useJorManagerStore()
-      store.nodes = [{ id: 1, name: 'orphan', hostId: 999, color: '#000' }] as any
+      const nodes: Node[] = [{ id: 1, name: 'orphan', hostId: 999, color: '#000' }]
+      store.nodes = nodes
       store.hosts = []
       const result = store.displayNodes
-      expect((result[0] as any).host).toBe('')
+      expect(result[0].host).toBe('')
     })
   })
 
