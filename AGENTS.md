@@ -8,6 +8,32 @@ This guide documents local setup, build, lint, type-check, test, packaging, and 
 - **Node.js**: `>=26.0.0` (used by `vue/` scripts and hooks).
 - **IOG `libsodium`**: Installed at `/usr/local/lib/libsodium.so` (commit `dbb48cce5429cb6585c9034f002568964f1ce567` from `input-output-hk/libsodium`) when running VRF-dependent backend JUnit suites.
 
+### Installing IOG `libsodium` Locally
+
+`src/main/resources/application.properties` configures `libsodium.path=/usr/local/lib/libsodium.so`, and VRF tests (`BlockVerifyTest`, `LeaderLogCalculatorTest`) load `/usr/local/lib/libsodium.so` via JNA for Cardano's `crypto_vrf_ietfdraft03_*` symbols (not exported by stock OS `libsodium` packages).
+
+Build and install commit `dbb48cce5429cb6585c9034f002568964f1ce567` into `/usr/local` (matching `.github/workflows/build.yml`):
+
+```bash
+BUILD_DIR="$(mktemp -d /tmp/libsodium.XXXXXX)"
+cd "$BUILD_DIR"
+git init -q
+git fetch --depth=1 https://github.com/input-output-hk/libsodium.git dbb48cce5429cb6585c9034f002568964f1ce567
+git checkout --detach FETCH_HEAD
+DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
+./configure --prefix=/usr/local
+make -j"$(nproc)"
+sudo make install
+sudo ldconfig
+rm -rf "$BUILD_DIR"
+```
+
+Verify that `/usr/local/lib/libsodium.so` exports the required Cardano VRF symbols:
+
+```bash
+nm -D /usr/local/lib/libsodium.so | grep -E ' T crypto_vrf_ietfdraft03_(proof_to_hash|verify)$'
+```
+
 ## Decoupled Local Build, Lint, and Test Commands (CI Parity)
 
 Frontend and backend checks are decoupled in both Gradle and GitHub Actions CI (`.github/workflows/build.yml`). Running `./gradlew test` or `./gradlew ktlintCheck` does **not** require Node.js, invoke Vitest, or write into `src/main/resources/static`.
@@ -46,6 +72,10 @@ Optional Gradle wrappers `./gradlew testVue` and `./gradlew buildVue` remain ava
 - **Run backend unit tests without Node.js or rebuilding Vue assets**:
   ```bash
   ./gradlew test
+  ```
+- **Run only the VRF block verification test**:
+  ```bash
+  ./gradlew test --tests 'com.swiftmako.jormanager.BlockVerifyTest'
   ```
 - **Run all backend checks without stopping at the first failure** (matches CI `backend` job):
   ```bash
