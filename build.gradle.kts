@@ -262,19 +262,48 @@ tasks.register<InstallGitHooksTask>("installGitHooks") {
     )
 }
 
-tasks.named("test") {
-    dependsOn(testVue)
-}
-
 tasks.withType<AbstractArchiveTask>().configureEach {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
 }
 
+val usePrebuiltFrontend =
+    providers
+        .gradleProperty("prebuiltFrontend")
+        .map { it.toBoolean() }
+        .orElse(
+            providers
+                .environmentVariable("CI")
+                .map { ci ->
+                    val indexHtml =
+                        layout.projectDirectory
+                            .file("vue/dist/index.html")
+                            .asFile
+                    ci.isNotBlank() && indexHtml.isFile
+                }.orElse(false)
+        )
+
 tasks.named<BootJar>("bootJar") {
+    val frontendDist =
+        if (usePrebuiltFrontend.get()) {
+            layout.projectDirectory.dir("vue/dist")
+        } else {
+            buildVue.flatMap { it.distDir }
+        }
+    val frontendIndexHtml =
+        layout.projectDirectory
+            .file("vue/dist/index.html")
+            .asFile
     bootInf {
         into("classes/static") {
-            from(buildVue.flatMap { it.distDir })
+            from(frontendDist)
+        }
+    }
+    doFirst {
+        if (!frontendIndexHtml.isFile) {
+            throw GradleException(
+                "Frontend build output missing at ${frontendIndexHtml.path}. Run './gradlew buildVue' or provide prebuilt assets in vue/dist."
+            )
         }
     }
 }

@@ -15,10 +15,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    name: Build, Lint & Test
+  frontend:
+    name: Frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -32,12 +32,53 @@ jobs:
           cache-dependency-path: vue/package-lock.json
 
       - name: Install frontend dependencies
+        id: install
         working-directory: vue
         run: npm ci
 
       - name: Lint frontend
         working-directory: vue
         run: npm run lint:check
+
+      - name: Type-check frontend
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        working-directory: vue
+        run: npx vue-tsc --noEmit
+
+      - name: Test frontend
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        working-directory: vue
+        run: npm run test
+
+      - name: Build frontend assets
+        working-directory: vue
+        run: npx vite build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: vue/dist/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload frontend reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-reports
+          path: build/reports/vue-tests/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
       - name: Set up Java 21
         uses: actions/setup-java@v6
@@ -65,19 +106,67 @@ jobs:
           sudo make install
           sudo ldconfig
 
-      - name: Check formatting, run tests, and build
+      - name: Check formatting and run backend tests
         env:
           GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-        run: ./gradlew ktlintCheck test bootJar --build-cache --stacktrace
+        run: ./gradlew ktlintCheck test --continue --build-cache --stacktrace
 
       - name: Upload Gradle reports on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: gradle-reports
+          name: backend-gradle-reports
           path: |
             build/reports/ktlint/
             build/reports/tests/
             build/reports/problems/
           retention-days: 7
           if-no-files-found: ignore
+
+  package:
+    name: Build, Lint & Test
+    needs: [frontend, backend]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Verify upstream jobs succeeded
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+        run: |
+          echo "Frontend job result: ${FRONTEND_RESULT}"
+          echo "Backend job result: ${BACKEND_RESULT}"
+          if [ "${FRONTEND_RESULT}" != "success" ] || [ "${BACKEND_RESULT}" != "success" ]; then
+            echo "::error::Upstream CI job did not succeed (frontend=${FRONTEND_RESULT}, backend=${BACKEND_RESULT})."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: vue/dist
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+        with:
+          cache-provider: enhanced
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Build bootJar
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+        run: ./gradlew bootJar -PprebuiltFrontend=true --build-cache --stacktrace

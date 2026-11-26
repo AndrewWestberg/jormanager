@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This guide documents local setup, build, lint, test, and Gradle cache verification commands that mirror `.github/workflows/build.yml`.
+This guide documents local setup, build, lint, type-check, test, packaging, and Gradle cache verification commands that mirror `.github/workflows/build.yml`.
 
 ## Prerequisites
 
@@ -8,7 +8,11 @@ This guide documents local setup, build, lint, test, and Gradle cache verificati
 - **Node.js**: `>=26.0.0` (used by `vue/` scripts and hooks).
 - **IOG `libsodium`**: Installed at `/usr/local/lib/libsodium.so` (commit `dbb48cce5429cb6585c9034f002568964f1ce567` from `input-output-hk/libsodium`) when running VRF-dependent backend JUnit suites.
 
-## Local Build, Lint, and Test Commands (CI Parity)
+## Decoupled Local Build, Lint, and Test Commands (CI Parity)
+
+Frontend and backend checks are decoupled in both Gradle and GitHub Actions CI (`.github/workflows/build.yml`). Running `./gradlew test` or `./gradlew ktlintCheck` does **not** require Node.js, invoke Vitest, or write into `src/main/resources/static`.
+
+### Frontend (`vue/`)
 
 - **Bootstrap frontend dependencies** (requires Node.js `>=26.0.0`):
   ```bash
@@ -18,21 +22,45 @@ This guide documents local setup, build, lint, test, and Gradle cache verificati
   ```bash
   cd vue && npm run lint:check
   ```
-- **Run full CI build and cache check** (Kotlin formatting, backend + frontend unit tests, and `bootJar` packaging):
+- **Type-check Vue and TypeScript sources without emitting files**:
   ```bash
-  ./gradlew ktlintCheck test bootJar --build-cache --stacktrace
+  cd vue && npx vue-tsc --noEmit
   ```
-- **Run backend and frontend unit test suites**:
+- **Run Vitest unit tests** (console output + JUnit XML and JSON reports in `build/reports/vue-tests/`):
+  ```bash
+  cd vue && npm run test
+  ```
+- **Build production SPA assets into `vue/dist/`**:
+  ```bash
+  cd vue && npx vite build
+  ```
+
+Optional Gradle wrappers `./gradlew testVue` and `./gradlew buildVue` remain available for manual use and write outputs to `build/reports/vue-tests/` and `vue/dist/` respectively without modifying `src/main/resources/static`.
+
+### Backend (Repository Root)
+
+- **Check Kotlin and Gradle Kotlin DSL formatting** (use `./gradlew ktlintFormat` to autofix):
+  ```bash
+  ./gradlew ktlintCheck
+  ```
+- **Run backend unit tests without Node.js or rebuilding Vue assets**:
   ```bash
   ./gradlew test
   ```
-- **Run backend-only tests without frontend tasks**:
+- **Run all backend checks without stopping at the first failure** (matches CI `backend` job):
   ```bash
-  ./gradlew test -x testVue --build-cache
+  ./gradlew ktlintCheck test --continue --build-cache --stacktrace
   ```
-- **Run Kotlin formatting check without frontend tasks** (matches `.githooks/pre-commit`):
+
+### Packaging, Local Run, and Configuration Cache
+
+- **Build executable JAR (`bootJar`) locally** (runs `buildVue` -> `vue/dist/` and embeds under `BOOT-INF/classes/static/`):
   ```bash
-  ./gradlew ktlintCheck -x testVue -x buildVue
+  ./gradlew bootJar
+  ```
+- **Build executable JAR with prebuilt `vue/dist/`** (matches CI `package` job, no Node.js required):
+  ```bash
+  ./gradlew bootJar -PprebuiltFrontend=true --build-cache --stacktrace
   ```
 - **Run the application locally** (builds `vue/dist` and serves compiled SPA assets alongside Spring Boot static locations):
   ```bash
