@@ -37,6 +37,13 @@
               >
                 <font-awesome-icon :icon="item.icon" aria-hidden="true" />
                 <span>{{ item.label }}</span>
+                <span
+                  v-if="item.to === '/hosts' && mismatchedHosts.length > 0"
+                  class="jm-nav-alert-badge jm-mono"
+                  :aria-label="`${mismatchedHosts.length} SSH host key mismatch alert`"
+                >
+                  {{ mismatchedHosts.length }}
+                </span>
               </a>
             </RouterLink>
           </li>
@@ -77,7 +84,7 @@ import { useJorManagerStore } from '@/stores/jormanager'
 import jormanagerLogo from '@/assets/jormanager-logo.png'
 
 const store = useJorManagerStore()
-const { appVersion, connected, epoch, slot, epochLength } = storeToRefs(store)
+const { appVersion, connected, epoch, slot, epochLength, mismatchedHosts } = storeToRefs(store)
 
 const displayVersion = computed(() => {
   const raw = appVersion.value?.trim() || '---'
@@ -207,6 +214,21 @@ onMounted(() => {
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0.1));
   border-color: rgba(56, 189, 248, 0.42);
   box-shadow: 0 2px 10px rgba(56, 189, 248, 0.12);
+}
+
+.jm-nav-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 0.32rem;
+  border-radius: var(--jm-radius-pill);
+  background: var(--jm-rose);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .jm-status-cluster {

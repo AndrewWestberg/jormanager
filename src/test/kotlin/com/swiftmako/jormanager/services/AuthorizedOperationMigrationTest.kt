@@ -275,6 +275,39 @@ class AuthorizedOperationMigrationTest {
     }
 
     @Test
+    fun `changelog 050 is registered after 049 and adds ssh fingerprint columns to hosts`() {
+        val accessor = ClassLoaderResourceAccessor()
+        val database =
+            DatabaseFactory.getInstance().findCorrectDatabaseImplementation(
+                OfflineConnection("offline:postgresql", accessor),
+            )
+        val master =
+            ChangeLogParserFactory
+                .getInstance()
+                .getParser("db/liquibase-changelog.xml", accessor)
+                .parse("db/liquibase-changelog.xml", ChangeLogParameters(database), accessor)
+
+        val paths = master.changeSets.map { it.filePath }
+        val index049 = paths.indexOfLast { it.endsWith("049-remove-draft-nodes.xml") }
+        val index050 = paths.indexOfFirst { it.endsWith("050-host-ssh-fingerprints.xml") }
+        assertTrue(index049 >= 0, "Expected 049 changelog in master changelog")
+        assertTrue(index050 > index049, "Expected 050 changelog to be registered after 049")
+
+        val sql =
+            master.changeSets
+                .filter { it.filePath.endsWith("050-host-ssh-fingerprints.xml") }
+                .flatMap { changeSet ->
+                    changeSet.changes.flatMap { change ->
+                        SqlGeneratorFactory.getInstance().generateSql(change, database).map { it.toSql() }
+                    }
+                }.joinToString("\n")
+
+        assertTrue(sql.contains("hosts"), sql)
+        assertTrue(sql.contains("ssh_fingerprint"), sql)
+        assertTrue(sql.contains("ssh_mismatch_fingerprint"), sql)
+    }
+
+    @Test
     fun `migration 049 removes draft nodes, draft-only keys and files, and drops draft tables and column`() {
         val url = System.getenv("JORMANAGER_TEST_DATABASE_URL")
         assumeTrue(!url.isNullOrBlank(), "Set JORMANAGER_TEST_DATABASE_URL to a disposable local PostgreSQL database")
