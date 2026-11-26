@@ -138,8 +138,8 @@ app.use(createBootstrap())
 app.use(VueApexCharts)
 
 // Register global components
-app.component('font-awesome-icon', FontAwesomeIcon)
-app.component('apexchart', VueApexCharts)
+app.component('FontAwesomeIcon', FontAwesomeIcon)
+app.component('Apexchart', VueApexCharts)
 
 // Register global directives
 app.directive('b-tooltip', vBTooltip)

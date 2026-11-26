@@ -1,8 +1,17 @@
 <template>
   <div class="jm-wizard">
-    <nav class="jm-wizard-rail" aria-label="Wizard steps">
-      <div class="jm-wizard-track" aria-hidden="true">
-        <div class="jm-wizard-track-fill" :style="{ width: progressPercent + '%' }" />
+    <nav
+      class="jm-wizard-rail"
+      aria-label="Wizard steps"
+    >
+      <div
+        class="jm-wizard-track"
+        aria-hidden="true"
+      >
+        <div
+          class="jm-wizard-track-fill"
+          :style="{ width: progressPercent + '%' }"
+        />
       </div>
       <button
         v-for="(step, idx) in steps"
@@ -17,9 +26,18 @@
         :disabled="busy"
         @click="goToStep(idx)"
       >
-        <span class="jm-wizard-circle" aria-hidden="true">
-          <font-awesome-icon v-if="idx < currentIndex" :icon="['fas', 'check']" />
-          <font-awesome-icon v-else :icon="step.icon" />
+        <span
+          class="jm-wizard-circle"
+          aria-hidden="true"
+        >
+          <font-awesome-icon
+            v-if="idx < currentIndex"
+            :icon="['fas', 'check']"
+          />
+          <font-awesome-icon
+            v-else
+            :icon="step.icon"
+          />
         </span>
         <span class="jm-wizard-title">{{ step.title }}</span>
       </button>
@@ -29,15 +47,19 @@
       <div class="jm-wizard-body">
         <div
           v-for="(step, idx) in steps"
-          :key="step.key"
           v-show="idx === currentIndex"
+          :key="step.key"
         >
           <slot :name="step.key" />
         </div>
       </div>
 
       <div class="jm-wizard-footer">
-        <BButton variant="outline-secondary" :disabled="busy" @click="emit('cancel')">
+        <BButton
+          variant="outline-secondary"
+          :disabled="busy"
+          @click="emit('cancel')"
+        >
           {{ cancelText }}
         </BButton>
         <div class="jm-action-group">
@@ -47,7 +69,11 @@
             :disabled="busy"
             @click="goPrev"
           >
-            <font-awesome-icon :icon="['fas', 'arrow-left']" class="me-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'arrow-left']"
+              class="me-1"
+              aria-hidden="true"
+            />
             {{ backText }}
           </BButton>
           <BButton
@@ -57,7 +83,11 @@
             @click="goNext"
           >
             {{ nextText }}
-            <font-awesome-icon :icon="['fas', 'arrow-right']" class="ms-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'arrow-right']"
+              class="ms-1"
+              aria-hidden="true"
+            />
           </BButton>
           <BButton
             v-else
@@ -65,7 +95,11 @@
             :disabled="busy"
             @click="handleFinish"
           >
-            <font-awesome-icon :icon="['fas', 'check']" class="me-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'check']"
+              class="me-1"
+              aria-hidden="true"
+            />
             {{ finishText }}
           </BButton>
         </div>

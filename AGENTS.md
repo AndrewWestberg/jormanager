@@ -14,7 +14,7 @@ This guide documents local setup, build, lint, test, and Gradle cache verificati
   ```bash
   cd vue && npm ci
   ```
-- **Run frontend ESLint checks**:
+- **Run frontend ESLint checks** (enforces `pluginVue.configs['flat/recommended']`, strict TypeScript rules, and `--max-warnings 0`; use `npm run lint` to autofix):
   ```bash
   cd vue && npm run lint:check
   ```
@@ -43,6 +43,14 @@ This guide documents local setup, build, lint, test, and Gradle cache verificati
   GRADLE_ENCRYPTION_KEY=<base64-key> ./gradlew help --configuration-cache
   ```
   Generate a local 32-byte base64 test key if needed via `head -c 32 /dev/urandom | base64 -w0`.
+
+## Git Hooks
+
+Configure the repository pre-commit hook (runs `./gradlew ktlintCheck -x testVue -x buildVue` on staged Kotlin/Gradle files and `npx --no-install eslint --max-warnings 0` on staged frontend files under `vue/`):
+
+```bash
+./gradlew installGitHooks
+```
 
 ## Build & Packaging Guardrails
 

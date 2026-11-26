@@ -9,6 +9,7 @@ import type {
   HostKeyMismatchAlert,
   HostFingerprintResult,
   Node,
+  DisplayNode,
   Block,
   FileOption,
   WalletItem,
@@ -253,7 +254,7 @@ export const useJorManagerStore = defineStore('jormanager', {
     coreNodeSelectOptions: (state): SelectOption[] => {
       return sortBy(
         map(
-          filter(state.nodes, (node) => (node as any).type !== 'relay'),
+          filter(state.nodes, (node) => node.type !== 'relay'),
           (node) => ({
             value: node.name,
             text: node.name
@@ -265,51 +266,51 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     stakingSKeys: (state): FileOption[] => {
       return sortBy(
-        filter(state.files, (file) => /.*\.staking\.skey/i.test((file as any).text)),
+        filter(state.files, (file) => /.*\.staking\.skey/i.test(file.text)),
         ['text']
       )
     },
 
     stakingVKeys: (state): FileOption[] => {
       return sortBy(
-        filter(state.files, (file) => /.*\.staking\.vkey/i.test((file as any).text)),
+        filter(state.files, (file) => /.*\.staking\.vkey/i.test(file.text)),
         ['text']
       )
     },
 
     paymentSKeys: (state): FileOption[] => {
       return sortBy(
-        filter(state.files, (file) => /^[a-z0-9]*\.skey|.*\.payment\.skey/i.test((file as any).text)),
+        filter(state.files, (file) => /^[a-z0-9]*\.skey|.*\.payment\.skey/i.test(file.text)),
         ['text']
       )
     },
 
     paymentVKeys: (state): FileOption[] => {
       return sortBy(
-        filter(state.files, (file) => /^[a-z0-9]*\.vkey|.*\.payment\.vkey/i.test((file as any).text)),
+        filter(state.files, (file) => /^[a-z0-9]*\.vkey|.*\.payment\.vkey/i.test(file.text)),
         ['text']
       )
     },
 
     genesisFiles: (state): FileOption[] => {
       return sortBy(
-        filter(state.files, (file) => /.*genesis\.json/i.test((file as any).text)),
+        filter(state.files, (file) => /.*genesis\.json/i.test(file.text)),
         ['text']
       )
     },
 
-    displayNodes: (state): unknown[] => {
+    displayNodes: (state): DisplayNode[] => {
       return map(state.nodes, (node) => {
-        const host = find(state.hosts, (h) => (node as any).hostId === h.id)
+        const host = find(state.hosts, (h) => node.hostId === h.id)
         return {
           id: node.id,
           color: node.color,
           name: node.name,
-          poolId: (node as any).poolId,
-          type: (node as any).type,
+          poolId: node.poolId,
+          type: node.type,
           host: host ? host.hostname : '',
-          isDefault: (node as any).isDefault,
-          kesExpireTimeSec: (node as any).kesExpireTimeSec
+          isDefault: node.isDefault,
+          kesExpireTimeSec: node.kesExpireTimeSec
         }
       })
     }

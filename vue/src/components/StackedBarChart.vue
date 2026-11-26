@@ -1,7 +1,9 @@
 <template>
   <section class="jm-card jm-chart-card">
     <div class="jm-card-header jm-chart-header">
-      <h2 class="jm-chart-title">{{ title }}</h2>
+      <h2 class="jm-chart-title">
+        {{ title }}
+      </h2>
       <span class="jm-pill jm-pill-slate jm-mono">93d KES Window</span>
     </div>
     <div class="jm-chart-body">
@@ -12,8 +14,15 @@
         :options="chartOptions"
         :series="series"
       />
-      <div v-else class="jm-chart-empty">
-        <font-awesome-icon :icon="['fas', 'key']" class="mb-2 opacity-50" aria-hidden="true" />
+      <div
+        v-else
+        class="jm-chart-empty"
+      >
+        <font-awesome-icon
+          :icon="['fas', 'key']"
+          class="mb-2 opacity-50"
+          aria-hidden="true"
+        />
         <span>No core node KES metrics reported yet…</span>
       </div>
     </div>

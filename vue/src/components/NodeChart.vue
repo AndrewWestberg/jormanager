@@ -1,14 +1,22 @@
 <template>
   <section class="jm-card jm-chart-card">
     <div class="jm-card-header jm-chart-header">
-      <h2 class="jm-chart-title">{{ title }}</h2>
-      <div v-if="latestValues.length" class="jm-chart-pills">
+      <h2 class="jm-chart-title">
+        {{ title }}
+      </h2>
+      <div
+        v-if="latestValues.length"
+        class="jm-chart-pills"
+      >
         <span
           v-for="item in latestValues"
           :key="item.name"
           class="jm-node-pill jm-mono"
         >
-          <span class="jm-dot" :style="{ backgroundColor: item.color }" />
+          <span
+            class="jm-dot"
+            :style="{ backgroundColor: item.color }"
+          />
           <span>{{ item.name }}</span>
           <strong>{{ item.value.toLocaleString() }}</strong>
         </span>
@@ -22,8 +30,15 @@
         :options="chartOptions"
         :series="series"
       />
-      <div v-else class="jm-chart-empty">
-        <font-awesome-icon :icon="['fas', 'chart-line']" class="mb-2 opacity-50" aria-hidden="true" />
+      <div
+        v-else
+        class="jm-chart-empty"
+      >
+        <font-awesome-icon
+          :icon="['fas', 'chart-line']"
+          class="mb-2 opacity-50"
+          aria-hidden="true"
+        />
         <span>Awaiting live node telemetry…</span>
       </div>
     </div>

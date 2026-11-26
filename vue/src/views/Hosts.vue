@@ -2,16 +2,24 @@
   <div>
     <div class="jm-page-header">
       <div>
-        <h1 class="jm-page-title">Hosts</h1>
-        <p class="jm-page-subtitle">Manage local and remote SSH servers running your Cardano nodes</p>
+        <h1 class="jm-page-title">
+          Hosts
+        </h1>
+        <p class="jm-page-subtitle">
+          Manage local and remote SSH servers running your Cardano nodes
+        </p>
       </div>
       <div class="jm-action-group">
         <BButton
+          v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
           variant="primary"
           @click="addHostClick"
-          v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
         >
-          <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'plus']"
+            class="me-1"
+            aria-hidden="true"
+          />
           Host
         </BButton>
       </div>
@@ -24,11 +32,16 @@
       data-testid="host-key-mismatch-banner"
     >
       <div class="jm-security-banner-head">
-        <span class="jm-security-banner-icon" aria-hidden="true">
+        <span
+          class="jm-security-banner-icon"
+          aria-hidden="true"
+        >
           <font-awesome-icon :icon="['fas', 'exclamation-triangle']" />
         </span>
         <div>
-          <h2 class="jm-security-banner-title">SSH Host Key Mismatch Detected — Connections Blocked</h2>
+          <h2 class="jm-security-banner-title">
+            SSH Host Key Mismatch Detected — Connections Blocked
+          </h2>
           <p class="jm-security-banner-desc mb-0">
             Remote SSH execution and file transfers to the affected server(s) are blocked because the presented host key does not match the database-pinned fingerprint. Verify the server identity out-of-band (<code class="jm-mono">ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub</code>) before accepting or resetting.
           </p>
@@ -46,7 +59,10 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="jm-mono fw-semibold">{{ host.hostname }}:{{ host.sshPort }}</span>
               <span class="jm-pill jm-pill-rose">
-                <font-awesome-icon :icon="['fas', 'shield-halved']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'shield-halved']"
+                  aria-hidden="true"
+                />
                 Blocked
               </span>
             </div>
@@ -58,7 +74,11 @@
                 :disabled="submittingHostId === host.id"
                 @click="promptAcceptFingerprint(host)"
               >
-                <font-awesome-icon :icon="['fas', 'check']" class="me-1" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'check']"
+                  class="me-1"
+                  aria-hidden="true"
+                />
                 Accept New Key
               </BButton>
               <BButton
@@ -68,7 +88,11 @@
                 :disabled="submittingHostId === host.id"
                 @click="promptResetFingerprint(host)"
               >
-                <font-awesome-icon :icon="['fas', 'rotate']" class="me-1" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'rotate']"
+                  class="me-1"
+                  aria-hidden="true"
+                />
                 Reset Fingerprint
               </BButton>
             </div>
@@ -88,24 +112,45 @@
       </div>
     </div>
 
-    <div v-if="hosts.length > 0" class="jm-summary-grid-3">
+    <div
+      v-if="hosts.length > 0"
+      class="jm-summary-grid-3"
+    >
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Total Hosts</span>
-        <div class="jm-kpi-value jm-mono">{{ hosts.length }}</div>
+        <div class="jm-kpi-value jm-mono">
+          {{ hosts.length }}
+        </div>
       </div>
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Remote SSH</span>
-        <div class="jm-kpi-value jm-mono" style="color: var(--jm-cyan);">{{ remoteCount }}</div>
-        <div v-if="remoteCount > 0" class="jm-kpi-foot">
+        <div
+          class="jm-kpi-value jm-mono"
+          style="color: var(--jm-cyan);"
+        >
+          {{ remoteCount }}
+        </div>
+        <div
+          v-if="remoteCount > 0"
+          class="jm-kpi-foot"
+        >
           <span>{{ pinnedRemoteCount }} pinned (TOFU)</span>
-          <span v-if="mismatchedHosts.length > 0" style="color: var(--jm-rose);">
+          <span
+            v-if="mismatchedHosts.length > 0"
+            style="color: var(--jm-rose);"
+          >
             {{ mismatchedHosts.length }} mismatch
           </span>
         </div>
       </div>
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Local Machine</span>
-        <div class="jm-kpi-value jm-mono" style="color: var(--jm-emerald);">{{ localCount }}</div>
+        <div
+          class="jm-kpi-value jm-mono"
+          style="color: var(--jm-emerald);"
+        >
+          {{ localCount }}
+        </div>
       </div>
     </div>
 
@@ -127,7 +172,10 @@
           <span class="jm-mono fw-semibold">{{ value }}</span>
         </template>
         <template #cell(type)="{ value }">
-          <span class="jm-pill" :class="value === 'remote' ? 'jm-pill-cyan' : 'jm-pill-emerald'">
+          <span
+            class="jm-pill"
+            :class="value === 'remote' ? 'jm-pill-cyan' : 'jm-pill-emerald'"
+          >
             {{ value === 'remote' ? 'Remote SSH' : 'Local' }}
           </span>
         </template>
@@ -135,14 +183,29 @@
           <span class="jm-mono">{{ value || '—' }}</span>
         </template>
         <template #cell(sshPort)="data">
-          <span v-if="data.item.type === 'remote'" class="jm-mono">{{ data.value }}</span>
-          <span v-else class="text-secondary">—</span>
+          <span
+            v-if="data.item.type === 'remote'"
+            class="jm-mono"
+          >{{ data.value }}</span>
+          <span
+            v-else
+            class="text-secondary"
+          >—</span>
         </template>
         <template #cell(sshFingerprint)="data">
-          <span v-if="data.item.type !== 'remote'" class="text-secondary">—</span>
-          <div v-else-if="data.item.sshMismatchFingerprint" class="d-inline-flex align-items-center gap-2 flex-wrap">
+          <span
+            v-if="data.item.type !== 'remote'"
+            class="text-secondary"
+          >—</span>
+          <div
+            v-else-if="data.item.sshMismatchFingerprint"
+            class="d-inline-flex align-items-center gap-2 flex-wrap"
+          >
             <span class="jm-pill jm-pill-rose">
-              <font-awesome-icon :icon="['fas', 'exclamation-triangle']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'exclamation-triangle']"
+                aria-hidden="true"
+              />
               Key Mismatch
             </span>
             <span
@@ -152,19 +215,28 @@
               {{ formatFingerprint(data.item.sshMismatchFingerprint) }}
             </span>
           </div>
-          <div v-else-if="data.item.sshFingerprint" class="d-inline-flex align-items-center gap-2 flex-wrap">
+          <div
+            v-else-if="data.item.sshFingerprint"
+            class="d-inline-flex align-items-center gap-2 flex-wrap"
+          >
             <span class="jm-pill jm-pill-emerald">
-              <font-awesome-icon :icon="['fas', 'shield-halved']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'shield-halved']"
+                aria-hidden="true"
+              />
               Pinned
             </span>
-            <span class="jm-addr-chip jm-mono" :title="data.item.sshFingerprint">
+            <span
+              class="jm-addr-chip jm-mono"
+              :title="data.item.sshFingerprint"
+            >
               {{ formatFingerprint(data.item.sshFingerprint) }}
             </span>
             <button
+              v-b-tooltip.hover.top="'Copy full SSH fingerprint'"
               type="button"
               class="jm-icon-btn cyan"
               :aria-label="`Copy SSH fingerprint for ${data.item.hostname}`"
-              v-b-tooltip.hover.top="'Copy full SSH fingerprint'"
               @click="copyFingerprint(data.item)"
             >
               <font-awesome-icon
@@ -173,8 +245,15 @@
               />
             </button>
           </div>
-          <span v-else class="jm-pill jm-pill-amber" title="Fingerprint will be pinned automatically on initial SSH connection">
-            <font-awesome-icon :icon="['fas', 'clock']" aria-hidden="true" />
+          <span
+            v-else
+            class="jm-pill jm-pill-amber"
+            title="Fingerprint will be pinned automatically on initial SSH connection"
+          >
+            <font-awesome-icon
+              :icon="['fas', 'clock']"
+              aria-hidden="true"
+            />
             Pending TOFU
           </span>
         </template>
@@ -185,47 +264,72 @@
           <div class="d-inline-flex align-items-center justify-content-end gap-1">
             <button
               v-if="data.item.type === 'remote' && data.item.sshMismatchFingerprint && data.item.id != null"
+              v-b-tooltip.hover.left="{ title: 'Accept New SSH Key', variant: 'success' }"
               type="button"
               class="jm-icon-btn emerald"
               :aria-label="`Accept updated SSH key for ${data.item.hostname}`"
-              v-b-tooltip.hover.left="{ title: 'Accept New SSH Key', variant: 'success' }"
               :disabled="submittingHostId === data.item.id"
               @click="promptAcceptFingerprint(data.item)"
             >
-              <font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'check']"
+                aria-hidden="true"
+              />
             </button>
             <button
               v-if="data.item.type === 'remote' && (data.item.sshFingerprint || data.item.sshMismatchFingerprint) && data.item.id != null"
+              v-b-tooltip.hover.left="{ title: 'Reset SSH Fingerprint (Re-run TOFU)', variant: 'danger' }"
               type="button"
               class="jm-icon-btn rose"
               :aria-label="`Reset SSH fingerprint for ${data.item.hostname}`"
-              v-b-tooltip.hover.left="{ title: 'Reset SSH Fingerprint (Re-run TOFU)', variant: 'danger' }"
               :disabled="submittingHostId === data.item.id"
               @click="promptResetFingerprint(data.item)"
             >
-              <font-awesome-icon :icon="['fas', 'rotate']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'rotate']"
+                aria-hidden="true"
+              />
             </button>
             <button
+              v-b-tooltip.hover.left="{ title: 'Host Details & Edit', variant: 'warning' }"
               type="button"
               class="jm-icon-btn amber"
               aria-label="View or Edit this Host"
-              v-b-tooltip.hover.left="{ title: 'Host Details & Edit', variant: 'warning' }"
               @click="editHostClick(data.index)"
             >
-              <font-awesome-icon :icon="['fas', 'edit']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'edit']"
+                aria-hidden="true"
+              />
             </button>
           </div>
         </template>
       </BTable>
     </div>
 
-    <div v-else class="jm-card jm-empty-state">
+    <div
+      v-else
+      class="jm-card jm-empty-state"
+    >
       <div class="jm-empty-icon">
-        <font-awesome-icon :icon="['fas', 'server']" aria-hidden="true" />
+        <font-awesome-icon
+          :icon="['fas', 'server']"
+          aria-hidden="true"
+        />
       </div>
-      <h2 class="h6 mb-1">No hosts configured yet</h2>
-      <p class="small mb-3">Add your local server or a remote SSH host to start provisioning Cardano nodes.</p>
-      <BButton variant="primary" size="sm" @click="addHostClick">+ Add Host</BButton>
+      <h2 class="h6 mb-1">
+        No hosts configured yet
+      </h2>
+      <p class="small mb-3">
+        Add your local server or a remote SSH host to start provisioning Cardano nodes.
+      </p>
+      <BButton
+        variant="primary"
+        size="sm"
+        @click="addHostClick"
+      >
+        + Add Host
+      </BButton>
     </div>
 
     <AddEditHostModal />

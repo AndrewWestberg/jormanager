@@ -14,7 +14,11 @@
     >
       <template #title>
         <span class="d-inline-flex align-items-center gap-2">
-          <font-awesome-icon :icon="['fas', 'shield-halved']" class="text-danger" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'shield-halved']"
+            class="text-danger"
+            aria-hidden="true"
+          />
           <span>Confirm spending password</span>
         </span>
       </template>
@@ -27,8 +31,8 @@
         <BFormInput
           id="spending-password-input"
           ref="passwordInputRef"
-          :type="showPassword ? 'text' : 'password'"
           v-model="spendingPassword"
+          :type="showPassword ? 'text' : 'password'"
           placeholder="Spending password"
           autocomplete="off"
           @keydown="handleKeydown"
@@ -39,7 +43,10 @@
           :aria-label="showPassword ? 'Hide password' : 'Show password'"
           @click="showPassword = !showPassword"
         >
-          <font-awesome-icon :icon="['fas', showPassword ? 'eye-slash' : 'eye']" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', showPassword ? 'eye-slash' : 'eye']"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </BModal>
@@ -62,7 +69,7 @@ const passwordInputRef = ref<InstanceType<typeof BFormInput> | null>(null)
 
 function focusPasswordInput() {
   void nextTick(() => {
-    const el = (passwordInputRef.value as any)?.element || document.getElementById('spending-password-input')
+    const el = passwordInputRef.value?.element || document.getElementById('spending-password-input')
     if (el && typeof el.focus === 'function') {
       el.focus()
     }

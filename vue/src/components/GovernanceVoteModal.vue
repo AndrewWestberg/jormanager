@@ -1,28 +1,47 @@
 <template>
   <BModal
     :model-value="modelValue"
-    @update:model-value="emit('update:modelValue', $event)"
     title="Governance Vote"
     size="lg"
     :no-close-on-backdrop="true"
+    @update:model-value="emit('update:modelValue', $event)"
     @hidden="resetForm"
   >
-    <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
+    <div
+      v-if="reviewError"
+      class="alert alert-danger"
+      role="alert"
+    >
+      {{ reviewError }}
+    </div>
     <fieldset :disabled="busy">
       <div class="jm-sub-panel mb-3">
-        <BFormGroup label="Fees Account" label-cols-md="4" class="mb-3">
+        <BFormGroup
+          label="Fees Account"
+          label-cols-md="4"
+          class="mb-3"
+        >
           <BFormSelect
             v-model="feesAccountId"
             :options="feeAccountOptions"
             :state="feesAccountId !== null"
           >
             <template #first>
-              <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+              <BFormSelectOption
+                :value="null"
+                disabled
+              >
+                -- Please select --
+              </BFormSelectOption>
             </template>
           </BFormSelect>
         </BFormGroup>
 
-        <BFormGroup label="Governance Action ID" label-cols-md="4" class="mb-3">
+        <BFormGroup
+          label="Governance Action ID"
+          label-cols-md="4"
+          class="mb-3"
+        >
           <BFormInput
             v-model="govActionId"
             placeholder="gov_action1..."
@@ -37,8 +56,16 @@
           </BFormText>
         </BFormGroup>
 
-        <BFormGroup label="Rationale (optional)" label-for="governance-vote-rationale" label-cols-md="4">
-          <BFormTextarea id="governance-vote-rationale" v-model="rationale" rows="3" />
+        <BFormGroup
+          label="Rationale (optional)"
+          label-for="governance-vote-rationale"
+          label-cols-md="4"
+        >
+          <BFormTextarea
+            id="governance-vote-rationale"
+            v-model="rationale"
+            rows="3"
+          />
           <BFormText class="text-secondary">
             Published publicly and attached to every pool vote below, even if their choices differ. Publication may remain if the transaction fails.
           </BFormText>
@@ -47,8 +74,12 @@
 
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
         <div>
-          <h6 class="mb-0">Vote Selection</h6>
-          <p class="text-secondary small mb-0">Select a vote for each core node. All nodes must vote.</p>
+          <h6 class="mb-0">
+            Vote Selection
+          </h6>
+          <p class="text-secondary small mb-0">
+            Select a vote for each core node. All nodes must vote.
+          </p>
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <span class="jm-pill jm-pill-emerald jm-mono">Yes: {{ voteTally.YES }}</span>
@@ -57,14 +88,40 @@
         </div>
       </div>
 
-      <div v-if="coreNodes.length > 1" class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <div
+        v-if="coreNodes.length > 1"
+        class="d-flex align-items-center gap-2 mb-2 flex-wrap"
+      >
         <span class="small text-secondary">Quick set all:</span>
-        <BButton variant="outline-success" size="sm" @click="setAllVotes('YES')">All Yes</BButton>
-        <BButton variant="outline-danger" size="sm" @click="setAllVotes('NO')">All No</BButton>
-        <BButton variant="outline-secondary" size="sm" @click="setAllVotes('ABSTAIN')">All Abstain</BButton>
+        <BButton
+          variant="outline-success"
+          size="sm"
+          @click="setAllVotes('YES')"
+        >
+          All Yes
+        </BButton>
+        <BButton
+          variant="outline-danger"
+          size="sm"
+          @click="setAllVotes('NO')"
+        >
+          All No
+        </BButton>
+        <BButton
+          variant="outline-secondary"
+          size="sm"
+          @click="setAllVotes('ABSTAIN')"
+        >
+          All Abstain
+        </BButton>
       </div>
 
-      <div class="jm-table-wrapper" tabindex="0" role="region" aria-label="Pool votes">
+      <div
+        class="jm-table-wrapper"
+        tabindex="0"
+        role="region"
+        aria-label="Pool votes"
+      >
         <BTable
           :items="coreNodesWithVotes"
           :fields="nodeFields"
@@ -75,19 +132,22 @@
         >
           <template #cell(name)="{ item }">
             <span class="d-inline-flex align-items-center gap-2">
-              <span class="jm-dot" :style="{ backgroundColor: (item as any).color }" />
-              <strong class="jm-mono">{{ (item as any).name }}</strong>
+              <span
+                class="jm-dot"
+                :style="{ backgroundColor: item.color }"
+              />
+              <strong class="jm-mono">{{ item.name }}</strong>
             </span>
           </template>
           <template #cell(poolId)="{ item }">
-            <span class="jm-mono text-secondary small">{{ truncatePoolId((item as any).poolId) }}</span>
+            <span class="jm-mono text-secondary small">{{ truncatePoolId(item.poolId) }}</span>
           </template>
           <template #cell(vote)="{ item }">
             <BFormSelect
-              v-model="nodeVotes[(item as any).id]"
+              v-model="nodeVotes[item.id]"
               :options="voteOptions"
               size="sm"
-              :state="nodeVotes[(item as any).id] !== undefined"
+              :state="nodeVotes[item.id] !== undefined"
             />
           </template>
         </BTable>
@@ -95,7 +155,12 @@
     </fieldset>
 
     <template #footer>
-      <BButton variant="secondary" @click="handleCancel">Cancel</BButton>
+      <BButton
+        variant="secondary"
+        @click="handleCancel"
+      >
+        Cancel
+      </BButton>
       <BButton
         variant="success"
         :disabled="busy || !walletReady || !isValidGovActionId || feesAccountId === null || !coreNodes.length"
@@ -208,7 +273,7 @@ const nodeFields = [
 ]
 
 const coreNodes = computed(() => {
-  return filter(nodes.value, (node) => (node as any).type !== 'relay' && !(node as any).isDeleted)
+  return filter(nodes.value, (node) => node.type !== 'relay' && !node.isDeleted)
 })
 
 const coreNodesWithVotes = computed(() => {
@@ -216,7 +281,7 @@ const coreNodesWithVotes = computed(() => {
     id: node.id,
     name: node.name,
     color: node.color,
-    poolId: (node as any).poolId,
+    poolId: node.poolId,
     vote: nodeVotes.value[node.id!] || 'ABSTAIN'
   }))
 })
@@ -257,7 +322,7 @@ const govActionIdState = computed(() => {
   return isValidGovActionId.value
 })
 
-function truncatePoolId(poolId: string): string {
+function truncatePoolId(poolId?: string | null): string {
   if (!poolId || poolId.length < 20) return poolId || '-'
   return `${poolId.substring(0, 10)}...${poolId.substring(poolId.length - 6)}`
 }

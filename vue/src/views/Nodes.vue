@@ -1,27 +1,42 @@
 <template>
   <div>
-    <div id="nodes-home" v-if="!showAddNodeWizard">
+    <div
+      v-if="!showAddNodeWizard"
+      id="nodes-home"
+    >
       <div class="jm-page-header">
         <div>
-          <h1 class="jm-page-title">Nodes &amp; Pools</h1>
-          <p class="jm-page-subtitle">Operate block producers, relays, KES rotations, Leios keys, and governance votes</p>
+          <h1 class="jm-page-title">
+            Nodes &amp; Pools
+          </h1>
+          <p class="jm-page-subtitle">
+            Operate block producers, relays, KES rotations, Leios keys, and governance votes
+          </p>
         </div>
         <div class="jm-action-group">
           <BButton
             v-if="hasCoreNodes"
+            v-b-tooltip.hover.bottom="'Submit governance vote for all core nodes'"
             variant="outline-success"
             @click="showGovernanceVoteModal = true"
-            v-b-tooltip.hover.bottom="'Submit governance vote for all core nodes'"
           >
-            <font-awesome-icon :icon="['fas', 'check-to-slot']" class="me-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'check-to-slot']"
+              class="me-1"
+              aria-hidden="true"
+            />
             Vote
           </BButton>
           <BButton
+            v-b-tooltip.hover.bottom="'Add a new cardano-node.'"
             variant="primary"
             @click="poolParentId = null; showAddNodeWizard = true"
-            v-b-tooltip.hover.bottom="'Add a new cardano-node.'"
           >
-            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'plus']"
+              class="me-1"
+              aria-hidden="true"
+            />
             Node
           </BButton>
         </div>
@@ -29,7 +44,11 @@
 
       <!-- Filter & Search Toolbar -->
       <div class="jm-toolbar">
-        <div class="jm-chip-group" role="group" aria-label="Filter nodes by type">
+        <div
+          class="jm-chip-group"
+          role="group"
+          aria-label="Filter nodes by type"
+        >
           <button
             v-for="tab in roleFilters"
             :key="tab.value"
@@ -42,7 +61,11 @@
           </button>
         </div>
         <div class="jm-search-wrap">
-          <font-awesome-icon :icon="['fas', 'search']" class="jm-search-icon" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'search']"
+            class="jm-search-icon"
+            aria-hidden="true"
+          />
           <BFormInput
             v-model="searchQuery"
             type="search"
@@ -65,46 +88,52 @@
           small
           hover
           striped
-          :items="filteredNodes as any[]"
+          :items="filteredNodes"
           :fields="fields"
         >
           <template #cell(name)="{ item, value }">
             <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
               <div class="d-flex align-items-center gap-2">
                 <button
+                  v-b-tooltip.hover.left="'Update Color'"
                   type="button"
                   class="jm-color-swatch-btn"
                   :style="{
-                    backgroundColor: (item as any).color,
-                    boxShadow: `0 0 0 3px ${(item as any).color}33`
+                    backgroundColor: item.color,
+                    boxShadow: `0 0 0 3px ${item.color}33`
                   }"
                   aria-label="Update node color"
-                  v-b-tooltip.hover.left="'Update Color'"
-                  @click="openColorModal((item as any).id, (item as any).color)"
+                  @click="openColorModal(item.id, item.color)"
                 >
                   <font-awesome-icon
-                    v-if="(item as any).isDefault"
+                    v-if="item.isDefault"
                     :icon="['fas', 'check']"
                     class="jm-default-check"
                     aria-hidden="true"
                   />
                 </button>
                 <span class="jm-mono fw-semibold">{{ value }}</span>
-                <span v-if="(item as any).isDefault" class="jm-pill jm-pill-cyan">Default</span>
+                <span
+                  v-if="item.isDefault"
+                  class="jm-pill jm-pill-cyan"
+                >Default</span>
               </div>
               <div
-                v-if="(item as any).type !== 'relay' && (item as any).poolId"
+                v-if="item.type !== 'relay' && item.poolId"
                 class="jm-addr-chip jm-mono"
               >
-                <span>{{ truncatePoolId((item as any).poolId) }}</span>
+                <span>{{ truncatePoolId(item.poolId) }}</span>
                 <button
+                  v-b-tooltip.hover.right="{ title: 'Copy PoolId to clipboard', variant: 'secondary' }"
                   type="button"
                   class="jm-icon-btn cyan jm-mini-copy"
                   aria-label="Copy Pool ID"
-                  v-b-tooltip.hover.right="{ title: 'Copy PoolId to clipboard', variant: 'secondary' }"
-                  @click="copyToClipboard((item as any).poolId)"
+                  @click="copyToClipboard(item.poolId)"
                 >
-                  <font-awesome-icon :icon="['fas', 'copy']" aria-hidden="true" />
+                  <font-awesome-icon
+                    :icon="['fas', 'copy']"
+                    aria-hidden="true"
+                  />
                 </button>
               </div>
             </div>
@@ -113,26 +142,35 @@
           <template #cell(type)="{ value }">
             <span
               v-if="value === 'relay'"
-              class="jm-pill jm-pill-rose"
               v-b-tooltip.hover.right="{ title: 'Relay Node', variant: 'danger' }"
+              class="jm-pill jm-pill-rose"
             >
-              <font-awesome-icon :icon="['fas', 'dice-d20']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                aria-hidden="true"
+              />
               Relay
             </span>
             <span
               v-else-if="value === 'core'"
-              class="jm-pill jm-pill-emerald"
               v-b-tooltip.hover.right="{ title: 'Core Node', variant: 'success' }"
+              class="jm-pill jm-pill-emerald"
             >
-              <font-awesome-icon :icon="['fas', 'dice-d20']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                aria-hidden="true"
+              />
               Core
             </span>
             <span
               v-else-if="value === 'pool'"
-              class="jm-pill jm-pill-cyan"
               v-b-tooltip.hover.right="{ title: 'Pool Node', variant: 'primary' }"
+              class="jm-pill jm-pill-cyan"
             >
-              <font-awesome-icon :icon="['fas', 'dice-d20']" aria-hidden="true" />
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                aria-hidden="true"
+              />
               Pool
             </span>
           </template>
@@ -142,95 +180,131 @@
           </template>
 
           <template #cell(kesExpireTimeSec)="{ item, value }">
-            <div v-if="(value as number) > -1" class="d-inline-flex align-items-center gap-2 flex-wrap">
-              <span class="jm-pill jm-mono" :class="kesPillClass(value as number)">
+            <div
+              v-if="(value as number) > -1"
+              class="d-inline-flex align-items-center gap-2 flex-wrap"
+            >
+              <span
+                class="jm-pill jm-mono"
+                :class="kesPillClass(value as number)"
+              >
                 {{ formatKesExpiry(value as number) }}
               </span>
               <button
+                v-b-tooltip.hover.right="{ title: 'Rotate KES Key', variant: 'warning' }"
                 type="button"
                 class="jm-icon-btn amber"
                 aria-label="Rotate KES Key"
-                v-b-tooltip.hover.right="{ title: 'Rotate KES Key', variant: 'warning' }"
-                @click="rotateKesKey((item as any).name)"
+                @click="rotateKesKey(item.name)"
               >
-                <font-awesome-icon :icon="['fas', 'key']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'key']"
+                  aria-hidden="true"
+                />
               </button>
             </div>
-            <span v-else class="text-secondary">—</span>
+            <span
+              v-else
+              class="text-secondary"
+            >—</span>
           </template>
 
           <template #cell(edit)="{ item }">
             <div class="d-flex align-items-center justify-content-end gap-1 flex-nowrap">
               <button
-                v-if="(item as any).type !== 'pool'"
+                v-if="item.type !== 'pool'"
+                v-b-tooltip.hover.left="{ title: 'Restart Node', variant: 'danger' }"
                 type="button"
                 class="jm-icon-btn rose"
                 aria-label="Restart Node"
-                v-b-tooltip.hover.left="{ title: 'Restart Node', variant: 'danger' }"
-                @click="restartNode((item as any).name)"
+                @click="restartNode(item.name)"
               >
-                <font-awesome-icon :icon="['fas', 'power-off']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'power-off']"
+                  aria-hidden="true"
+                />
               </button>
               <button
-                v-if="(item as any).type !== 'relay'"
+                v-if="item.type !== 'relay'"
+                v-b-tooltip.hover.left="{ title: 'Edit Pool Config', variant: 'warning' }"
                 type="button"
                 class="jm-icon-btn amber"
                 aria-label="Edit Pool Config"
-                v-b-tooltip.hover.left="{ title: 'Edit Pool Config', variant: 'warning' }"
-                @click="openPoolConfigModal((item as any).id)"
+                @click="openPoolConfigModal(item.id)"
               >
-                <font-awesome-icon :icon="['fas', 'percent']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'percent']"
+                  aria-hidden="true"
+                />
               </button>
               <button
-                v-if="(item as any).type !== 'relay'"
+                v-if="item.type !== 'relay'"
+                v-b-tooltip.hover.left="{ title: 'Edit Metadata', variant: 'primary' }"
                 type="button"
                 class="jm-icon-btn cyan"
                 aria-label="Edit Metadata"
-                v-b-tooltip.hover.left="{ title: 'Edit Metadata', variant: 'primary' }"
-                @click="openMetadataModal((item as any).id)"
+                @click="openMetadataModal(item.id)"
               >
-                <font-awesome-icon :icon="['fas', 'info-circle']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'info-circle']"
+                  aria-hidden="true"
+                />
               </button>
               <button
-                v-if="(item as any).type !== 'relay'"
+                v-if="item.type !== 'relay'"
+                v-b-tooltip.hover.left="{ title: 'Edit Relays', variant: 'success' }"
                 type="button"
                 class="jm-icon-btn emerald"
                 aria-label="Edit Relays"
-                v-b-tooltip.hover.left="{ title: 'Edit Relays', variant: 'success' }"
-                @click="openRelaysModal((item as any).id)"
+                @click="openRelaysModal(item.id)"
               >
-                <font-awesome-icon :icon="['fas', 'project-diagram']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'project-diagram']"
+                  aria-hidden="true"
+                />
               </button>
               <button
-                v-if="(item as any).type !== 'relay'"
+                v-if="item.type !== 'relay'"
+                v-b-tooltip.hover.left="{ title: 'Leios key status', variant: 'info' }"
                 type="button"
                 class="jm-icon-btn indigo"
                 aria-label="Leios key status"
-                v-b-tooltip.hover.left="{ title: 'Leios key status', variant: 'info' }"
-                @click="leiosNodeId = (item as any).id"
+                @click="leiosNodeId = item.id"
               >
-                <font-awesome-icon :icon="['fas', 'key']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'key']"
+                  aria-hidden="true"
+                />
               </button>
               <button
-                v-if="(item as any).type === 'core' && mp"
+                v-if="item.type === 'core' && mp"
+                v-b-tooltip.hover.left="{ title: 'Add Pool', variant: 'primary' }"
                 type="button"
                 class="jm-icon-btn cyan"
                 aria-label="Add Pool"
-                v-b-tooltip.hover.left="{ title: 'Add Pool', variant: 'primary' }"
-                @click="addPool((item as any).id)"
+                @click="addPool(item.id)"
               >
-                <font-awesome-icon :icon="['fas', 'plus-circle']" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="['fas', 'plus-circle']"
+                  aria-hidden="true"
+                />
               </button>
-              <template v-if="(item as any).type !== 'relay'">
-                <span class="jm-action-divider" aria-hidden="true" />
+              <template v-if="item.type !== 'relay'">
+                <span
+                  class="jm-action-divider"
+                  aria-hidden="true"
+                />
                 <button
+                  v-b-tooltip.hover.left="{ title: 'Retire Pool', variant: 'danger' }"
                   type="button"
                   class="jm-icon-btn rose"
                   aria-label="Retire Pool"
-                  v-b-tooltip.hover.left="{ title: 'Retire Pool', variant: 'danger' }"
-                  @click="openRetireModal((item as any).id)"
+                  @click="openRetireModal(item.id)"
                 >
-                  <font-awesome-icon :icon="['fas', 'skull']" aria-hidden="true" />
+                  <font-awesome-icon
+                    :icon="['fas', 'skull']"
+                    aria-hidden="true"
+                  />
                 </button>
               </template>
             </div>
@@ -238,15 +312,28 @@
         </BTable>
       </div>
 
-      <div v-else class="jm-card jm-empty-state">
+      <div
+        v-else
+        class="jm-card jm-empty-state"
+      >
         <div class="jm-empty-icon">
-          <font-awesome-icon :icon="['fas', 'dice-d20']" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'dice-d20']"
+            aria-hidden="true"
+          />
         </div>
-        <h2 class="h6 mb-1">{{ (displayNodes as any[]).length === 0 ? 'No nodes configured yet' : 'No matching nodes' }}</h2>
+        <h2 class="h6 mb-1">
+          {{ displayNodes.length === 0 ? 'No nodes configured yet' : 'No matching nodes' }}
+        </h2>
         <p class="small mb-3">
-          {{ (displayNodes as any[]).length === 0 ? 'Provision your first Cardano relay or block-producing core node.' : 'Try adjusting your role filter or search query.' }}
+          {{ displayNodes.length === 0 ? 'Provision your first Cardano relay or block-producing core node.' : 'Try adjusting your role filter or search query.' }}
         </p>
-        <BButton v-if="(displayNodes as any[]).length === 0" variant="primary" size="sm" @click="poolParentId = null; showAddNodeWizard = true">
+        <BButton
+          v-if="displayNodes.length === 0"
+          variant="primary"
+          size="sm"
+          @click="poolParentId = null; showAddNodeWizard = true"
+        >
           + Add Node
         </BButton>
       </div>
@@ -265,7 +352,10 @@
       no-footer
       @update:model-value="value => { if (!value) leiosNodeId = null }"
     >
-      <LeiosKeyPanel v-if="leiosNodeId !== null" :node-id="leiosNodeId" />
+      <LeiosKeyPanel
+        v-if="leiosNodeId !== null"
+        :node-id="leiosNodeId"
+      />
     </BModal>
 
     <!-- Edit Color Modal -->
@@ -276,7 +366,9 @@
       @ok.prevent="handleSaveColor"
     >
       <div class="mb-3">
-        <div class="small text-secondary mb-2">Quick Swatches</div>
+        <div class="small text-secondary mb-2">
+          Quick Swatches
+        </div>
         <div class="d-flex gap-2 flex-wrap">
           <button
             v-for="swatch in presetSwatches"
@@ -290,9 +382,16 @@
           />
         </div>
       </div>
-      <BFormGroup label="Custom Color" label-cols-md="3">
+      <BFormGroup
+        label="Custom Color"
+        label-cols-md="3"
+      >
         <div class="d-flex align-items-center gap-3">
-          <BFormInput v-model="editColorForm.color" type="color" style="width: 56px; height: 38px; padding: 2px;" />
+          <BFormInput
+            v-model="editColorForm.color"
+            type="color"
+            style="width: 56px; height: 38px; padding: 2px;"
+          />
           <span class="jm-mono text-secondary">{{ editColorForm.color }}</span>
         </div>
       </BFormGroup>
@@ -304,28 +403,47 @@
       :title="poolConfigStep === 1 ? 'Edit Pool Config' : 'Review Pool Config'"
       size="xl"
       :no-close-on-backdrop="true"
-      @ok.prevent="handleSavePoolConfig"
       :ok-title="poolConfigStep === 1 ? 'Review' : 'Submit'"
       :ok-disabled="poolConfigStep !== 1 && nodeChainUnavailable(editPoolConfigForm.nodeId)"
       :cancel-title="poolConfigStep === 1 ? 'Cancel' : 'Back'"
+      @ok.prevent="handleSavePoolConfig"
       @cancel.prevent="handleCancelPoolConfig"
     >
       <div v-if="poolConfigStep === 1">
         <div class="jm-sub-panel mb-3">
-          <h5 class="jm-sub-panel-title">Account Config</h5>
-          <BFormGroup label="Fees Account" label-cols-md="3" class="mb-3">
+          <h5 class="jm-sub-panel-title">
+            Account Config
+          </h5>
+          <BFormGroup
+            label="Fees Account"
+            label-cols-md="3"
+            class="mb-3"
+          >
             <BFormSelect
               v-model="editPoolConfigForm.registrationFeesAccount"
               :options="feeAccountOptions"
               :state="editPoolConfigForm.registrationFeesAccount != null"
             >
               <template #first>
-                <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                <BFormSelectOption
+                  :value="null"
+                  disabled
+                >
+                  -- Please select --
+                </BFormSelectOption>
               </template>
             </BFormSelect>
           </BFormGroup>
-          <label class="d-block mb-2 small"><input v-model="replacePoolOwners" type="checkbox" class="me-2">Replace the entire owner set with the selected accounts</label>
-          <BFormGroup label="Owner (Pledge) Accounts" label-cols-md="3" class="mb-3">
+          <label class="d-block mb-2 small"><input
+            v-model="replacePoolOwners"
+            type="checkbox"
+            class="me-2"
+          >Replace the entire owner set with the selected accounts</label>
+          <BFormGroup
+            label="Owner (Pledge) Accounts"
+            label-cols-md="3"
+            class="mb-3"
+          >
             <BFormSelect
               v-model="selectedPoolOwners"
               :options="stakingAccountOptions"
@@ -334,8 +452,15 @@
               multiple
             />
           </BFormGroup>
-          <label class="d-block mb-2 small"><input v-model="changePoolReward" type="checkbox" class="me-2">Change the reward account</label>
-          <BFormGroup label="Rewards Account" label-cols-md="3">
+          <label class="d-block mb-2 small"><input
+            v-model="changePoolReward"
+            type="checkbox"
+            class="me-2"
+          >Change the reward account</label>
+          <BFormGroup
+            label="Rewards Account"
+            label-cols-md="3"
+          >
             <BFormSelect
               v-model="editPoolConfigForm.rewardsStakingAccount"
               :options="rewardsAccountOptions"
@@ -343,21 +468,47 @@
               :disabled="!changePoolReward"
             >
               <template #first>
-                <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+                <BFormSelectOption
+                  :value="null"
+                  disabled
+                >
+                  -- Please select --
+                </BFormSelectOption>
               </template>
             </BFormSelect>
           </BFormGroup>
         </div>
 
         <div class="jm-sub-panel">
-          <h5 class="jm-sub-panel-title">Pledge &amp; Fees</h5>
-          <BFormGroup label="Pledge (lovelace)" label-cols-md="3" class="mb-3">
-            <BFormInput v-model="editPoolConfigForm.poolPledge" placeholder="e.g. 250000000000" class="jm-mono" />
+          <h5 class="jm-sub-panel-title">
+            Pledge &amp; Fees
+          </h5>
+          <BFormGroup
+            label="Pledge (lovelace)"
+            label-cols-md="3"
+            class="mb-3"
+          >
+            <BFormInput
+              v-model="editPoolConfigForm.poolPledge"
+              placeholder="e.g. 250000000000"
+              class="jm-mono"
+            />
           </BFormGroup>
-          <BFormGroup label="Cost (lovelace)" label-cols-md="3" class="mb-3">
-            <BFormInput v-model="editPoolConfigForm.poolCost" placeholder="e.g. 340000000" class="jm-mono" />
+          <BFormGroup
+            label="Cost (lovelace)"
+            label-cols-md="3"
+            class="mb-3"
+          >
+            <BFormInput
+              v-model="editPoolConfigForm.poolCost"
+              placeholder="e.g. 340000000"
+              class="jm-mono"
+            />
           </BFormGroup>
-          <BFormGroup label="Margin" label-cols-md="3">
+          <BFormGroup
+            label="Margin"
+            label-cols-md="3"
+          >
             <div class="d-flex align-items-center gap-3">
               <BFormInput
                 v-model="editPoolConfigForm.poolMargin"
@@ -373,23 +524,35 @@
         </div>
       </div>
       <div v-else>
-        <p class="mb-2">Target pool: <strong class="jm-mono">{{ nodes.find(node => node.id === editPoolConfigForm.nodeId)?.name }}</strong> ({{ editPoolConfigForm.nodeId }}).</p>
+        <p class="mb-2">
+          Target pool: <strong class="jm-mono">{{ nodes.find(node => node.id === editPoolConfigForm.nodeId)?.name }}</strong> ({{ editPoolConfigForm.nodeId }}).
+        </p>
         <h5>Please Review Your Changes</h5>
-        <p class="small text-secondary">Owner set: {{ replacePoolOwners ? selectedPoolOwners.join(', ') : 'preserve current owners' }}. Reward account: {{ changePoolReward ? editPoolConfigForm.rewardsStakingAccount : 'preserve current reward account' }}.</p>
+        <p class="small text-secondary">
+          Owner set: {{ replacePoolOwners ? selectedPoolOwners.join(', ') : 'preserve current owners' }}. Reward account: {{ changePoolReward ? editPoolConfigForm.rewardsStakingAccount : 'preserve current reward account' }}.
+        </p>
         <div class="jm-table-wrapper">
           <table class="table table-sm mb-0">
             <tbody>
               <tr>
-                <th style="width: 30%">Pledge</th>
-                <td class="jm-mono">{{ editPoolConfigForm.poolPledge }}</td>
+                <th style="width: 30%">
+                  Pledge
+                </th>
+                <td class="jm-mono">
+                  {{ editPoolConfigForm.poolPledge }}
+                </td>
               </tr>
               <tr>
                 <th>Fixed Cost</th>
-                <td class="jm-mono">{{ editPoolConfigForm.poolCost }}</td>
+                <td class="jm-mono">
+                  {{ editPoolConfigForm.poolCost }}
+                </td>
               </tr>
               <tr>
                 <th>Margin</th>
-                <td class="jm-mono">{{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%</td>
+                <td class="jm-mono">
+                  {{ (editPoolConfigForm.poolMargin * 100).toFixed(2) }}%
+                </td>
               </tr>
             </tbody>
           </table>
@@ -403,36 +566,91 @@
       title="Edit Metadata"
       size="xl"
       :no-close-on-backdrop="true"
-      @ok.prevent="handleSaveMetadata"
       ok-title="Submit"
       :ok-disabled="nodeChainUnavailable(editMetadataForm.nodeId)"
+      @ok.prevent="handleSaveMetadata"
     >
-      <BFormGroup label="Fees Account" class="mb-3">
-        <BFormSelect v-model="poolChangeFeeAccount" :options="feeAccountOptions" />
+      <BFormGroup
+        label="Fees Account"
+        class="mb-3"
+      >
+        <BFormSelect
+          v-model="poolChangeFeeAccount"
+          :options="feeAccountOptions"
+        />
       </BFormGroup>
       <div class="jm-sub-panel mb-3">
-        <h5 class="jm-sub-panel-title">Primary (Required)</h5>
-        <BFormGroup label="Ticker" label-cols-md="2" class="mb-2">
-          <BFormInput v-model="editMetadataForm.ticker" placeholder="e.g. TICKR" maxlength="5" class="jm-mono" />
+        <h5 class="jm-sub-panel-title">
+          Primary (Required)
+        </h5>
+        <BFormGroup
+          label="Ticker"
+          label-cols-md="2"
+          class="mb-2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.ticker"
+            placeholder="e.g. TICKR"
+            maxlength="5"
+            class="jm-mono"
+          />
         </BFormGroup>
-        <BFormGroup label="Name" label-cols-md="2" class="mb-2">
-          <BFormInput v-model="editMetadataForm.name" placeholder="e.g. My Awesome Pool" maxlength="50" />
+        <BFormGroup
+          label="Name"
+          label-cols-md="2"
+          class="mb-2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.name"
+            placeholder="e.g. My Awesome Pool"
+            maxlength="50"
+          />
         </BFormGroup>
-        <BFormGroup label="Description" label-cols-md="2" class="mb-2">
-          <BFormInput v-model="editMetadataForm.description" placeholder="Pool description" maxlength="255" />
+        <BFormGroup
+          label="Description"
+          label-cols-md="2"
+          class="mb-2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.description"
+            placeholder="Pool description"
+            maxlength="255"
+          />
         </BFormGroup>
-        <BFormGroup label="Homepage" label-cols-md="2">
-          <BFormInput v-model="editMetadataForm.homepage" placeholder="e.g. https://mypool.com" class="jm-mono" />
+        <BFormGroup
+          label="Homepage"
+          label-cols-md="2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.homepage"
+            placeholder="e.g. https://mypool.com"
+            class="jm-mono"
+          />
         </BFormGroup>
       </div>
 
       <div class="jm-sub-panel">
-        <h5 class="jm-sub-panel-title">Extended (Optional)</h5>
-        <BFormGroup label="Location" label-cols-md="2" class="mb-2">
-          <BFormInput v-model="editMetadataForm.location" placeholder="e.g. United States" />
+        <h5 class="jm-sub-panel-title">
+          Extended (Optional)
+        </h5>
+        <BFormGroup
+          label="Location"
+          label-cols-md="2"
+          class="mb-2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.location"
+            placeholder="e.g. United States"
+          />
         </BFormGroup>
-        <BFormGroup label="Twitter" label-cols-md="2">
-          <BFormInput v-model="editMetadataForm.twitter" placeholder="e.g. mypool" />
+        <BFormGroup
+          label="Twitter"
+          label-cols-md="2"
+        >
+          <BFormInput
+            v-model="editMetadataForm.twitter"
+            placeholder="e.g. mypool"
+          />
         </BFormGroup>
       </div>
     </BModal>
@@ -443,35 +661,74 @@
       :title="relaysStep === 1 ? 'Edit Relays' : 'Review Relays'"
       size="lg"
       :no-close-on-backdrop="true"
-      @ok.prevent="handleSaveRelays"
       :ok-title="relaysStep === 1 ? 'Review' : 'Submit'"
       :ok-disabled="relaysStep !== 1 && nodeChainUnavailable(editRelaysForm.nodeId)"
       :cancel-title="relaysStep === 1 ? 'Cancel' : 'Back'"
+      @ok.prevent="handleSaveRelays"
       @cancel.prevent="handleCancelRelays"
     >
-      <BFormGroup label="Fees Account" class="mb-3">
-        <BFormSelect v-model="poolChangeFeeAccount" :options="feeAccountOptions" />
+      <BFormGroup
+        label="Fees Account"
+        class="mb-3"
+      >
+        <BFormSelect
+          v-model="poolChangeFeeAccount"
+          :options="feeAccountOptions"
+        />
       </BFormGroup>
       <div v-if="relaysStep === 1">
-        <div v-for="(relay, index) in editRelaysForm.relays" :key="index" class="jm-sub-panel mb-3">
+        <div
+          v-for="(relay, index) in editRelaysForm.relays"
+          :key="index"
+          class="jm-sub-panel mb-3"
+        >
           <div class="d-flex justify-content-between align-items-center mb-2">
             <span class="jm-pill jm-pill-indigo">Relay {{ index + 1 }}</span>
-            <BButton variant="outline-danger" size="sm" @click="editRelaysForm.relays.splice(index, 1)">✕</BButton>
+            <BButton
+              variant="outline-danger"
+              size="sm"
+              @click="editRelaysForm.relays.splice(index, 1)"
+            >
+              ✕
+            </BButton>
           </div>
-          <BFormGroup label="Address" label-cols-md="2" class="mb-2">
-            <BFormInput v-model="relay.addr" placeholder="e.g. relay1.mypool.com" class="jm-mono" />
+          <BFormGroup
+            label="Address"
+            label-cols-md="2"
+            class="mb-2"
+          >
+            <BFormInput
+              v-model="relay.addr"
+              placeholder="e.g. relay1.mypool.com"
+              class="jm-mono"
+            />
           </BFormGroup>
-          <BFormGroup label="Port" label-cols-md="2">
-            <BFormInput v-model="relay.port" type="number" placeholder="e.g. 3001" class="jm-mono" />
+          <BFormGroup
+            label="Port"
+            label-cols-md="2"
+          >
+            <BFormInput
+              v-model="relay.port"
+              type="number"
+              placeholder="e.g. 3001"
+              class="jm-mono"
+            />
           </BFormGroup>
         </div>
-        <BButton variant="primary" size="sm" @click="editRelaysForm.relays.push({ addr: '', port: 3001 })">
+        <BButton
+          variant="primary"
+          size="sm"
+          @click="editRelaysForm.relays.push({ addr: '', port: 3001 })"
+        >
           + Add Relay
         </BButton>
       </div>
       <div v-else>
         <h5>Please Review Your Relays</h5>
-        <div v-if="editRelaysForm.relays.length > 0" class="jm-table-wrapper">
+        <div
+          v-if="editRelaysForm.relays.length > 0"
+          class="jm-table-wrapper"
+        >
           <table class="table table-sm mb-0">
             <thead>
               <tr>
@@ -480,14 +737,26 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(relay, idx) in editRelaysForm.relays" :key="idx">
-                <td class="jm-mono">{{ relay.addr }}</td>
-                <td class="jm-mono">{{ relay.port }}</td>
+              <tr
+                v-for="(relay, idx) in editRelaysForm.relays"
+                :key="idx"
+              >
+                <td class="jm-mono">
+                  {{ relay.addr }}
+                </td>
+                <td class="jm-mono">
+                  {{ relay.port }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p v-else class="text-secondary">No relays configured.</p>
+        <p
+          v-else
+          class="text-secondary"
+        >
+          No relays configured.
+        </p>
       </div>
     </BModal>
 
@@ -500,23 +769,44 @@
       :no-close-on-esc="retirementBusy"
       :no-header-close="retirementBusy"
     >
-      <div class="alert alert-danger d-flex align-items-center gap-2 mb-3" role="alert">
-        <font-awesome-icon :icon="['fas', 'exclamation-triangle']" aria-hidden="true" />
+      <div
+        class="alert alert-danger d-flex align-items-center gap-2 mb-3"
+        role="alert"
+      >
+        <font-awesome-icon
+          :icon="['fas', 'exclamation-triangle']"
+          aria-hidden="true"
+        />
         <span>Warning: This action will schedule retirement for your pool!</span>
       </div>
-      <p class="mb-3">Target pool: <strong class="jm-mono">{{ nodes.find(node => node.id === retirePoolForm.id)?.name }}</strong> ({{ retirePoolForm.id }}).</p>
-      <BFormGroup label="Fees Account" label-cols-md="4" class="mb-3">
+      <p class="mb-3">
+        Target pool: <strong class="jm-mono">{{ nodes.find(node => node.id === retirePoolForm.id)?.name }}</strong> ({{ retirePoolForm.id }}).
+      </p>
+      <BFormGroup
+        label="Fees Account"
+        label-cols-md="4"
+        class="mb-3"
+      >
         <BFormSelect
           v-model="retirePoolForm.retireFeesAccount"
           :options="retireFeeAccountOptions"
           :state="retirePoolForm.retireFeesAccount !== null"
         >
           <template #first>
-            <BFormSelectOption :value="null" disabled>-- Please select --</BFormSelectOption>
+            <BFormSelectOption
+              :value="null"
+              disabled
+            >
+              -- Please select --
+            </BFormSelectOption>
           </template>
         </BFormSelect>
       </BFormGroup>
-      <BFormGroup label="Retire in Epoch" label-cols-md="4" class="mb-3">
+      <BFormGroup
+        label="Retire in Epoch"
+        label-cols-md="4"
+        class="mb-3"
+      >
         <BFormInput
           v-model="retirePoolForm.retireEpoch"
           type="number"
@@ -525,10 +815,27 @@
           :state="/^[1-9]\d*$/.test(String(retirePoolForm.retireEpoch))"
         />
       </BFormGroup>
-      <p v-if="retirementError" class="text-danger small mb-3">{{ retirementError }}</p>
+      <p
+        v-if="retirementError"
+        class="text-danger small mb-3"
+      >
+        {{ retirementError }}
+      </p>
       <div class="d-flex justify-content-end gap-2">
-        <BButton variant="secondary" :disabled="retirementBusy" @click="showRetireModal = false">Close</BButton>
-        <BButton variant="danger" :disabled="retirementBusy || nodeChainUnavailable(retirePoolForm.id)" @click="requestRetirement">Retire pool</BButton>
+        <BButton
+          variant="secondary"
+          :disabled="retirementBusy"
+          @click="showRetireModal = false"
+        >
+          Close
+        </BButton>
+        <BButton
+          variant="danger"
+          :disabled="retirementBusy || nodeChainUnavailable(retirePoolForm.id)"
+          @click="requestRetirement"
+        >
+          Retire pool
+        </BButton>
       </div>
     </BModal>
 
@@ -689,11 +996,11 @@ const stakingAccountOptions = computed(() => store.stakingSelectOptions())
 const rewardsAccountOptions = computed(() => store.rewardsSelectOptions())
 
 const hasCoreNodes = computed(() => {
-  return nodes.value.some((node) => (node as any).type !== 'relay' && !(node as any).isDeleted)
+  return nodes.value.some((node) => node.type !== 'relay' && !node.isDeleted)
 })
 
 const roleFilters = computed(() => {
-  const all = displayNodes.value as Array<{ type?: string }>
+  const all = displayNodes.value
   return [
     { value: 'all' as const, label: 'All', count: all.length },
     { value: 'core' as const, label: 'Core', count: all.filter(n => n.type === 'core').length },
@@ -703,7 +1010,7 @@ const roleFilters = computed(() => {
 })
 
 const filteredNodes = computed(() => {
-  const list = displayNodes.value as Array<{ name?: string; host?: string; poolId?: string; type?: string }>
+  const list = displayNodes.value
   const query = searchQuery.value.trim().toLowerCase()
   return list.filter(item => {
     const matchRole = roleFilter.value === 'all' || item.type === roleFilter.value
@@ -720,7 +1027,7 @@ const fields = [
   { key: 'edit', label: 'Operations', thClass: 'text-end', tdClass: 'text-end' }
 ]
 
-function truncatePoolId(poolId: string): string {
+function truncatePoolId(poolId?: string | null): string {
   if (!poolId || poolId.length < 18) return poolId || ''
   return `${poolId.slice(0, 10)}…${poolId.slice(-5)}`
 }
@@ -752,12 +1059,12 @@ function openPoolConfigModal(nodeId: number) {
   if (node) {
     editPoolConfigForm.value = {
       nodeId,
-      registrationFeesAccount: (node as any).registrationFeesAccountId || null,
-      ownerStakingAccount: (node as any).ownerStakingAccountId || null,
-      rewardsStakingAccount: (node as any).rewardsStakingAccountId || null,
-      poolPledge: (node as any).poolPledge ?? 0,
-      poolCost: (node as any).poolCost ?? 0,
-      poolMargin: (node as any).poolMargin ?? 0
+      registrationFeesAccount: node.registrationFeesAccountId || null,
+      ownerStakingAccount: node.ownerStakingAccountId || null,
+      rewardsStakingAccount: node.rewardsStakingAccountId || null,
+      poolPledge: node.poolPledge ?? 0,
+      poolCost: node.poolCost ?? 0,
+      poolMargin: node.poolMargin ?? 0
     }
   }
   poolConfigStep.value = 1
@@ -854,7 +1161,7 @@ function openRelaysModal(nodeId: number) {
   const node = find(nodes.value, { id: nodeId })
   editRelaysForm.value = {
     nodeId,
-    relays: (node as any)?.relays?.map((r: any) => ({ addr: r.addr, port: r.port })) || []
+    relays: node?.relays?.map((r) => ({ addr: r.addr, port: r.port })) || []
   }
   relaysStep.value = 1
   showRelaysModal.value = true
@@ -940,7 +1247,7 @@ async function submitRetirement(request: { requestId: string; nodeId: number; fe
   }
 }
 
-function copyToClipboard(value: string) {
+function copyToClipboard(value?: string | null) {
   if (!value) return
   navigator.clipboard.writeText(value).then(
     () => { store.toastInfo = { title: 'Pool ID', message: 'Copied to clipboard' } },
@@ -961,16 +1268,18 @@ function addPool(parentId: number) {
   showAddNodeWizard.value = true
 }
 
-function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: any }) {
+type RetirementRequest = { requestId: string; nodeId: number; feePayerAccountId: number; retireEpoch: string }
+
+function onSpendingPasswordConfirmed(data: { action: string; password: string; originalData: unknown }) {
   switch (data.action) {
     case 'submit-pool-change':
       void submitPoolChange(data.originalData as PoolChangeRequest, data.password)
       break
     case 'submit-pool-retirement':
-      void submitRetirement(data.originalData, data.password)
+      void submitRetirement(data.originalData as RetirementRequest, data.password)
       break
     case 'rotate-kes':
-      store.rotateKesByName({ name: data.originalData, spendingPassword: data.password })
+      store.rotateKesByName({ name: String(data.originalData), spendingPassword: data.password })
       break
   }
 }

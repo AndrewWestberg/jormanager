@@ -2,16 +2,24 @@
   <div>
     <div class="jm-page-header">
       <div>
-        <h1 class="jm-page-title">Block Production</h1>
-        <p class="jm-page-subtitle">Leader schedules, forged blocks, and epoch outcome analytics</p>
+        <h1 class="jm-page-title">
+          Block Production
+        </h1>
+        <p class="jm-page-subtitle">
+          Leader schedules, forged blocks, and epoch outcome analytics
+        </p>
       </div>
       <div class="jm-action-group">
         <BButton
+          v-b-tooltip.hover.bottom="'Calculate Leader Logs.'"
           variant="primary"
           @click="showLeaderLogsModal"
-          v-b-tooltip.hover.bottom="'Calculate Leader Logs.'"
         >
-          <font-awesome-icon :icon="['fas', 'clipboard-list']" class="me-1" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'clipboard-list']"
+            class="me-1"
+            aria-hidden="true"
+          />
           Leader Logs
         </BButton>
       </div>
@@ -21,19 +29,39 @@
     <div class="jm-card p-3 mb-3">
       <div class="row g-3 align-items-center">
         <div class="col-md-6">
-          <BFormGroup label="Epoch" label-cols="3" label-align="right" class="mb-0">
-            <BFormSelect v-model="selectedEpoch" :options="epochOptions">
+          <BFormGroup
+            label="Epoch"
+            label-cols="3"
+            label-align="right"
+            class="mb-0"
+          >
+            <BFormSelect
+              v-model="selectedEpoch"
+              :options="epochOptions"
+            >
               <template #first>
-                <BFormSelectOption :value="null">-- Current --</BFormSelectOption>
+                <BFormSelectOption :value="null">
+                  -- Current --
+                </BFormSelectOption>
               </template>
             </BFormSelect>
           </BFormGroup>
         </div>
         <div class="col-md-6">
-          <BFormGroup label="Pool" label-cols="3" label-align="right" class="mb-0">
-            <BFormSelect v-model="selectedPool" :options="coreNodeOptions">
+          <BFormGroup
+            label="Pool"
+            label-cols="3"
+            label-align="right"
+            class="mb-0"
+          >
+            <BFormSelect
+              v-model="selectedPool"
+              :options="coreNodeOptions"
+            >
               <template #first>
-                <BFormSelectOption :value="null">-- All --</BFormSelectOption>
+                <BFormSelectOption :value="null">
+                  -- All --
+                </BFormSelectOption>
               </template>
             </BFormSelect>
           </BFormGroup>
@@ -42,7 +70,11 @@
     </div>
 
     <!-- 6 Interactive Clickable Status KPI Cards -->
-    <div class="jm-blocks-kpi-grid" role="group" aria-label="Filter blocks by status">
+    <div
+      class="jm-blocks-kpi-grid"
+      role="group"
+      aria-label="Filter blocks by status"
+    >
       <button
         v-for="card in statusCards"
         :key="card.key"
@@ -51,31 +83,69 @@
         :class="{ active: statusFilter === card.key }"
         @click="statusFilter = card.key"
       >
-        <span class="jm-block-stat-label" :style="{ color: card.color }">
-          <font-awesome-icon v-if="card.icon" :icon="card.icon" class="me-1" aria-hidden="true" />
+        <span
+          class="jm-block-stat-label"
+          :style="{ color: card.color }"
+        >
+          <font-awesome-icon
+            v-if="card.icon"
+            :icon="card.icon"
+            class="me-1"
+            aria-hidden="true"
+          />
           {{ card.label }}
         </span>
-        <span class="jm-block-stat-val jm-mono" :style="{ color: card.color }">{{ card.count }}</span>
+        <span
+          class="jm-block-stat-val jm-mono"
+          :style="{ color: card.color }"
+        >{{ card.count }}</span>
       </button>
     </div>
 
     <!-- Outcome Distribution Bar -->
-    <div v-if="totalRows > 0" class="jm-card p-3 mb-3">
+    <div
+      v-if="totalRows > 0"
+      class="jm-card p-3 mb-3"
+    >
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 small">
         <span class="text-secondary fw-semibold">
           Outcome Distribution <span class="fw-normal opacity-75">(click any card above to filter)</span>
         </span>
-        <span v-if="finalizedRows > 0" class="jm-mono text-success fw-semibold">
+        <span
+          v-if="finalizedRows > 0"
+          class="jm-mono text-success fw-semibold"
+        >
           {{ successRate.toFixed(1) }}% Success ({{ forgedRows + completedRows }}/{{ finalizedRows }} finalized)
         </span>
-        <span v-else class="jm-mono text-secondary">All scheduled blocks pending</span>
+        <span
+          v-else
+          class="jm-mono text-secondary"
+        >All scheduled blocks pending</span>
       </div>
-      <div class="jm-dist-bar mt-2" aria-hidden="true">
-        <div v-if="forgedRows" :style="{ width: pct(forgedRows), background: 'var(--jm-emerald)' }" />
-        <div v-if="completedRows" :style="{ width: pct(completedRows), background: 'var(--jm-cyan)' }" />
-        <div v-if="pendingRows" :style="{ width: pct(pendingRows), background: '#475569' }" />
-        <div v-if="orphanedRows" :style="{ width: pct(orphanedRows), background: 'var(--jm-amber)' }" />
-        <div v-if="missedRows" :style="{ width: pct(missedRows), background: 'var(--jm-rose)' }" />
+      <div
+        class="jm-dist-bar mt-2"
+        aria-hidden="true"
+      >
+        <div
+          v-if="forgedRows"
+          :style="{ width: pct(forgedRows), background: 'var(--jm-emerald)' }"
+        />
+        <div
+          v-if="completedRows"
+          :style="{ width: pct(completedRows), background: 'var(--jm-cyan)' }"
+        />
+        <div
+          v-if="pendingRows"
+          :style="{ width: pct(pendingRows), background: '#475569' }"
+        />
+        <div
+          v-if="orphanedRows"
+          :style="{ width: pct(orphanedRows), background: 'var(--jm-amber)' }"
+        />
+        <div
+          v-if="missedRows"
+          :style="{ width: pct(missedRows), background: 'var(--jm-rose)' }"
+        />
       </div>
     </div>
 
@@ -98,11 +168,14 @@
         </template>
         <template #cell(status)="{ value }">
           <span
+            v-b-tooltip.hover.right="blockTooltip(String(value))"
             class="jm-pill"
             :class="blockPillClass(String(value))"
-            v-b-tooltip.hover.right="blockTooltip(String(value))"
           >
-            <font-awesome-icon :icon="blockIcon(String(value))" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="blockIcon(String(value))"
+              aria-hidden="true"
+            />
             {{ startCase(String(value)) }}
           </span>
         </template>
@@ -130,22 +203,42 @@
             rel="noopener noreferrer"
           >
             <span>{{ String(value).substring(0, 8) }}…</span>
-            <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="small text-info" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'arrow-up-right-from-square']"
+              class="small text-info"
+              aria-hidden="true"
+            />
           </a>
-          <span v-else class="text-secondary">—</span>
+          <span
+            v-else
+            class="text-secondary"
+          >—</span>
         </template>
       </BTable>
     </div>
 
-    <div v-else class="jm-card jm-empty-state">
+    <div
+      v-else
+      class="jm-card jm-empty-state"
+    >
       <div class="jm-empty-icon">
-        <font-awesome-icon :icon="['fas', 'cubes']" aria-hidden="true" />
+        <font-awesome-icon
+          :icon="['fas', 'cubes']"
+          aria-hidden="true"
+        />
       </div>
-      <h2 class="h6 mb-1">No blocks to display</h2>
+      <h2 class="h6 mb-1">
+        No blocks to display
+      </h2>
       <p class="small mb-3">
         {{ blocks.length === 0 ? 'Request Leader Logs to populate scheduled blocks for your pools.' : 'No blocks match the current epoch, pool, and status filters.' }}
       </p>
-      <BButton v-if="statusFilter !== 'all'" variant="secondary" size="sm" @click="statusFilter = 'all'">
+      <BButton
+        v-if="statusFilter !== 'all'"
+        variant="secondary"
+        size="sm"
+        @click="statusFilter = 'all'"
+      >
         Show All Statuses
       </BButton>
     </div>
@@ -159,11 +252,20 @@
     >
       <BFormGroup label="Request Type">
         <BFormRadioGroup v-model="formLeaderLogs.requestType">
-          <BFormRadio value="currentEpoch" class="me-3">
-            <font-awesome-icon :icon="['fas', 'clipboard-list']" class="me-1" />Current Epoch
+          <BFormRadio
+            value="currentEpoch"
+            class="me-3"
+          >
+            <font-awesome-icon
+              :icon="['fas', 'clipboard-list']"
+              class="me-1"
+            />Current Epoch
           </BFormRadio>
           <BFormRadio value="futureEpoch">
-            <font-awesome-icon :icon="['fas', 'hat-wizard']" class="me-1" />Future Epoch
+            <font-awesome-icon
+              :icon="['fas', 'hat-wizard']"
+              class="me-1"
+            />Future Epoch
           </BFormRadio>
         </BFormRadioGroup>
       </BFormGroup>
@@ -183,7 +285,8 @@ import {
   BTable,
   BModal,
   BFormRadioGroup,
-  BFormRadio
+  BFormRadio,
+  type TableFieldRaw
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
@@ -203,7 +306,7 @@ const formLeaderLogs = ref({
   requestType: 'currentEpoch'
 })
 
-const fields: any[] = [
+const fields: TableFieldRaw<Block>[] = [
   { key: 'num', label: '#' },
   { key: 'status', label: 'Status' },
   { key: 'at', label: 'Timestamp' },
@@ -214,7 +317,7 @@ const fields: any[] = [
   {
     key: 'hash',
     label: 'Block Hash',
-    formatter: (value: string) => (value ? String(value).replace(/"/g, '') : '')
+    formatter: ({ value }) => (value ? String(value).replace(/"/g, '') : '')
   }
 ]
 
@@ -224,19 +327,19 @@ const coreNodeOptions = computed(() => store.coreNodeSelectOptions)
 const filteredBlocks = computed(() => {
   const targetEpoch = selectedEpoch.value ?? epoch.value
   return blocks.value.filter((block: Block) => {
-    const matchPool = selectedPool.value == null || (block as any).pool === selectedPool.value
+    const matchPool = selectedPool.value == null || block.pool === selectedPool.value
     const matchEpoch = targetEpoch == null || block.epoch === targetEpoch
     return matchPool && matchEpoch
   })
 })
 
 const totalRows = computed(() => filteredBlocks.value.length)
-const pendingRows = computed(() => filteredBlocks.value.filter((b: Block) => (b as any).status === 'pending').length)
-const forgedRows = computed(() => filteredBlocks.value.filter((b: Block) => (b as any).status === 'forged').length)
-const orphanedRows = computed(() => filteredBlocks.value.filter((b: Block) => (b as any).status === 'orphaned').length)
-const completedRows = computed(() => filteredBlocks.value.filter((b: Block) => (b as any).status === 'completed').length)
+const pendingRows = computed(() => filteredBlocks.value.filter((b: Block) => b.status === 'pending').length)
+const forgedRows = computed(() => filteredBlocks.value.filter((b: Block) => b.status === 'forged').length)
+const orphanedRows = computed(() => filteredBlocks.value.filter((b: Block) => b.status === 'orphaned').length)
+const completedRows = computed(() => filteredBlocks.value.filter((b: Block) => b.status === 'completed').length)
 const missedRows = computed(() => filteredBlocks.value.filter((b: Block) => {
-  const status = (b as any).status
+  const status = b.status ?? ''
   return status === 'missed' || !['pending', 'forged', 'orphaned', 'completed'].includes(status)
 }).length)
 
@@ -249,11 +352,11 @@ const displayedBlocks = computed(() => {
   if (statusFilter.value === 'all') return filteredBlocks.value
   if (statusFilter.value === 'missed') {
     return filteredBlocks.value.filter((b: Block) => {
-      const s = (b as any).status
+      const s = b.status ?? ''
       return s === 'missed' || !['pending', 'forged', 'orphaned', 'completed'].includes(s)
     })
   }
-  return filteredBlocks.value.filter((b: Block) => (b as any).status === statusFilter.value)
+  return filteredBlocks.value.filter((b: Block) => b.status === statusFilter.value)
 })
 
 const statusCards = computed(() => [
