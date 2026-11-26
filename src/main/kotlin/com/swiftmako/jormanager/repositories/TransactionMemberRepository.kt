@@ -27,11 +27,25 @@ class TransactionMemberRepository(
                 .forUpdate()
                 .singleOrNull()
             val history = (AccountEffectsTable innerJoin TransactionMembersTable innerJoin TransactionBatchesTable innerJoin ChainInclusionsTable)
-                .selectAll()
-                .where { (ChainInclusionsTable.network eq network) and (AccountEffectsTable.account eq accountHex.hexToByteArray()) }
+                .select(
+                    TransactionMembersTable.txId,
+                    ChainInclusionsTable.hash,
+                    ChainInclusionsTable.slot,
+                    AccountEffectsTable.kind,
+                    AccountEffectsTable.amount,
+                    ChainInclusionsTable.adopted,
+                    AccountEffectsTable.effective,
+                ).where { (ChainInclusionsTable.network eq network) and (AccountEffectsTable.account eq accountHex.hexToByteArray()) }
                 .orderBy(ChainInclusionsTable.slot, SortOrder.DESC)
                 .map {
-                    mapOf("txId" to it[TransactionMembersTable.txId].toHexString(), "inclusionHash" to it[ChainInclusionsTable.hash].toHexString(), "slot" to it[ChainInclusionsTable.slot].toPlainString(), "kind" to it[AccountEffectsTable.kind], "amount" to it[AccountEffectsTable.amount]?.toPlainString(), "effective" to (it[ChainInclusionsTable.adopted] && it[AccountEffectsTable.effective]))
+                    mapOf(
+                        "txId" to it[TransactionMembersTable.txId].toHexString(),
+                        "inclusionHash" to it[ChainInclusionsTable.hash].toHexString(),
+                        "slot" to it[ChainInclusionsTable.slot].toPlainString(),
+                        "kind" to it[AccountEffectsTable.kind],
+                        "amount" to it[AccountEffectsTable.amount]?.toPlainString(),
+                        "effective" to (it[ChainInclusionsTable.adopted] && it[AccountEffectsTable.effective]),
+                    )
                 }
             mapOf("requestId" to requestId, "networkKey" to network, "accountAddressHex" to accountHex, "readState" to coordinator.status(network), "balance" to null, "balanceReason" to "A point-matched node account snapshot is required; transaction credits are not reward balance", "history" to history)
         }
