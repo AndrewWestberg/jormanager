@@ -2,6 +2,7 @@ import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import java.util.Locale
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
     java
@@ -145,9 +146,6 @@ abstract class BuildVueTask
         @get:OutputDirectory
         abstract val distDir: DirectoryProperty
 
-        @get:OutputDirectory
-        abstract val staticResourcesDir: DirectoryProperty
-
         init {
             group = "build"
             description = "Builds the Vue.js frontend"
@@ -172,7 +170,6 @@ tasks.register<BuildVueTask>("buildVue") {
         "vue/deploy.sh",
     )
     distDir.set(layout.projectDirectory.dir("vue/dist"))
-    staticResourcesDir.set(layout.projectDirectory.dir("src/main/resources/static"))
 }
 
 abstract class TestVueTask
@@ -256,9 +253,45 @@ tasks.register<InstallGitHooksTask>("installGitHooks") {
     )
 }
 
-tasks.named("processResources") {
-    dependsOn("testVue")
-    dependsOn("buildVue")
+val usePrebuiltFrontend =
+    providers
+        .gradleProperty("prebuiltFrontend")
+        .map { it.toBoolean() }
+        .orElse(
+            providers
+                .environmentVariable("CI")
+                .map { ci ->
+                    val indexHtml =
+                        layout.projectDirectory
+                            .file("vue/dist/index.html")
+                            .asFile
+                    ci.isNotBlank() && indexHtml.isFile
+                }.orElse(false)
+        )
+
+tasks.named<BootJar>("bootJar") {
+    val frontendDist =
+        if (usePrebuiltFrontend.get()) {
+            layout.projectDirectory.dir("vue/dist")
+        } else {
+            tasks.named<BuildVueTask>("buildVue").flatMap { it.distDir }
+        }
+    val frontendIndexHtml =
+        layout.projectDirectory
+            .file("vue/dist/index.html")
+            .asFile
+    bootInf {
+        into("classes/static") {
+            from(frontendDist)
+        }
+    }
+    doFirst {
+        if (!frontendIndexHtml.isFile) {
+            throw GradleException(
+                "Frontend build output missing at ${frontendIndexHtml.path}. Run './gradlew buildVue' or provide prebuilt assets in vue/dist."
+            )
+        }
+    }
 }
 
 tasks {

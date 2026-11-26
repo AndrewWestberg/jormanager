@@ -36,9 +36,23 @@ The current implementation preserves supported Conway/earlier-era operation and 
 
 See the [Dijkstra upgrade and operator guide](docs/dijkstra-upgrade-guide.md) for individual network file selection, single-action wallet/pool workflows, parent/child `directDeposits`, replay and observation limits. **Manual network, migration/restore and producer validation remains pending; local builds are not release qualification.**
 
-## Tests
+## Build & Tests
 
-`./gradlew test` runs the default backend and frontend test suites. To run an opt-in smoke test, set its flag to `true` and run `./gradlew test --rerun --tests '*TestClass'` with the class name from the table.
+Backend and frontend checks are decoupled so backend verification runs directly without Node.js or rebuilding Vue assets:
+
+- **Backend tests & formatting**:
+  - `./gradlew test` runs the default Kotlin/JUnit backend test suite.
+  - `./gradlew ktlintCheck` checks Kotlin and Gradle Kotlin DSL formatting (`./gradlew ktlintFormat` autofixes).
+  - `./gradlew ktlintCheck test --continue` runs all backend checks without stopping on the first failure.
+- **Frontend checks & tests** (requires Node.js >= 26):
+  - `cd vue && npm ci` installs frontend dependencies.
+  - `cd vue && npm run lint:check` runs ESLint (`npm run lint` autofixes).
+  - `cd vue && npx vue-tsc --noEmit` runs Vue/TypeScript type-checking.
+  - `cd vue && npm run test` runs Vitest unit tests with console output and writes JUnit XML and JSON reports to `build/reports/vue-tests/`.
+- **Executable JAR (`bootJar`)**:
+  - `./gradlew bootJar` builds Vue assets into `vue/dist` (via `buildVue`) and embeds them under `BOOT-INF/classes/static/` inside `build/libs/jormanager-<version>.jar` (pass `-PprebuiltFrontend=true` when `vue/dist` is already built, such as in CI).
+
+To run an opt-in backend smoke test, set its flag to `true` and run `./gradlew test --rerun --tests '*TestClass'` with the class name from the table.
 
 | Test class | Opt-in flag | External dependency or effect |
 | --- | --- | --- |
