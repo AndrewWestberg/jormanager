@@ -8,6 +8,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['tests/unit/**/*.spec.ts'],
+    reporters: ['default', 'junit', 'json'],
+    outputFile: {
+      junit: fileURLToPath(new URL('../build/reports/vue-tests/junit.xml', import.meta.url)),
+      json: fileURLToPath(new URL('../build/reports/vue-tests/results.json', import.meta.url))
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
