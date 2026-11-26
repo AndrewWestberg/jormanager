@@ -11,19 +11,42 @@
     >
       <template #footer="{ cancel }">
         <div class="w-100 d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <BButton variant="outline-primary" :disabled="reviewing || isDefragment" @click="addPaymentEntry">
-            <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />Add Entry
+          <BButton
+            variant="outline-primary"
+            :disabled="reviewing || isDefragment"
+            @click="addPaymentEntry"
+          >
+            <font-awesome-icon
+              :icon="['fas', 'plus']"
+              class="me-1"
+              aria-hidden="true"
+            />Add Entry
           </BButton>
           <div class="d-flex gap-2">
-            <BButton variant="secondary" @click="cancel()">Cancel</BButton>
-            <BButton variant="primary" :disabled="reviewing || !store.connected || !sourcesReady || !feeReady" @click="reviewSend">
+            <BButton
+              variant="secondary"
+              @click="cancel()"
+            >
+              Cancel
+            </BButton>
+            <BButton
+              variant="primary"
+              :disabled="reviewing || !store.connected || !sourcesReady || !feeReady"
+              @click="reviewSend"
+            >
               {{ reviewing ? 'Submitting…' : isDefragment ? 'Defragment UTxOs' : 'Send' }}
             </BButton>
           </div>
         </div>
       </template>
 
-      <div v-if="reviewError" class="alert alert-danger" role="alert">{{ reviewError }}</div>
+      <div
+        v-if="reviewError"
+        class="alert alert-danger"
+        role="alert"
+      >
+        {{ reviewError }}
+      </div>
 
       <!-- Transaction Telemetry Summary Strip -->
       <div class="jm-tx-strip mb-3">
@@ -33,8 +56,15 @@
         </div>
         <div class="jm-sub-panel jm-tx-stat">
           <span class="jm-kpi-label">Calculated Tx Fee</span>
-          <span v-if="calculatingFee" class="jm-mono fw-bold text-info" data-testid="fee-calculating-label">Calculating…</span>
-          <span v-else class="jm-mono fw-bold text-warning">{{ formatAda(store.txFee) }}</span>
+          <span
+            v-if="calculatingFee"
+            class="jm-mono fw-bold text-info"
+            data-testid="fee-calculating-label"
+          >Calculating…</span>
+          <span
+            v-else
+            class="jm-mono fw-bold text-warning"
+          >{{ formatAda(store.txFee) }}</span>
         </div>
         <div class="jm-sub-panel jm-tx-stat">
           <span class="jm-kpi-label">Remaining Change</span>
@@ -51,24 +81,61 @@
       >
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
           <span>
-            <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'layer-group']"
+              class="me-1"
+              aria-hidden="true"
+            />
             <strong>Calculating claim fee…</strong>
           </span>
         </div>
-        <progress class="jm-budget-progress mt-2" aria-label="Calculating claim fee" />
+        <progress
+          class="jm-budget-progress mt-2"
+          aria-label="Calculating claim fee"
+        />
       </div>
 
-      <BForm ref="sendAdaForm" @submit.stop.prevent>
+      <BForm
+        ref="sendAdaForm"
+        @submit.stop.prevent
+      >
         <fieldset :disabled="reviewing">
-          <div v-if="!formSendAda.isClaim" class="jm-sub-panel mb-3">
-            <BFormGroup label="Coin Selection" label-for="wallet-selection-mode" label-cols-md="3" label-align-md="right" class="mb-1">
-              <BFormRadioGroup id="wallet-selection-mode" aria-label="Coin selection" v-model="formSendAda.selectionMode" class="pt-2" data-testid="selection-mode-group">
-                <BFormRadio value="STANDARD" class="me-4">
-                  <font-awesome-icon :icon="['fas', 'dice-d20']" class="me-1 text-primary" />
+          <div
+            v-if="!formSendAda.isClaim"
+            class="jm-sub-panel mb-3"
+          >
+            <BFormGroup
+              label="Coin Selection"
+              label-for="wallet-selection-mode"
+              label-cols-md="3"
+              label-align-md="right"
+              class="mb-1"
+            >
+              <BFormRadioGroup
+                id="wallet-selection-mode"
+                v-model="formSendAda.selectionMode"
+                aria-label="Coin selection"
+                class="pt-2"
+                data-testid="selection-mode-group"
+              >
+                <BFormRadio
+                  value="STANDARD"
+                  class="me-4"
+                >
+                  <font-awesome-icon
+                    :icon="['fas', 'dice-d20']"
+                    class="me-1 text-primary"
+                  />
                   Standard (Random-Improve)
                 </BFormRadio>
-                <BFormRadio value="DEFRAGMENT" :disabled="!canDefragmentSource">
-                  <font-awesome-icon :icon="['fas', 'compress-arrows-alt']" class="me-1 text-info" />
+                <BFormRadio
+                  value="DEFRAGMENT"
+                  :disabled="!canDefragmentSource"
+                >
+                  <font-awesome-icon
+                    :icon="['fas', 'compress-arrows-alt']"
+                    class="me-1 text-info"
+                  />
                   Defragment UTxOs (Unfrack)
                 </BFormRadio>
               </BFormRadioGroup>
@@ -94,7 +161,11 @@
             >
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <span>
-                  <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+                  <font-awesome-icon
+                    :icon="['fas', 'layer-group']"
+                    class="me-1"
+                    aria-hidden="true"
+                  />
                   <strong>{{ isDefragment ? 'Planning UTxO defragmentation & fee…' : 'Calculating transaction plan & fee…' }}</strong>
                 </span>
               </div>
@@ -114,11 +185,18 @@
             >
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <span>
-                  <font-awesome-icon :icon="['fas', 'layer-group']" class="me-1" aria-hidden="true" />
+                  <font-awesome-icon
+                    :icon="['fas', 'layer-group']"
+                    class="me-1"
+                    aria-hidden="true"
+                  />
                   <strong>Planned UTxOs:</strong>
                   <span class="jm-mono ms-1">{{ store.planInputCount }} input{{ store.planInputCount === 1 ? '' : 's' }} &rarr; {{ store.planOutputCount }} output{{ store.planOutputCount === 1 ? '' : 's' }}</span>
                 </span>
-                <span class="jm-mono" title="Compared with the default transaction size limit">
+                <span
+                  class="jm-mono"
+                  title="Compared with the default transaction size limit"
+                >
                   <strong>Estimated Tx Size:</strong> {{ store.planEstimatedTxSize.toLocaleString() }} / {{ defaultMaxTxBytes.toLocaleString() }} bytes
                   ({{ txSizePercent.toFixed(1) }}%)
                 </span>
@@ -133,30 +211,40 @@
             </div>
           </div>
 
-          <div class="accordion" role="tablist">
+          <div
+            class="accordion"
+            role="tablist"
+          >
             <BCard
-              no-body
-              class="mb-3"
               v-for="(toAccount, index) in isDefragment ? [] : formSendAda.toAccounts"
               :key="index"
+              no-body
+              class="mb-3"
             >
-              <BCardHeader header-tag="header" class="p-0" role="tab">
+              <BCardHeader
+                header-tag="header"
+                class="p-0"
+                role="tab"
+              >
                 <BButton
                   block
-                  @click="toggleAccordion(index)"
-                  :variant="(headerVariant(index, toAccount) as any)"
+                  :variant="headerVariant(index, toAccount)"
                   class="text-start d-flex align-items-center justify-content-between w-100 p-2 px-3 text-wrap"
+                  @click="toggleAccordion(index)"
                 >
                   <div class="d-flex align-items-center flex-wrap gap-2 me-3 jm-mono small">
-                    <span v-if="feePayerId === toAccount.account && toAccount.destination === 'account'" class="jm-pill jm-pill-cyan">Fee payer</span>
+                    <span
+                      v-if="feePayerId === toAccount.account && toAccount.destination === 'account'"
+                      class="jm-pill jm-pill-cyan"
+                    >Fee payer</span>
                     <span>Available: {{ entryAvailableLabel(index, toAccount.currency) }} | Remaining: {{ entryRemainingLabel(index, toAccount.currency) }}</span>
                   </div>
                   <div class="d-flex align-items-center">
                     <span
-                      class="clickable me-3"
                       v-show="index > 0"
-                      @click.stop="removePaymentEntry(index)"
+                      class="clickable me-3"
                       title="Remove Entry"
+                      @click.stop="removePaymentEntry(index)"
                     >✕</span>
                     <font-awesome-icon
                       :icon="['fas', 'chevron-down']"
@@ -195,20 +283,27 @@
                     <BFormRadioGroup
                       v-model="toAccount.destination"
                       :state="destinationState(toAccount.destination)"
-                      @change="onDestinationChange(toAccount)"
                       class="pt-2"
+                      @change="onDestinationChange(toAccount)"
                     >
-                      <BFormRadio value="account" class="me-3">Account</BFormRadio>
-                      <BFormRadio value="address">Address</BFormRadio>
+                      <BFormRadio
+                        value="account"
+                        class="me-3"
+                      >
+                        Account
+                      </BFormRadio>
+                      <BFormRadio value="address">
+                        Address
+                      </BFormRadio>
                     </BFormRadioGroup>
                   </BFormGroup>
 
                   <BFormGroup
+                    v-show="toAccount.destination === 'account'"
                     label="To Account"
                     label-cols-md="3"
                     label-align-md="right"
                     class="mb-3"
-                    v-show="toAccount.destination === 'account'"
                   >
                     <BFormSelect
                       v-model="toAccount.account"
@@ -216,17 +311,22 @@
                       :options="paymentOptions"
                     >
                       <template #first>
-                        <BFormSelectOption :value="null" disabled>-- Please select an option --</BFormSelectOption>
+                        <BFormSelectOption
+                          :value="null"
+                          disabled
+                        >
+                          -- Please select an option --
+                        </BFormSelectOption>
                       </template>
                     </BFormSelect>
                   </BFormGroup>
 
                   <BFormGroup
+                    v-show="toAccount.destination === 'address'"
                     label="To Address"
                     label-cols-md="3"
                     label-align-md="right"
                     class="mb-3"
-                    v-show="toAccount.destination === 'address'"
                   >
                     <BFormInput
                       v-model="toAccount.address"
@@ -247,10 +347,13 @@
                     <BFormRadioGroup
                       v-model="toAccount.type"
                       :state="typeState(toAccount.type)"
-                      @change="onTypeChange(toAccount)"
                       class="pt-2"
+                      @change="onTypeChange(toAccount)"
                     >
-                      <BFormRadio value="amount" class="me-3">
+                      <BFormRadio
+                        value="amount"
+                        class="me-3"
+                      >
                         <font-awesome-icon :icon="['fas', 'weight-hanging']" />&nbsp;Amount
                       </BFormRadio>
                       <BFormRadio value="percent">
@@ -260,11 +363,11 @@
                   </BFormGroup>
 
                   <BFormGroup
+                    v-show="toAccount.type === 'amount'"
                     label="Amount"
                     label-cols-md="3"
                     label-align-md="right"
                     class="mb-3"
-                    v-show="toAccount.type === 'amount'"
                   >
                     <BFormInput
                       v-model="toAccount.amount"
@@ -279,11 +382,11 @@
                   </BFormGroup>
 
                   <BFormGroup
+                    v-show="toAccount.type === 'percent'"
                     label="Percent"
                     label-cols-md="3"
                     label-align-md="right"
                     class="mb-3"
-                    v-show="toAccount.type === 'percent'"
                   >
                     <BFormInput
                       v-model="toAccount.percent"
@@ -293,20 +396,29 @@
                       step="1"
                       :state="percentState(index, toAccount.percent, toAccount.currency)"
                     />
-                    <p class="text-center jm-mono mt-2 mb-0">{{ percentLabel(index, toAccount.percent, toAccount.currency) }}</p>
+                    <p class="text-center jm-mono mt-2 mb-0">
+                      {{ percentLabel(index, toAccount.percent, toAccount.currency) }}
+                    </p>
                   </BFormGroup>
                 </BCardBody>
               </BCollapse>
             </BCard>
 
             <!-- Metadata Card -->
-            <BCard no-body class="mb-1">
-              <BCardHeader header-tag="header" class="p-1" role="tab">
+            <BCard
+              no-body
+              class="mb-1"
+            >
+              <BCardHeader
+                header-tag="header"
+                class="p-1"
+                role="tab"
+              >
                 <BButton
                   block
-                  @click="toggleMetadata"
                   :variant="metadataState ? 'outline-success' : 'outline-danger'"
                   class="text-start d-flex align-items-center justify-content-between w-100 p-2 px-3"
+                  @click="toggleMetadata"
                 >
                   <span>Transaction Metadata (Optional JSON)</span>
                   <font-awesome-icon
@@ -316,9 +428,19 @@
                   />
                 </BButton>
               </BCardHeader>
-              <BCollapse id="accordion-metadata" v-model="metadataOpen" accordion="accounts-accordion" role="tabpanel">
+              <BCollapse
+                id="accordion-metadata"
+                v-model="metadataOpen"
+                accordion="accounts-accordion"
+                role="tabpanel"
+              >
                 <BCardBody>
-                  <BFormGroup label="Metadata" label-cols-md="3" label-align-md="right" class="mb-0">
+                  <BFormGroup
+                    label="Metadata"
+                    label-cols-md="3"
+                    label-align-md="right"
+                    class="mb-0"
+                  >
                     <BFormTextarea
                       v-model="formSendAda.metadata"
                       :state="metadataState"
@@ -691,7 +813,7 @@ function parseAmount(amount: string | null, currency: string): bigint | null {
     : BigInt(match[1])
 }
 
-function headerVariant(_index: number, toAccount: ToAccount): string {
+function headerVariant(_index: number, toAccount: ToAccount): 'success' | 'danger' {
   const isValid = currencyState(toAccount.currency) &&
     destinationState(toAccount.destination) &&
     (toAccount.destination === 'account' ? accountState(toAccount) : true) &&

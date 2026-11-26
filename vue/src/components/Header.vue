@@ -1,9 +1,25 @@
 <template>
-  <header id="header" class="jm-header">
+  <header
+    id="header"
+    class="jm-header"
+  >
     <div class="jm-header-inner">
-      <RouterLink to="/" class="jm-brand" @click="mobileNavOpen = false">
-        <span class="jm-brand-logo" aria-hidden="true">
-          <img :src="jormanagerLogo" alt="" class="jm-brand-img" width="32" height="32" />
+      <RouterLink
+        to="/"
+        class="jm-brand"
+        @click="mobileNavOpen = false"
+      >
+        <span
+          class="jm-brand-logo"
+          aria-hidden="true"
+        >
+          <img
+            :src="jormanagerLogo"
+            alt=""
+            class="jm-brand-img"
+            width="32"
+            height="32"
+          >
         </span>
         <span class="jm-brand-name">JorManager</span>
         <span class="jm-version-pill jm-mono">{{ displayVersion }}</span>
@@ -17,17 +33,30 @@
         aria-label="Toggle navigation menu"
         @click="mobileNavOpen = !mobileNavOpen"
       >
-        <font-awesome-icon :icon="['fas', mobileNavOpen ? 'times' : 'bars']" aria-hidden="true" />
+        <font-awesome-icon
+          :icon="['fas', mobileNavOpen ? 'times' : 'bars']"
+          aria-hidden="true"
+        />
         <span>Menu</span>
       </button>
 
-      <nav class="jm-nav-wrap" :class="{ open: mobileNavOpen }" aria-label="Primary">
-        <ul id="primary-nav-list" class="jm-nav-list">
-          <li v-for="item in navItems" :key="item.to">
+      <nav
+        class="jm-nav-wrap"
+        :class="{ open: mobileNavOpen }"
+        aria-label="Primary"
+      >
+        <ul
+          id="primary-nav-list"
+          class="jm-nav-list"
+        >
+          <li
+            v-for="item in navItems"
+            :key="item.to"
+          >
             <RouterLink
+              v-slot="{ href, navigate, isExactActive }"
               :to="item.to"
               custom
-              v-slot="{ href, navigate, isExactActive }"
             >
               <a
                 :href="href"
@@ -35,7 +64,10 @@
                 :aria-current="isExactActive ? 'page' : undefined"
                 @click="(event) => { mobileNavOpen = false; navigate(event) }"
               >
-                <font-awesome-icon :icon="item.icon" aria-hidden="true" />
+                <font-awesome-icon
+                  :icon="item.icon"
+                  aria-hidden="true"
+                />
                 <span>{{ item.label }}</span>
               </a>
             </RouterLink>
@@ -51,8 +83,14 @@
           title="View live epoch telemetry on Dashboard"
         >
           <span class="jm-mono jm-mini-epoch-num">Ep {{ epoch }}</span>
-          <span class="jm-mini-bar" aria-hidden="true">
-            <span class="jm-mini-bar-fill" :style="{ width: `${epochPercent}%` }" />
+          <span
+            class="jm-mini-bar"
+            aria-hidden="true"
+          >
+            <span
+              class="jm-mini-bar-fill"
+              :style="{ width: `${epochPercent}%` }"
+            />
           </span>
           <span class="jm-mono">{{ epochPercent }}%</span>
         </RouterLink>
@@ -61,7 +99,10 @@
           :class="{ offline: !connected }"
           role="status"
         >
-          <span class="jm-pulse-dot" aria-hidden="true" />
+          <span
+            class="jm-pulse-dot"
+            aria-hidden="true"
+          />
           <span>{{ connected ? 'Live' : 'Offline' }}</span>
         </div>
       </div>

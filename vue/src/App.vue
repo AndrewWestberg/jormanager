@@ -1,10 +1,16 @@
 <template>
-  <div id="app" class="jm-app-shell">
+  <div
+    id="app"
+    class="jm-app-shell"
+  >
     <template v-if="connected">
       <Header />
       <main class="jm-main">
         <router-view v-slot="{ Component }">
-          <Transition name="jm-fade" mode="out-in">
+          <Transition
+            name="jm-fade"
+            mode="out-in"
+          >
             <component :is="Component" />
           </Transition>
         </router-view>
@@ -12,16 +18,36 @@
       <SpendingPasswordConfirmModal />
     </template>
 
-    <div v-else class="jm-connecting-screen" role="status" aria-live="polite">
+    <div
+      v-else
+      class="jm-connecting-screen"
+      role="status"
+      aria-live="polite"
+    >
       <div class="jm-card jm-connecting-card">
-        <div class="jm-orbital-spinner" aria-hidden="true">
+        <div
+          class="jm-orbital-spinner"
+          aria-hidden="true"
+        >
           <div class="jm-orbital-ring outer" />
           <div class="jm-orbital-ring inner" />
-          <img :src="jormanagerLogo" alt="" class="jm-orbital-logo" width="38" height="38" />
+          <img
+            :src="jormanagerLogo"
+            alt=""
+            class="jm-orbital-logo"
+            width="38"
+            height="38"
+          >
         </div>
-        <h1 class="jm-connecting-title">JorManager</h1>
-        <p class="jm-connecting-subtitle">Connecting to server telemetry…</p>
-        <div class="jm-pill jm-pill-cyan jm-mono">STOMP / WebSocket</div>
+        <h1 class="jm-connecting-title">
+          JorManager
+        </h1>
+        <p class="jm-connecting-subtitle">
+          Connecting to server telemetry…
+        </p>
+        <div class="jm-pill jm-pill-cyan jm-mono">
+          STOMP / WebSocket
+        </div>
       </div>
     </div>
 

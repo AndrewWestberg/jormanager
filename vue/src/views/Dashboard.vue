@@ -2,11 +2,18 @@
   <div class="jm-dashboard">
     <div class="jm-page-header">
       <div>
-        <h1 class="jm-page-title">Mission Control</h1>
-        <p class="jm-page-subtitle">Real-time Cardano node telemetry, KES readiness, and epoch progress</p>
+        <h1 class="jm-page-title">
+          Mission Control
+        </h1>
+        <p class="jm-page-subtitle">
+          Real-time Cardano node telemetry, KES readiness, and epoch progress
+        </p>
       </div>
       <div class="jm-action-group">
-        <span v-if="epoch > 0" class="jm-pill jm-pill-cyan jm-mono">
+        <span
+          v-if="epoch > 0"
+          class="jm-pill jm-pill-cyan jm-mono"
+        >
           Epoch {{ epoch }} • {{ epochProgressPercent.toFixed(1) }}%
         </span>
         <span class="jm-pill jm-pill-slate jm-mono">
@@ -17,14 +24,35 @@
 
     <!-- Hero Telemetry Strip: Epoch Ring + 4 Fleet KPIs -->
     <div class="jm-dash-hero">
-      <section class="jm-card jm-epoch-hero" aria-label="Epoch Time Remaining">
-        <div class="jm-epoch-eyebrow">Epoch Time Remaining</div>
+      <section
+        class="jm-card jm-epoch-hero"
+        aria-label="Epoch Time Remaining"
+      >
+        <div class="jm-epoch-eyebrow">
+          Epoch Time Remaining
+        </div>
         <div class="jm-epoch-ring-wrap">
-          <svg class="jm-epoch-ring-svg" viewBox="0 0 180 180" aria-hidden="true">
+          <svg
+            class="jm-epoch-ring-svg"
+            viewBox="0 0 180 180"
+            aria-hidden="true"
+          >
             <defs>
-              <linearGradient id="jmEpochGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" :stop-color="ringStartColor" />
-                <stop offset="100%" :stop-color="ringEndColor" />
+              <linearGradient
+                id="jmEpochGrad"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop
+                  offset="0%"
+                  :stop-color="ringStartColor"
+                />
+                <stop
+                  offset="100%"
+                  :stop-color="ringEndColor"
+                />
               </linearGradient>
             </defs>
             <circle
@@ -53,7 +81,10 @@
             <span class="jm-epoch-pct jm-mono">{{ epochProgressPercent.toFixed(1) }}%</span>
           </div>
         </div>
-        <div class="jm-epoch-countdown jm-mono" :class="epochRemainingClass">
+        <div
+          class="jm-epoch-countdown jm-mono"
+          :class="epochRemainingClass"
+        >
           {{ epochTimeRemaining }}
         </div>
         <div class="jm-epoch-slot jm-mono">
@@ -65,8 +96,14 @@
         <div class="jm-card jm-kpi-card">
           <div class="jm-kpi-top">
             <span class="jm-kpi-label">Active Fleet</span>
-            <span class="jm-kpi-icon" style="background: var(--jm-cyan-soft); color: var(--jm-cyan);">
-              <font-awesome-icon :icon="['fas', 'dice-d20']" aria-hidden="true" />
+            <span
+              class="jm-kpi-icon"
+              style="background: var(--jm-cyan-soft); color: var(--jm-cyan);"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'dice-d20']"
+                aria-hidden="true"
+              />
             </span>
           </div>
           <div class="jm-kpi-value jm-mono">
@@ -78,7 +115,10 @@
               <span class="jm-pill jm-pill-emerald">{{ coreNodeCount }} Core/Pool</span>
               <span class="jm-pill jm-pill-rose">{{ relayNodeCount }} Relay</span>
             </div>
-            <div v-if="nodeDots.length" class="d-flex align-items-center gap-1">
+            <div
+              v-if="nodeDots.length"
+              class="d-flex align-items-center gap-1"
+            >
               <span
                 v-for="n in nodeDots"
                 :key="n.id"
@@ -93,8 +133,14 @@
         <div class="jm-card jm-kpi-card">
           <div class="jm-kpi-top">
             <span class="jm-kpi-label">Chain Tip Height</span>
-            <span class="jm-kpi-icon" style="background: var(--jm-indigo-soft); color: var(--jm-indigo);">
-              <font-awesome-icon :icon="['fas', 'cubes']" aria-hidden="true" />
+            <span
+              class="jm-kpi-icon"
+              style="background: var(--jm-indigo-soft); color: var(--jm-indigo);"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'cubes']"
+                aria-hidden="true"
+              />
             </span>
           </div>
           <div class="jm-kpi-value jm-mono">
@@ -107,7 +153,10 @@
             >
               {{ tipDelta === null ? 'Awaiting telemetry' : tipDelta <= 2 ? 'Nodes in sync' : `Δ ${tipDelta} blocks` }}
             </span>
-            <span v-if="blockHeightSeries.length" class="jm-mono">
+            <span
+              v-if="blockHeightSeries.length"
+              class="jm-mono"
+            >
               {{ blockHeightSeries.length }} reporting
             </span>
           </div>
@@ -116,21 +165,35 @@
         <div class="jm-card jm-kpi-card">
           <div class="jm-kpi-top">
             <span class="jm-kpi-label">KES Key Readiness</span>
-            <span class="jm-kpi-icon" style="background: var(--jm-emerald-soft); color: var(--jm-emerald);">
-              <font-awesome-icon :icon="['fas', 'key']" aria-hidden="true" />
+            <span
+              class="jm-kpi-icon"
+              style="background: var(--jm-emerald-soft); color: var(--jm-emerald);"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'key']"
+                aria-hidden="true"
+              />
             </span>
           </div>
           <div class="jm-kpi-value jm-mono">
             <template v-if="minKesDays !== null">
               {{ minKesDays.toFixed(1) }} <span class="jm-kpi-unit">days min</span>
             </template>
-            <template v-else>—</template>
+            <template v-else>
+              —
+            </template>
           </div>
           <div class="jm-kpi-foot">
-            <span class="jm-pill" :class="kesStatusPill.cls">
+            <span
+              class="jm-pill"
+              :class="kesStatusPill.cls"
+            >
               {{ kesStatusPill.label }}
             </span>
-            <span v-if="remainingKESSeriesCategoryLabels.length" class="jm-mono">
+            <span
+              v-if="remainingKESSeriesCategoryLabels.length"
+              class="jm-mono"
+            >
               {{ remainingKESSeriesCategoryLabels.length }} core tracked
             </span>
           </div>
@@ -139,16 +202,28 @@
         <div class="jm-card jm-kpi-card">
           <div class="jm-kpi-top">
             <span class="jm-kpi-label">Network Peers</span>
-            <span class="jm-kpi-icon" style="background: var(--jm-amber-soft); color: var(--jm-amber);">
-              <font-awesome-icon :icon="['fas', 'network-wired']" aria-hidden="true" />
+            <span
+              class="jm-kpi-icon"
+              style="background: var(--jm-amber-soft); color: var(--jm-amber);"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'network-wired']"
+                aria-hidden="true"
+              />
             </span>
           </div>
           <div class="jm-kpi-value jm-mono">
             {{ totalPeers }} <span class="jm-kpi-unit">connected</span>
           </div>
           <div class="jm-kpi-foot">
-            <span class="jm-mono" style="color: #7dd3fc;">↑ {{ totalOutgoingPeers }} Outgoing</span>
-            <span class="jm-mono" style="color: #6ee7b7;">↓ {{ totalIncomingPeers }} Incoming</span>
+            <span
+              class="jm-mono"
+              style="color: #7dd3fc;"
+            >↑ {{ totalOutgoingPeers }} Outgoing</span>
+            <span
+              class="jm-mono"
+              style="color: #6ee7b7;"
+            >↓ {{ totalIncomingPeers }} Incoming</span>
           </div>
         </div>
       </div>
@@ -254,15 +329,15 @@ const epochTimeRemaining = computed(() => {
 })
 
 const coreNodeCount = computed(() =>
-  nodes.value.filter(n => (n as any).type !== 'relay' && !(n as any).isDeleted).length
+  nodes.value.filter(n => n.type !== 'relay' && !n.isDeleted).length
 )
 
 const relayNodeCount = computed(() =>
-  nodes.value.filter(n => (n as any).type === 'relay' && !(n as any).isDeleted).length
+  nodes.value.filter(n => n.type === 'relay' && !n.isDeleted).length
 )
 
 const nodeDots = computed(() =>
-  nodes.value.filter(n => !(n as any).isDeleted).slice(0, 8)
+  nodes.value.filter(n => !n.isDeleted).slice(0, 8)
 )
 
 const latestBlockHeights = computed(() =>

@@ -5,6 +5,7 @@ import { createBootstrap } from 'bootstrap-vue-next'
 import GovernanceVoteModal from '@/components/GovernanceVoteModal.vue'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { emitter } from '@/composables/useEventBus'
+import type { Host } from '@/types'
 
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks() })
 
@@ -52,11 +53,11 @@ describe('governance submission', () => {
     setActivePinia(pinia)
     const store = useJorManagerStore()
     store.connected = true
-    const host = { type: 'local', hostname: 'localhost', sshUser: '', sshPort: 22, sshPemPath: '', cardanoCliPath: '/bin/cardano-cli', cardanoNodePath: '/bin/cardano-node', nodeHomePath: '/node', jcliPath: null }
+    const host: Host = { type: 'local', hostname: 'localhost', sshUser: '', sshPort: 22, sshPemPath: '', cardanoCliPath: '/bin/cardano-cli', cardanoNodePath: '/bin/cardano-node', nodeHomePath: '/node', jcliPath: null }
     store.nodes = [
       { id: 1, name: 'ActivePool', type: 'core', poolId: 'pool1', color: '#000', status: 'Running', host },
       { id: 2, name: 'ChildPool', type: 'pool', poolId: 'pool2', color: '#111', status: 'Running', host },
-      { id: 3, name: 'DeletedPool', type: 'core', poolId: 'pool3', color: '#222', status: 'Stopped', isDeleted: true, host } as any,
+      { id: 3, name: 'DeletedPool', type: 'core', poolId: 'pool3', color: '#222', status: 'Stopped', isDeleted: true, host },
       { id: 4, name: 'RelayNode', type: 'relay', poolId: '', color: '#333', status: 'Running', host }
     ]
     const wrapper = mount(GovernanceVoteModal, { props: { modelValue: true }, attachTo: document.body, global: { plugins: [pinia, createBootstrap()], stubs: { FontAwesomeIcon: true } } })

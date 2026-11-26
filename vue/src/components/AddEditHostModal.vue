@@ -9,58 +9,96 @@
       ok-title="Validate & Save"
       @ok="handleSubmitAddHost"
     >
-      <BForm ref="editHostFormRef" @submit.stop.prevent="handleValidateAndSave">
+      <BForm
+        ref="editHostFormRef"
+        @submit.stop.prevent="handleValidateAndSave"
+      >
         <div class="jm-sub-panel mb-3">
-          <h6 class="jm-sub-panel-title">Connection</h6>
+          <h6 class="jm-sub-panel-title">
+            Connection
+          </h6>
           <div class="row g-3">
             <div class="col-md-6">
-              <BFormGroup label="Type" label-for="type-radio">
-                <BFormRadioGroup id="type-radio" v-model="formHost.type" required class="pt-1">
-                  <BFormRadio value="local" class="me-3">Local</BFormRadio>
-                  <BFormRadio value="remote">Remote</BFormRadio>
+              <BFormGroup
+                label="Type"
+                label-for="type-radio"
+              >
+                <BFormRadioGroup
+                  id="type-radio"
+                  v-model="formHost.type"
+                  required
+                  class="pt-1"
+                >
+                  <BFormRadio
+                    value="local"
+                    class="me-3"
+                  >
+                    Local
+                  </BFormRadio>
+                  <BFormRadio value="remote">
+                    Remote
+                  </BFormRadio>
                 </BFormRadioGroup>
               </BFormGroup>
             </div>
             <div class="col-md-6">
-              <BFormGroup label="Hostname" label-for="hostname-input">
+              <BFormGroup
+                label="Hostname"
+                label-for="hostname-input"
+              >
                 <BFormInput
                   id="hostname-input"
-                  placeholder="e.g. 'server.mystakepool.io' or '192.168.0.77'"
                   v-model="formHost.hostname"
+                  placeholder="e.g. 'server.mystakepool.io' or '192.168.0.77'"
                   class="jm-mono"
                   required
                 />
               </BFormGroup>
             </div>
             <div class="col-md-6">
-              <BFormGroup :label="userFormLabel" label-for="ssh-user-input">
+              <BFormGroup
+                :label="userFormLabel"
+                label-for="ssh-user-input"
+              >
                 <BFormInput
                   id="ssh-user-input"
-                  placeholder="e.g. ec2-user"
                   v-model="formHost.sshUser"
+                  placeholder="e.g. ec2-user"
                   class="jm-mono"
                   :required="isFormRemote"
                 />
               </BFormGroup>
             </div>
-            <div v-if="isFormRemote" class="col-md-6">
-              <BFormGroup label="SSH Port" label-for="ssh-port-input">
+            <div
+              v-if="isFormRemote"
+              class="col-md-6"
+            >
+              <BFormGroup
+                label="SSH Port"
+                label-for="ssh-port-input"
+              >
                 <BFormInput
                   id="ssh-port-input"
+                  v-model="formHost.sshPort"
                   type="number"
                   placeholder="e.g. 22"
-                  v-model="formHost.sshPort"
                   class="jm-mono"
                   :required="isFormRemote"
                 />
               </BFormGroup>
             </div>
-            <div v-if="isFormRemote" class="col-12">
-              <BFormGroup label="SSH Key" label-for="ssh-key-input">
+            <div
+              v-if="isFormRemote"
+              class="col-12"
+            >
+              <BFormGroup
+                label="SSH Key"
+                label-for="ssh-key-input"
+              >
                 <BFormInput
                   id="ssh-key-input"
-                  placeholder="e.g. /home/<username>/.ssh/id_rsa"
                   v-model="formHost.sshPemPath"
+                  placeholder="e.g. /home/<username>/.ssh/id_rsa"
                   class="jm-mono"
                   :required="isFormRemote"
                 />
@@ -70,47 +108,61 @@
         </div>
 
         <div class="jm-sub-panel">
-          <h6 class="jm-sub-panel-title">Cardano Binary &amp; Node Paths</h6>
+          <h6 class="jm-sub-panel-title">
+            Cardano Binary &amp; Node Paths
+          </h6>
           <div class="row g-3">
             <div class="col-12">
-              <BFormGroup label="cardano-cli Path" label-for="cardano-cli-input">
+              <BFormGroup
+                label="cardano-cli Path"
+                label-for="cardano-cli-input"
+              >
                 <BFormInput
                   id="cardano-cli-input"
-                  placeholder="e.g. /home/<username>/.local/bin/cardano-cli"
                   v-model="formHost.cardanoCliPath"
+                  placeholder="e.g. /home/<username>/.local/bin/cardano-cli"
                   class="jm-mono"
                   required
                 />
               </BFormGroup>
             </div>
             <div class="col-12">
-              <BFormGroup label="cardano-node Path" label-for="cardano-node-input">
+              <BFormGroup
+                label="cardano-node Path"
+                label-for="cardano-node-input"
+              >
                 <BFormInput
                   id="cardano-node-input"
-                  placeholder="e.g. /home/<username>/.local/bin/cardano-node"
                   v-model="formHost.cardanoNodePath"
+                  placeholder="e.g. /home/<username>/.local/bin/cardano-node"
                   class="jm-mono"
                   required
                 />
               </BFormGroup>
             </div>
             <div class="col-12">
-              <BFormGroup label="Home Folder for Nodes" label-for="node-home-path-input">
+              <BFormGroup
+                label="Home Folder for Nodes"
+                label-for="node-home-path-input"
+              >
                 <BFormInput
                   id="node-home-path-input"
-                  placeholder="e.g. /home/<username>/haskell"
                   v-model="formHost.nodeHomePath"
+                  placeholder="e.g. /home/<username>/haskell"
                   class="jm-mono"
                   required
                 />
               </BFormGroup>
             </div>
             <div class="col-12">
-              <BFormGroup label="ITN JCLI Path (Optional)" label-for="jcli-input">
+              <BFormGroup
+                label="ITN JCLI Path (Optional)"
+                label-for="jcli-input"
+              >
                 <BFormInput
                   id="jcli-input"
-                  placeholder="e.g. /home/<username>/.cargo/bin/jcli"
                   v-model="formHost.jcliPath"
+                  placeholder="e.g. /home/<username>/.cargo/bin/jcli"
                   class="jm-mono"
                 />
               </BFormGroup>
@@ -132,7 +184,8 @@ import {
   BFormGroup,
   BFormInput,
   BFormRadioGroup,
-  BFormRadio
+  BFormRadio,
+  type BvTriggerableEvent
 } from 'bootstrap-vue-next'
 import { useJorManagerStore } from '@/stores/jormanager'
 import { useEventBus } from '@/composables/useEventBus'
@@ -178,10 +231,16 @@ function clearFormHost() {
   formHost.value = { ...defaultFormHost }
 }
 
+function getFormElement(): HTMLFormElement | null {
+  if (!editHostFormRef.value) return null
+  if (editHostFormRef.value instanceof HTMLFormElement) return editHostFormRef.value
+  return editHostFormRef.value.element ?? null
+}
+
 function checkFormValidity(): boolean {
   if (!editHostFormRef.value) return false
-  const formEl = (editHostFormRef.value as any).element || editHostFormRef.value
-  if (formEl.checkValidity) {
+  const formEl = getFormElement()
+  if (formEl && typeof formEl.checkValidity === 'function') {
     return formEl.checkValidity()
   }
   return true
@@ -189,8 +248,8 @@ function checkFormValidity(): boolean {
 
 function reportFormValidity() {
   if (!editHostFormRef.value) return
-  const formEl = (editHostFormRef.value as any).element || editHostFormRef.value
-  if (formEl.reportValidity) {
+  const formEl = getFormElement()
+  if (formEl && typeof formEl.reportValidity === 'function') {
     formEl.reportValidity()
   }
 }
@@ -216,7 +275,7 @@ function handleValidateAndSave(event?: Event) {
   store.addHost(formHost.value as Host)
 }
 
-function handleSubmitAddHost(event: any) {
+function handleSubmitAddHost(event: BvTriggerableEvent | Event) {
   event.preventDefault()
   handleValidateAndSave()
 }

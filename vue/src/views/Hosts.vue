@@ -2,33 +2,56 @@
   <div>
     <div class="jm-page-header">
       <div>
-        <h1 class="jm-page-title">Hosts</h1>
-        <p class="jm-page-subtitle">Manage local and remote SSH servers running your Cardano nodes</p>
+        <h1 class="jm-page-title">
+          Hosts
+        </h1>
+        <p class="jm-page-subtitle">
+          Manage local and remote SSH servers running your Cardano nodes
+        </p>
       </div>
       <div class="jm-action-group">
         <BButton
+          v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
           variant="primary"
           @click="addHostClick"
-          v-b-tooltip.hover.bottom="'Add a connection to a new remote or local server.'"
         >
-          <font-awesome-icon :icon="['fas', 'plus']" class="me-1" aria-hidden="true" />
+          <font-awesome-icon
+            :icon="['fas', 'plus']"
+            class="me-1"
+            aria-hidden="true"
+          />
           Host
         </BButton>
       </div>
     </div>
 
-    <div v-if="hosts.length > 0" class="jm-summary-grid-3">
+    <div
+      v-if="hosts.length > 0"
+      class="jm-summary-grid-3"
+    >
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Total Hosts</span>
-        <div class="jm-kpi-value jm-mono">{{ hosts.length }}</div>
+        <div class="jm-kpi-value jm-mono">
+          {{ hosts.length }}
+        </div>
       </div>
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Remote SSH</span>
-        <div class="jm-kpi-value jm-mono" style="color: var(--jm-cyan);">{{ remoteCount }}</div>
+        <div
+          class="jm-kpi-value jm-mono"
+          style="color: var(--jm-cyan);"
+        >
+          {{ remoteCount }}
+        </div>
       </div>
       <div class="jm-card jm-kpi-card">
         <span class="jm-kpi-label">Local Machine</span>
-        <div class="jm-kpi-value jm-mono" style="color: var(--jm-emerald);">{{ localCount }}</div>
+        <div
+          class="jm-kpi-value jm-mono"
+          style="color: var(--jm-emerald);"
+        >
+          {{ localCount }}
+        </div>
       </div>
     </div>
 
@@ -50,7 +73,10 @@
           <span class="jm-mono fw-semibold">{{ value }}</span>
         </template>
         <template #cell(type)="{ value }">
-          <span class="jm-pill" :class="value === 'remote' ? 'jm-pill-cyan' : 'jm-pill-emerald'">
+          <span
+            class="jm-pill"
+            :class="value === 'remote' ? 'jm-pill-cyan' : 'jm-pill-emerald'"
+          >
             {{ value === 'remote' ? 'Remote SSH' : 'Local' }}
           </span>
         </template>
@@ -58,33 +84,58 @@
           <span class="jm-mono">{{ value || '—' }}</span>
         </template>
         <template #cell(sshPort)="data">
-          <span v-if="data.item.type === 'remote'" class="jm-mono">{{ data.value }}</span>
-          <span v-else class="text-secondary">—</span>
+          <span
+            v-if="data.item.type === 'remote'"
+            class="jm-mono"
+          >{{ data.value }}</span>
+          <span
+            v-else
+            class="text-secondary"
+          >—</span>
         </template>
         <template #cell(nodeHomePath)="{ value }">
           <span class="jm-mono small text-secondary">{{ value || '—' }}</span>
         </template>
         <template #cell(edit)="data">
           <button
+            v-b-tooltip.hover.left="{ title: 'Edit this Host', variant: 'warning' }"
             type="button"
             class="jm-icon-btn amber"
             aria-label="Edit this Host"
-            v-b-tooltip.hover.left="{ title: 'Edit this Host', variant: 'warning' }"
             @click="editHostClick(data.index)"
           >
-            <font-awesome-icon :icon="['fas', 'edit']" aria-hidden="true" />
+            <font-awesome-icon
+              :icon="['fas', 'edit']"
+              aria-hidden="true"
+            />
           </button>
         </template>
       </BTable>
     </div>
 
-    <div v-else class="jm-card jm-empty-state">
+    <div
+      v-else
+      class="jm-card jm-empty-state"
+    >
       <div class="jm-empty-icon">
-        <font-awesome-icon :icon="['fas', 'server']" aria-hidden="true" />
+        <font-awesome-icon
+          :icon="['fas', 'server']"
+          aria-hidden="true"
+        />
       </div>
-      <h2 class="h6 mb-1">No hosts configured yet</h2>
-      <p class="small mb-3">Add your local server or a remote SSH host to start provisioning Cardano nodes.</p>
-      <BButton variant="primary" size="sm" @click="addHostClick">+ Add Host</BButton>
+      <h2 class="h6 mb-1">
+        No hosts configured yet
+      </h2>
+      <p class="small mb-3">
+        Add your local server or a remote SSH host to start provisioning Cardano nodes.
+      </p>
+      <BButton
+        variant="primary"
+        size="sm"
+        @click="addHostClick"
+      >
+        + Add Host
+      </BButton>
     </div>
 
     <AddEditHostModal />

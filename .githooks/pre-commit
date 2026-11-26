@@ -67,7 +67,7 @@ if [ "${#VUE_LINT_FILES[@]}" -gt 0 ]; then
     exit 1
   fi
 
-  if ! npx --no-install eslint -- "${VUE_LINT_FILES[@]}"; then
+  if ! npx --no-install eslint --max-warnings 0 -- "${VUE_LINT_FILES[@]}"; then
     echo "" >&2
     echo "Commit blocked: Frontend lint check failed (ESLint)." >&2
     echo "Run 'cd vue && npm run lint', review and re-stage your changes, then commit again." >&2
