@@ -8,6 +8,7 @@ object Versions {
     const val ERROR_PRONE = "2.52.0"
     const val EXPOSED = "1.6.1"
     const val GOOGLE_TRUTH = "1.4.5"
+    const val GUAVA = "33.8.0-jre"
     const val HIKARI = "7.1.0"
     const val JODA_TIME = "2.15.1"
     const val JSON = "20260814"
