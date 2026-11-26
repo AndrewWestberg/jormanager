@@ -1,0 +1,248 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, Lint, Test & Stage Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate tag version against build.gradle.kts
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+            echo "::error::Invalid release tag '${TAG_NAME}'. Expected a semantic version tag starting with 'v' (for example, v11.5.0 or v11.5.0-alpha1)." >&2
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG_NAME#v}"
+          GRADLE_VERSION="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' build.gradle.kts)"
+          if [[ -z "$GRADLE_VERSION" ]]; then
+            echo "::error::Failed to parse project version from build.gradle.kts." >&2
+            exit 1
+          fi
+
+          if [[ "$TAG_VERSION" != "$GRADLE_VERSION" ]]; then
+            echo "::error::Release tag '${TAG_NAME}' (version '${TAG_VERSION}') does not match build.gradle.kts version '${GRADLE_VERSION}'." >&2
+            exit 1
+          fi
+
+          if [[ "$TAG_VERSION" == *-* ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          echo "version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Validated release version ${TAG_VERSION} (prerelease=${PRERELEASE})"
+
+      - name: Set up Node.js 26
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: vue/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: vue
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: vue
+        run: npm run lint:check
+
+      - name: Type-check frontend
+        working-directory: vue
+        run: npx vue-tsc --noEmit
+
+      - name: Test frontend
+        working-directory: vue
+        run: npm run test
+
+      - name: Build frontend assets
+        working-directory: vue
+        run: npx vite build
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+        with:
+          cache-provider: enhanced
+          cache-read-only: true
+
+      - name: Cache IOG libsodium prefix
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/iog-libsodium-dbb48cce
+          key: iog-libsodium-${{ runner.os }}-${{ runner.arch }}-dbb48cce5429cb6585c9034f002568964f1ce567
+
+      - name: Build IOG libsodium on cache miss
+        run: |
+          set -euo pipefail
+          LIBSODIUM_PREFIX="$HOME/.cache/iog-libsodium-dbb48cce"
+          if [ ! -f "$LIBSODIUM_PREFIX/lib/libsodium.so" ] || [ ! -f "$LIBSODIUM_PREFIX/include/sodium.h" ]; then
+            rm -rf "$LIBSODIUM_PREFIX"
+            BUILD_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/libsodium.XXXXXX")"
+            trap 'rm -rf "$BUILD_DIR"' EXIT
+            cd "$BUILD_DIR"
+            git init -q
+            git fetch --depth=1 https://github.com/input-output-hk/libsodium.git dbb48cce5429cb6585c9034f002568964f1ce567
+            git checkout --detach FETCH_HEAD
+            DO_NOT_UPDATE_CONFIG_SCRIPTS=1 ./autogen.sh
+            ./configure --prefix="$LIBSODIUM_PREFIX"
+            make -j"$(nproc)"
+            make install
+          fi
+
+      - name: Install IOG libsodium for VRF tests
+        run: |
+          set -euo pipefail
+          LIBSODIUM_PREFIX="$HOME/.cache/iog-libsodium-dbb48cce"
+          sudo mkdir -p /usr/local/lib /usr/local/include
+          sudo cp -a --no-preserve=ownership "$LIBSODIUM_PREFIX/lib/." /usr/local/lib/
+          sudo cp -a --no-preserve=ownership "$LIBSODIUM_PREFIX/include/." /usr/local/include/
+          sudo ldconfig
+          nm -D /usr/local/lib/libsodium.so | grep -E ' T crypto_vrf_ietfdraft03_proof_to_hash$' >/dev/null
+          nm -D /usr/local/lib/libsodium.so | grep -E ' T crypto_vrf_ietfdraft03_verify$' >/dev/null
+
+      - name: Check formatting, run backend tests, and build bootJar
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+        run: ./gradlew ktlintCheck test bootJar -PprebuiltFrontend=true --build-cache --stacktrace
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-reports-${{ github.run_id }}
+          path: |
+            build/reports/ktlint/
+            build/reports/tests/
+            build/reports/vue-tests/
+            build/reports/problems/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Generate SHA-256 checksum for executable JAR
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ./sha256sum.sh "$RELEASE_VERSION"
+
+      - name: Upload release bundle artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-bundle-${{ steps.version.outputs.version }}
+          path: |
+            build/libs/jormanager-${{ steps.version.outputs.version }}.jar
+            build/libs/jormanager-${{ steps.version.outputs.version }}.jar.sha256
+            !build/libs/*-plain.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Attest & Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download staged release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: release-bundle-${{ needs.build.outputs.version }}
+          path: release-assets
+
+      - name: Verify staged release bundle
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          if compgen -G "*-plain.jar" >/dev/null; then
+            echo "::error::Unexpected plain JAR found in staged release bundle." >&2
+            exit 1
+          fi
+
+          JAR_FILE="jormanager-${RELEASE_VERSION}.jar"
+          SHA_FILE="${JAR_FILE}.sha256"
+          if [[ ! -f "$JAR_FILE" || ! -f "$SHA_FILE" ]]; then
+            echo "::error::Expected '${JAR_FILE}' and '${SHA_FILE}' in staged release bundle." >&2
+            ls -la >&2
+            exit 1
+          fi
+
+          FILE_COUNT="$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          if [[ "$FILE_COUNT" != "2" ]]; then
+            echo "::error::Expected exactly 2 files in staged release bundle, found ${FILE_COUNT}." >&2
+            ls -la >&2
+            exit 1
+          fi
+
+          sha256sum -c "$SHA_FILE"
+
+      - name: Attest executable JAR provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: release-assets/jormanager-${{ needs.build.outputs.version }}.jar
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          IS_PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          JAR_PATH="release-assets/jormanager-${RELEASE_VERSION}.jar"
+          SHA_PATH="release-assets/jormanager-${RELEASE_VERSION}.jar.sha256"
+
+          RELEASE_ARGS=(
+            "$TAG_NAME"
+            "$JAR_PATH"
+            "$SHA_PATH"
+            --repo "$GH_REPO"
+            --title "$TAG_NAME"
+            --verify-tag
+            --generate-notes
+          )
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+
+          gh release create "${RELEASE_ARGS[@]}"
