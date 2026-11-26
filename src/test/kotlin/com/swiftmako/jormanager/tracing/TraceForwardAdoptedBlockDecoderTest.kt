@@ -188,7 +188,9 @@ class TraceForwardAdoptedBlockDecoderTest {
 
                 val failure =
                     runCatching {
-                        SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC).runConnection("127.0.0.1", serverSocket.localPort) { }
+                        SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC)
+                            .runConnection("127.0.0.1", serverSocket.localPort)
+                            .collect { }
                     }.exceptionOrNull()
 
                 check(completion.await(5, TimeUnit.SECONDS)) { "Timed out waiting for socket runner proof" }
@@ -238,11 +240,13 @@ class TraceForwardAdoptedBlockDecoderTest {
                     }
 
                 runCatching {
-                    SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC).runConnection("127.0.0.1", serverSocket.localPort) { message ->
-                        if (message is TraceForwardMessage.TraceObjectsReply) {
-                            replies += message
+                    SocketTraceForwardConnectionRunner(networkMagic = NETWORK_MAGIC)
+                        .runConnection("127.0.0.1", serverSocket.localPort)
+                        .collect { message ->
+                            if (message is TraceForwardMessage.TraceObjectsReply) {
+                                replies += message
+                            }
                         }
-                    }
                 }
 
                 check(completion.await(5, TimeUnit.SECONDS)) { "Timed out waiting for decoder trace replies" }
