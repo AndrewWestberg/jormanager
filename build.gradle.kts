@@ -1,5 +1,6 @@
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import java.util.Locale
+import org.gradle.api.artifacts.dsl.LockMode
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -28,16 +29,26 @@ repositories {
     mavenCentral()
 }
 
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode.set(LockMode.STRICT)
+}
+
 configurations.configureEach {
     resolutionStrategy.eachDependency {
         if (requested.group == "org.jetbrains.kotlinx" && requested.name.startsWith("kotlinx-coroutines")) {
             useVersion(Versions.COROUTINES)
             because("Keep coroutines modules aligned for Ktor socket shutdown compatibility")
         }
+        if (requested.group == "com.google.guava" && requested.name == "guava") {
+            useVersion(Versions.GUAVA)
+            because("Remediate GHSA-5mg8-w23w-74h3, GHSA-7g45-4rm6-3mm3, and GHSA-xxph-c9ww-hj94")
+        }
     }
 }
 
 configurations.matching { it.name.startsWith("ktlint") }.configureEach {
+    resolutionStrategy.deactivateDependencyLocking()
     resolutionStrategy.eachDependency {
         if (requested.group == "org.jetbrains.kotlin" && requested.name == "kotlin-compiler-embeddable") {
             useVersion("2.2.0")

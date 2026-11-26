@@ -1,12 +1,13 @@
 # AGENTS.md
 
-This guide documents local setup, build, lint, type-check, test, packaging, and Gradle cache verification commands that mirror `.github/workflows/build.yml`.
+This guide documents local setup, build, lint, type-check, test, security scanning, packaging, and Gradle cache verification commands that mirror `.github/workflows/build.yml`.
 
 ## Prerequisites
 
 - **Java**: JDK 21 (Temurin recommended).
 - **Node.js**: `>=26.0.0` (used by `vue/` scripts and hooks).
 - **IOG `libsodium`**: Installed at `/usr/local/lib/libsodium.so` (commit `dbb48cce5429cb6585c9034f002568964f1ce567` from `input-output-hk/libsodium`) when running VRF-dependent backend JUnit suites.
+- **Vulnerability scanner**: `osv-scanner` v2.x ([release binaries](https://github.com/google/osv-scanner/releases)) for local lockfile CVE checks.
 
 ### Installing IOG `libsodium` Locally
 
@@ -101,6 +102,23 @@ Optional Gradle wrappers `./gradlew testVue` and `./gradlew buildVue` remain ava
   GRADLE_ENCRYPTION_KEY=<base64-key> ./gradlew help --configuration-cache
   ```
   Generate a local 32-byte base64 test key if needed via `head -c 32 /dev/urandom | base64 -w0`.
+
+## Dependency Locking & Vulnerability Scanning (OSV-Scanner)
+
+`build.gradle.kts` enables strict Gradle dependency locking (`LockMode.STRICT`) across all project configurations (excluding `ktlint*` tool configurations). Any change to `build.gradle.kts` or `buildSrc/src/main/kotlin/Versions.kt` that alters resolved Maven coordinates will fail the Gradle build until `gradle.lockfile` is updated and committed.
+
+- **Regenerate `gradle.lockfile`** after modifying backend dependencies:
+  ```bash
+  ./gradlew dependencies --write-locks
+  ```
+- **Refresh `vue/package-lock.json`** after modifying `vue/package.json` (requires Node.js `>=26.0.0`):
+  ```bash
+  cd vue && npm install
+  ```
+- **Run offline OSV-Scanner check locally** (matches `.github/workflows/build.yml` and `.github/workflows/osv-scan.yml`; both lockfiles must report zero known advisories):
+  ```bash
+  osv-scanner --offline --download-offline-databases --lockfile=vue/package-lock.json --lockfile=gradle.lockfile
+  ```
 
 ## Git Hooks
 
