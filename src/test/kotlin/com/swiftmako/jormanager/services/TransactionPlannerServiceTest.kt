@@ -1,11 +1,14 @@
 package com.swiftmako.jormanager.services
 
+import com.bloxbean.cardano.client.api.MinAdaCalculator
+import com.bloxbean.cardano.client.coinselection.impl.LargestFirstUtxoSelectionStrategy
 import com.google.common.truth.Truth.assertThat
 import com.swiftmako.jormanager.ktx.sumByBigInteger
 import com.swiftmako.jormanager.model.NativeAsset
 import com.swiftmako.jormanager.model.PlannedOutput
 import com.swiftmako.jormanager.model.ProtocolParameters
 import com.swiftmako.jormanager.model.SelectionMode
+import com.swiftmako.jormanager.model.TransactionPlan
 import com.swiftmako.jormanager.model.Utxo
 import com.swiftmako.jormanager.model.WithdrawalItem
 import com.swiftmako.jormanager.model.toNativeAssetMap
@@ -620,5 +623,449 @@ class TransactionPlannerServiceTest {
         assertThat(standardWalletMs).isLessThan(500.0)
         assertThat(standardAdminMs).isLessThan(500.0)
         assertThat(defragmentMs).isLessThan(500.0)
+    }
+
+    @Test
+    fun `net-unlocked selection preserves tie order and matches full 20-token bundle min-ADA across shifted chunks and CBOR widths`() {
+        val deterministicPlanner =
+            TransactionPlannerService(
+                randomImproveStrategyFactory = { supplier ->
+                    LargestFirstUtxoSelectionStrategy(supplier, false)
+                },
+                largestFirstStrategyFactory = { supplier ->
+                    LargestFirstUtxoSelectionStrategy(supplier, false)
+                },
+            )
+
+        // Requested token lives on UTxO #1 alongside an early-sorted policyC token
+        val requestedTokenName = "5245513031"
+        val requestedUtxo =
+            Utxo(
+                hash = txHash(30_001),
+                ix = 0,
+                lovelace = BigInteger.valueOf(2_200_000L),
+                nativeAssets =
+                    listOf(
+                        NativeAsset(name = requestedTokenName, policy = policyB, amount = BigInteger.valueOf(50L)),
+                        NativeAsset(name = "41413031", policy = policyC, amount = BigInteger.valueOf(20L)),
+                    ),
+            )
+
+        // 30 token-heavy UTxOs: each has 3.5 ADA nominal lovelace (> 2.5 ADA pure UTxOs) so nominal Largest-First
+        // picks them first, but each carries 16 unique tokens + 4 shared boundary tokens (~2.3 ADA min-ADA per 20-token
+        // bundle, leaving only ~1.2 ADA net unlocked) so nominal attempts fail and escalate to selectByNetUnlockedLovelace.
+        // Shared tokens cross CBOR unsigned int width boundaries (23->24, 255->256, 65535->65536, 4294967295->4294967296)
+        // while unique tokens across policyC < policyA < policyB shift 20-token chunk boundaries on every candidate.
+        val cborBoundaryAmounts =
+            listOf(
+                BigInteger.valueOf(20L),
+                BigInteger.valueOf(250L),
+                BigInteger.valueOf(65_530L),
+                BigInteger.valueOf(4_294_967_290L),
+            )
+        val tokenHeavyUtxos =
+            (1..30).map { idx ->
+                val sharedAssets =
+                    (1..4).map { t ->
+                        val sharedIdx = ((idx + t) % 8) + 1
+                        val policy =
+                            when (sharedIdx % 3) {
+                                0 -> policyC
+                                1 -> policyA
+                                else -> policyB
+                            }
+                        NativeAsset(
+                            name = "424e44${sharedIdx.toString(16).padStart(2, '0')}",
+                            policy = policy,
+                            amount = cborBoundaryAmounts[t - 1],
+                        )
+                    }
+                val uniqueAssets =
+                    (1..16).map { u ->
+                        val policy =
+                            when ((idx + u) % 3) {
+                                0 -> policyC
+                                1 -> policyA
+                                else -> policyB
+                            }
+                        NativeAsset(
+                            name = "554e51${idx.toString(16).padStart(2, '0')}${u.toString(16).padStart(2, '0')}",
+                            policy = policy,
+                            amount = BigInteger.valueOf(15L + u),
+                        )
+                    }
+                Utxo(
+                    hash = txHash(31_000 + idx),
+                    ix = 0,
+                    lovelace = BigInteger.valueOf(2_150_000L),
+                    nativeAssets = sharedAssets + uniqueAssets,
+                )
+            }
+
+        // Pure-ADA UTxOs with deliberate lovelace ties (2.0 ADA each < 2.15 ADA nominal, but 2.0 ADA > ~0.3 ADA net unlocked)
+        val tiedPureUtxos =
+            (1..8).map { idx ->
+                Utxo(
+                    hash = txHash(32_000 + idx),
+                    ix = idx.toLong(),
+                    lovelace = BigInteger.valueOf(2_000_000L),
+                    nativeAssets = emptyList(),
+                )
+            }
+
+        val allUtxos = listOf(requestedUtxo) + tokenHeavyUtxos + tiedPureUtxos
+        val items =
+            listOf(
+                WalletAccountLineItem(
+                    destinationKey = "acct:2",
+                    address = recipientAddress,
+                    currency = "ada",
+                    amount = BigInteger.valueOf(20_000_000L),
+                ),
+                WalletAccountLineItem(
+                    destinationKey = "acct:2",
+                    address = recipientAddress,
+                    currency = "$policyB.$requestedTokenName",
+                    amount = BigInteger.valueOf(20L),
+                ),
+            )
+
+        val plan1 =
+            deterministicPlanner.planWalletTransaction(
+                utxos = allUtxos,
+                changeAddress = senderAddress,
+                toAccountItems = items,
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.STANDARD,
+            )
+        val plan2 =
+            deterministicPlanner.planWalletTransaction(
+                utxos = allUtxos,
+                changeAddress = senderAddress,
+                toAccountItems = items,
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.STANDARD,
+            )
+
+        assertThat(plan1).isEqualTo(plan2)
+        assertThat(plan1.usedFallback).isTrue()
+
+        // Tied pure-ADA UTxOs must all be selected first (after requestedUtxo) in exact original input order
+        val selectedPureHashes = plan1.selectedUtxos.filter { it.nativeAssets.isEmpty() }.map { it.hash }
+        assertThat(selectedPureHashes).isEqualTo(tiedPureUtxos.map { it.hash })
+
+        // Multiple 20-token change outputs must be produced and match exact reference min-ADA per chunk
+        val changeTokenOutputs = plan1.outputs.filter { it.address == senderAddress && it.nativeAssets.isNotEmpty() }
+        assertThat(changeTokenOutputs.size).isGreaterThan(4)
+
+        val expectedLeftoverMap =
+            plan1.selectedUtxos
+                .toNativeAssetMap()
+                .mapValues { (k, v) ->
+                    if (k == "$policyB.$requestedTokenName") v - BigInteger.valueOf(20L) else v
+                }.filterValues { it > BigInteger.ZERO }
+        val expectedSortedAssets =
+            expectedLeftoverMap
+                .map { (cur, amt) -> deterministicPlanner.currencyToNativeAsset(cur, amt) }
+                .sortedWith(compareBy<NativeAsset> { it.policy }.thenBy { it.name })
+        val expectedChunks = expectedSortedAssets.chunked(TransactionPlannerService.NATIVE_ASSET_MAX_GROUP_SIZE)
+        val expectedKeepFee =
+            expectedChunks.sumByBigInteger { chunk ->
+                deterministicPlanner.calculateMinAda(senderAddress, chunk, protocolParameters)
+            }
+
+        assertThat(plan1.tokenKeepFee).isEqualTo(expectedKeepFee)
+        assertThat(plan1.selectedUtxos.sumByBigInteger { it.lovelace })
+            .isEqualTo(plan1.outputs.sumByBigInteger { it.lovelace } + plan1.fee)
+
+        // Verify admin net-unlocked fallback when pure-ADA pool (16 ADA) < deposit (18 ADA)
+        val adminPlan =
+            deterministicPlanner.planAdminTransaction(
+                utxos = tokenHeavyUtxos + tiedPureUtxos,
+                changeAddress = senderAddress,
+                protocolParameters = protocolParameters,
+                deposit = BigInteger.valueOf(18_000_000L),
+                witnessCount = 2,
+            )
+        assertThat(adminPlan.usedFallback).isTrue()
+        assertThat(adminPlan.selectedUtxos.sumByBigInteger { it.lovelace })
+            .isEqualTo(adminPlan.outputs.sumByBigInteger { it.lovelace } + BigInteger.valueOf(18_000_000L) + adminPlan.fee)
+    }
+
+    @Test
+    fun `defragment ordering partitions all UTxO buckets cleanly and preserves input order on ties`() {
+        val uniqueCleanPolicy1 = "11".repeat(28)
+        val uniqueCleanPolicy2 = "22".repeat(28)
+
+        // Non-fragmented multi-asset UTxOs: 6 assets (>= 5, <= 20) under policies appearing on only 1 UTxO each, tied lovelace
+        val nonFragmentedToken1 =
+            Utxo(
+                hash = txHash(40_001),
+                ix = 0,
+                lovelace = BigInteger.valueOf(3_500_000L),
+                nativeAssets = (1..6).map { NativeAsset("434c4e0$it", uniqueCleanPolicy1, BigInteger.TEN) },
+            )
+        val nonFragmentedToken2 =
+            Utxo(
+                hash = txHash(40_002),
+                ix = 0,
+                lovelace = BigInteger.valueOf(3_500_000L),
+                nativeAssets = (1..6).map { NativeAsset("434c4e0$it", uniqueCleanPolicy2, BigInteger.TEN) },
+            )
+
+        // Larger pure-ADA UTxOs (>= 10 ADA) with tied lovelace (15 ADA), plus one 25 ADA funding UTxO
+        val fundingUtxo = Utxo(txHash(40_010), 0, BigInteger.valueOf(25_000_000L), emptyList())
+        val largePure1 = Utxo(txHash(40_011), 0, BigInteger.valueOf(15_000_000L), emptyList())
+        val largePure2 = Utxo(txHash(40_012), 0, BigInteger.valueOf(15_000_000L), emptyList())
+
+        // Fragmented token UTxOs (< 5 assets) with tied (size, lovelace)
+        val fragToken1 =
+            Utxo(
+                hash = txHash(40_021),
+                ix = 0,
+                lovelace = BigInteger.valueOf(2_000_000L),
+                nativeAssets = listOf(NativeAsset("4652414731", policyA, BigInteger.ONE)),
+            )
+        val fragToken2 =
+            Utxo(
+                hash = txHash(40_022),
+                ix = 0,
+                lovelace = BigInteger.valueOf(2_000_000L),
+                nativeAssets = listOf(NativeAsset("4652414732", policyA, BigInteger.ONE)),
+            )
+
+        // Dust pure-ADA UTxOs (< 10 ADA) with tied lovelace
+        val dustPure1 = Utxo(txHash(40_031), 0, BigInteger.valueOf(1_500_000L), emptyList())
+        val dustPure2 = Utxo(txHash(40_032), 0, BigInteger.valueOf(1_500_000L), emptyList())
+
+        // Interleave inputs in reverse bucket order to ensure partitioning + stable tie sorting determines exact output order
+        val scrambledInput =
+            listOf(
+                nonFragmentedToken1,
+                largePure1,
+                fragToken1,
+                dustPure1,
+                nonFragmentedToken2,
+                largePure2,
+                fragToken2,
+                dustPure2,
+                fundingUtxo,
+            )
+
+        val plan =
+            planner.planWalletTransaction(
+                utxos = scrambledInput,
+                changeAddress = senderAddress,
+                toAccountItems = emptyList(),
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.DEFRAGMENT,
+            )
+
+        assertThat(plan.selectedUtxos)
+            .containsExactly(
+                fundingUtxo,
+                dustPure1,
+                dustPure2,
+                fragToken1,
+                fragToken2,
+                largePure1,
+                largePure2,
+                nonFragmentedToken1,
+                nonFragmentedToken2,
+            ).inOrder()
+    }
+
+    @Test
+    fun `synthetic duplicate hash-ix UTxOs fall back to structural Utxo membership and invalid Bech32 uses DUMMY_ADDRESS`() {
+        val sharedHash = txHash(50_001)
+        val dupPureLarge = Utxo(hash = sharedHash, ix = 0, lovelace = BigInteger.valueOf(40_000_000L), nativeAssets = emptyList())
+        val dupPureSmall = Utxo(hash = sharedHash, ix = 0, lovelace = BigInteger.valueOf(5_000_000L), nativeAssets = emptyList())
+        val dupTokenUtxo =
+            Utxo(
+                hash = sharedHash,
+                ix = 0,
+                lovelace = BigInteger.valueOf(3_000_000L),
+                nativeAssets = listOf(NativeAsset("445550", policyA, BigInteger.TEN)),
+            )
+        val utxosWithDuplicateRefs = listOf(dupPureLarge, dupPureSmall, dupTokenUtxo)
+
+        val standardPlan =
+            planner.planWalletTransaction(
+                utxos = utxosWithDuplicateRefs,
+                changeAddress = "invalid_bech32_change_address",
+                toAccountItems =
+                    listOf(
+                        WalletAccountLineItem(
+                            destinationKey = "acct:2",
+                            address = "invalid_bech32_recipient_address",
+                            currency = "ada",
+                            amount = BigInteger.valueOf(10_000_000L),
+                        )
+                    ),
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.STANDARD,
+            )
+
+        // dupTokenUtxo shares (hash, ix) with selected pure-ADA UTxO(s), yet must still be counted in tokenLocked!
+        assertThat(standardPlan.selectedUtxos).doesNotContain(dupTokenUtxo)
+        assertThat(standardPlan.tokenLocked).isEqualTo(dupTokenUtxo.lovelace)
+        assertThat(standardPlan.selectedUtxos.sumByBigInteger { it.lovelace })
+            .isEqualTo(standardPlan.outputs.sumByBigInteger { it.lovelace } + standardPlan.fee)
+
+        val adminPlan =
+            planner.planAdminTransaction(
+                utxos = utxosWithDuplicateRefs,
+                changeAddress = "invalid_bech32_admin_address",
+                protocolParameters = protocolParameters,
+                deposit = BigInteger.valueOf(2_000_000L),
+            )
+        assertThat(adminPlan.selectedUtxos).doesNotContain(dupTokenUtxo)
+        assertThat(adminPlan.tokenLocked).isEqualTo(dupTokenUtxo.lovelace)
+
+        val defragPlan =
+            planner.planWalletTransaction(
+                utxos = utxosWithDuplicateRefs,
+                changeAddress = "invalid_bech32_change_address",
+                toAccountItems = emptyList(),
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.DEFRAGMENT,
+            )
+        assertThat(defragPlan.selectedUtxos).hasSize(3)
+        assertThat(defragPlan.selectedUtxos.sumByBigInteger { it.lovelace })
+            .isEqualTo(defragPlan.outputs.sumByBigInteger { it.lovelace } + defragPlan.fee)
+
+        val dummyAddressMinAda =
+            planner.calculateMinAda(
+                address = "not_bech32_at_all",
+                nativeAssets = listOf(NativeAsset("445550", policyA, BigInteger.TEN)),
+                protocolParameters = protocolParameters,
+            )
+        val explicitDummyMinAda =
+            planner.calculateMinAda(
+                address = MinAdaCalculator.DUMMY_ADDRESS,
+                nativeAssets = listOf(NativeAsset("445550", policyA, BigInteger.TEN)),
+                protocolParameters = protocolParameters,
+            )
+        assertThat(dummyAddressMinAda).isEqualTo(explicitDummyMinAda)
+    }
+
+    @Test
+    fun `scaling guardrail plans 2,500 multi-asset UTxOs deterministically across STANDARD, DEFRAGMENT, and admin flows`() {
+        val deterministicPlanner =
+            TransactionPlannerService(
+                randomImproveStrategyFactory = { supplier ->
+                    LargestFirstUtxoSelectionStrategy(supplier, false)
+                },
+                largestFirstStrategyFactory = { supplier ->
+                    LargestFirstUtxoSelectionStrategy(supplier, false)
+                },
+            )
+
+        val multiAssetWallet2500 =
+            (1..2_500).map { idx ->
+                val assets =
+                    when {
+                        idx % 3 == 0 ->
+                            (1..((idx % 5) + 1)).map { t ->
+                                NativeAsset(
+                                    name = "544f4b${((idx + t) % 45).toString(16).padStart(2, '0')}",
+                                    policy = if ((idx + t) % 2 == 0) policyA else policyB,
+                                    amount = BigInteger.valueOf(10L * t),
+                                )
+                            }
+                        idx % 7 == 0 ->
+                            (1..6).map { t ->
+                                NativeAsset(
+                                    name = "424e44${t.toString(16).padStart(2, '0')}",
+                                    policy = policyC,
+                                    amount = BigInteger.valueOf(100L + t),
+                                )
+                            }
+                        else -> emptyList()
+                    }
+                Utxo(
+                    hash = txHash(60_000 + idx),
+                    ix = (idx % 4).toLong(),
+                    lovelace =
+                        if (assets.isEmpty()) {
+                            BigInteger.valueOf(1_400_000L + (idx % 12) * 800_000L)
+                        } else {
+                            BigInteger.valueOf(2_200_000L + (idx % 6) * 200_000L)
+                        },
+                    nativeAssets = assets,
+                )
+            }
+
+        // Warm up once
+        deterministicPlanner.planWalletTransaction(
+            utxos = multiAssetWallet2500.subList(0, 500),
+            changeAddress = senderAddress,
+            toAccountItems = emptyList(),
+            protocolParameters = protocolParameters,
+            selectionMode = SelectionMode.DEFRAGMENT,
+        )
+
+        var defragPlan1: TransactionPlan? = null
+        val defrag2500Ms =
+            measureNanoTime {
+                defragPlan1 =
+                    deterministicPlanner.planWalletTransaction(
+                        utxos = multiAssetWallet2500,
+                        changeAddress = senderAddress,
+                        toAccountItems = emptyList(),
+                        protocolParameters = protocolParameters,
+                        selectionMode = SelectionMode.DEFRAGMENT,
+                    )
+            } / 1_000_000.0
+        val defragPlan2 =
+            deterministicPlanner.planWalletTransaction(
+                utxos = multiAssetWallet2500,
+                changeAddress = senderAddress,
+                toAccountItems = emptyList(),
+                protocolParameters = protocolParameters,
+                selectionMode = SelectionMode.DEFRAGMENT,
+            )
+
+        assertThat(defragPlan1).isEqualTo(defragPlan2)
+        assertThat(defragPlan1!!.estimatedTxBytes).isAtMost(16_384)
+        assertThat(defrag2500Ms).isLessThan(500.0)
+
+        var standardPlan: TransactionPlan? = null
+        val standard2500Ms =
+            measureNanoTime {
+                standardPlan =
+                    deterministicPlanner.planWalletTransaction(
+                        utxos = multiAssetWallet2500,
+                        changeAddress = senderAddress,
+                        toAccountItems =
+                            listOf(
+                                WalletAccountLineItem(
+                                    destinationKey = "acct:2",
+                                    address = recipientAddress,
+                                    currency = "ada",
+                                    amount = BigInteger.valueOf(30_000_000L),
+                                )
+                            ),
+                        protocolParameters = protocolParameters,
+                        selectionMode = SelectionMode.STANDARD,
+                    )
+            } / 1_000_000.0
+        assertThat(standardPlan!!.estimatedTxBytes).isAtMost(16_384)
+        assertThat(standard2500Ms).isLessThan(500.0)
+
+        var adminPlan: TransactionPlan? = null
+        val admin2500Ms =
+            measureNanoTime {
+                adminPlan =
+                    deterministicPlanner.planAdminTransaction(
+                        utxos = multiAssetWallet2500,
+                        changeAddress = senderAddress,
+                        protocolParameters = protocolParameters,
+                        deposit = BigInteger.valueOf(2_000_000L),
+                        witnessCount = 2,
+                    )
+            } / 1_000_000.0
+        assertThat(adminPlan!!.estimatedTxBytes).isAtMost(16_384)
+        assertThat(admin2500Ms).isLessThan(500.0)
     }
 }

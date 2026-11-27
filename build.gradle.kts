@@ -1,8 +1,10 @@
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import java.util.Locale
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.springframework.boot.gradle.tasks.bundling.BootJar
+import org.springframework.boot.gradle.tasks.run.BootRun
 
 plugins {
     java
@@ -134,10 +136,11 @@ tasks.withType<KotlinCompile> {
     }
 }
 
+@CacheableTask
 abstract class BuildVueTask
     @Inject
     constructor(
-        private val execOperations: ExecOperations
+        private val execOperations: ExecOperations,
     ) : DefaultTask() {
         @get:InputFiles
         @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -158,24 +161,27 @@ abstract class BuildVueTask
             }
         }
     }
-tasks.register<BuildVueTask>("buildVue") {
-    vueSources.from(
-        fileTree("vue/src"),
-        fileTree("vue/public"),
-        "vue/index.html",
-        "vue/package.json",
-        "vue/package-lock.json",
-        "vue/tsconfig.json",
-        "vue/vite.config.ts",
-        "vue/deploy.sh",
-    )
-    distDir.set(layout.projectDirectory.dir("vue/dist"))
-}
+val buildVue =
+    tasks.register<BuildVueTask>("buildVue") {
+        vueSources.from(
+            fileTree("vue/src"),
+            fileTree("vue/public"),
+            fileTree("vue/tests"),
+            "vue/index.html",
+            "vue/package.json",
+            "vue/package-lock.json",
+            "vue/tsconfig.json",
+            "vue/vite.config.ts",
+            "vue/deploy.sh",
+        )
+        distDir.set(layout.projectDirectory.dir("vue/dist"))
+    }
 
+@CacheableTask
 abstract class TestVueTask
     @Inject
     constructor(
-        private val execOperations: ExecOperations
+        private val execOperations: ExecOperations,
     ) : DefaultTask() {
         @get:InputFiles
         @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -199,18 +205,20 @@ abstract class TestVueTask
             stampFile.writeText("passed\n")
         }
     }
-tasks.register<TestVueTask>("testVue") {
-    vueTestSources.from(
-        fileTree("vue/src"),
-        fileTree("vue/tests"),
-        "vue/package.json",
-        "vue/package-lock.json",
-        "vue/tsconfig.json",
-        "vue/vitest.config.ts",
-        "vue/test.sh",
-    )
-    resultStamp.set(layout.buildDirectory.file("reports/vue-tests/result.stamp"))
-}
+
+val testVue =
+    tasks.register<TestVueTask>("testVue") {
+        vueTestSources.from(
+            fileTree("vue/src"),
+            fileTree("vue/tests"),
+            "vue/package.json",
+            "vue/package-lock.json",
+            "vue/tsconfig.json",
+            "vue/vitest.config.ts",
+            "vue/test.sh",
+        )
+        resultStamp.set(layout.buildDirectory.file("reports/vue-tests/result.stamp"))
+    }
 
 abstract class InstallGitHooksTask
     @Inject
@@ -269,12 +277,17 @@ val usePrebuiltFrontend =
                 }.orElse(false)
         )
 
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
 tasks.named<BootJar>("bootJar") {
     val frontendDist =
         if (usePrebuiltFrontend.get()) {
             layout.projectDirectory.dir("vue/dist")
         } else {
-            tasks.named<BuildVueTask>("buildVue").flatMap { it.distDir }
+            buildVue.flatMap { it.distDir }
         }
     val frontendIndexHtml =
         layout.projectDirectory
@@ -294,8 +307,16 @@ tasks.named<BootJar>("bootJar") {
     }
 }
 
-tasks {
-    springBoot {
-        buildInfo()
+tasks.named<BootRun>("bootRun") {
+    dependsOn(buildVue)
+    systemProperty(
+        "spring.web.resources.static-locations",
+        "classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/,file:./vue/dist/",
+    )
+}
+
+springBoot {
+    buildInfo {
+        excludes.set(setOf("time"))
     }
 }

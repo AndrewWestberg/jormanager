@@ -29,6 +29,13 @@ class HostConnection(
         SSHClientPool.getInstance(host)
     }
 
+    fun pinnedSshFingerprint(): String? =
+        if (host.isRemote) {
+            sshClientPool.pinnedFingerprint()
+        } else {
+            null
+        }
+
     val hasSystemd: Boolean by lazy {
         command("ps --no-headers -o comm 1").trim() == "systemd"
     }
@@ -235,6 +242,9 @@ class HostConnection(
                 }
             }
         } catch (e: Throwable) {
+            if (e is HostKeyMismatchException) {
+                throw e
+            }
             throw SSHRuntimeException("Remote sudo command failed!", e)
         } finally {
             ignoreExceptions { sshClientPool.recycle(ssh) }

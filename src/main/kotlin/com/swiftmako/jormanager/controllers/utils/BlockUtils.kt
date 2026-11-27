@@ -19,10 +19,9 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.context.annotation.Scope
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
-import java.math.BigInteger
 import java.math.RoundingMode
-import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.getOrSet
 import kotlin.experimental.xor
 import kotlin.math.abs
 
@@ -44,16 +43,15 @@ class BlockUtils
             log.info("libsodium loaded, version: $v")
         }
 
+        private val slotBytesContainer = ThreadLocal<ByteArray>()
+
         /**
          * The universal constant nonce. The blake2b hash of the 8 byte long value of 1
          * 12dd0a6a7d0e222a97926da03adb5a7768d31cc7c5c2bd6828e14a7d25fa3a60
          * Sometimes called seedL in the haskell code
          */
         private val ucNonce by lazy {
-            SodiumLibrary.cryptoBlake2bHash(
-                byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01),
-                null
-            )
+            Blake2b.hash256(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01))
         }
 
         fun getEpoch(
@@ -153,7 +151,7 @@ class BlockUtils
         ): Boolean {
             require(threshold.vrfSizeBytes == 64) { "TPraos requires a 64-byte threshold" }
             val seed = mkSeed(slot, eta0)
-            return threshold.isLeader(BigInteger(1, vrfEvalCertified(seed, poolVrfSkey)))
+            return threshold.isLeader(vrfEvalCertified(seed, poolVrfSkey))
         }
 
         /** Praos range-extends the VRF output with Blake2b-256("L" <> rawVRF). */
@@ -165,7 +163,7 @@ class BlockUtils
         ): Boolean {
             require(threshold.vrfSizeBytes == 32) { "Praos requires a 32-byte threshold" }
             val seed = mkInputVRF(slot, eta0)
-            return threshold.isLeader(BigInteger(1, vrfLeaderValue(vrfEvalCertified(seed, poolVrfSkey))))
+            return threshold.isLeader(vrfLeaderValue(vrfEvalCertified(seed, poolVrfSkey)))
         }
 
         /**
@@ -177,12 +175,7 @@ class BlockUtils
             slot: Long,
             eta0: ByteArray
         ): ByteArray {
-            val concatByteArray = ByteArray(8 + 32)
-            val concatByteBuffer = ByteBuffer.wrap(concatByteArray)
-            concatByteBuffer.putLong(slot)
-            concatByteBuffer.put(eta0)
-
-            val slotToSeedByteArray = SodiumLibrary.cryptoBlake2bHash(concatByteArray, null)
+            val slotToSeedByteArray = Blake2b.hash256(slotToBigEndianBytes(slot), eta0)
 
             val constant = ucNonce
             for (index in slotToSeedByteArray.indices) {
@@ -199,13 +192,19 @@ class BlockUtils
         fun mkInputVRF(
             slot: Long,
             eta0: ByteArray
-        ): ByteArray {
-            val concatByteArray = ByteArray(8 + 32)
-            val concatByteBuffer = ByteBuffer.wrap(concatByteArray)
-            concatByteBuffer.putLong(slot)
-            concatByteBuffer.put(eta0)
+        ): ByteArray = Blake2b.hash256(slotToBigEndianBytes(slot), eta0)
 
-            return SodiumLibrary.cryptoBlake2bHash(concatByteArray, null)
+        private fun slotToBigEndianBytes(slot: Long): ByteArray {
+            val bytes = slotBytesContainer.getOrSet { ByteArray(8) }
+            bytes[0] = (slot ushr 56).toByte()
+            bytes[1] = (slot ushr 48).toByte()
+            bytes[2] = (slot ushr 40).toByte()
+            bytes[3] = (slot ushr 32).toByte()
+            bytes[4] = (slot ushr 24).toByte()
+            bytes[5] = (slot ushr 16).toByte()
+            bytes[6] = (slot ushr 8).toByte()
+            bytes[7] = slot.toByte()
+            return bytes
         }
 
         fun vrfLeaderValue(rawVrf: ByteArray): ByteArray = Blake2b.hash256(LEADER_VRF_HEADER, rawVrf)

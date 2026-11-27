@@ -9,13 +9,23 @@ import com.swiftmako.jormanager.tables.*
 import com.swiftmako.jormanager.utils.Bech32
 import com.swiftmako.jormanager.utils.CborSpan
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.*
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.sql.Connection
 
 /** Maintained projections only. The coordinator owns every adoption/rollback transaction. */
 object LedgerRepository {
+    const val DEFAULT_PRUNE_BATCH_SIZE = 1_000
+
+    data class PruningStats(
+        val spentUtxosDeleted: Long,
+        val orphanedAddressesDeleted: Long,
+    )
+
     private val nextAssetLinkId = org.jetbrains.exposed.v1.core
         .Sequence("hibernate_sequence")
         .nextLongVal()
@@ -208,11 +218,7 @@ object LedgerRepository {
         bytes: ByteArray,
         address: String = addressText(bytes)
     ): Long {
-        LedgerTable
-            .select(LedgerTable.id)
-            .where { LedgerTable.address eq address }
-            .singleOrNull()
-            ?.let { return it[LedgerTable.id].value }
+        selectAddressId(address)?.let { return it }
         LedgerTable.insertIgnore {
             it[LedgerTable.address] = address
             it[stakeAddress] = if (bytes.size == 57 && (bytes[0].toInt() and 0xf0) < 0x40) {
@@ -222,11 +228,189 @@ object LedgerRepository {
                 null
             }
         }
-        return LedgerTable
+        return requireNotNull(selectAddressId(address)) { "Failed to resolve ledger id for address $address" }
+    }
+
+    private fun selectAddressId(address: String): Long? {
+        val baseQuery = LedgerTable
             .select(LedgerTable.id)
             .where { LedgerTable.address eq address }
-            .single()[LedgerTable.id]
-            .value
+        val vendor = TransactionManager.current().db.vendor
+        val lockedQuery = if (vendor.equals("postgresql", ignoreCase = true)) {
+            baseQuery.forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
+        } else {
+            baseQuery
+        }
+        return lockedQuery.singleOrNull()?.get(LedgerTable.id)?.value
+    }
+
+    fun pruneSpentUtxos(
+        network: String,
+        beforeSlot: BigDecimal,
+        batchSize: Int = DEFAULT_PRUNE_BATCH_SIZE,
+        onBatchCompleted: () -> Unit = {},
+    ): Long {
+        require(network.isNotBlank()) { "network must not be blank" }
+        require(batchSize > 0) { "batchSize ($batchSize) must be positive" }
+        if (beforeSlot <= BigDecimal.ZERO) return 0L
+
+        var totalDeleted = 0L
+        while (true) {
+            val (candidateCount, deletedCount) = transaction {
+                val connection = TransactionManager.current().connection.connection as Connection
+                val candidateIds = ArrayList<Long>(batchSize)
+                connection
+                    .prepareStatement(
+                        """
+                        SELECT u.id
+                        FROM ledger_utxos u
+                        WHERE u.slot_spent < ?
+                          AND u.network_key = ?
+                          AND u.spending_inclusion_id IS NOT NULL
+                        ORDER BY u.slot_spent ASC
+                        LIMIT ?
+                        FOR UPDATE OF u SKIP LOCKED
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setBigDecimal(1, beforeSlot)
+                        statement.setString(2, network)
+                        statement.setInt(3, batchSize)
+                        statement.executeQuery().use { rs ->
+                            while (rs.next()) {
+                                candidateIds.add(rs.getLong(1))
+                            }
+                        }
+                    }
+                if (candidateIds.isEmpty()) {
+                    0 to 0
+                } else {
+                    val idArray = connection.createArrayOf("bigint", candidateIds.toTypedArray())
+                    val deleted = try {
+                        connection
+                            .prepareStatement(
+                                """
+                                DELETE FROM ledger_utxos u
+                                WHERE u.id = ANY(?)
+                                  AND u.network_key = ?
+                                  AND u.spending_inclusion_id IS NOT NULL
+                                  AND u.slot_spent < ?
+                                """.trimIndent(),
+                            ).use { statement ->
+                                statement.setArray(1, idArray)
+                                statement.setString(2, network)
+                                statement.setBigDecimal(3, beforeSlot)
+                                statement.executeUpdate()
+                            }
+                    } finally {
+                        idArray.free()
+                    }
+                    candidateIds.size to deleted
+                }
+            }
+            totalDeleted += deletedCount
+            if (candidateCount > 0) {
+                onBatchCompleted()
+            }
+            if (candidateCount < batchSize) {
+                break
+            }
+        }
+        return totalDeleted
+    }
+
+    fun pruneOrphanedAddresses(
+        batchSize: Int = DEFAULT_PRUNE_BATCH_SIZE,
+        onBatchCompleted: () -> Unit = {},
+    ): Long {
+        require(batchSize > 0) { "batchSize ($batchSize) must be positive" }
+
+        var cursor = Long.MIN_VALUE
+        var totalDeleted = 0L
+        while (true) {
+            val (nextCursor, windowCount, deletedCount) = transaction {
+                val connection = TransactionManager.current().connection.connection as Connection
+                var maxId = cursor
+                var count = 0
+                connection
+                    .prepareStatement(
+                        """
+                        SELECT COALESCE(MAX(w.id), ?), COUNT(*)
+                        FROM (SELECT id FROM ledger WHERE id > ? ORDER BY id ASC LIMIT ?) w
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setLong(1, cursor)
+                        statement.setLong(2, cursor)
+                        statement.setInt(3, batchSize)
+                        statement.executeQuery().use { rs ->
+                            if (rs.next()) {
+                                maxId = rs.getLong(1)
+                                count = rs.getInt(2)
+                            }
+                        }
+                    }
+                if (count == 0) {
+                    Triple(cursor, 0, 0)
+                } else {
+                    val candidateIds = ArrayList<Long>(count)
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT l.id
+                            FROM ledger l
+                            WHERE l.id > ? AND l.id <= ?
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM ledger_utxos u
+                                  WHERE u.ledger_id = l.id AND u.ledger_id > ? AND u.ledger_id <= ?
+                              )
+                            ORDER BY l.id ASC
+                            FOR UPDATE OF l SKIP LOCKED
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setLong(1, cursor)
+                            statement.setLong(2, maxId)
+                            statement.setLong(3, cursor)
+                            statement.setLong(4, maxId)
+                            statement.executeQuery().use { rs ->
+                                while (rs.next()) {
+                                    candidateIds.add(rs.getLong(1))
+                                }
+                            }
+                        }
+                    val deleted = if (candidateIds.isEmpty()) {
+                        0
+                    } else {
+                        val idArray = connection.createArrayOf("bigint", candidateIds.toTypedArray())
+                        try {
+                            connection
+                                .prepareStatement(
+                                    """
+                                    DELETE FROM ledger l
+                                    WHERE l.id = ANY(?)
+                                      AND NOT EXISTS (
+                                          SELECT 1 FROM ledger_utxos u WHERE u.ledger_id = l.id
+                                      )
+                                    """.trimIndent(),
+                                ).use { statement ->
+                                    statement.setArray(1, idArray)
+                                    statement.executeUpdate()
+                                }
+                        } finally {
+                            idArray.free()
+                        }
+                    }
+                    Triple(maxId, count, deleted)
+                }
+            }
+            totalDeleted += deletedCount
+            cursor = nextCursor
+            if (windowCount > 0) {
+                onBatchCompleted()
+            }
+            if (windowCount < batchSize) {
+                break
+            }
+        }
+        return totalDeleted
     }
 
     fun spend(

@@ -88,6 +88,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
         with:
           cache-provider: enhanced
           cache-read-only: ${{ github.event_name == 'pull_request' }}
@@ -105,6 +107,8 @@ jobs:
           sudo ldconfig
 
       - name: Check formatting and run backend tests
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
         run: ./gradlew ktlintCheck test --continue --build-cache --stacktrace
 
       - name: Upload Gradle reports on failure
@@ -156,9 +160,13 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
         with:
           cache-provider: enhanced
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Build bootJar
+        env:
+          GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
         run: ./gradlew bootJar -PprebuiltFrontend=true --build-cache --stacktrace

@@ -1,14 +1,23 @@
 package com.swiftmako.jormanager.controllers.utils
 
 import com.google.common.truth.Truth.assertThat
+import com.muquit.libsodiumjna.SodiumLibrary
 import com.swiftmako.jormanager.ktx.hexToByteArray
 import com.swiftmako.jormanager.ktx.toHexString
 import com.swiftmako.jormanager.model.*
+import com.swiftmako.jormanager.utils.Blake2b
 import com.swiftmako.jormanager.utils.CardanoLeaderElection
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
+import java.math.BigInteger
+import java.nio.ByteBuffer
+import java.util.concurrent.Callable
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.experimental.xor
 
 class BlockUtilsTest {
     private val byron =
@@ -260,5 +269,105 @@ class BlockUtilsTest {
 //            BigInteger("104851203780143120793757430757232003657789403622137095777340581482187202740116").toByteArray()
 //                .toHexString()
         assertThat(foo).isEqualTo("e7cfada3aed09d74df7cbbfa633389da58943e3fbe76da3a4eabde9f56dfbf94")
+    }
+
+    @Test
+    fun `mkSeed and mkInputVRF match golden vectors and libsodium across boundary slots`() {
+        val testnetNonce = "70c0f591099a8de944e02585841d602479493f2d7e360f04c8b8cf990988eda3".hexToByteArray()
+        val firstSeed = target.mkSeed(7397153L, testnetNonce)
+        assertThat(firstSeed.toHexString()).isEqualTo("7e2a4eff14e47fa5d8df184a1d6c3e8906837224a7f9392d1994293a4bc6d709")
+        firstSeed.fill(0)
+        assertThat(target.mkSeed(7397153L, testnetNonce).toHexString())
+            .isEqualTo("7e2a4eff14e47fa5d8df184a1d6c3e8906837224a7f9392d1994293a4bc6d709")
+
+        val seedL = SodiumLibrary.cryptoBlake2bHash(ByteBuffer.allocate(8).putLong(1L).array(), null)
+        assertThat(seedL.toHexString()).isEqualTo("12dd0a6a7d0e222a97926da03adb5a7768d31cc7c5c2bd6828e14a7d25fa3a60")
+
+        val boundarySlots =
+            listOf(
+                0L,
+                1L,
+                255L,
+                256L,
+                852974L,
+                941093L,
+                7397153L,
+                14398146L,
+                50670495L,
+                Int.MAX_VALUE.toLong(),
+                Int.MAX_VALUE.toLong() + 1L,
+                Long.MAX_VALUE,
+                -1L,
+                Long.MIN_VALUE,
+            )
+        for (slot in boundarySlots) {
+            val concat =
+                ByteBuffer
+                    .allocate(8 + testnetNonce.size)
+                    .putLong(slot)
+                    .put(testnetNonce)
+                    .array()
+            val expectedInputVrf = SodiumLibrary.cryptoBlake2bHash(concat, null)
+            val expectedSeed = ByteArray(expectedInputVrf.size) { i -> expectedInputVrf[i] xor seedL[i] }
+            assertThat(target.mkInputVRF(slot, testnetNonce)).isEqualTo(expectedInputVrf)
+            assertThat(target.mkSeed(slot, testnetNonce)).isEqualTo(expectedSeed)
+        }
+    }
+
+    @Test
+    fun `mkSeed and mkInputVRF isolate ThreadLocal slot buffers across concurrent threads`() {
+        val nonce = "6161ef68d404ab64f8f606a76a233d1868994a802ffe06dec32d6f13bbf2bde1".hexToByteArray()
+        val seedL = Blake2b.hash256(ByteBuffer.allocate(8).putLong(1L).array())
+        val threadCount = 8
+        val iterationsPerThread = 1000
+        val barrier = CyclicBarrier(threadCount)
+        val executor = Executors.newFixedThreadPool(threadCount)
+        try {
+            val futures =
+                (0 until threadCount).map { threadIndex ->
+                    executor.submit(
+                        Callable {
+                            barrier.await(10, TimeUnit.SECONDS)
+                            for (step in 0 until iterationsPerThread) {
+                                val slot = (threadIndex.toLong() + 1L) * 0x0102030405060708L + step.toLong()
+                                val expectedInput =
+                                    Blake2b.hash256(
+                                        ByteBuffer
+                                            .allocate(8 + nonce.size)
+                                            .putLong(slot)
+                                            .put(nonce)
+                                            .array()
+                                    )
+                                val expectedSeed = ByteArray(expectedInput.size) { i -> expectedInput[i] xor seedL[i] }
+                                assertThat(target.mkInputVRF(slot, nonce)).isEqualTo(expectedInput)
+                                assertThat(target.mkSeed(slot, nonce)).isEqualTo(expectedSeed)
+                            }
+                        }
+                    )
+                }
+            futures.forEach { it.get(30, TimeUnit.SECONDS) }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `VRF wrappers match BigInteger threshold evaluation in both eras`() {
+        val poolVrfSkey =
+            "fd8b57ee76d8d9938a0fb5b61e63626e1604d900e84d0970d24bfd69b60fea98e7b493d575baa41450f7c8c82a462d6c7a5179d143536cdd1a50e8200e6db5d5".hexToByteArray()
+        val eta0 = "6161ef68d404ab64f8f606a76a233d1868994a802ffe06dec32d6f13bbf2bde1".hexToByteArray()
+        val activeSlots = CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal("0.5"))
+        val stake = StakeFraction(2.toBigInteger(), 3.toBigInteger())
+        val praosThreshold = CardanoLeaderElection.prepare(activeSlots, stake, 32)
+        val tpraosThreshold = CardanoLeaderElection.prepare(activeSlots, stake, 64)
+
+        for (slot in 941090L..941105L) {
+            val tpraosCert = BigInteger(1, target.vrfEvalCertified(target.mkSeed(slot, eta0), poolVrfSkey))
+            val praosCert = BigInteger(1, target.vrfLeaderValue(target.vrfEvalCertified(target.mkInputVRF(slot, eta0), poolVrfSkey)))
+            assertThat(target.isSlotLeaderTPraos(slot, tpraosThreshold, eta0, poolVrfSkey))
+                .isEqualTo(tpraosThreshold.isLeader(tpraosCert))
+            assertThat(target.isSlotLeaderPraos(slot, praosThreshold, eta0, poolVrfSkey))
+                .isEqualTo(praosThreshold.isLeader(praosCert))
+        }
     }
 }
