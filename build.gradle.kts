@@ -1,8 +1,11 @@
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 import java.util.Locale
 import org.gradle.api.artifacts.dsl.LockMode
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+import org.springframework.boot.gradle.tasks.run.BootRun
 
 plugins {
     java
@@ -144,10 +147,11 @@ tasks.withType<KotlinCompile> {
     }
 }
 
+@CacheableTask
 abstract class BuildVueTask
     @Inject
     constructor(
-        private val execOperations: ExecOperations
+        private val execOperations: ExecOperations,
     ) : DefaultTask() {
         @get:InputFiles
         @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -155,9 +159,6 @@ abstract class BuildVueTask
 
         @get:OutputDirectory
         abstract val distDir: DirectoryProperty
-
-        @get:OutputDirectory
-        abstract val staticResourcesDir: DirectoryProperty
 
         init {
             group = "build"
@@ -171,25 +172,28 @@ abstract class BuildVueTask
             }
         }
     }
-tasks.register<BuildVueTask>("buildVue") {
-    vueSources.from(
-        fileTree("vue/src"),
-        fileTree("vue/public"),
-        "vue/index.html",
-        "vue/package.json",
-        "vue/package-lock.json",
-        "vue/tsconfig.json",
-        "vue/vite.config.ts",
-        "vue/deploy.sh",
-    )
-    distDir.set(layout.projectDirectory.dir("vue/dist"))
-    staticResourcesDir.set(layout.projectDirectory.dir("src/main/resources/static"))
-}
 
+val buildVue =
+    tasks.register<BuildVueTask>("buildVue") {
+        vueSources.from(
+            fileTree("vue/src"),
+            fileTree("vue/public"),
+            fileTree("vue/tests"),
+            "vue/index.html",
+            "vue/package.json",
+            "vue/package-lock.json",
+            "vue/tsconfig.json",
+            "vue/vite.config.ts",
+            "vue/deploy.sh",
+        )
+        distDir.set(layout.projectDirectory.dir("vue/dist"))
+    }
+
+@CacheableTask
 abstract class TestVueTask
     @Inject
     constructor(
-        private val execOperations: ExecOperations
+        private val execOperations: ExecOperations,
     ) : DefaultTask() {
         @get:InputFiles
         @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -213,18 +217,20 @@ abstract class TestVueTask
             stampFile.writeText("passed\n")
         }
     }
-tasks.register<TestVueTask>("testVue") {
-    vueTestSources.from(
-        fileTree("vue/src"),
-        fileTree("vue/tests"),
-        "vue/package.json",
-        "vue/package-lock.json",
-        "vue/tsconfig.json",
-        "vue/vitest.config.ts",
-        "vue/test.sh",
-    )
-    resultStamp.set(layout.buildDirectory.file("reports/vue-tests/result.stamp"))
-}
+
+val testVue =
+    tasks.register<TestVueTask>("testVue") {
+        vueTestSources.from(
+            fileTree("vue/src"),
+            fileTree("vue/tests"),
+            "vue/package.json",
+            "vue/package-lock.json",
+            "vue/tsconfig.json",
+            "vue/vitest.config.ts",
+            "vue/test.sh",
+        )
+        resultStamp.set(layout.buildDirectory.file("reports/vue-tests/result.stamp"))
+    }
 
 abstract class InstallGitHooksTask
     @Inject
@@ -267,13 +273,33 @@ tasks.register<InstallGitHooksTask>("installGitHooks") {
     )
 }
 
-tasks.named("processResources") {
-    dependsOn("testVue")
-    dependsOn("buildVue")
+tasks.named("test") {
+    dependsOn(testVue)
 }
 
-tasks {
-    springBoot {
-        buildInfo()
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+tasks.named<BootJar>("bootJar") {
+    bootInf {
+        into("classes/static") {
+            from(buildVue.flatMap { it.distDir })
+        }
+    }
+}
+
+tasks.named<BootRun>("bootRun") {
+    dependsOn(buildVue)
+    systemProperty(
+        "spring.web.resources.static-locations",
+        "classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/,file:./vue/dist/",
+    )
+}
+
+springBoot {
+    buildInfo {
+        excludes.set(setOf("time"))
     }
 }

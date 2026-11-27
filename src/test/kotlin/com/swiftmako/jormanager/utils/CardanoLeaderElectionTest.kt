@@ -27,12 +27,22 @@ class CardanoLeaderElectionTest {
         val thresholds = vectors.associate { it.key to CardanoLeaderElection.prepare(coefficients.getValue(it.f), it.stake, it.width) }
         vectors.forEachIndexed { row, vector ->
             val threshold = thresholds.getValue(vector.key)
+            val maximum = BigInteger.ONE.shiftLeft(vector.width * 8)
             assertWithMessage("node vector $row width").that(threshold.vrfSizeBytes).isEqualTo(vector.width)
             assertWithMessage("node vector $row sigma").that(threshold.sigmaRaw).isEqualTo(vector.sigma)
             assertWithMessage("node vector $row c").that(threshold.cRaw).isEqualTo(vector.c)
             assertWithMessage("node vector $row x").that(threshold.xRaw).isEqualTo(vector.x)
             assertWithMessage("node vector $row q").that(threshold.qRaw(vector.cert)).isEqualTo(vector.q)
-            assertWithMessage("node vector $row eligibility").that(threshold.isLeader(vector.cert)).isEqualTo(vector.leader)
+            assertWithMessage("node vector $row BigInteger eligibility").that(threshold.isLeader(vector.cert)).isEqualTo(vector.leader)
+            if (vector.cert < maximum) {
+                assertWithMessage("node vector $row ByteArray eligibility")
+                    .that(threshold.isLeader(unsignedBytes(vector.cert, vector.width)))
+                    .isEqualTo(vector.leader)
+            } else {
+                val oversized = vector.cert.toByteArray().let { if (it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it }
+                assertThat(oversized).hasLength(vector.width + 1)
+                assertThrows<IllegalArgumentException> { threshold.isLeader(oversized) }
+            }
         }
         // Assert the required matrix is actually represented, not merely that the file is nonempty.
         for (width in listOf(32, 64)) {
@@ -51,9 +61,12 @@ class CardanoLeaderElectionTest {
         assertThat(nearBoundaries).hasSize(24)
         nearBoundaries.values.forEach { triple ->
             assertThat(triple).hasSize(3)
+            val threshold = thresholds.getValue(triple.first().key)
             assertThat(triple.map { it.leader }).containsExactly(true, true, false).inOrder()
+            assertThat(triple.map { threshold.isLeader(unsignedBytes(it.cert, it.width)) }).containsExactly(true, true, false).inOrder()
             assertThat(triple[1].cert - triple[0].cert).isEqualTo(BigInteger.ONE)
             assertThat(triple[2].cert - triple[1].cert).isEqualTo(BigInteger.ONE)
+            assertThat(threshold.cutoff).isEqualTo(triple[2].cert)
         }
     }
 
@@ -80,17 +93,30 @@ class CardanoLeaderElectionTest {
             val zeroStake = stake(0, 45000000000000000)
             val ordinary = CardanoLeaderElection.prepare(CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal("0.05")), zeroStake, width)
             val always = CardanoLeaderElection.prepare(CardanoLeaderElection.prepareActiveSlotCoefficient(BigDecimal("1.000")), zeroStake, width)
+            assertThat(ordinary.cutoff).isEqualTo(BigInteger.ZERO)
+            assertThat(ordinary.cutoffBytes).isEqualTo(ByteArray(width))
             assertThat(always.cRaw).isNull()
             assertThat(always.xRaw).isNull()
+            assertThat(always.cutoff).isEqualTo(maximum + BigInteger.ONE)
+            assertThat(always.cutoffBytes).isNull()
             for (cert in listOf(BigInteger.ZERO, BigInteger.ONE, maximum - BigInteger.ONE, maximum)) {
                 assertThat(ordinary.isLeader(cert)).isFalse()
                 assertThat(always.isLeader(cert)).isTrue()
+            }
+            for (cert in listOf(BigInteger.ZERO, BigInteger.ONE, maximum - BigInteger.ONE)) {
+                assertThat(ordinary.isLeader(unsignedBytes(cert, width))).isFalse()
+                assertThat(always.isLeader(unsignedBytes(cert, width))).isTrue()
             }
             assertThat(ordinary.qRaw(maximum)).isEqualTo(maximum * scale)
             assertThat(ordinary.qRaw(maximum - BigInteger.ONE)).isEqualTo(maximum * scale)
             for (threshold in listOf(ordinary, always)) {
                 assertThrows<IllegalArgumentException> { threshold.isLeader(-BigInteger.ONE) }
                 assertThrows<IllegalArgumentException> { threshold.isLeader(maximum + BigInteger.ONE) }
+                assertThrows<IllegalArgumentException> { threshold.qRaw(-BigInteger.ONE) }
+                assertThrows<IllegalArgumentException> { threshold.qRaw(maximum + BigInteger.ONE) }
+                for (badLength in listOf(0, width - 1, width + 1, if (width == 32) 64 else 32)) {
+                    assertThrows<IllegalArgumentException> { threshold.isLeader(ByteArray(badLength)) }
+                }
             }
         }
     }
@@ -219,6 +245,26 @@ class CardanoLeaderElectionTest {
         pool: Long,
         active: Long
     ): StakeFraction = StakeFraction(BigInteger.valueOf(pool), BigInteger.valueOf(active))
+
+    private fun unsignedBytes(
+        value: BigInteger,
+        width: Int,
+    ): ByteArray {
+        val raw = value.toByteArray()
+        return when {
+            raw.size == width -> raw
+            raw.size == width + 1 -> {
+                check(raw[0] == 0.toByte())
+                raw.copyOfRange(1, raw.size)
+            }
+            else -> {
+                check(raw.size < width)
+                ByteArray(width).also { padded ->
+                    System.arraycopy(raw, 0, padded, width - raw.size, raw.size)
+                }
+            }
+        }
+    }
 
     private data class Vector(
         val width: Int,

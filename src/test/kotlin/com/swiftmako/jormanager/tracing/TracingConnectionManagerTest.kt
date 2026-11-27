@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
@@ -39,18 +40,14 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(node.hostId to host()),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
-                                    awaitCancellation()
-                                }
-
-                                override fun close() {
-                                    closed.set(true)
+                                    try {
+                                        awaitCancellation()
+                                    } finally {
+                                        closed.set(true)
+                                    }
                                 }
                             }
                         },
@@ -76,17 +73,10 @@ class TracingConnectionManagerTest {
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
                                     throw IOException("synthetic disconnect")
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -127,18 +117,14 @@ class TracingConnectionManagerTest {
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
-                                    awaitCancellation()
-                                }
-
-                                override fun close() {
-                                    closed.set(true)
+                                    try {
+                                        awaitCancellation()
+                                    } finally {
+                                        closed.set(true)
+                                    }
                                 }
                             }
                         },
@@ -165,17 +151,10 @@ class TracingConnectionManagerTest {
                     reconnectDelayMillis = 100L,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
                                     throw IOException("synthetic disconnect")
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -202,18 +181,14 @@ class TracingConnectionManagerTest {
                     reconnectDelayMillis = 50L,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
-                                    awaitCancellation()
-                                }
-
-                                override fun close() {
-                                    closed.set(true)
+                                    try {
+                                        awaitCancellation()
+                                    } finally {
+                                        closed.set(true)
+                                    }
                                 }
                             }
                         },
@@ -242,13 +217,9 @@ class TracingConnectionManagerTest {
                     messageSink = captureService,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
-                                    onMessage(
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
+                                    emit(
                                         TraceForwardMessage.MetricsReply(
                                             metrics =
                                                 mapOf(
@@ -259,12 +230,9 @@ class TracingConnectionManagerTest {
                                             rawJson = "metrics-raw",
                                         )
                                     )
-                                    onMessage(dataPointsReply())
-                                    onMessage(traceObjectsReply())
+                                    emit(dataPointsReply())
+                                    emit(traceObjectsReply())
                                     awaitCancellation()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -350,17 +318,10 @@ class TracingConnectionManagerTest {
                     messageSink = captureService,
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
-                                    onMessage(dataPointsReply())
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
+                                    emit(dataPointsReply())
                                     awaitCancellation()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -378,6 +339,7 @@ class TracingConnectionManagerTest {
     @Test
     fun directStopShutsDownActiveConnections() =
         runBlocking {
+            val attempts = AtomicInteger(0)
             val closed = AtomicReference(false)
             val manager =
                 createManager(
@@ -385,23 +347,21 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(1L to host()),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
-                                    awaitCancellation()
-                                }
-
-                                override fun close() {
-                                    closed.set(true)
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
+                                    attempts.incrementAndGet()
+                                    try {
+                                        awaitCancellation()
+                                    } finally {
+                                        closed.set(true)
+                                    }
                                 }
                             }
                         },
                 )
 
             manager.start()
+            waitUntil { attempts.get() == 1 }
             manager.stop()
             waitUntil { !manager.isRunning() }
 
@@ -422,16 +382,9 @@ class TracingConnectionManagerTest {
                     hostById = mapOf(2L to host(), 3L to host()),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -458,16 +411,9 @@ class TracingConnectionManagerTest {
                     shelleyGenesisFileByNodeId = mapOf(requireNotNull(node.id) to shelleyGenesisFile(networkMagic = null)),
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { _ ->
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -496,17 +442,10 @@ class TracingConnectionManagerTest {
                     connectionRunnerFactory =
                         TraceForwardConnectionRunnerFactory { target ->
                             traceObjectsEnabled.set(target.enableTraceObjects)
-                            object : TraceForwardConnectionRunner {
-                                override suspend fun runConnection(
-                                    hostname: String,
-                                    port: Int,
-                                    onMessage: suspend (TraceForwardMessage) -> Unit,
-                                ) {
+                            TraceForwardConnectionRunner { _, _ ->
+                                flow {
                                     attempts.incrementAndGet()
                                     awaitCancellation()
-                                }
-
-                                override fun close() {
                                 }
                             }
                         },
@@ -517,6 +456,61 @@ class TracingConnectionManagerTest {
 
             assertThat(manager.managedNodeIds()).containsExactly(relayNodeId)
             assertThat(traceObjectsEnabled.get()).isFalse()
+
+            manager.stopAndWait()
+        }
+
+    @Test
+    fun reconnectInitiatesFreshStreamCollectionAndCapturesRecoveredMessages() =
+        runBlocking {
+            val node = coreNode()
+            val nodeId = requireNotNull(node.id)
+            val captureService = createRawCaptureService(node)
+            val collections = AtomicInteger(0)
+            val stream =
+                flow {
+                    when (collections.incrementAndGet()) {
+                        1 -> {
+                            emit(
+                                TraceForwardMessage.MetricsReply(
+                                    metrics = mapOf("counter" to TracingRawMetricValue.Counter(1)),
+                                    rawJson = "metrics-1",
+                                )
+                            )
+                            throw IOException("socket dropped")
+                        }
+
+                        else -> {
+                            emit(
+                                TraceForwardMessage.MetricsReply(
+                                    metrics = mapOf("counter" to TracingRawMetricValue.Counter(42)),
+                                    rawJson = "metrics-2",
+                                )
+                            )
+                            awaitCancellation()
+                        }
+                    }
+                }
+            val manager =
+                createManager(
+                    nodes = listOf(node),
+                    hostById = mapOf(node.hostId to host()),
+                    reconnectDelayMillis = 50L,
+                    messageSink = captureService,
+                    connectionRunnerFactory =
+                        TraceForwardConnectionRunnerFactory { _ ->
+                            TraceForwardConnectionRunner { _, _ -> stream }
+                        },
+                )
+
+            manager.start()
+            waitUntil {
+                collections.get() >= 2 &&
+                    captureService.latestMetricSnapshot(nodeId)?.metrics?.get("counter") == TracingRawMetricValue.Counter(42)
+            }
+
+            assertThat(collections.get()).isEqualTo(2)
+            assertThat(captureService.latestMetricSnapshot(nodeId)?.rawJson).isEqualTo("metrics-2")
 
             manager.stopAndWait()
         }

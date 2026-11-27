@@ -3,7 +3,6 @@ package com.swiftmako.jormanager.services
 import com.swiftmako.jormanager.controllers.utils.BlockUtils
 import com.swiftmako.jormanager.utils.CardanoLeaderElection
 import java.math.BigDecimal
-import java.math.BigInteger
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -80,7 +79,7 @@ class LeaderLogCalculator internal constructor(
                                     context.ensureActive()
                                     val raw = blockUtils.vrfEvalCertified(seed, pool.vrfSkey)
                                     val value = if (mode == Mode.PRAOS) blockUtils.vrfLeaderValue(raw) else raw
-                                    elected[offset * pools.size + poolIndex] = pool.threshold.isLeader(BigInteger(1, value))
+                                    elected[offset * pools.size + poolIndex] = pool.threshold.isLeader(value)
                                 }
                             }
                         }

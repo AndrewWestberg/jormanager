@@ -60,6 +60,17 @@ class JsonMessageContractTest {
             assertThat(json.has("signingKey")).isFalse()
         }
 
+    @Test
+    fun hostFingerprintRequestRedactsSpendingPasswordInSerializedMessagesAndLogs() =
+        withJson { mapper, converter ->
+            val input = """{"requestId":"00000000-0000-4000-8000-000000000001","hostId":7,"action":"accept","fingerprint":"SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU","spendingPassword":"top-secret-password"}"""
+            val request = converter.fromMessage(GenericMessage(input.toByteArray()), HostFingerprintRequest::class.java) as HostFingerprintRequest
+            assertThat(request.spendingPassword).isEqualTo("top-secret-password")
+            assertThat(request.toString()).doesNotContain("top-secret-password")
+            val json = mapper.readTree(requireNotNull(converter.toMessage(request, null)).payload as ByteArray)
+            assertThat(json.has("spendingPassword")).isFalse()
+        }
+
     private fun assertDecimalString(
         node: JsonNode,
         expected: BigInteger

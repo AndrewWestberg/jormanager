@@ -34,7 +34,11 @@ data class Host(
     @Column(name = "node_home_path")
     val nodeHomePath: String,
     @Column(name = "jcli_path")
-    val jcliPath: String?
+    val jcliPath: String?,
+    @Column(name = "ssh_fingerprint")
+    val sshFingerprint: String? = null,
+    @Column(name = "ssh_mismatch_fingerprint")
+    val sshMismatchFingerprint: String? = null
 ) {
     @get:JsonIgnore
     @get:Transient

@@ -11,6 +11,7 @@ import com.swiftmako.jormanager.nodeclient.protocols.mux.muxByteBufferPool
 import com.swiftmako.jormanager.repositories.ChainRepository
 import com.swiftmako.jormanager.repositories.LedgerDao
 import com.swiftmako.jormanager.repositories.LedgerRepository
+import com.swiftmako.jormanager.repositories.TransactionMemberRepository
 import com.swiftmako.jormanager.services.PooltoolService
 import com.swiftmako.jormanager.nodeclient.protocols.fixtures.CatchupFixtures
 import com.swiftmako.jormanager.utils.Blake2b
@@ -1059,6 +1060,166 @@ class ChainCatchupIntegrationTest {
                     session.release()
                     session.close()
                 }
+            }
+        }
+
+    @Test
+    fun accountHistoryMetadataProjectionsThrottleAndEquivocation() =
+        database { source, _, counts ->
+            val statements = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val recordingSource = Proxy.newProxyInstance(
+                DataSource::class.java.classLoader,
+                arrayOf(DataSource::class.java),
+            ) { _, method, args ->
+                val result = method.invoke(source, *(args ?: emptyArray()))
+                if (method.name == "getConnection" && result is Connection) {
+                    Proxy.newProxyInstance(
+                        Connection::class.java.classLoader,
+                        arrayOf(Connection::class.java),
+                    ) { _, connMethod, connArgs ->
+                        if (connMethod.name == "prepareStatement" && !connArgs.isNullOrEmpty() && connArgs[0] is String) {
+                            statements += connArgs[0] as String
+                        }
+                        try {
+                            connMethod.invoke(result, *(connArgs ?: emptyArray()))
+                        } catch (e: InvocationTargetException) {
+                            throw e.targetException
+                        }
+                    }
+                } else {
+                    result
+                }
+            } as DataSource
+
+            val recordingDb = Database.connect(recordingSource)
+            try {
+                val messages = mock(SimpMessagingTemplate::class.java)
+                val refresh = Configuration().getRefreshWalletChannel()
+                val coordinator = ChainIngestionCoordinator(BatchEffectProjector(json), messages, refresh, mockk<LedgerDao>(relaxed = true))
+                var nowNs = 10_000_000_000L
+                coordinator.clock = { nowNs }
+
+                val seeds = (1..4).map(CatchupFixtures::seed)
+                val validDepositTx = CatchupFixtures.transaction(
+                    listOf(CatchupFixtures.input(seeds[0].txId)),
+                    outputs = listOf(CatchupFixtures.output(coin = 9_799_000)),
+                    directDeposits = mapOf(CatchupFixtures.rewardAddress to 1_000L),
+                )
+                val invalidDepositTx = CatchupFixtures.transaction(
+                    listOf(CatchupFixtures.input(seeds[1].txId)),
+                    collateral = listOf(CatchupFixtures.input(seeds[2].txId)),
+                    collateralReturn = CatchupFixtures.output(coin = 9_000_000),
+                    valid = false,
+                    directDeposits = mapOf(CatchupFixtures.rewardAddress to 2_000L),
+                )
+                val rolledBackDepositTx = CatchupFixtures.transaction(
+                    listOf(CatchupFixtures.input(seeds[3].txId)),
+                    outputs = listOf(CatchupFixtures.output(coin = 9_797_000)),
+                    directDeposits = mapOf(CatchupFixtures.rewardAddress to 3_000L),
+                )
+                val b1 = CatchupFixtures.block(7, 1, transactions = listOf(validDepositTx))
+                val b2 = CatchupFixtures.block(7, 2, previous = CatchupFixtures.blockHash(b1), transactions = listOf(invalidDepositTx))
+                val b3 = CatchupFixtures.block(7, 3, previous = CatchupFixtures.blockHash(b2), transactions = listOf(rolledBackDepositTx))
+                val d1 = LedgerBlockDecoder.decode(7, b1)
+                val d2 = LedgerBlockDecoder.decode(7, b2)
+                val d3 = LedgerBlockDecoder.decode(7, b3)
+                val fixture = CatchupFixtures.Replay("projection-throttle", 7, listOf(b1, b2, b3), seeds)
+
+                val gen = prepare(coordinator, fixture)
+                org.mockito.Mockito.clearInvocations(messages)
+
+                // Within 500ms during unready syncing: observeTip and adopt skip status() in publish()
+                nowNs += 50_000_000L
+                statements.clear()
+                coordinator.observeTip(fixture.network, point(d3), gen)
+                org.mockito.Mockito.verifyNoInteractions(messages)
+                assertEquals(1, statements.count { it.contains("FOR UPDATE", ignoreCase = true) })
+
+                nowNs += 50_000_000L
+                coordinator.adopt(fixture.network, gen, 7, d1, point(d1))
+                org.mockito.Mockito.verifyNoInteractions(messages)
+                assertNull(refresh.value)
+
+                nowNs += 50_000_000L
+                coordinator.adopt(fixture.network, gen, 7, d2, point(d2))
+                org.mockito.Mockito.verifyNoInteractions(messages)
+
+                // Catching up on d3 marks walletReady and bypasses the 500ms throttle immediately
+                nowNs += 50_000_000L
+                coordinator.adopt(fixture.network, gen, 7, d3, point(d3))
+                assertTrue(coordinator.status(fixture.network).walletReady)
+                assertEquals(1L, refresh.value)
+
+                // Roll back d3 so b3's effect becomes adopted=false while b1 (valid) and b2 (invalid) remain adopted=true
+                statements.clear()
+                counts.reset()
+                val afterRollbackGen = coordinator.rollback(fixture.network, point(d2), gen)
+                statements.forEach { sql ->
+                    assertFalse(sql.contains("raw_header", ignoreCase = true), "Unexpected raw_header in rollback SQL: $sql")
+                    assertFalse(sql.contains("raw_body", ignoreCase = true), "Unexpected raw_body in rollback SQL: $sql")
+                }
+
+                // Verify status(), walletIndexState(), observeTip(), and accountHistory() exclude all blob columns
+                statements.clear()
+                coordinator.observeTip(fixture.network, point(d2), afterRollbackGen)
+                val indexState = coordinator.walletIndexState(fixture.network)
+                assertEquals(2L, indexState.lastCompleteHeight)
+                assertTrue(indexState.readState.walletReady)
+
+                val repository = TransactionMemberRepository(coordinator)
+                val accountHex = CatchupFixtures.rewardAddress.toHexString()
+                val historyResponse = repository.accountHistory("req-history", fixture.network, accountHex)
+                val forbiddenBlobs = listOf("raw_header", "raw_body", "raw_included", "raw_witnesses", "raw_auxiliary")
+                statements.forEach { sql ->
+                    forbiddenBlobs.forEach { blob ->
+                        assertFalse(sql.contains(blob, ignoreCase = true), "Unexpected '$blob' in SQL: $sql")
+                    }
+                }
+                assertEquals(
+                    listOf(
+                        mapOf(
+                            "txId" to CatchupFixtures.transactionId(rolledBackDepositTx).toHexString(),
+                            "inclusionHash" to d3.header.hash256().toHexString(),
+                            "slot" to "3",
+                            "kind" to "DIRECT_DEPOSIT",
+                            "amount" to "3000",
+                            "effective" to false,
+                        ),
+                        mapOf(
+                            "txId" to CatchupFixtures.transactionId(invalidDepositTx).toHexString(),
+                            "inclusionHash" to d2.header.hash256().toHexString(),
+                            "slot" to "2",
+                            "kind" to "DIRECT_DEPOSIT",
+                            "amount" to "2000",
+                            "effective" to false,
+                        ),
+                        mapOf(
+                            "txId" to CatchupFixtures.transactionId(validDepositTx).toHexString(),
+                            "inclusionHash" to d1.header.hash256().toHexString(),
+                            "slot" to "1",
+                            "kind" to "DIRECT_DEPOSIT",
+                            "amount" to "1000",
+                            "effective" to true,
+                        ),
+                    ),
+                    historyResponse["history"],
+                )
+
+                // Verify adopt() equivocation check still loads raw_header and raw_body when header_hash matches
+                source.connection.use { conn ->
+                    conn.prepareStatement("UPDATE chain_inclusions SET raw_body = decode('deadbeef', 'hex') WHERE network_key = ? AND header_hash = ?").use { ps ->
+                        ps.setString(1, fixture.network)
+                        ps.setBytes(2, d3.header.hash256())
+                        assertEquals(1, ps.executeUpdate())
+                    }
+                    conn.commit()
+                }
+                val equivocation = assertThrows(IllegalStateException::class.java) {
+                    coordinator.adopt(fixture.network, afterRollbackGen, 7, d3, point(d3))
+                }
+                assertEquals("Conflicting bytes for existing block identity", equivocation.message)
+            } finally {
+                TransactionManager.closeAndUnregister(recordingDb)
             }
         }
 }
