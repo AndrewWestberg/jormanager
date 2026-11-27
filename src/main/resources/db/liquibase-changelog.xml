@@ -54,5 +54,6 @@
     <include file="changelog/047-remove-authorized-operations.xml" relativeToChangelogFile="true"/>
     <include file="changelog/048-remove-unused-dijkstra-tables.xml" relativeToChangelogFile="true"/>
     <include file="changelog/049-remove-draft-nodes.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/050-host-ssh-fingerprints.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

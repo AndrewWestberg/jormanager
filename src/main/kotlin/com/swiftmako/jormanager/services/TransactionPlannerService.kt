@@ -13,6 +13,7 @@ import com.bloxbean.cardano.client.api.util.AssetUtil
 import com.bloxbean.cardano.client.coinselection.UtxoSelectionStrategy
 import com.bloxbean.cardano.client.coinselection.impl.LargestFirstUtxoSelectionStrategy
 import com.bloxbean.cardano.client.coinselection.impl.RandomImproveUtxoSelectionStrategy
+import com.bloxbean.cardano.client.common.cbor.CborSerializationUtil
 import com.bloxbean.cardano.client.metadata.helper.JsonNoSchemaToMetadataConverter
 import com.bloxbean.cardano.client.spec.Era
 import com.bloxbean.cardano.client.transaction.spec.Asset
@@ -43,6 +44,7 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.security.MessageDigest
 import java.util.Optional
+import java.util.TreeMap
 import org.springframework.stereotype.Service
 
 data class WalletAccountLineItem(
@@ -80,6 +82,15 @@ class TransactionPlannerService(
         val DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE: BigInteger = BigInteger.valueOf(10_000_000L)
         val INITIAL_ESTIMATED_FEE: BigInteger = BigInteger.valueOf(200_000L)
         val MIN_PURE_ADA_FLOOR: BigInteger = BigInteger.valueOf(1_000_000L)
+        val ZERO_MULTI_ASSET_CBOR_BYTES: Int =
+            CborSerializationUtil
+                .serialize(
+                    Value
+                        .builder()
+                        .coin(MIN_PURE_ADA_FLOOR)
+                        .build()
+                        .serialize()
+                ).size
     }
 
     /**
@@ -90,20 +101,39 @@ class TransactionPlannerService(
         address: String,
         nativeAssets: List<NativeAsset>,
         protocolParameters: ProtocolParameters,
+    ): BigInteger = calculateMinAda(address, nativeAssets, PlanContext(protocolParameters))
+
+    private fun calculateMinAda(
+        address: String,
+        nativeAssets: List<NativeAsset>,
+        ctx: PlanContext,
+    ): BigInteger = calculateMinAdaWithSafeAddress(ctx.safeAddress(address), nativeAssets, ctx)
+
+    private fun calculateMinAdaWithSafeAddress(
+        safeAddress: String,
+        nativeAssets: List<NativeAsset>,
+        ctx: PlanContext,
     ): BigInteger {
-        val sdkParams = toSdkProtocolParams(protocolParameters)
-        val minAdaCalculator = MinAdaCalculator(sdkParams)
-        val sdkOutput =
-            toSdkTransactionOutput(
-                PlannedOutput(
-                    address = address,
-                    lovelace = MIN_PURE_ADA_FLOOR,
-                    nativeAssets = nativeAssets,
-                )
-            )
-        val calculated = minAdaCalculator.calculateMinAda(sdkOutput)
-        val legacyFloor = protocolParameters.minUTxOValue?.let { BigInteger.valueOf(it) } ?: BigInteger.ZERO
-        return calculated.max(legacyFloor)
+        if (nativeAssets.isEmpty()) {
+            return ctx.pureAdaMinLovelace(safeAddress)
+        }
+        val multiAssets = toSdkMultiAssets(nativeAssets, ctx)
+        if (multiAssets.isEmpty()) {
+            return ctx.pureAdaMinLovelace(safeAddress)
+        }
+        val valueBytes =
+            CborSerializationUtil
+                .serialize(
+                    Value
+                        .builder()
+                        .coin(MIN_PURE_ADA_FLOOR)
+                        .multiAssets(multiAssets)
+                        .build()
+                        .serialize()
+                ).size
+        val outputBytes = ctx.addressWrapperBytes(safeAddress) + valueBytes
+        val calculated = ctx.coinsPerUtxoSize.multiply(BigInteger.valueOf((outputBytes + 160).toLong()))
+        return calculated.max(ctx.legacyMinUtxoFloor)
     }
 
     /**
@@ -121,8 +151,33 @@ class TransactionPlannerService(
         witnessCount: Int = 1,
         extraPayloadBytes: Int = 0,
         referenceScriptBytes: Long = 0L,
+    ): Pair<BigInteger, Int> =
+        calculateFeeAndSize(
+            selectedUtxos = selectedUtxos,
+            outputs = outputs,
+            currentFeeEstimate = currentFeeEstimate,
+            ctx = PlanContext(protocolParameters, selectedUtxos),
+            ttl = ttl,
+            withdrawals = withdrawals,
+            metadataJson = metadataJson,
+            witnessCount = witnessCount,
+            extraPayloadBytes = extraPayloadBytes,
+            referenceScriptBytes = referenceScriptBytes,
+        )
+
+    private fun calculateFeeAndSize(
+        selectedUtxos: List<Utxo>,
+        outputs: List<PlannedOutput>,
+        currentFeeEstimate: BigInteger,
+        ctx: PlanContext,
+        ttl: Long = 100_000_000L,
+        withdrawals: List<WithdrawalItem> = emptyList(),
+        metadataJson: String? = null,
+        witnessCount: Int = 1,
+        extraPayloadBytes: Int = 0,
+        referenceScriptBytes: Long = 0L,
     ): Pair<BigInteger, Int> {
-        val sdkParams = toSdkProtocolParams(protocolParameters)
+        val sdkParams = ctx.sdkParams
         val serializedBytes =
             serializeDummySignedTransaction(
                 selectedUtxos = selectedUtxos,
@@ -132,10 +187,10 @@ class TransactionPlannerService(
                 withdrawals = withdrawals,
                 metadataJson = metadataJson,
                 witnessCount = witnessCount,
+                ctx = ctx,
             )
         val estimatedTxBytes = serializedBytes.size + extraPayloadBytes + CONWAY_CBOR_SAFETY_BYTES
-        val emptySupplier = InMemoryUtxoSupplier(emptyMap())
-        val feeService = FeeCalculationServiceImpl(emptySupplier, ProtocolParamsSupplier { sdkParams })
+        val feeService = ctx.feeService
         val linearFee = feeService.calculateFee(ByteArray(estimatedTxBytes), sdkParams)
         val refScriptFee =
             if (referenceScriptBytes > 0L) {
@@ -170,8 +225,9 @@ class TransactionPlannerService(
             throw IOException("No unspent UTxOs available in fee payer account!")
         }
 
-        val maxTxSize = resolveMaxTxSize(protocolParameters)
-        val minPureAda = calculateMinAda(changeAddress, emptyList(), protocolParameters).max(MIN_PURE_ADA_FLOOR)
+        val ctx = PlanContext(protocolParameters, utxos)
+        val maxTxSize = ctx.maxTxSize
+        val minPureAda = calculateMinAda(changeAddress, emptyList(), ctx).max(MIN_PURE_ADA_FLOOR)
 
         if (selectionMode == SelectionMode.DEFRAGMENT) {
             return planDefragmentTransaction(
@@ -186,7 +242,7 @@ class TransactionPlannerService(
                 witnessCount = witnessCount,
                 extraPayloadBytes = extraPayloadBytes,
                 referenceScriptBytes = referenceScriptBytes,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 isPreview = false,
             )
         }
@@ -207,6 +263,7 @@ class TransactionPlannerService(
                     requestedLovelace = targetLovelace,
                     requestedAssets = emptyMap(),
                     maxInputs = maxInputs,
+                    ctx = ctx,
                 )
             selectedUtxos = selectionOutcome.first
             usedFallback = usedFallback || selectionOutcome.second
@@ -215,7 +272,7 @@ class TransactionPlannerService(
                 buildGroupedTokenOutputs(
                     address = changeAddress,
                     assetMap = selectedUtxos.toNativeAssetMap(),
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                 )
             val tokenMinAdaTotal = tokenChangeOutputs.sumByBigInteger { it.lovelace }
             val totalInputLovelace = selectedUtxos.sumByBigInteger { it.lovelace } + depositRefund
@@ -230,12 +287,12 @@ class TransactionPlannerService(
                     splitCleanAda = false,
                 )
 
-            val (newFee, estimatedBytes) =
+            val (newFee, _) =
                 calculateFeeAndSize(
                     selectedUtxos = selectedUtxos,
                     outputs = provisionalOutputs,
                     currentFeeEstimate = estimatedFee,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     witnessCount = witnessCount,
                     extraPayloadBytes = extraPayloadBytes,
@@ -253,12 +310,12 @@ class TransactionPlannerService(
                         minPureAda = minPureAda,
                         splitCleanAda = false,
                     )
-                val (verifiedFee, verifiedBytes) =
+                val (verifiedFee, _) =
                     calculateFeeAndSize(
                         selectedUtxos = selectedUtxos,
                         outputs = finalOutputs,
                         currentFeeEstimate = newFee,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         witnessCount = witnessCount,
                         extraPayloadBytes = extraPayloadBytes,
@@ -276,17 +333,14 @@ class TransactionPlannerService(
                         selectedUtxos = selectedUtxos,
                         outputs = adjustedOutputs,
                         currentFeeEstimate = verifiedFee,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         witnessCount = witnessCount,
                         extraPayloadBytes = extraPayloadBytes,
                         referenceScriptBytes = referenceScriptBytes,
                     )
                 validateTransactionSize(finalBytes, maxTxSize)
-                val unspentTokenLocked =
-                    utxos
-                        .filter { candidate -> candidate.nativeAssets.isNotEmpty() && candidate !in selectedUtxos }
-                        .sumByBigInteger { it.lovelace }
+                val unspentTokenLocked = sumUnselectedMultiAssetLovelace(utxos, selectedUtxos, ctx)
                 return TransactionPlan(
                     selectedUtxos = selectedUtxos,
                     outputs = adjustedOutputs,
@@ -312,7 +366,7 @@ class TransactionPlannerService(
                         requiredNetLovelace = (deposit - depositRefund).max(BigInteger.ZERO) + estimatedFee + minPureAda,
                         requestedAssets = emptyMap(),
                         maxInputs = maxInputs,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                     )
                 if (fallbackUtxos.isNotEmpty()) {
                     selectedUtxos = fallbackUtxos
@@ -321,7 +375,7 @@ class TransactionPlannerService(
                         buildGroupedTokenOutputs(
                             address = changeAddress,
                             assetMap = selectedUtxos.toNativeAssetMap(),
-                            protocolParameters = protocolParameters,
+                            ctx = ctx,
                         )
                     val fbTokenAda = fbTokens.sumByBigInteger { it.lovelace }
                     val fbInputsAda = selectedUtxos.sumByBigInteger { it.lovelace } + depositRefund
@@ -337,7 +391,7 @@ class TransactionPlannerService(
                                     splitCleanAda = false,
                                 ),
                             currentFeeEstimate = estimatedFee,
-                            protocolParameters = protocolParameters,
+                            ctx = ctx,
                             ttl = ttl,
                             witnessCount = witnessCount,
                             extraPayloadBytes = extraPayloadBytes,
@@ -354,12 +408,12 @@ class TransactionPlannerService(
                                 minPureAda = minPureAda,
                                 splitCleanAda = false,
                             )
-                        val (verifiedFbFee, verifiedFbBytes) =
+                        val (verifiedFbFee, _) =
                             calculateFeeAndSize(
                                 selectedUtxos = selectedUtxos,
                                 outputs = fbOutputs,
                                 currentFeeEstimate = fbFee,
-                                protocolParameters = protocolParameters,
+                                ctx = ctx,
                                 ttl = ttl,
                                 witnessCount = witnessCount,
                                 extraPayloadBytes = extraPayloadBytes,
@@ -377,7 +431,7 @@ class TransactionPlannerService(
                                 selectedUtxos = selectedUtxos,
                                 outputs = adjustedFbOutputs,
                                 currentFeeEstimate = verifiedFbFee,
-                                protocolParameters = protocolParameters,
+                                ctx = ctx,
                                 ttl = ttl,
                                 witnessCount = witnessCount,
                                 extraPayloadBytes = extraPayloadBytes,
@@ -389,10 +443,7 @@ class TransactionPlannerService(
                             outputs = adjustedFbOutputs,
                             fee = verifiedFbFee,
                             tokenKeepFee = fbTokenAda,
-                            tokenLocked =
-                                utxos
-                                    .filter { it.nativeAssets.isNotEmpty() && it !in selectedUtxos }
-                                    .sumByBigInteger { it.lovelace },
+                            tokenLocked = sumUnselectedMultiAssetLovelace(utxos, selectedUtxos, ctx),
                             estimatedTxBytes = finalFbBytes,
                             selectionMode = SelectionMode.STANDARD,
                             usedFallback = true,
@@ -428,6 +479,8 @@ class TransactionPlannerService(
             throw IOException("No unspent UTxOs available in wallet!")
         }
 
+        val ctx = PlanContext(protocolParameters, utxos)
+
         if (isClaim) {
             return planClaimRewardsTransaction(
                 feePayerUtxos = utxos,
@@ -437,13 +490,13 @@ class TransactionPlannerService(
                 ttl = ttl,
                 witnessCount = witnessCount,
                 referenceScriptBytes = referenceScriptBytes,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 fixedFeeOverride = fixedFeeOverride,
                 isPreview = isPreview,
             )
         }
 
-        val tokenFees = computePerLineTokenFees(toAccountItems, protocolParameters)
+        val tokenFees = computePerLineTokenFees(toAccountItems, ctx)
 
         if (selectionMode == SelectionMode.DEFRAGMENT) {
             return planDefragmentTransaction(
@@ -459,14 +512,14 @@ class TransactionPlannerService(
                 witnessCount = witnessCount,
                 extraPayloadBytes = 0,
                 referenceScriptBytes = referenceScriptBytes,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 fixedFeeOverride = fixedFeeOverride,
                 isPreview = isPreview,
             )
         }
 
-        val maxTxSize = resolveMaxTxSize(protocolParameters)
-        val minPureAda = calculateMinAda(changeAddress, emptyList(), protocolParameters).max(MIN_PURE_ADA_FLOOR)
+        val maxTxSize = ctx.maxTxSize
+        val minPureAda = calculateMinAda(changeAddress, emptyList(), ctx).max(MIN_PURE_ADA_FLOOR)
 
         val requestedAssets = sortedMapOf<String, BigInteger>()
         toAccountItems.forEach { item ->
@@ -510,7 +563,7 @@ class TransactionPlannerService(
                 ttl = ttl,
                 witnessCount = witnessCount,
                 referenceScriptBytes = referenceScriptBytes,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 maxInputs = maxInputs,
                 maxTxSize = maxTxSize,
                 minPureAda = minPureAda,
@@ -519,6 +572,7 @@ class TransactionPlannerService(
             )
         }
 
+        val pureAdaUtxoCount = utxos.count { it.nativeAssets.isEmpty() }
         var estimatedFee = fixedFeeOverride ?: INITIAL_ESTIMATED_FEE
         var requiredTokenKeepAda = BigInteger.ZERO
         var selectedUtxos: List<Utxo>
@@ -534,11 +588,12 @@ class TransactionPlannerService(
                         requestedLovelace = targetAda,
                         requestedAssets = requestedAssets,
                         maxInputs = maxInputs,
+                        ctx = ctx,
                     )
                 }.getOrElse { ex ->
                     if (!isPreview) throw ex
                     // During live UI typing preview, select largest spendable subset so exact fee & tokenLocked can be returned
-                    selectPreviewFallbackUtxos(utxos, requestedAssets, maxInputs) to true
+                    selectPreviewFallbackUtxos(utxos, requestedAssets, maxInputs, ctx) to true
                 }
 
             selectedUtxos = selectionResult.first
@@ -549,7 +604,7 @@ class TransactionPlannerService(
                 buildGroupedTokenOutputs(
                     address = changeAddress,
                     assetMap = remainingAssets,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                 )
             val tokenKeepFee = tokenChangeOutputs.sumByBigInteger { it.lovelace }
             val selectedLovelace = selectedUtxos.sumByBigInteger { it.lovelace }
@@ -572,7 +627,7 @@ class TransactionPlannerService(
                     selectedUtxos = selectedUtxos,
                     outputs = provisionalOutputs,
                     currentFeeEstimate = estimatedFee,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     metadataJson = metadataJson,
                     witnessCount = witnessCount,
@@ -583,7 +638,7 @@ class TransactionPlannerService(
 
             if (isPreview && finalResidualAda < BigInteger.ZERO && attempt >= 1) {
                 validateTransactionSize(computedBytes, maxTxSize)
-                val tokenLocked = computeStandardTokenLocked(utxos, selectedUtxos, maxInputs)
+                val tokenLocked = computeStandardTokenLocked(utxos, selectedUtxos, maxInputs, ctx)
                 return TransactionPlan(
                     selectedUtxos = selectedUtxos,
                     outputs = provisionalOutputs,
@@ -602,7 +657,7 @@ class TransactionPlannerService(
                 finalResidualAda > BigInteger.ZERO &&
                     finalResidualAda < minPureAda &&
                     tokenChangeOutputs.isEmpty() &&
-                    selectedUtxos.size < utxos.count { it.nativeAssets.isEmpty() }
+                    selectedUtxos.size < pureAdaUtxoCount
 
             if (finalResidualAda >= BigInteger.ZERO && !subMinResidualNeedsExtraInput && effectiveFee <= estimatedFee) {
                 var absorbedDustFee = BigInteger.ZERO
@@ -622,12 +677,12 @@ class TransactionPlannerService(
                     }
                 val finalOutputs = recipientOutputs + changeOutputs
                 val candidateFee = effectiveFee + absorbedDustFee
-                val (verifiedFeeRaw, verifiedBytes) =
+                val (verifiedFeeRaw, _) =
                     calculateFeeAndSize(
                         selectedUtxos = selectedUtxos,
                         outputs = finalOutputs,
                         currentFeeEstimate = candidateFee,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         metadataJson = metadataJson,
                         witnessCount = witnessCount,
@@ -650,14 +705,14 @@ class TransactionPlannerService(
                         selectedUtxos = selectedUtxos,
                         outputs = adjustedOutputs,
                         currentFeeEstimate = finalFee,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         metadataJson = metadataJson,
                         witnessCount = witnessCount,
                         referenceScriptBytes = referenceScriptBytes,
                     )
                 validateTransactionSize(finalBytes, maxTxSize)
-                val tokenLocked = computeStandardTokenLocked(utxos, selectedUtxos, maxInputs)
+                val tokenLocked = computeStandardTokenLocked(utxos, selectedUtxos, maxInputs, ctx)
                 return TransactionPlan(
                     selectedUtxos = selectedUtxos,
                     outputs = adjustedOutputs,
@@ -687,7 +742,7 @@ class TransactionPlannerService(
                         requiredNetLovelace = totalRecipientAda + estimatedFee,
                         requestedAssets = requestedAssets,
                         maxInputs = maxInputs,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                     )
                 if (netFallback.isNotEmpty()) {
                     return finalizeDirectSelectionWalletPlan(
@@ -702,7 +757,7 @@ class TransactionPlannerService(
                         ttl = ttl,
                         witnessCount = witnessCount,
                         referenceScriptBytes = referenceScriptBytes,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         maxInputs = maxInputs,
                         maxTxSize = maxTxSize,
                         minPureAda = minPureAda,
@@ -736,12 +791,12 @@ class TransactionPlannerService(
         witnessCount: Int = 1,
         extraPayloadBytes: Int = 0,
         referenceScriptBytes: Long = 0L,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
         fixedFeeOverride: BigInteger? = null,
         isPreview: Boolean = false,
     ): TransactionPlan {
-        val maxTxSize = resolveMaxTxSize(protocolParameters)
-        val minPureAda = calculateMinAda(changeAddress, emptyList(), protocolParameters).max(MIN_PURE_ADA_FLOOR)
+        val maxTxSize = ctx.maxTxSize
+        val minPureAda = calculateMinAda(changeAddress, emptyList(), ctx).max(MIN_PURE_ADA_FLOOR)
 
         val requestedAssets = sortedMapOf<String, BigInteger>()
         recipientItems.forEach { item ->
@@ -776,10 +831,11 @@ class TransactionPlannerService(
                 changeAddress = changeAddress,
                 mandatoryAda = mandatoryExternalAda + BigInteger.valueOf(2_000_000L),
                 requestedAssets = requestedAssets,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
             )
 
         val withdrawalTotal = withdrawals.sumByBigInteger { it.lovelace }
+        val totalWalletLovelace = utxos.sumByBigInteger { it.lovelace }
 
         fun evaluatePrefix(count: Int): TransactionPlan? {
             val candidateUtxos = orderedCandidates.subList(0, count)
@@ -794,15 +850,15 @@ class TransactionPlannerService(
                 buildGroupedTokenOutputs(
                     address = changeAddress,
                     assetMap = remainingAssets,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     defragmentByPolicy = true,
                 )
             val tokenKeepAda = tokenOutputs.sumByBigInteger { it.lovelace }
-            val totalInputAda = candidateUtxos.sumByBigInteger { it.lovelace } + depositRefund + withdrawalTotal
+            val candidateLovelace = candidateUtxos.sumByBigInteger { it.lovelace }
+            val totalInputAda = candidateLovelace + depositRefund + withdrawalTotal
 
             var feeEstimate = fixedFeeOverride ?: INITIAL_ESTIMATED_FEE
             var finalOutputs: List<PlannedOutput> = emptyList()
-            var finalBytes = 0
 
             for (iter in 0 until 4) {
                 val netAvailablePureAda = totalInputAda - deposit - feeEstimate - tokenKeepAda - recipientTokenTopUpAda
@@ -830,7 +886,7 @@ class TransactionPlannerService(
                         selectedUtxos = candidateUtxos,
                         outputs = candidateOutputs,
                         currentFeeEstimate = feeEstimate,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         withdrawals = withdrawals,
                         metadataJson = metadataJson,
@@ -843,7 +899,6 @@ class TransactionPlannerService(
                 }
                 val nextFee = fixedFeeOverride?.max(calcFee) ?: calcFee
                 finalOutputs = candidateOutputs
-                finalBytes = calcBytes
                 if (nextFee == feeEstimate) {
                     break
                 }
@@ -877,7 +932,7 @@ class TransactionPlannerService(
                     selectedUtxos = candidateUtxos,
                     outputs = finalOutputs,
                     currentFeeEstimate = feeEstimate,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     withdrawals = withdrawals,
                     metadataJson = metadataJson,
@@ -898,8 +953,7 @@ class TransactionPlannerService(
                         minPureAda = minPureAda,
                     )
             }
-            val unspentLovelace =
-                utxos.sumByBigInteger { it.lovelace } - candidateUtxos.sumByBigInteger { it.lovelace }
+            val unspentLovelace = totalWalletLovelace - candidateLovelace
             return TransactionPlan(
                 selectedUtxos = candidateUtxos,
                 outputs = finalOutputs,
@@ -1010,16 +1064,16 @@ class TransactionPlannerService(
         ttl: Long,
         witnessCount: Int,
         referenceScriptBytes: Long,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
         fixedFeeOverride: BigInteger?,
         isPreview: Boolean,
     ): TransactionPlan {
-        val maxTxSize = resolveMaxTxSize(protocolParameters)
+        val maxTxSize = ctx.maxTxSize
         val feePayerAddress =
             toAccountItems.firstOrNull { it.isFeePayerClaimAccount }?.address
                 ?: toAccountItems.firstOrNull()?.address
                 ?: MinAdaCalculator.DUMMY_ADDRESS
-        val minPureAda = calculateMinAda(feePayerAddress, emptyList(), protocolParameters).max(MIN_PURE_ADA_FLOOR)
+        val minPureAda = calculateMinAda(feePayerAddress, emptyList(), ctx).max(MIN_PURE_ADA_FLOOR)
         val maxInputs =
             computeMaxSafeInputCount(
                 maxTxSize = maxTxSize,
@@ -1040,6 +1094,7 @@ class TransactionPlannerService(
                     requestedLovelace = estimatedFee + minPureAda,
                     requestedAssets = emptyMap(),
                     maxInputs = maxInputs,
+                    ctx = ctx,
                 )
             selectedUtxos = selection.first
             usedFallback = usedFallback || selection.second
@@ -1058,12 +1113,12 @@ class TransactionPlannerService(
                     isPreview = isPreview,
                 )
 
-            val (calcFee, calcBytes) =
+            val (calcFee, _) =
                 calculateFeeAndSize(
                     selectedUtxos = selectedUtxos,
                     outputs = outputs,
                     currentFeeEstimate = estimatedFee,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     withdrawals = withdrawals,
                     metadataJson = metadataJson,
@@ -1086,7 +1141,7 @@ class TransactionPlannerService(
                         selectedUtxos = selectedUtxos,
                         outputs = finalOutputs,
                         currentFeeEstimate = effectiveFee,
-                        protocolParameters = protocolParameters,
+                        ctx = ctx,
                         ttl = ttl,
                         withdrawals = withdrawals,
                         metadataJson = metadataJson,
@@ -1173,7 +1228,7 @@ class TransactionPlannerService(
         ttl: Long,
         witnessCount: Int,
         referenceScriptBytes: Long,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
         maxInputs: Int,
         maxTxSize: Int,
         minPureAda: BigInteger,
@@ -1181,47 +1236,56 @@ class TransactionPlannerService(
         isPreview: Boolean,
     ): TransactionPlan {
         val selected = mutableListOf<Utxo>()
+        val selectedSet = UtxoMembershipSet.create(ctx.uniqueUtxoRefs, maxInputs.coerceAtMost(utxos.size))
         val remainingAssetReq = requestedAssets.toMutableMap()
 
         // 1. Select UTxOs required for any explicit native asset transfers
         if (remainingAssetReq.isNotEmpty()) {
-            utxos
-                .filter { it.nativeAssets.isNotEmpty() }
-                .sortedByDescending { utxo ->
+            val scoredAssetUtxos = ArrayList<Pair<Utxo, BigInteger>>()
+            for (utxo in utxos) {
+                if (utxo.nativeAssets.isEmpty()) continue
+                val score =
                     utxo.nativeAssets.sumByBigInteger { asset ->
                         val cur = "${asset.policy}.${asset.name}".trimEnd('.')
                         if ((remainingAssetReq[cur] ?: BigInteger.ZERO) > BigInteger.ZERO) BigInteger.ONE else BigInteger.ZERO
                     }
-                }.forEach { utxo ->
-                    if (remainingAssetReq.values.any { it > BigInteger.ZERO } && selected.size < maxInputs) {
-                        val contributes =
-                            utxo.nativeAssets.any { asset ->
-                                val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                                (remainingAssetReq[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
-                            }
-                        if (contributes) {
-                            selected.add(utxo)
-                            utxo.nativeAssets.forEach { asset ->
-                                val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                                val prev = remainingAssetReq[cur]
-                                if (prev != null) {
-                                    remainingAssetReq[cur] = (prev - asset.amount).max(BigInteger.ZERO)
-                                }
+                scoredAssetUtxos.add(utxo to score)
+            }
+            scoredAssetUtxos.sortByDescending { it.second }
+            for ((utxo, _) in scoredAssetUtxos) {
+                if (remainingAssetReq.values.any { it > BigInteger.ZERO } && selected.size < maxInputs) {
+                    val contributes =
+                        utxo.nativeAssets.any { asset ->
+                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                            (remainingAssetReq[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
+                        }
+                    if (contributes) {
+                        selected.add(utxo)
+                        selectedSet.add(utxo)
+                        utxo.nativeAssets.forEach { asset ->
+                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                            val prev = remainingAssetReq[cur]
+                            if (prev != null) {
+                                remainingAssetReq[cur] = (prev - asset.amount).max(BigInteger.ZERO)
                             }
                         }
                     }
                 }
+            }
         }
 
         // 2. Select pure-ADA UTxOs (largest first to maximize spendable balance within 16KB cap)
-        utxos
-            .filter { it.nativeAssets.isEmpty() && it !in selected }
-            .sortedByDescending { it.lovelace }
-            .forEach { utxo ->
-                if (selected.size < maxInputs) {
-                    selected.add(utxo)
-                }
+        val unselectedPureAda = ArrayList<Utxo>()
+        for (utxo in utxos) {
+            if (utxo.nativeAssets.isEmpty() && utxo !in selectedSet) {
+                unselectedPureAda.add(utxo)
             }
+        }
+        unselectedPureAda.sortByDescending { it.lovelace }
+        for (utxo in unselectedPureAda) {
+            if (selected.size >= maxInputs) break
+            selected.add(utxo)
+        }
 
         // 3. If no pure-ADA UTxOs existed, fall back to multi-asset UTxOs with surplus unlocked ADA
         if (selected.isEmpty()) {
@@ -1236,7 +1300,7 @@ class TransactionPlannerService(
             buildGroupedTokenOutputs(
                 address = changeAddress,
                 assetMap = leftoverAssets,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
             )
         val tokenKeepFee = tokenChangeOutputs.sumByBigInteger { it.lovelace }
         val selectedLovelace = selected.sumByBigInteger { it.lovelace }
@@ -1244,26 +1308,24 @@ class TransactionPlannerService(
         val recipientTokenTopUpAda = perLineTokenFees.sumByBigInteger { it }
 
         var feeEstimate = fixedFeeOverride ?: INITIAL_ESTIMATED_FEE
-        var outputs: List<PlannedOutput> = emptyList()
-        var estimatedBytes = 0
+        var outputs: List<PlannedOutput>
 
         for (iter in 0 until 5) {
             val distributableAda = (selectedLovelace - feeEstimate - tokenKeepFee - recipientTokenTopUpAda).max(BigInteger.ZERO)
             val adjustedItems = rescaleFullPercentItems(toAccountItems, distributableAda, isPreview)
             outputs = buildRecipientOutputs(adjustedItems, perLineTokenFees, isPreview = isPreview) + tokenChangeOutputs
-            val (calcFee, calcBytes) =
+            val (calcFee, _) =
                 calculateFeeAndSize(
                     selectedUtxos = selected,
                     outputs = outputs,
                     currentFeeEstimate = feeEstimate,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     metadataJson = metadataJson,
                     witnessCount = witnessCount,
                     referenceScriptBytes = referenceScriptBytes,
                 )
             val nextFee = fixedFeeOverride?.max(calcFee) ?: calcFee
-            estimatedBytes = calcBytes
             if (nextFee == feeEstimate) break
             feeEstimate = nextFee
         }
@@ -1279,7 +1341,7 @@ class TransactionPlannerService(
                 selectedUtxos = selected,
                 outputs = finalOutputs,
                 currentFeeEstimate = feeEstimate,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 ttl = ttl,
                 metadataJson = metadataJson,
                 witnessCount = witnessCount,
@@ -1344,7 +1406,7 @@ class TransactionPlannerService(
         ttl: Long,
         witnessCount: Int,
         referenceScriptBytes: Long,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
         maxInputs: Int,
         maxTxSize: Int,
         minPureAda: BigInteger,
@@ -1357,7 +1419,7 @@ class TransactionPlannerService(
             buildGroupedTokenOutputs(
                 address = changeAddress,
                 assetMap = remainingAssets,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
             )
         val tokenKeepFee = tokenChangeOutputs.sumByBigInteger { it.lovelace }
         val selectedLovelace = selectedUtxos.sumByBigInteger { it.lovelace }
@@ -1380,7 +1442,7 @@ class TransactionPlannerService(
                     selectedUtxos = selectedUtxos,
                     outputs = candidateOutputs,
                     currentFeeEstimate = feeEstimate,
-                    protocolParameters = protocolParameters,
+                    ctx = ctx,
                     ttl = ttl,
                     metadataJson = metadataJson,
                     witnessCount = witnessCount,
@@ -1416,7 +1478,7 @@ class TransactionPlannerService(
                 selectedUtxos = selectedUtxos,
                 outputs = finalOutputs,
                 currentFeeEstimate = finalFee,
-                protocolParameters = protocolParameters,
+                ctx = ctx,
                 ttl = ttl,
                 metadataJson = metadataJson,
                 witnessCount = witnessCount,
@@ -1430,7 +1492,7 @@ class TransactionPlannerService(
             fee = finalFee,
             tokenFees = tokenFees,
             tokenKeepFee = tokenKeepFee,
-            tokenLocked = computeStandardTokenLocked(allUtxos, selectedUtxos, maxInputs),
+            tokenLocked = computeStandardTokenLocked(allUtxos, selectedUtxos, maxInputs, ctx),
             estimatedTxBytes = finalBytes,
             selectionMode = selectionMode,
             usedFallback = usedFallback,
@@ -1449,23 +1511,23 @@ class TransactionPlannerService(
         requestedLovelace: BigInteger,
         requestedAssets: Map<String, BigInteger>,
         maxInputs: Int,
+        ctx: PlanContext,
     ): Pair<List<Utxo>, Boolean> {
-        val safeAddr = toSdkSafeAddress(address)
+        val safeAddr = ctx.safeAddress(address)
         val requestedAmounts = buildRequestedAmounts(requestedLovelace, requestedAssets)
 
         // Prefer pure-ADA UTxOs first when only ADA is needed and pure-ADA UTxOs have enough balance;
         // otherwise evaluate the full wallet UTxO pool.
-        val pureAdaPool = utxos.filter { it.nativeAssets.isEmpty() }
         val candidatePools =
-            if (requestedAssets.isEmpty() && pureAdaPool.sumByBigInteger { it.lovelace } >= requestedLovelace) {
-                listOf(pureAdaPool, utxos)
+            if (requestedAssets.isEmpty() && ctx.pureAdaPoolLovelace(utxos) >= requestedLovelace) {
+                listOf(ctx.pureAdaPool(utxos), utxos)
             } else {
                 listOf(utxos)
             }
 
         var lastError: Throwable? = null
         for ((poolIndex, pool) in candidatePools.withIndex()) {
-            val (supplier, lookupMap) = buildSupplierAndMap(safeAddr, pool)
+            val (supplier, lookupMap) = ctx.supplierAndMap(safeAddr, pool)
             val primaryStrategy =
                 randomImproveStrategyFactory?.invoke(supplier)
                     ?: RandomImproveUtxoSelectionStrategy(supplier, false)
@@ -1516,64 +1578,72 @@ class TransactionPlannerService(
         requiredNetLovelace: BigInteger,
         requestedAssets: Map<String, BigInteger>,
         maxInputs: Int,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
     ): List<Utxo> {
         val selected = mutableListOf<Utxo>()
+        val selectedSet = UtxoMembershipSet.create(ctx.uniqueUtxoRefs, maxInputs.coerceAtMost(utxos.size))
         val remainingAssets = requestedAssets.toMutableMap()
+        val safeChangeAddress = ctx.safeAddress(changeAddress)
+        val tokenTracker = IncrementalTokenKeepTracker(safeChangeAddress, requestedAssets, ctx)
+        var selectedLovelace = BigInteger.ZERO
 
         // First satisfy requested native assets
         if (remainingAssets.isNotEmpty()) {
-            utxos
-                .filter { it.nativeAssets.isNotEmpty() }
-                .sortedByDescending { utxo ->
+            val scoredAssetUtxos = ArrayList<Pair<Utxo, BigInteger>>()
+            for (utxo in utxos) {
+                if (utxo.nativeAssets.isEmpty()) continue
+                val score =
                     utxo.nativeAssets.sumByBigInteger { asset ->
                         val cur = "${asset.policy}.${asset.name}".trimEnd('.')
                         if ((remainingAssets[cur] ?: BigInteger.ZERO) > BigInteger.ZERO) asset.amount else BigInteger.ZERO
                     }
-                }.forEach { utxo ->
-                    if (remainingAssets.values.any { it > BigInteger.ZERO } && selected.size < maxInputs) {
-                        val matches =
-                            utxo.nativeAssets.any { asset ->
-                                val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                                (remainingAssets[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
-                            }
-                        if (matches) {
-                            selected.add(utxo)
-                            utxo.nativeAssets.forEach { asset ->
-                                val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                                remainingAssets[cur]?.let { rem ->
-                                    remainingAssets[cur] = (rem - asset.amount).max(BigInteger.ZERO)
-                                }
+                scoredAssetUtxos.add(utxo to score)
+            }
+            scoredAssetUtxos.sortByDescending { it.second }
+            for ((utxo, _) in scoredAssetUtxos) {
+                if (remainingAssets.values.any { it > BigInteger.ZERO } && selected.size < maxInputs) {
+                    val matches =
+                        utxo.nativeAssets.any { asset ->
+                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                            (remainingAssets[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
+                        }
+                    if (matches) {
+                        selected.add(utxo)
+                        selectedSet.add(utxo)
+                        selectedLovelace += utxo.lovelace
+                        tokenTracker.addUtxo(utxo)
+                        utxo.nativeAssets.forEach { asset ->
+                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                            remainingAssets[cur]?.let { rem ->
+                                remainingAssets[cur] = (rem - asset.amount).max(BigInteger.ZERO)
                             }
                         }
                     }
                 }
+            }
         }
         if (remainingAssets.values.any { it > BigInteger.ZERO }) {
             return emptyList()
         }
 
-        // Next sort remaining UTxOs by net unlocked lovelace contribution descending
-        val remainingCandidates =
-            utxos
-                .filter { it !in selected }
-                .sortedByDescending { utxo ->
-                    if (utxo.nativeAssets.isEmpty()) {
-                        utxo.lovelace
-                    } else {
-                        val minLock = calculateMinAda(changeAddress, utxo.nativeAssets, protocolParameters)
-                        utxo.lovelace - minLock
-                    }
+        // Next precompute net unlocked lovelace once per multi-asset UTxO before sorting
+        val scoredCandidates = ArrayList<Pair<Utxo, BigInteger>>(utxos.size)
+        for (utxo in utxos) {
+            if (utxo in selectedSet) continue
+            val netUnlocked =
+                if (utxo.nativeAssets.isEmpty()) {
+                    utxo.lovelace
+                } else {
+                    val minLock = calculateMinAdaWithSafeAddress(safeChangeAddress, utxo.nativeAssets, ctx)
+                    utxo.lovelace - minLock
                 }
+            scoredCandidates.add(utxo to netUnlocked)
+        }
+        scoredCandidates.sortByDescending { it.second }
 
-        for (candidate in remainingCandidates) {
-            val currentKeepAda =
-                buildGroupedTokenOutputs(
-                    address = changeAddress,
-                    assetMap = subtractAssetMaps(selected.toNativeAssetMap(), requestedAssets),
-                    protocolParameters = protocolParameters,
-                ).sumByBigInteger { it.lovelace }
-            val currentNetAda = selected.sumByBigInteger { it.lovelace } - currentKeepAda
+        for ((candidate, _) in scoredCandidates) {
+            val currentKeepAda = tokenTracker.currentKeepAda()
+            val currentNetAda = selectedLovelace - currentKeepAda
             if (currentNetAda >= requiredNetLovelace && selected.isNotEmpty()) {
                 break
             }
@@ -1581,15 +1651,12 @@ class TransactionPlannerService(
                 break
             }
             selected.add(candidate)
+            selectedLovelace += candidate.lovelace
+            tokenTracker.addUtxo(candidate)
         }
 
-        val finalKeepAda =
-            buildGroupedTokenOutputs(
-                address = changeAddress,
-                assetMap = subtractAssetMaps(selected.toNativeAssetMap(), requestedAssets),
-                protocolParameters = protocolParameters,
-            ).sumByBigInteger { it.lovelace }
-        val finalNetAda = selected.sumByBigInteger { it.lovelace } - finalKeepAda
+        val finalKeepAda = tokenTracker.currentKeepAda()
+        val finalNetAda = selectedLovelace - finalKeepAda
         return if (finalNetAda >= requiredNetLovelace) selected else emptyList()
     }
 
@@ -1597,22 +1664,34 @@ class TransactionPlannerService(
         utxos: List<Utxo>,
         requestedAssets: Map<String, BigInteger>,
         maxInputs: Int,
+        ctx: PlanContext,
     ): List<Utxo> {
         val selected = mutableListOf<Utxo>()
+        val selectedSet = UtxoMembershipSet.create(ctx.uniqueUtxoRefs, maxInputs.coerceAtMost(utxos.size))
         if (requestedAssets.isNotEmpty()) {
-            utxos
-                .filter { utxo ->
+            for (utxo in utxos) {
+                if (selected.size >= maxInputs) break
+                val hasRequestedAsset =
                     utxo.nativeAssets.any { asset ->
                         requestedAssets.containsKey("${asset.policy}.${asset.name}".trimEnd('.'))
                     }
-                }.take(maxInputs)
-                .forEach { selected.add(it) }
+                if (hasRequestedAsset) {
+                    selected.add(utxo)
+                    selectedSet.add(utxo)
+                }
+            }
         }
-        utxos
-            .filter { it.nativeAssets.isEmpty() && it !in selected }
-            .sortedByDescending { it.lovelace }
-            .take((maxInputs - selected.size).coerceAtLeast(0))
-            .forEach { selected.add(it) }
+        val remainingPureAda = ArrayList<Utxo>()
+        for (utxo in utxos) {
+            if (utxo.nativeAssets.isEmpty() && utxo !in selectedSet) {
+                remainingPureAda.add(utxo)
+            }
+        }
+        remainingPureAda.sortByDescending { it.lovelace }
+        val pureSlots = (maxInputs - selected.size).coerceAtLeast(0)
+        for (i in 0 until pureSlots.coerceAtMost(remainingPureAda.size)) {
+            selected.add(remainingPureAda[i])
+        }
         if (selected.isEmpty()) {
             utxos
                 .sortedByDescending { it.lovelace }
@@ -1627,98 +1706,128 @@ class TransactionPlannerService(
         changeAddress: String,
         mandatoryAda: BigInteger,
         requestedAssets: Map<String, BigInteger>,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
     ): List<Utxo> {
         val mandatory = mutableListOf<Utxo>()
+        val mandatorySet = UtxoMembershipSet.create(ctx.uniqueUtxoRefs)
         val remAssets = requestedAssets.toMutableMap()
 
         // 1. Ensure any explicitly requested native assets are included first
         if (remAssets.isNotEmpty()) {
-            utxos
-                .filter { it.nativeAssets.isNotEmpty() }
-                .forEach { utxo ->
-                    val needed =
-                        utxo.nativeAssets.any { asset ->
-                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                            (remAssets[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
-                        }
-                    if (needed) {
-                        mandatory.add(utxo)
-                        utxo.nativeAssets.forEach { asset ->
-                            val cur = "${asset.policy}.${asset.name}".trimEnd('.')
-                            remAssets[cur]?.let { rem -> remAssets[cur] = (rem - asset.amount).max(BigInteger.ZERO) }
-                        }
+            for (utxo in utxos) {
+                if (utxo.nativeAssets.isEmpty()) continue
+                val needed =
+                    utxo.nativeAssets.any { asset ->
+                        val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                        (remAssets[cur] ?: BigInteger.ZERO) > BigInteger.ZERO
+                    }
+                if (needed) {
+                    mandatory.add(utxo)
+                    mandatorySet.add(utxo)
+                    utxo.nativeAssets.forEach { asset ->
+                        val cur = "${asset.policy}.${asset.name}".trimEnd('.')
+                        remAssets[cur]?.let { rem -> remAssets[cur] = (rem - asset.amount).max(BigInteger.ZERO) }
                     }
                 }
+            }
         }
 
         // 2. Ensure at least one funding UTxO covers mandatoryAda + fees so small prefixes are immediately valid
+        val safeChangeAddress = ctx.safeAddress(changeAddress)
         var unlockedSoFar =
             mandatory.sumByBigInteger { utxo ->
                 if (utxo.nativeAssets.isEmpty()) {
                     utxo.lovelace
                 } else {
-                    (utxo.lovelace - calculateMinAda(changeAddress, utxo.nativeAssets, protocolParameters)).max(BigInteger.ZERO)
+                    (utxo.lovelace - calculateMinAdaWithSafeAddress(safeChangeAddress, utxo.nativeAssets, ctx)).max(BigInteger.ZERO)
                 }
             }
         if (unlockedSoFar < mandatoryAda) {
-            utxos
-                .filter { it !in mandatory }
-                .sortedByDescending { utxo ->
+            val scoredRemaining = ArrayList<Pair<Utxo, BigInteger>>(utxos.size)
+            for (utxo in utxos) {
+                if (utxo in mandatorySet) continue
+                val netUnlocked =
                     if (utxo.nativeAssets.isEmpty()) {
                         utxo.lovelace
                     } else {
-                        utxo.lovelace - calculateMinAda(changeAddress, utxo.nativeAssets, protocolParameters)
+                        utxo.lovelace - calculateMinAdaWithSafeAddress(safeChangeAddress, utxo.nativeAssets, ctx)
                     }
-                }.forEach { utxo ->
-                    if (unlockedSoFar < mandatoryAda) {
-                        mandatory.add(utxo)
-                        unlockedSoFar +=
-                            if (utxo.nativeAssets.isEmpty()) {
-                                utxo.lovelace
-                            } else {
-                                (utxo.lovelace - calculateMinAda(changeAddress, utxo.nativeAssets, protocolParameters)).max(BigInteger.ZERO)
-                            }
-                    }
+                scoredRemaining.add(utxo to netUnlocked)
+            }
+            scoredRemaining.sortByDescending { it.second }
+            for ((utxo, netUnlocked) in scoredRemaining) {
+                if (unlockedSoFar < mandatoryAda) {
+                    mandatory.add(utxo)
+                    mandatorySet.add(utxo)
+                    unlockedSoFar +=
+                        if (utxo.nativeAssets.isEmpty()) {
+                            utxo.lovelace
+                        } else {
+                            netUnlocked.max(BigInteger.ZERO)
+                        }
+                } else {
+                    break
                 }
+            }
         }
 
         // 3. Sort remaining UTxOs per unfrack.it principles:
         //    - Smallest pure-ADA dust UTxOs ascending by lovelace, interleaved/followed by
         //    - Fragmented multi-asset UTxOs (asset count < MIN_GROUP_SIZE or > MAX_GROUP_SIZE or duplicate policies)
         //    - Remaining pure-ADA UTxOs ascending by lovelace
-        val policyFrequency = mutableMapOf<String, Int>()
-        utxos.forEach { utxo ->
-            utxo.nativeAssets.map { it.policy }.distinct().forEach { policy ->
-                policyFrequency[policy] = (policyFrequency[policy] ?: 0) + 1
+        val policyFrequency = HashMap<String, Int>()
+        for (utxo in utxos) {
+            val assets = utxo.nativeAssets
+            if (assets.isEmpty()) continue
+            if (assets.size == 1) {
+                val p = assets[0].policy
+                policyFrequency[p] = (policyFrequency[p] ?: 0) + 1
+            } else {
+                val seenPolicies = HashSet<String>(assets.size * 2)
+                for (asset in assets) {
+                    if (seenPolicies.add(asset.policy)) {
+                        policyFrequency[asset.policy] = (policyFrequency[asset.policy] ?: 0) + 1
+                    }
+                }
             }
         }
 
-        val remaining = utxos.filter { it !in mandatory }
-        val dustPureAda =
-            remaining
-                .filter { it.nativeAssets.isEmpty() && it.lovelace < DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE }
-                .sortedBy { it.lovelace }
-        val fragmentedTokens =
-            remaining
-                .filter { utxo ->
-                    utxo.nativeAssets.isNotEmpty() &&
-                        (
-                            utxo.nativeAssets.size < NATIVE_ASSET_MIN_GROUP_SIZE ||
-                                utxo.nativeAssets.size > NATIVE_ASSET_MAX_GROUP_SIZE ||
-                                utxo.nativeAssets.any { (policyFrequency[it.policy] ?: 0) > 1 }
-                        )
-                }.sortedWith(compareBy<Utxo> { it.nativeAssets.size }.thenBy { it.lovelace })
-        val largerPureAda =
-            remaining
-                .filter { it.nativeAssets.isEmpty() && it.lovelace >= DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE }
-                .sortedBy { it.lovelace }
-        val otherTokenUtxos =
-            remaining
-                .filter { it !in dustPureAda && it !in fragmentedTokens && it !in largerPureAda }
-                .sortedBy { it.lovelace }
+        val dustPureAda = ArrayList<Utxo>()
+        val fragmentedTokens = ArrayList<Utxo>()
+        val largerPureAda = ArrayList<Utxo>()
+        val otherTokenUtxos = ArrayList<Utxo>()
+        for (utxo in utxos) {
+            if (utxo in mandatorySet) continue
+            if (utxo.nativeAssets.isEmpty()) {
+                if (utxo.lovelace < DEFRAGMENT_SPLIT_THRESHOLD_LOVELACE) {
+                    dustPureAda.add(utxo)
+                } else {
+                    largerPureAda.add(utxo)
+                }
+            } else {
+                val isFragmented =
+                    utxo.nativeAssets.size < NATIVE_ASSET_MIN_GROUP_SIZE ||
+                        utxo.nativeAssets.size > NATIVE_ASSET_MAX_GROUP_SIZE ||
+                        utxo.nativeAssets.any { (policyFrequency[it.policy] ?: 0) > 1 }
+                if (isFragmented) {
+                    fragmentedTokens.add(utxo)
+                } else {
+                    otherTokenUtxos.add(utxo)
+                }
+            }
+        }
+        dustPureAda.sortBy { it.lovelace }
+        fragmentedTokens.sortWith(compareBy<Utxo> { it.nativeAssets.size }.thenBy { it.lovelace })
+        largerPureAda.sortBy { it.lovelace }
+        otherTokenUtxos.sortBy { it.lovelace }
 
-        return mandatory + dustPureAda + fragmentedTokens + largerPureAda + otherTokenUtxos
+        val ordered = ArrayList<Utxo>(utxos.size)
+        ordered.addAll(mandatory)
+        ordered.addAll(dustPureAda)
+        ordered.addAll(fragmentedTokens)
+        ordered.addAll(largerPureAda)
+        ordered.addAll(otherTokenUtxos)
+        return ordered
     }
 
     private fun buildDefragmentOutputs(
@@ -1806,7 +1915,7 @@ class TransactionPlannerService(
     private fun buildGroupedTokenOutputs(
         address: String,
         assetMap: Map<String, BigInteger>,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
         defragmentByPolicy: Boolean = false,
     ): List<PlannedOutput> {
         val positiveAssets =
@@ -1850,8 +1959,9 @@ class TransactionPlannerService(
                 dedicatedChunks + smallPolicyAssets.chunked(NATIVE_ASSET_MAX_GROUP_SIZE)
             }
 
+        val safeAddr = ctx.safeAddress(address)
         return chunks.map { chunk ->
-            val minAda = calculateMinAda(address, chunk, protocolParameters)
+            val minAda = calculateMinAdaWithSafeAddress(safeAddr, chunk, ctx)
             PlannedOutput(
                 address = address,
                 lovelace = minAda,
@@ -1916,7 +2026,7 @@ class TransactionPlannerService(
 
     private fun computePerLineTokenFees(
         toAccountItems: List<WalletAccountLineItem>,
-        protocolParameters: ProtocolParameters,
+        ctx: PlanContext,
     ): List<BigInteger> {
         val adaByDestination = mutableMapOf<String, BigInteger>()
         toAccountItems.forEach { item ->
@@ -1937,7 +2047,7 @@ class TransactionPlannerService(
                 val assetAmount = item.amount.max(BigInteger.ONE)
                 list.add(currencyToNativeAsset(item.currency.trimEnd('.'), assetAmount))
                 val mergedAssets = mergeAssetsList(list)
-                val minRequired = calculateMinAda(item.address, mergedAssets, protocolParameters)
+                val minRequired = calculateMinAda(item.address, mergedAssets, ctx)
                 val explicitAda = adaByDestination[item.destinationKey] ?: BigInteger.ZERO
                 val totalTokenFeeForDest = (minRequired - explicitAda).max(BigInteger.ZERO)
                 val previous = prevTokenFeeByDest[item.destinationKey] ?: BigInteger.ZERO
@@ -1985,26 +2095,49 @@ class TransactionPlannerService(
         }
     }
 
+    private fun sumUnselectedMultiAssetLovelace(
+        allUtxos: List<Utxo>,
+        selectedUtxos: List<Utxo>,
+        ctx: PlanContext,
+    ): BigInteger {
+        val selectedSet = UtxoMembershipSet.fromSelected(ctx.uniqueUtxoRefs, selectedUtxos)
+        var total = BigInteger.ZERO
+        for (utxo in allUtxos) {
+            if (utxo.nativeAssets.isNotEmpty() && utxo !in selectedSet) {
+                total += utxo.lovelace
+            }
+        }
+        return total
+    }
+
     private fun computeStandardTokenLocked(
         allUtxos: List<Utxo>,
         selectedUtxos: List<Utxo>,
         maxInputs: Int,
+        ctx: PlanContext,
     ): BigInteger {
-        // Lovelace sitting on unselected multi-asset UTxOs cannot be freely spent as pure ADA
-        val unselectedMultiAssetAda =
-            allUtxos
-                .filter { it.nativeAssets.isNotEmpty() && it !in selectedUtxos }
-                .sumByBigInteger { it.lovelace }
+        val selectedSet = UtxoMembershipSet.fromSelected(ctx.uniqueUtxoRefs, selectedUtxos)
+        var unselectedMultiAssetAda = BigInteger.ZERO
+        val unselectedPureAda = ArrayList<Utxo>()
+        for (utxo in allUtxos) {
+            if (utxo in selectedSet) continue
+            if (utxo.nativeAssets.isNotEmpty()) {
+                unselectedMultiAssetAda += utxo.lovelace
+            } else {
+                unselectedPureAda.add(utxo)
+            }
+        }
 
         // If pure-ADA UTxO count exceeds the 16KB single-tx input limit, cap spendable pure ADA as well
-        val unselectedPureAda =
-            allUtxos
-                .filter { it.nativeAssets.isEmpty() && it !in selectedUtxos }
-                .sortedByDescending { it.lovelace }
         val remainingInputSlots = (maxInputs - selectedUtxos.size).coerceAtLeast(0)
         val unspendablePureAdaOverflow =
             if (unselectedPureAda.size > remainingInputSlots) {
-                unselectedPureAda.drop(remainingInputSlots).sumByBigInteger { it.lovelace }
+                unselectedPureAda.sortByDescending { it.lovelace }
+                var overflow = BigInteger.ZERO
+                for (i in remainingInputSlots until unselectedPureAda.size) {
+                    overflow += unselectedPureAda[i].lovelace
+                }
+                overflow
             } else {
                 BigInteger.ZERO
             }
@@ -2037,6 +2170,7 @@ class TransactionPlannerService(
         withdrawals: List<WithdrawalItem>,
         metadataJson: String?,
         witnessCount: Int,
+        ctx: PlanContext,
     ): ByteArray {
         val inputs =
             selectedUtxos.map { utxo ->
@@ -2046,7 +2180,7 @@ class TransactionPlannerService(
                     .index(utxo.ix.toInt())
                     .build()
             }
-        val sdkOutputs = outputs.map { toSdkTransactionOutput(it) }
+        val sdkOutputs = outputs.map { toSdkTransactionOutput(it, ctx) }
         val sdkWithdrawals =
             withdrawals.mapIndexed { idx, w ->
                 Withdrawal(toSdkSafeStakeAddress(w.stakingAddress, idx), w.lovelace)
@@ -2080,14 +2214,7 @@ class TransactionPlannerService(
             bodyBuilder.auxiliaryDataHash(auxHash)
         }
 
-        val dummyWitnesses =
-            (1..witnessCount.coerceAtLeast(1)).map { idx ->
-                VkeyWitness
-                    .builder()
-                    .vkey(ByteArray(32) { (idx + it).toByte() })
-                    .signature(ByteArray(64) { (idx * 3 + it).toByte() })
-                    .build()
-            }
+        val dummyWitnesses = ctx.dummyWitnesses(witnessCount)
 
         val tx =
             Transaction
@@ -2126,8 +2253,11 @@ class TransactionPlannerService(
             .build()
     }
 
-    private fun toSdkTransactionOutput(output: PlannedOutput): TransactionOutput {
-        val multiAssets = toSdkMultiAssets(output.nativeAssets)
+    private fun toSdkTransactionOutput(
+        output: PlannedOutput,
+        ctx: PlanContext,
+    ): TransactionOutput {
+        val multiAssets = toSdkMultiAssets(output.nativeAssets, ctx)
         val value =
             Value
                 .builder()
@@ -2136,16 +2266,19 @@ class TransactionPlannerService(
                 .build()
         return TransactionOutput
             .builder()
-            .address(toSdkSafeAddress(output.address))
+            .address(ctx.safeAddress(output.address))
             .value(value)
             .build()
     }
 
-    private fun toSdkMultiAssets(nativeAssets: List<NativeAsset>): List<MultiAsset> {
+    private fun toSdkMultiAssets(
+        nativeAssets: List<NativeAsset>,
+        ctx: PlanContext,
+    ): List<MultiAsset> {
         if (nativeAssets.isEmpty()) return emptyList()
         return nativeAssets
             .filter { it.amount > BigInteger.ZERO }
-            .groupBy { normalizePolicyId(it.policy) }
+            .groupBy { ctx.normalizedPolicyId(it.policy) }
             .map { (policyHex, assets) ->
                 MultiAsset
                     .builder()
@@ -2323,17 +2456,335 @@ class TransactionPlannerService(
     private fun isEvenHexString(
         value: String,
         maxChars: Int,
-    ): Boolean =
-        value.isNotEmpty() &&
-            value.length % 2 == 0 &&
-            value.length <= maxChars &&
-            value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    ): Boolean {
+        val len = value.length
+        if (len == 0 || (len and 1) != 0 || len > maxChars) return false
+        for (i in 0 until len) {
+            val ch = value[i]
+            val isHex = (ch in '0'..'9') || (ch in 'a'..'f') || (ch in 'A'..'F')
+            if (!isHex) return false
+        }
+        return true
+    }
 
     private fun sha256Hex(input: String): String =
         MessageDigest
             .getInstance("SHA-256")
             .digest(input.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+
+    private data class UtxoRef(
+        val hash: String,
+        val ix: Long,
+    )
+
+    private class UtxoMembershipSet private constructor(
+        private val refSet: HashSet<UtxoRef>?,
+        private val utxoSet: HashSet<Utxo>?,
+    ) {
+        fun add(utxo: Utxo): Boolean =
+            if (refSet != null) {
+                refSet.add(UtxoRef(utxo.hash, utxo.ix))
+            } else {
+                utxoSet!!.add(utxo)
+            }
+
+        operator fun contains(utxo: Utxo): Boolean =
+            if (refSet != null) {
+                refSet.contains(UtxoRef(utxo.hash, utxo.ix))
+            } else {
+                utxoSet!!.contains(utxo)
+            }
+
+        companion object {
+            fun hasUniqueRefs(pool: List<Utxo>): Boolean {
+                if (pool.size <= 1) return true
+                val seen = HashSet<UtxoRef>(pool.size * 2)
+                for (utxo in pool) {
+                    if (!seen.add(UtxoRef(utxo.hash, utxo.ix))) {
+                        return false
+                    }
+                }
+                return true
+            }
+
+            fun create(
+                uniqueRefs: Boolean,
+                expectedSize: Int = 16,
+            ): UtxoMembershipSet {
+                val capacity = expectedSize.coerceAtLeast(4) * 2
+                return if (uniqueRefs) {
+                    UtxoMembershipSet(HashSet(capacity), null)
+                } else {
+                    UtxoMembershipSet(null, HashSet(capacity))
+                }
+            }
+
+            fun fromSelected(
+                uniqueRefs: Boolean,
+                selected: Collection<Utxo>,
+            ): UtxoMembershipSet {
+                val set = create(uniqueRefs, selected.size)
+                for (utxo in selected) {
+                    set.add(utxo)
+                }
+                return set
+            }
+        }
+    }
+
+    private data class AssetKey(
+        val policy: String,
+        val name: String,
+    ) : Comparable<AssetKey> {
+        override fun compareTo(other: AssetKey): Int {
+            val cmp = policy.compareTo(other.policy)
+            return if (cmp != 0) cmp else name.compareTo(other.name)
+        }
+    }
+
+    private fun toAssetKey(
+        policy: String,
+        name: String,
+    ): AssetKey {
+        if (policy.indexOf('.') < 0) {
+            if (name.isEmpty()) {
+                return AssetKey(policy = policy, name = "")
+            }
+            if (!name.endsWith('.')) {
+                return AssetKey(policy = policy, name = name)
+            }
+        }
+        val parsed = currencyToNativeAsset("$policy.$name", BigInteger.ONE)
+        return AssetKey(policy = parsed.policy, name = parsed.name)
+    }
+
+    private fun toAssetKeyFromTrimmedCurrency(trimmedCurrency: String): AssetKey {
+        val dotIndex = trimmedCurrency.indexOf('.')
+        return if (dotIndex >= 0) {
+            AssetKey(
+                policy = trimmedCurrency.substring(0, dotIndex),
+                name = trimmedCurrency.substring(dotIndex + 1),
+            )
+        } else {
+            AssetKey(
+                policy = trimmedCurrency,
+                name = "",
+            )
+        }
+    }
+
+    private inner class PlanContext(
+        val protocolParameters: ProtocolParameters,
+        private val rootUtxos: List<Utxo> = emptyList(),
+    ) {
+        val sdkParams: ProtocolParams = toSdkProtocolParams(protocolParameters)
+        val minAdaCalculator: MinAdaCalculator = MinAdaCalculator(sdkParams)
+        val coinsPerUtxoSize: BigInteger = BigInteger(sdkParams.coinsPerUtxoSize)
+        val legacyMinUtxoFloor: BigInteger =
+            protocolParameters.minUTxOValue?.let { BigInteger.valueOf(it) } ?: BigInteger.ZERO
+        val maxTxSize: Int = resolveMaxTxSize(protocolParameters)
+        val uniqueUtxoRefs: Boolean by lazy(LazyThreadSafetyMode.NONE) {
+            UtxoMembershipSet.hasUniqueRefs(rootUtxos)
+        }
+        val feeService: FeeCalculationServiceImpl by lazy(LazyThreadSafetyMode.NONE) {
+            val emptySupplier = InMemoryUtxoSupplier(emptyMap())
+            FeeCalculationServiceImpl(emptySupplier, ProtocolParamsSupplier { sdkParams })
+        }
+        private val safeAddressCache = HashMap<String, String>(8)
+        private val addressWrapperBytesCache = HashMap<String, Int>(8)
+        private val pureAdaMinCache = HashMap<String, BigInteger>(8)
+        private val policyIdCache = HashMap<String, String>(32)
+        private val witnessCache = HashMap<Int, List<VkeyWitness>>(4)
+        private var cachedPureAdaPool: List<Utxo>? = null
+        private var cachedPureAdaLovelace: BigInteger? = null
+        private val supplierCache = HashMap<Pair<String, Int>, Pair<UtxoSupplier, Map<Pair<String, Int>, Utxo>>>(4)
+
+        fun safeAddress(address: String): String =
+            safeAddressCache.getOrPut(address) {
+                toSdkSafeAddress(address)
+            }
+
+        fun pureAdaMinLovelace(safeAddress: String): BigInteger =
+            pureAdaMinCache.getOrPut(safeAddress) {
+                val sdkOutput =
+                    TransactionOutput
+                        .builder()
+                        .address(safeAddress)
+                        .value(Value.builder().coin(MIN_PURE_ADA_FLOOR).build())
+                        .build()
+                minAdaCalculator.calculateMinAda(sdkOutput).max(legacyMinUtxoFloor)
+            }
+
+        fun addressWrapperBytes(safeAddress: String): Int =
+            addressWrapperBytesCache.getOrPut(safeAddress) {
+                val sdkOutput =
+                    TransactionOutput
+                        .builder()
+                        .address(safeAddress)
+                        .value(Value.builder().coin(MIN_PURE_ADA_FLOOR).build())
+                        .build()
+                CborSerializationUtil.serialize(sdkOutput.serialize()).size - ZERO_MULTI_ASSET_CBOR_BYTES
+            }
+
+        fun pureAdaPool(utxos: List<Utxo>): List<Utxo> {
+            if (utxos === rootUtxos) {
+                cachedPureAdaPool?.let { return it }
+                val filtered = utxos.filter { it.nativeAssets.isEmpty() }
+                cachedPureAdaPool = filtered
+                return filtered
+            }
+            return utxos.filter { it.nativeAssets.isEmpty() }
+        }
+
+        fun pureAdaPoolLovelace(utxos: List<Utxo>): BigInteger {
+            if (utxos === rootUtxos) {
+                cachedPureAdaLovelace?.let { return it }
+                val sum = pureAdaPool(utxos).sumByBigInteger { it.lovelace }
+                cachedPureAdaLovelace = sum
+                return sum
+            }
+            return utxos.asSequence().filter { it.nativeAssets.isEmpty() }.fold(BigInteger.ZERO) { acc, u -> acc + u.lovelace }
+        }
+
+        fun supplierAndMap(
+            safeAddress: String,
+            pool: List<Utxo>,
+        ): Pair<UtxoSupplier, Map<Pair<String, Int>, Utxo>> {
+            val poolTag =
+                when {
+                    pool === rootUtxos -> 1
+                    pool === cachedPureAdaPool -> 2
+                    else -> 0
+                }
+            if (poolTag == 0) {
+                return buildSupplierAndMap(safeAddress, pool)
+            }
+            return supplierCache.getOrPut(safeAddress to poolTag) {
+                buildSupplierAndMap(safeAddress, pool)
+            }
+        }
+
+        fun normalizedPolicyId(policy: String): String =
+            policyIdCache.getOrPut(policy) {
+                normalizePolicyId(policy)
+            }
+
+        fun dummyWitnesses(witnessCount: Int): List<VkeyWitness> {
+            val count = witnessCount.coerceAtLeast(1)
+            return witnessCache.getOrPut(count) {
+                (1..count).map { idx ->
+                    VkeyWitness
+                        .builder()
+                        .vkey(ByteArray(32) { (idx + it).toByte() })
+                        .signature(ByteArray(64) { (idx * 3 + it).toByte() })
+                        .build()
+                }
+            }
+        }
+    }
+
+    private inner class IncrementalTokenKeepTracker(
+        private val safeChangeAddress: String,
+        requestedAssets: Map<String, BigInteger>,
+        private val ctx: PlanContext,
+    ) {
+        private val requestedByKey: Map<AssetKey, BigInteger> =
+            if (requestedAssets.isEmpty()) {
+                emptyMap()
+            } else {
+                HashMap<AssetKey, BigInteger>(requestedAssets.size * 2).apply {
+                    for ((currency, qty) in requestedAssets) {
+                        if (currency == currency.trimEnd('.')) {
+                            put(toAssetKeyFromTrimmedCurrency(currency), qty)
+                        }
+                    }
+                }
+            }
+
+        private val selectedAmounts = HashMap<AssetKey, BigInteger>()
+        private val positiveLeftover = TreeMap<AssetKey, NativeAsset>()
+        private var cachedChunks: List<List<NativeAsset>> = emptyList()
+        private var cachedChunkMinAda: List<BigInteger> = emptyList()
+        private var cachedTotalMinAda: BigInteger = BigInteger.ZERO
+        private var dirty: Boolean = false
+
+        fun addUtxo(utxo: Utxo) {
+            val assets = utxo.nativeAssets
+            if (assets.isEmpty()) return
+            for (asset in assets) {
+                val key = toAssetKey(asset.policy, asset.name)
+                val prevSelected = selectedAmounts[key] ?: BigInteger.ZERO
+                val nextSelected = prevSelected + asset.amount
+                selectedAmounts[key] = nextSelected
+
+                val req = requestedByKey[key] ?: BigInteger.ZERO
+                val prevRem = prevSelected - req
+                val nextRem = nextSelected - req
+                if (nextRem > BigInteger.ZERO) {
+                    if (nextRem != prevRem) {
+                        positiveLeftover[key] = NativeAsset(name = key.name, policy = key.policy, amount = nextRem)
+                        dirty = true
+                    }
+                } else if (prevRem > BigInteger.ZERO) {
+                    positiveLeftover.remove(key)
+                    dirty = true
+                }
+            }
+        }
+
+        fun currentKeepAda(): BigInteger {
+            if (!dirty) return cachedTotalMinAda
+            dirty = false
+            if (positiveLeftover.isEmpty()) {
+                cachedChunks = emptyList()
+                cachedChunkMinAda = emptyList()
+                cachedTotalMinAda = BigInteger.ZERO
+                return BigInteger.ZERO
+            }
+
+            val chunkCount = (positiveLeftover.size + NATIVE_ASSET_MAX_GROUP_SIZE - 1) / NATIVE_ASSET_MAX_GROUP_SIZE
+            val newChunks = ArrayList<List<NativeAsset>>(chunkCount)
+            val newChunkMinAda = ArrayList<BigInteger>(chunkCount)
+            var totalMinAda = BigInteger.ZERO
+
+            val iter = positiveLeftover.values.iterator()
+            var chunkIdx = 0
+            while (iter.hasNext()) {
+                val chunk = ArrayList<NativeAsset>(NATIVE_ASSET_MAX_GROUP_SIZE)
+                while (chunk.size < NATIVE_ASSET_MAX_GROUP_SIZE && iter.hasNext()) {
+                    chunk.add(iter.next())
+                }
+                val prevChunk = if (chunkIdx < cachedChunks.size) cachedChunks[chunkIdx] else null
+                val minAda =
+                    if (prevChunk != null && sameChunkAssets(prevChunk, chunk)) {
+                        cachedChunkMinAda[chunkIdx]
+                    } else {
+                        calculateMinAdaWithSafeAddress(safeChangeAddress, chunk, ctx)
+                    }
+                newChunks.add(chunk)
+                newChunkMinAda.add(minAda)
+                totalMinAda += minAda
+                chunkIdx++
+            }
+
+            cachedChunks = newChunks
+            cachedChunkMinAda = newChunkMinAda
+            cachedTotalMinAda = totalMinAda
+            return totalMinAda
+        }
+
+        private fun sameChunkAssets(
+            a: List<NativeAsset>,
+            b: List<NativeAsset>,
+        ): Boolean {
+            if (a.size != b.size) return false
+            for (i in a.indices) {
+                if (a[i] !== b[i] && a[i] != b[i]) return false
+            }
+            return true
+        }
+    }
 
     private class InMemoryUtxoSupplier(
         private val utxosByAddress: Map<String, List<SdkUtxo>>,

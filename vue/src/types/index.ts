@@ -11,6 +11,25 @@ export interface Host {
   cardanoNodePath: string
   nodeHomePath: string
   jcliPath: string | null
+  sshFingerprint?: string | null
+  sshMismatchFingerprint?: string | null
+}
+
+export interface HostKeyMismatchAlert {
+  hostId?: number | null
+  hostname: string
+  sshPort: number
+  expectedFingerprint: string
+  receivedFingerprint: string
+  message: string
+}
+
+export interface HostFingerprintResult {
+  requestId: string
+  hostId: number
+  action: 'reset' | 'accept' | 'update'
+  sshFingerprint: string | null
+  message: string
 }
 
 export interface Node {

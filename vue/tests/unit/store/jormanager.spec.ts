@@ -508,3 +508,72 @@ describe('fee estimates', () => {
     expect(store.responseFeesUUID).toBe('')
   })
 })
+
+describe('SSH host key fingerprint TOFU & mismatch store actions', () => {
+  it('tracks mismatched remote hosts, surfaces security alert toasts, and resolves updateHostFingerprint', async () => {
+    setActivePinia(createPinia())
+    const store = useJorManagerStore()
+    store.stompClient = { connected: true } as typeof store.stompClient
+    const send = vi.spyOn(store, 'sendMessage').mockImplementation(() => {})
+
+    store.handleMessage({
+      type: 'hosts',
+      data: [
+        { id: 1, type: 'local', hostname: 'localhost', sshFingerprint: null, sshMismatchFingerprint: null },
+        { id: 2, type: 'remote', hostname: 'relay1', sshFingerprint: 'SHA256:AAA', sshMismatchFingerprint: null },
+        { id: 3, type: 'remote', hostname: 'bp1', sshFingerprint: 'SHA256:AAA', sshMismatchFingerprint: 'SHA256:BBB' }
+      ]
+    })
+    expect(store.mismatchedHosts.map(h => h.id)).toEqual([3])
+
+    store.handleMessage({
+      type: 'host_key_mismatch',
+      data: {
+        hostId: 3,
+        hostname: 'bp1',
+        sshPort: 22,
+        expectedFingerprint: 'SHA256:AAA',
+        receivedFingerprint: 'SHA256:BBB',
+        message: 'SSH host key mismatch for bp1:22!'
+      }
+    })
+    expect(store.lastHostKeyMismatch?.receivedFingerprint).toBe('SHA256:BBB')
+    expect(store.toastError).toEqual({
+      title: 'SSH Host Key Mismatch!',
+      message: 'SSH host key mismatch for bp1:22!'
+    })
+
+    const reqId = '12345678-1234-4234-8234-123456789abc'
+    const pending = store.updateHostFingerprint(reqId, {
+      hostId: 3,
+      action: 'accept',
+      fingerprint: 'SHA256:BBB',
+      spendingPassword: 'secret'
+    })
+    expect(send).toHaveBeenCalledWith('/jormanager/host/fingerprint', {
+      requestId: reqId,
+      hostId: 3,
+      action: 'accept',
+      fingerprint: 'SHA256:BBB',
+      spendingPassword: 'secret'
+    })
+
+    store.handleMessage({
+      type: 'host_fingerprint_updated',
+      data: {
+        requestId: reqId,
+        hostId: 3,
+        action: 'accept',
+        sshFingerprint: 'SHA256:BBB',
+        message: 'Updated trusted SSH host key fingerprint for bp1.'
+      }
+    })
+
+    await expect(pending).resolves.toMatchObject({
+      hostId: 3,
+      action: 'accept',
+      sshFingerprint: 'SHA256:BBB'
+    })
+    expect(store.toastSuccess?.title).toBe('SSH Host Key Updated')
+  })
+})
