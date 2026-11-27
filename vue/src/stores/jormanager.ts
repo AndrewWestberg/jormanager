@@ -6,6 +6,8 @@ import { generateUUID, lovelaceToAda } from '@/utils/filters'
 import JSONBIG from 'json-bigint'
 import type {
   Host,
+  HostKeyMismatchAlert,
+  HostFingerprintResult,
   Node,
   DisplayNode,
   Block,
@@ -28,6 +30,7 @@ const exactJson = JSONBIG({ storeAsString: true })
 const pendingRequests = new Map<string, {
   type: string
   nodeId?: unknown
+  hostId?: unknown
   action?: unknown
   keyId?: unknown
   networkKey?: string | null
@@ -81,6 +84,7 @@ interface JorManagerState {
 
   // Data
   hosts: Host[]
+  lastHostKeyMismatch: HostKeyMismatchAlert | null
   nodes: Node[]
   blocks: Block[]
   files: FileOption[]
@@ -148,6 +152,7 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     // Data
     hosts: [],
+    lastHostKeyMismatch: null,
     nodes: [],
     blocks: [],
     files: [],
@@ -219,6 +224,8 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     blocksCount: (state): number => state.blocks.length,
     hostsCount: (state): number => state.hosts.length,
+    mismatchedHosts: (state): Host[] =>
+      state.hosts.filter((host) => host.type === 'remote' && Boolean(host.sshMismatchFingerprint)),
 
     hostSelectOptions: (state): SelectOption[] => {
       return sortBy(
@@ -423,6 +430,7 @@ export const useJorManagerStore = defineStore('jormanager', {
       this.connected = true
       this.nodeIndexStatus = {}
       this.nodeIndexRequests = {}
+      this.requestHosts()
       this.requestNodes()
     },
 
@@ -431,6 +439,7 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'governancesubmit':
         case 'pool_retirement_submit':
         case 'createnode':
+        case 'host_fingerprint_updated':
         case 'leios_key_prepared':
         case 'leios_key_imported':
         case 'leios_key_installation':
@@ -444,7 +453,15 @@ export const useJorManagerStore = defineStore('jormanager', {
               this.toastSuccess = { title: 'Node Created', message: acknowledgement.message }
             } else if (message.exception) this.toastError = { title: 'Node Save Error', message: message.exception.message }
           }
-          const data = message.data as { requestId: string; nodeId?: unknown; action?: unknown; keyId?: unknown; networkKey?: string; target?: Record<string, unknown> } | undefined
+          if (message.type === 'host_fingerprint_updated') {
+            const result = message.data as HostFingerprintResult | undefined
+            if (result?.message) {
+              this.toastSuccess = { title: 'SSH Host Key Updated', message: result.message }
+            } else if (message.exception) {
+              this.toastError = { title: 'SSH Host Key Error', message: message.exception.message }
+            }
+          }
+          const data = message.data as { requestId: string; nodeId?: unknown; hostId?: unknown; action?: unknown; keyId?: unknown; networkKey?: string; target?: Record<string, unknown> } | undefined
           const requestId = data?.requestId || message.exception?.requestId
           const pending = requestId ? pendingRequests.get(requestId) : undefined
           if (!pending || pending.type !== message.type) break
@@ -452,6 +469,7 @@ export const useJorManagerStore = defineStore('jormanager', {
           pendingRequests.delete(requestId!)
           if (data) {
             if ((pending.nodeId !== undefined && data.nodeId !== pending.nodeId) ||
+                (pending.hostId !== undefined && data.hostId !== pending.hostId) ||
                 (pending.action !== undefined && data.action !== pending.action) ||
                 (pending.keyId !== undefined && data.keyId !== pending.keyId) ||
                 (pending.networkKey && data.networkKey !== pending.networkKey) ||
@@ -498,6 +516,17 @@ export const useJorManagerStore = defineStore('jormanager', {
         case 'hosts':
           this.hosts = message.data as Host[]
           break
+        case 'host_key_mismatch': {
+          const alert = message.data as HostKeyMismatchAlert | undefined
+          if (alert) {
+            this.lastHostKeyMismatch = alert
+            this.toastError = {
+              title: 'SSH Host Key Mismatch!',
+              message: alert.message
+            }
+          }
+          break
+        }
         case 'nodes':
           if (Array.isArray(message.data)) {
             const nextNodes = message.data as Node[]
@@ -947,7 +976,7 @@ export const useJorManagerStore = defineStore('jormanager', {
         const target = payload.target && typeof payload.target === 'object'
           ? Object.fromEntries(Object.entries(payload.target).filter(([key]) => ['nodeId', 'hostId', 'networkKey', 'poolId'].includes(key)))
           : undefined
-        pendingRequests.set(requestId, { type: responseType, nodeId: payload.nodeId, action: payload.action,
+        pendingRequests.set(requestId, { type: responseType, nodeId: payload.nodeId, hostId: payload.hostId, action: payload.action,
           keyId: responseType === 'leios_registration_submitted' || responseType === 'leios_key_installation' ? payload.keyId : undefined,
           networkKey, target, resolve: value => resolve(value as T), reject, timer })
         try {
@@ -1005,6 +1034,22 @@ export const useJorManagerStore = defineStore('jormanager', {
 
     addHost(host: Host) {
       this.sendMessage('/jormanager/addhost', host)
+    },
+
+    updateHostFingerprint(
+      requestId: string,
+      payload: {
+        hostId: number
+        action: 'reset' | 'accept' | 'update'
+        fingerprint?: string | null
+        spendingPassword: string
+      }
+    ): Promise<HostFingerprintResult> {
+      return this.socketRequest<HostFingerprintResult>(
+        '/jormanager/host/fingerprint',
+        'host_fingerprint_updated',
+        { requestId, ...payload }
+      )
     },
 
     requestFileOptions() {

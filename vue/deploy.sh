@@ -25,6 +25,3 @@ if [ "$NODE_MAJOR" -lt 26 ]; then
 fi
 
 npm run build
-mkdir -p ../src/main/resources/static
-rm -rf ../src/main/resources/static/*
-cp -rf dist/. ../src/main/resources/static/
