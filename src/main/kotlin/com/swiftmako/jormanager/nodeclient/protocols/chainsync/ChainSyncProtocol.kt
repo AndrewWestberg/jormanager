@@ -37,6 +37,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.digests.Blake2bDigest
@@ -59,8 +61,18 @@ class ChainSyncProtocol(
     private val node: Node? = null,
     private val cardanoRepository: CardanoRepository? = null,
     private val intersectionPoints: List<ChainPoint> = emptyList(),
+    private val maxInFlight: Int = MAX_IN_FLIGHT,
 ) : MiniProtocol(protocolId = 0x0002.toShort()),
     CoroutineScope {
+    companion object {
+        const val MAX_IN_FLIGHT = NetworkChainSession.MAX_BATCH_SIZE
+    }
+
+    private class PendingUpdate(
+        val holdsPermit: Boolean,
+        val action: () -> Unit,
+    )
+
     private val log by lazy { LoggerFactory.getLogger("ChainSyncProtocol") }
     private var nextLogTime = Long.MIN_VALUE
 
@@ -75,6 +87,9 @@ class ChainSyncProtocol(
 
     override val rxBufferSize: Int = 64 * 1024
 
+    override val duplex: Boolean
+        get() = session != null && !isPooltool
+
     @Volatile
     private var state = State.Idle
         set(value) {
@@ -82,7 +97,12 @@ class ChainSyncProtocol(
             _agencyFlow.tryEmit(agency)
         }
 
-    @Volatile private var pendingUpdate: (() -> Unit)? = null
+    private val pendingUpdates = ArrayDeque<PendingUpdate>()
+    private var inFlight = 0
+    private var awaitingReply = false
+    private var pausedAtTip = false
+    private var drainingRollback = false
+    private val txWakeup = MutableStateFlow(0L)
     private var lastPersistedTip: Pair<Long, ChainPoint>? = null
     private val stateLock = Any()
 
@@ -95,6 +115,24 @@ class ChainSyncProtocol(
                 State.Idle -> Agency.Client
                 State.Done -> Agency.None
                 else -> Agency.Server
+            }
+
+    override val canSend: Boolean
+        get() =
+            if (!duplex) {
+                agency == Agency.Client
+            } else {
+                synchronized(stateLock) { canSendWireLocked() }
+            }
+
+    override val canReceive: Boolean
+        get() =
+            if (!duplex) {
+                agency == Agency.Server
+            } else {
+                synchronized(stateLock) {
+                    state == State.Intersect || state == State.CanAwait || state == State.MustReply
+                }
             }
 
     private var isIntersectFound = false
@@ -132,6 +170,7 @@ class ChainSyncProtocol(
         get() = _tipToIntersect ?: chainBlocksPairs
 
     init {
+        require(maxInFlight in 1..NetworkChainSession.MAX_BATCH_SIZE) { "Invalid maxInFlight $maxInFlight" }
         initBlockReceiveHandler()
         if (session != null && node != null && cardanoRepository != null) {
             launch {
@@ -146,59 +185,192 @@ class ChainSyncProtocol(
         }
     }
 
+    private fun canSendWireLocked(): Boolean {
+        if (state == State.Done || state == State.Intersect) return false
+        if (!isIntersectFound) return true
+        return !awaitingReply && !drainingRollback && inFlight < maxInFlight && (!pausedAtTip || inFlight == 0)
+    }
+
+    private fun refreshDuplexStateLocked() {
+        if (state == State.Done || state == State.Intersect) return
+        state =
+            when {
+                inFlight == 0 -> State.Idle
+                awaitingReply -> State.MustReply
+                else -> State.CanAwait
+            }
+    }
+
+    private suspend fun drainPendingUpdates() {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val next =
+                synchronized(stateLock) {
+                    if (state == State.Done || pendingUpdates.isEmpty()) null else pendingUpdates.removeFirst()
+                } ?: return
+            next.action.invoke()
+        }
+    }
+
+    override suspend fun awaitCanSend(): Boolean {
+        if (!duplex) return false
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            drainPendingUpdates()
+            currentCoroutineContext().ensureActive()
+            val decision =
+                synchronized(stateLock) {
+                    when {
+                        state == State.Done -> false
+                        pendingUpdates.isNotEmpty() -> null
+                        canSendWireLocked() -> true
+                        else -> null
+                    }
+                }
+            if (decision != null) return decision
+            val shouldWait =
+                synchronized(stateLock) {
+                    state != State.Done && pendingUpdates.isEmpty() && !canSendWireLocked()
+                }
+            if (shouldWait) {
+                txWakeup.first {
+                    synchronized(stateLock) {
+                        state == State.Done || pendingUpdates.isNotEmpty() || canSendWireLocked()
+                    }
+                }
+            }
+        }
+    }
+
     override fun shutdown() {
+        var permitsToRelease = 0
         synchronized(stateLock) {
             state = State.Done
-            pendingUpdate = null
+            permitsToRelease = inFlight + pendingUpdates.count { it.holdsPermit }
+            inFlight = 0
+            awaitingReply = false
+            pausedAtTip = false
+            drainingRollback = false
+            pendingUpdates.clear()
+            txWakeup.value++
+        }
+        if (session != null) {
+            repeat(permitsToRelease) { session.release() }
         }
         eras.close()
         job.cancelChildren()
     }
 
-    override suspend fun sendData(): ByteBuffer {
-        currentCoroutineContext().ensureActive()
-        val update = synchronized(stateLock) {
-            check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
-            pendingUpdate.also { pendingUpdate = null }
-        }
-        update?.invoke()
-        currentCoroutineContext().ensureActive()
-        check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+    override suspend fun sendDataOrNull(): ByteBuffer? = sendDataInternal(allowNullOnPause = true)
 
-        val reserved = isIntersectFound && session != null
-        if (reserved) session.reserve()
+    override suspend fun sendData(): ByteBuffer =
+        sendDataInternal(allowNullOnPause = false)
+            ?: throw IllegalStateException("We should not call sendData() when we're in a $state state!")
+
+    private suspend fun sendDataInternal(allowNullOnPause: Boolean): ByteBuffer? {
+        currentCoroutineContext().ensureActive()
+        drainPendingUpdates()
+        currentCoroutineContext().ensureActive()
+
+        if (!duplex) {
+            val reserved = isIntersectFound && session != null
+            if (reserved) session.reserve()
+            try {
+                currentCoroutineContext().ensureActive()
+                synchronized(stateLock) {
+                    check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+                    val payload = muxByteBufferPool.borrow()
+                    state =
+                        if (isIntersectFound) {
+                            log.trace("MsgRequestNext")
+                            MsgRequestNext().writeToBuffer(payload)
+                            State.CanAwait
+                        } else {
+                            log.trace("MsgFindIntersect")
+                            if (tipToIntersect.isNotEmpty()) {
+                                MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
+                            } else {
+                                MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
+                            }
+                            _tipToIntersect = null
+                            State.Intersect
+                        }
+                    return payload.flip()
+                }
+            } catch (e: Throwable) {
+                if (reserved) session.release()
+                throw e
+            }
+        }
+
+        val intersectPayload =
+            synchronized(stateLock) {
+                if (state == State.Done) {
+                    if (allowNullOnPause) return null
+                    error("We should not call sendData() when we're in a $state state!")
+                }
+                if (!isIntersectFound) {
+                    check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+                    val payload = muxByteBufferPool.borrow()
+                    try {
+                        log.trace("MsgFindIntersect")
+                        MsgFindIntersect(
+                            intersectionPoints.map { it.slot.toLong() to it.hash.hexToByteArray() },
+                            includeOrigin = true,
+                        ).writeToBuffer(payload)
+                        _tipToIntersect = null
+                        state = State.Intersect
+                        txWakeup.value++
+                        payload.flip()
+                    } catch (e: Throwable) {
+                        muxByteBufferPool.recycle(payload)
+                        throw e
+                    }
+                } else {
+                    if (!canSendWireLocked()) {
+                        if (allowNullOnPause) return null
+                        error("We should not call sendData() when we're in a $state state!")
+                    }
+                    null
+                }
+            }
+        if (intersectPayload != null) return intersectPayload
+
+        val active = requireNotNull(session)
+        active.reserve()
+        var committed = false
         try {
+            drainPendingUpdates()
             currentCoroutineContext().ensureActive()
             synchronized(stateLock) {
-                check(state == State.Idle) { "We should not call sendData() when we're in a $state state!" }
+                if (state == State.Done || !canSendWireLocked()) {
+                    if (allowNullOnPause) return null
+                    error("We should not call sendData() when we're in a $state state!")
+                }
                 val payload = muxByteBufferPool.borrow()
-                state =
-                    if (isIntersectFound) {
-                        log.trace("MsgRequestNext")
-                        MsgRequestNext().writeToBuffer(payload)
-                        State.CanAwait
-                    } else {
-                        log.trace("MsgFindIntersect")
-                        if (session != null) {
-                            MsgFindIntersect(intersectionPoints.map { it.slot.toLong() to it.hash.hexToByteArray() }, includeOrigin = true).writeToBuffer(payload)
-                        } else if (tipToIntersect.isNotEmpty()) {
-                            MsgFindIntersect(tipToIntersect).writeToBuffer(payload)
-                        } else {
-                            MsgFindIntersect(lastByronBlocks).writeToBuffer(payload)
-                        }
-                        _tipToIntersect = null
-                        State.Intersect
-                    }
-                return payload.flip()
+                try {
+                    log.trace("MsgRequestNext")
+                    MsgRequestNext().writeToBuffer(payload)
+                    inFlight++
+                    refreshDuplexStateLocked()
+                    txWakeup.value++
+                    committed = true
+                    return payload.flip()
+                } catch (e: Throwable) {
+                    muxByteBufferPool.recycle(payload)
+                    throw e
+                }
             }
-        } catch (e: Throwable) {
-            if (reserved) session.release()
-            throw e
+        } finally {
+            if (!committed) active.release()
         }
     }
 
     override fun receiveData(payload: ByteBuffer) {
-        when (state) {
+        val currentState = synchronized(stateLock) { state }
+        when (currentState) {
+            State.Done -> return
+
             State.CanAwait, State.MustReply -> {
                 ByteArrayInputStream(payload.array(), payload.position(), payload.remaining()).use { byteStream ->
                     CborReader.createFromInputStream(byteStream).apply {
@@ -220,30 +392,31 @@ class ChainSyncProtocol(
                                     val msgRollForward = MsgRollForwardAdapter.fromCborArray(cborArray, session?.byronEpochSlots).orElseThrow {
                                         IllegalStateException("Unable to decode era $era chain header")
                                     }
-                                    run {
+                                    if (isPooltool) {
                                         val isTip = msgRollForward.chainTip.hash == msgRollForward.hash
-
-                                        if (isPooltool) {
-                                            if (isTip) {
-                                                // We're on tip! Send to pooltool
-                                                runBlocking {
-                                                    blockSaveFlow.emit(msgRollForward)
-                                                }
-                                            } else {
-                                                // try to jump to tip since we're doing pooltool sending
-                                                _tipToIntersect = listOf(
-                                                    Pair(
-                                                        msgRollForward.chainTip.slot,
-                                                        msgRollForward.chainTip.hash.hexToByteArray()
-                                                    )
-                                                ) + chainBlocksPairs
-                                                isIntersectFound = false
+                                        if (isTip) {
+                                            runBlocking {
+                                                blockSaveFlow.emit(msgRollForward)
                                             }
                                         } else {
-                                            val active = requireNotNull(session)
-                                            val tip = ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash)
-                                            val point = ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash)
-                                            publishUpdate {
+                                            _tipToIntersect = listOf(
+                                                Pair(
+                                                    msgRollForward.chainTip.slot,
+                                                    msgRollForward.chainTip.hash.hexToByteArray()
+                                                )
+                                            ) + chainBlocksPairs
+                                            isIntersectFound = false
+                                        }
+                                        state = State.Idle
+                                    } else {
+                                        val active = requireNotNull(session)
+                                        val tip = ChainPoint(msgRollForward.chainTip.slot.toString(), msgRollForward.chainTip.hash)
+                                        val point = ChainPoint(msgRollForward.slotNumber.toString(), msgRollForward.hash)
+                                        val atTip = msgRollForward.chainTip.hash == msgRollForward.hash || msgRollForward.blockNumber >= msgRollForward.chainTip.block
+                                        enqueueReplyUpdate(atTip = atTip, isRollback = false, holdsPermit = true) {
+                                            var handedOff = false
+                                            try {
+                                                if (synchronized(stateLock) { state == State.Done }) return@enqueueReplyUpdate
                                                 if (lastObservedEra != era) {
                                                     lastObservedEra = era
                                                     eras.trySend(era)
@@ -251,11 +424,17 @@ class ChainSyncProtocol(
                                                 observeTip(active, tip, force = false)
                                                 active.tipBlockNumber = msgRollForward.chainTip.block
                                                 if (active.defaultNetwork && era != 0) saveHeader(msgRollForward)
-                                                active.enqueue(point)
+                                                synchronized(stateLock) {
+                                                    if (state != State.Done) {
+                                                        active.enqueue(point)
+                                                        handedOff = true
+                                                    }
+                                                }
+                                            } finally {
+                                                if (!handedOff) active.release()
                                             }
                                         }
                                     }
-                                    if (isPooltool) state = State.Idle
                                 }
 
                                 MsgRollBackward.MESSAGE_ID -> {
@@ -266,12 +445,16 @@ class ChainSyncProtocol(
                                         val tip = cborArray.elementAt(2) as CborArray
                                         val tipHeight = tip.elementToLong(1)
                                         val tipPoint = parsePoint(tip.elementAt(0) as CborArray)
-                                        publishUpdate {
-                                            active.rollback(point)
-                                            active.release()
-                                            if (active.defaultNetwork) rollbackHeaders(point)
-                                            active.tipBlockNumber = tipHeight
-                                            observeTip(active, tipPoint, force = true)
+                                        enqueueReplyUpdate(atTip = point == tipPoint, isRollback = true, holdsPermit = true) {
+                                            try {
+                                                if (synchronized(stateLock) { state == State.Done }) return@enqueueReplyUpdate
+                                                active.rollback(point)
+                                                if (active.defaultNetwork) rollbackHeaders(point)
+                                                active.tipBlockNumber = tipHeight
+                                                observeTip(active, tipPoint, force = true)
+                                            } finally {
+                                                active.release()
+                                            }
                                         }
                                     } else {
                                         state = State.Idle
@@ -281,8 +464,12 @@ class ChainSyncProtocol(
                                 MsgAwaitReply.MESSAGE_ID -> {
                                     log.trace("MsgAwaitReply: ${cborArray.toCborByteArray().toHexString()}")
                                     synchronized(stateLock) {
-                                        check(state == State.CanAwait) { "Unexpected MsgAwaitReply in $state" }
+                                        if (state == State.Done) return
+                                        check(state == State.CanAwait && !awaitingReply) { "Unexpected MsgAwaitReply in $state" }
+                                        awaitingReply = true
+                                        pausedAtTip = true
                                         state = State.MustReply
+                                        txWakeup.value++
                                     }
                                 }
                                 else -> throw IllegalStateException("Unexpected chain sync message $messageId in $state")
@@ -307,14 +494,23 @@ class ChainSyncProtocol(
                                         val tip = cborArray.elementAt(2) as CborArray
                                         val tipHeight = tip.elementToLong(1)
                                         val tipPoint = parsePoint(tip.elementAt(0) as CborArray)
-                                        publishUpdate {
-                                            if (point != intersectionPoints.firstOrNull()) {
-                                                active.rollback(point)
-                                                if (active.defaultNetwork) rollbackHeaders(point)
-                                            }
-                                            active.tipBlockNumber = tipHeight
-                                            observeTip(active, tipPoint, force = true)
+                                        synchronized(stateLock) {
+                                            if (state == State.Done) return
+                                            check(state == State.Intersect && inFlight == 0) { "Unexpected chain sync response in $state" }
                                             isIntersectFound = true
+                                            pendingUpdates.addLast(
+                                                PendingUpdate(holdsPermit = false) {
+                                                    if (synchronized(stateLock) { state == State.Done }) return@PendingUpdate
+                                                    if (point != intersectionPoints.firstOrNull()) {
+                                                        active.rollback(point)
+                                                        if (active.defaultNetwork) rollbackHeaders(point)
+                                                    }
+                                                    active.tipBlockNumber = tipHeight
+                                                    observeTip(active, tipPoint, force = true)
+                                                }
+                                            )
+                                            state = State.Idle
+                                            txWakeup.value++
                                         }
                                     } else {
                                         isIntersectFound = true
@@ -335,18 +531,34 @@ class ChainSyncProtocol(
                 }
             }
 
-            else -> throw IllegalStateException("We should not call receiveData() when we're not in a $state state!")
+            else -> throw IllegalStateException("We should not call receiveData() when we're not in a $currentState state!")
         }
     }
 
-    private fun publishUpdate(update: () -> Unit) {
+    private fun enqueueReplyUpdate(
+        atTip: Boolean,
+        isRollback: Boolean,
+        holdsPermit: Boolean,
+        update: () -> Unit,
+    ) {
         synchronized(stateLock) {
-            check(state == State.CanAwait || state == State.MustReply || state == State.Intersect) {
+            if (state == State.Done) return
+            check((state == State.CanAwait || state == State.MustReply) && inFlight > 0) {
                 "Unexpected chain sync response in $state"
             }
-            check(pendingUpdate == null) { "Chain sync already has a pending response" }
-            pendingUpdate = update
-            state = State.Idle
+            inFlight--
+            awaitingReply = false
+            if (isRollback) {
+                drainingRollback = inFlight > 0
+            } else if (inFlight == 0) {
+                drainingRollback = false
+            }
+            if (!atTip) {
+                pausedAtTip = false
+            }
+            pendingUpdates.addLast(PendingUpdate(holdsPermit = holdsPermit, action = update))
+            refreshDuplexStateLocked()
+            txWakeup.value++
         }
     }
 

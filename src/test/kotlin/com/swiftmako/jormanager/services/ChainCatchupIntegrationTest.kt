@@ -386,7 +386,6 @@ class ChainCatchupIntegrationTest {
                     counts.executions.get()
                 } finally {
                     sync.shutdown()
-                    session.release()
                     session.close()
                 }
             }
@@ -1057,7 +1056,8 @@ class ChainCatchupIntegrationTest {
                     assertEquals("test boundary failure", coordinator.status(fixture.network).reason)
                 } finally {
                     sync.shutdown()
-                    session.release()
+                    repeat(128) { session.reserve() }
+                    repeat(128) { session.release() }
                     session.close()
                 }
             }
