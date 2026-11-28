@@ -9,17 +9,6 @@
           Real-time Cardano node telemetry, KES readiness, and epoch progress
         </p>
       </div>
-      <div class="jm-action-group">
-        <span
-          v-if="epoch > 0"
-          class="jm-pill jm-pill-cyan jm-mono"
-        >
-          Epoch {{ epoch }} • {{ epochProgressPercent.toFixed(1) }}%
-        </span>
-        <span class="jm-pill jm-pill-slate jm-mono">
-          {{ nodes.length }} Node{{ nodes.length === 1 ? '' : 's' }}
-        </span>
-      </div>
     </div>
 
     <!-- Hero Telemetry Strip: Epoch Ring + 4 Fleet KPIs -->
@@ -114,18 +103,6 @@
             <div class="d-flex gap-1 flex-wrap">
               <span class="jm-pill jm-pill-emerald">{{ coreNodeCount }} Core/Pool</span>
               <span class="jm-pill jm-pill-rose">{{ relayNodeCount }} Relay</span>
-            </div>
-            <div
-              v-if="nodeDots.length"
-              class="d-flex align-items-center gap-1"
-            >
-              <span
-                v-for="n in nodeDots"
-                :key="n.id"
-                class="jm-dot"
-                :style="{ backgroundColor: n.color }"
-                :title="n.name"
-              />
             </div>
           </div>
         </div>
@@ -334,10 +311,6 @@ const coreNodeCount = computed(() =>
 
 const relayNodeCount = computed(() =>
   nodes.value.filter(n => n.type === 'relay' && !n.isDeleted).length
-)
-
-const nodeDots = computed(() =>
-  nodes.value.filter(n => !n.isDeleted).slice(0, 8)
 )
 
 const latestBlockHeights = computed(() =>

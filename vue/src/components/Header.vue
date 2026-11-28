@@ -82,50 +82,41 @@
         </ul>
       </nav>
 
-      <div class="jm-status-cluster">
-        <RouterLink
-          v-if="epoch > 0"
-          to="/"
-          class="jm-mini-epoch"
-          title="View live epoch telemetry on Dashboard"
-        >
-          <span class="jm-mono jm-mini-epoch-num">Ep {{ epoch }}</span>
-          <span
-            class="jm-mini-bar"
-            aria-hidden="true"
-          >
-            <span
-              class="jm-mini-bar-fill"
-              :style="{ width: `${epochPercent}%` }"
-            />
-          </span>
-          <span class="jm-mono">{{ epochPercent }}%</span>
-        </RouterLink>
-        <div
-          class="jm-conn-pill"
-          :class="{ offline: !connected }"
-          role="status"
+      <RouterLink
+        v-if="showMiniEpoch"
+        to="/"
+        class="jm-mini-epoch"
+        title="View live epoch telemetry on Dashboard"
+        @click="mobileNavOpen = false"
+      >
+        <span class="jm-mono jm-mini-epoch-num">Ep {{ epoch }}</span>
+        <span
+          class="jm-mini-bar"
+          aria-hidden="true"
         >
           <span
-            class="jm-pulse-dot"
-            aria-hidden="true"
+            class="jm-mini-bar-fill"
+            :style="{ width: `${epochPercent}%` }"
           />
-          <span>{{ connected ? 'Live' : 'Offline' }}</span>
-        </div>
-      </div>
+        </span>
+        <span class="jm-mono">{{ epochPercent }}%</span>
+      </RouterLink>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useJorManagerStore } from '@/stores/jormanager'
 import jormanagerLogo from '@/assets/jormanager-logo.png'
 
+const route = useRoute()
 const store = useJorManagerStore()
-const { appVersion, connected, epoch, slot, epochLength, mismatchedHosts } = storeToRefs(store)
+const { appVersion, epoch, slot, epochLength, mismatchedHosts } = storeToRefs(store)
+
+const showMiniEpoch = computed(() => epoch.value > 0 && route.path !== '/')
 
 const displayVersion = computed(() => {
   const raw = appVersion.value?.trim() || '---'
@@ -168,17 +159,17 @@ onMounted(() => {
   max-width: 1420px;
   margin-inline: auto;
   padding: 0.7rem 1.5rem;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
-  flex-wrap: wrap;
 }
 
 .jm-brand {
   display: inline-flex;
   align-items: center;
   gap: 0.68rem;
+  justify-self: start;
   text-decoration: none;
   color: var(--jm-text-primary);
 }
@@ -216,6 +207,10 @@ onMounted(() => {
   border: 1px solid var(--jm-border-subtle);
   padding: 0.12rem 0.5rem;
   border-radius: var(--jm-radius-pill);
+}
+
+.jm-nav-wrap {
+  justify-self: center;
 }
 
 .jm-nav-list {
@@ -272,16 +267,11 @@ onMounted(() => {
   line-height: 1;
 }
 
-.jm-status-cluster {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
 .jm-mini-epoch {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  justify-self: end;
   background: var(--jm-bg-elevated);
   border: 1px solid var(--jm-border-subtle);
   padding: 0.34rem 0.72rem;
@@ -317,51 +307,6 @@ onMounted(() => {
   border-radius: 99px;
 }
 
-.jm-conn-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  background: var(--jm-emerald-soft);
-  border: 1px solid rgba(16, 185, 129, 0.36);
-  color: #6ee7b7;
-  padding: 0.34rem 0.72rem;
-  border-radius: var(--jm-radius-pill);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.jm-conn-pill.offline {
-  background: var(--jm-amber-soft);
-  border-color: rgba(245, 158, 11, 0.36);
-  color: #fcd34d;
-}
-
-.jm-pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--jm-emerald);
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: jm-pulse 2.2s infinite;
-}
-
-.jm-conn-pill.offline .jm-pulse-dot {
-  background: var(--jm-amber);
-  animation: none;
-}
-
-@keyframes jm-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-}
-
 .jm-mobile-toggle {
   display: none;
   appearance: none;
@@ -379,11 +324,24 @@ onMounted(() => {
 
 @media (max-width: 960px) {
   .jm-header-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 0.75rem;
     padding: 0.65rem 1rem;
+  }
+
+  .jm-brand {
+    order: 1;
+    margin-inline-end: auto;
+  }
+
+  .jm-mini-epoch {
+    order: 2;
   }
 
   .jm-mobile-toggle {
     display: inline-flex;
+    order: 3;
   }
 
   .jm-nav-wrap {
@@ -403,6 +361,18 @@ onMounted(() => {
 
   .jm-nav-link {
     width: 100%;
+  }
+}
+
+@media (max-width: 540px) {
+  .jm-version-pill,
+  .jm-mini-bar,
+  .jm-mobile-toggle span {
+    display: none;
+  }
+
+  .jm-mobile-toggle {
+    padding: 0.42rem 0.62rem;
   }
 }
 </style>

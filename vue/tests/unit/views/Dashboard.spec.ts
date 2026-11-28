@@ -1,4 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount } from '@vue/test-utils'
+import Dashboard from '@/views/Dashboard.vue'
+import { useJorManagerStore } from '@/stores/jormanager'
+import type { Node } from '@/types'
+
+const wrappers: { unmount: () => void }[] = []
+afterEach(() => {
+  wrappers.splice(0).forEach(w => w.unmount())
+})
 
 // Test the Dashboard methods directly without full component mount
 // since we want to avoid mocking the entire Pinia store
@@ -95,5 +105,60 @@ describe('Dashboard component methods', () => {
     it('returns text-danger when epoch is complete', () => {
       expect(calculateEpochRemainingClass(100, 100)).toBe('text-danger')
     })
+  })
+})
+
+describe('Dashboard.vue rendering', () => {
+  function mountDashboard(nodes: Node[] = []) {
+    setActivePinia(createPinia())
+    const store = useJorManagerStore()
+    store.connected = true
+    store.epoch = 512
+    store.slot = 108000
+    store.epochLength = 432000
+    store.nodes = nodes
+
+    const wrapper = mount(Dashboard, {
+      global: {
+        stubs: {
+          'font-awesome-icon': true,
+          NodeChart: true,
+          StackedBarChart: true
+        }
+      }
+    })
+    wrappers.push(wrapper)
+    return { wrapper, store }
+  }
+
+  it('renders page header without redundant epoch/node action-group pills', () => {
+    const { wrapper } = mountDashboard([
+      { id: 1, name: 'bp-1', color: '#38bdf8', type: 'pool' },
+      { id: 2, name: 'relay-1', color: '#10b981', type: 'relay' }
+    ])
+
+    const pageHeader = wrapper.find('.jm-page-header')
+    expect(pageHeader.exists()).toBe(true)
+    expect(pageHeader.find('.jm-page-title').text()).toBe('Mission Control')
+    expect(pageHeader.find('.jm-action-group').exists()).toBe(false)
+    expect(pageHeader.findAll('.jm-pill')).toHaveLength(0)
+
+    const epochHero = wrapper.find('.jm-epoch-hero')
+    expect(epochHero.find('.jm-epoch-number').text()).toBe('512')
+    expect(epochHero.find('.jm-epoch-pct').text()).toBe('25.0%')
+  })
+
+  it('renders Active Fleet KPI card without unlabeled nodeDots', () => {
+    const { wrapper } = mountDashboard([
+      { id: 1, name: 'bp-1', color: '#38bdf8', type: 'pool' },
+      { id: 2, name: 'relay-1', color: '#10b981', type: 'relay' }
+    ])
+
+    const fleetCard = wrapper.findAll('.jm-kpi-card')[0]
+    expect(fleetCard.text()).toContain('Active Fleet')
+    expect(fleetCard.text()).toContain('2')
+    expect(fleetCard.text()).toContain('1 Core/Pool')
+    expect(fleetCard.text()).toContain('1 Relay')
+    expect(fleetCard.findAll('.jm-dot')).toHaveLength(0)
   })
 })
