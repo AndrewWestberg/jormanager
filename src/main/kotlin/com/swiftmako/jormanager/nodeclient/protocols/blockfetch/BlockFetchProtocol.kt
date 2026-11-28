@@ -32,8 +32,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 class BlockFetchProtocol(
     private val session: NetworkChainSession,
     private val leios: LeiosFetchProtocol,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    private val maxBatchSize: Int = MAX_BATCH_SIZE,
 ) : MiniProtocol(protocolId = 0x0003.toShort()) {
+    companion object {
+        const val MAX_BATCH_SIZE = NetworkChainSession.MAX_BATCH_SIZE
+    }
+
     private val log = LoggerFactory.getLogger("LedgerDao")
     private var nextLogTime = Long.MIN_VALUE
     override val rxBufferSize = 8_388_608
@@ -53,29 +58,49 @@ class BlockFetchProtocol(
         State.Done -> Agency.None
     }
 
-    private data class FetchedBlock(
-        val request: NetworkChainSession.Request,
-        val payload: Result<Pair<Int, ByteArray>>
+    private data class FetchedBatch(
+        val requests: List<NetworkChainSession.Request>,
+        val payloads: Result<List<Pair<Int, ByteArray>>>,
     )
 
     private val permits = Semaphore(2)
     private val wireLock = Any()
-    private var current: NetworkChainSession.Request? = null
-    private var received = false
-    private var pending: Pair<Int, ByteArray>? = null
+    private var current: List<NetworkChainSession.Request>? = null
+    private var receivedCount = 0
+    private val pending = mutableListOf<Pair<Int, ByteArray>>()
 
-    private fun release() {
-        session.release()
+    init {
+        require(maxBatchSize in 1..NetworkChainSession.MAX_BATCH_SIZE) { "Invalid maxBatchSize $maxBatchSize" }
+    }
+
+    private fun releaseBatch(sessionCount: Int) {
+        repeat(sessionCount) { session.release() }
         permits.release()
     }
 
-    private val blocks = Channel<FetchedBlock>(2, onUndeliveredElement = { release() })
+    private val batches = Channel<FetchedBatch>(2, onUndeliveredElement = { releaseBatch(it.requests.size) })
     private val worker = scope.launch(Dispatchers.IO) {
-        for (block in blocks) {
+        for (batch in batches) {
+            var remainingSessionPermits = batch.requests.size
             try {
-                if (block.request.generation == session.generation) save(block)
+                val first = batch.requests.first()
+                if (first.generation == session.generation) {
+                    val blocks =
+                        try {
+                            batch.payloads.getOrThrow()
+                        } catch (e: Exception) {
+                            throw recordFailure(first, null, e)
+                        }
+                    for (index in batch.requests.indices) {
+                        val request = batch.requests[index]
+                        if (request.generation != session.generation) break
+                        save(request, blocks[index])
+                        session.release()
+                        remainingSessionPermits--
+                    }
+                }
             } finally {
-                release()
+                releaseBatch(remainingSessionPermits)
             }
         }
     }
@@ -83,22 +108,35 @@ class BlockFetchProtocol(
     override suspend fun sendData(): ByteBuffer {
         check(state == State.Idle)
         permits.acquire()
-        var request: NetworkChainSession.Request? = null
+        var batch: List<NetworkChainSession.Request>? = null
         var buffer: ByteBuffer? = null
         var handedOff = false
         try {
-            request = session.next()
+            batch = session.nextBatch(maxBatchSize)
             currentCoroutineContext().ensureActive()
-            val point = request.point.slot.toLong() to request.point.hash.hexToByteArray()
+            val firstPoint = batch
+                .first()
+                .point.slot
+                .toLong() to batch
+                .first()
+                .point.hash
+                .hexToByteArray()
+            val lastPoint = batch
+                .last()
+                .point.slot
+                .toLong() to batch
+                .last()
+                .point.hash
+                .hexToByteArray()
             buffer = muxByteBufferPool.borrow()
-            MsgRequestRange(point, point).writeToBuffer(buffer)
+            MsgRequestRange(firstPoint, lastPoint).writeToBuffer(buffer)
             buffer.flip()
             currentCoroutineContext().ensureActive()
             synchronized(wireLock) {
                 check(state == State.Idle) { "Block fetch is shut down" }
-                current = request
-                received = false
-                pending = null
+                current = batch
+                receivedCount = 0
+                pending.clear()
                 state = State.Busy
                 handedOff = true
             }
@@ -106,8 +144,7 @@ class BlockFetchProtocol(
         } finally {
             if (!handedOff) {
                 buffer?.let { muxByteBufferPool.recycle(it) }
-                if (request != null) session.release()
-                permits.release()
+                releaseBatch(batch?.size ?: 0)
             }
         }
     }
@@ -123,19 +160,26 @@ class BlockFetchProtocol(
                         MsgStartBatch.MESSAGE_ID -> synchronized(wireLock) {
                             if (current != null) state = State.Streaming
                         }
-                        MsgNoBlocks.MESSAGE_ID -> transfer { request ->
-                            Result.failure(IllegalStateException("Requested block unavailable at ${request.point}"))
+                        MsgNoBlocks.MESSAGE_ID -> transfer { requests ->
+                            Result.failure(
+                                IllegalStateException(
+                                    "Requested block range unavailable at ${requests.first().point}..${requests.last().point}"
+                                )
+                            )
                         }
                         else -> error("Unexpected block fetch message $id")
                     }
                     State.Streaming -> when (id) {
                         MsgBlock.MESSAGE_ID -> {
-                            val request = synchronized(wireLock) {
-                                check(!received) { "More than one block returned for a single point" }
-                                received = true
-                                current
+                            val activeBatch = synchronized(wireLock) {
+                                val requests = current ?: return@synchronized null
+                                check(receivedCount < requests.size) {
+                                    "More blocks returned than requested (${requests.size})"
+                                }
+                                receivedCount++
+                                requests
                             } ?: continue
-                            if (request.generation == session.generation) {
+                            if (activeBatch.first().generation == session.generation) {
                                 val encoded = message.elementToByteArray(1)
                                 val envelope = CborSpans.parse(encoded).array()
                                 require(envelope.size == 2) { "Invalid Cardano block envelope" }
@@ -145,13 +189,22 @@ class BlockFetchProtocol(
                                 val era = if (tag < 2) 0 else tag - 1
                                 val block = if (era == 0) encoded else envelope[1].bytes()
                                 synchronized(wireLock) {
-                                    if (current === request) pending = era to block
+                                    if (current === activeBatch) pending.add(era to block)
                                 }
                             }
                         }
-                        MsgBatchDone.MESSAGE_ID -> transfer { request ->
-                            pending?.let { Result.success(it) }
-                                ?: Result.failure(IllegalStateException("Empty block batch at ${request.point}"))
+                        MsgBatchDone.MESSAGE_ID -> transfer { requests ->
+                            when {
+                                receivedCount != requests.size ->
+                                    Result.failure(
+                                        IllegalStateException(
+                                            "Truncated block batch at ${requests[receivedCount].point}: expected ${requests.size}, received $receivedCount"
+                                        )
+                                    )
+                                requests.first().generation != session.generation -> Result.success(emptyList())
+                                pending.size != requests.size -> Result.success(emptyList())
+                                else -> Result.success(pending.toList())
+                            }
                         }
                         else -> error("Unexpected streaming block fetch message $id")
                     }
@@ -162,39 +215,46 @@ class BlockFetchProtocol(
         }
     }
 
-    private fun transfer(payload: (NetworkChainSession.Request) -> Result<Pair<Int, ByteArray>>) {
+    private fun transfer(payloads: (List<NetworkChainSession.Request>) -> Result<List<Pair<Int, ByteArray>>>) {
         var failed = false
         synchronized(wireLock) {
-            val request = current ?: return
-            val item = FetchedBlock(request, payload(request))
+            val requests = current ?: return
+            val item = FetchedBatch(requests, payloads(requests))
             current = null
-            pending = null
-            received = false
-            if (blocks.trySend(item).isSuccess) {
+            pending.clear()
+            receivedCount = 0
+            if (batches.trySend(item).isSuccess) {
                 state = State.Idle
             } else {
-                release()
+                releaseBatch(requests.size)
                 failed = true
             }
         }
         check(!failed) { "Block fetch processing channel closed or full" }
     }
 
-    private suspend fun save(block: FetchedBlock) {
-        val request = block.request
+    private fun recordFailure(
+        request: NetworkChainSession.Request,
+        commitment: String?,
+        cause: Exception,
+    ): IllegalStateException {
+        val content = commitment?.let { "Leios commitment $it" } ?: "Block"
+        val contextual = IllegalStateException("$content at ${request.point}: ${cause.message ?: "acquisition failed"}", cause)
+        if (request.generation == session.generation) {
+            session.coordinator.boundaryFailure(session.networkKey, requireNotNull(contextual.message), request.generation)
+        }
+        return contextual
+    }
+
+    private suspend fun save(
+        request: NetworkChainSession.Request,
+        payload: Pair<Int, ByteArray>,
+    ) {
         var fetchingLeios = false
         var commitment: String? = null
 
-        fun failure(cause: Exception): IllegalStateException {
-            val content = commitment?.let { "Leios commitment $it" } ?: "Block"
-            val contextual = IllegalStateException("$content at ${request.point}: ${cause.message ?: "acquisition failed"}", cause)
-            if (request.generation == session.generation) {
-                session.coordinator.boundaryFailure(session.networkKey, requireNotNull(contextual.message), request.generation)
-            }
-            return contextual
-        }
         try {
-            val (era, bytes) = block.payload.getOrThrow()
+            val (era, bytes) = payload
             val decoded = LedgerBlockDecoder.decode(era, bytes, session.byronEpochSlots)
             val closure = if (decoded.leiosCertificate != null) {
                 val previous = requireNotNull(decoded.headerDetails?.previousHash)
@@ -213,10 +273,10 @@ class BlockFetchProtocol(
                 logSavedBlock((decoded.byronHeader?.blockNumber ?: requireNotNull(decoded.headerDetails).blockNumber).longValueExact())
             }
         } catch (e: CancellationException) {
-            if (currentCoroutineContext().isActive && fetchingLeios) throw failure(e)
+            if (currentCoroutineContext().isActive && fetchingLeios) throw recordFailure(request, commitment, e)
             throw e
         } catch (e: Exception) {
-            throw failure(e)
+            throw recordFailure(request, commitment, e)
         }
     }
 
@@ -234,15 +294,19 @@ class BlockFetchProtocol(
     }
 
     override fun shutdown() {
+        var inFlightCount: Int? = null
         synchronized(wireLock) {
             state = State.Done
-            if (current != null) {
+            val active = current
+            if (active != null) {
                 current = null
-                pending = null
-                release()
+                pending.clear()
+                receivedCount = 0
+                inFlightCount = active.size
             }
         }
-        blocks.cancel()
+        inFlightCount?.let { releaseBatch(it) }
+        batches.cancel()
         worker.cancel()
     }
 }

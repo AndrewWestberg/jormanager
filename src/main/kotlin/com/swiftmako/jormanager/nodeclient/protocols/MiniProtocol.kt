@@ -17,6 +17,35 @@ abstract class MiniProtocol(
     abstract val rxBufferSize: Int
 
     /**
+     * Opt-in full-duplex mode where transmit and receive may be active concurrently.
+     * Non-pipelined protocols keep half-duplex [Agency] behavior unchanged.
+     */
+    open val duplex: Boolean
+        get() = false
+
+    /**
+     * Whether a duplex protocol can currently transmit a frame.
+     */
+    open val canSend: Boolean
+        get() = agency == Agency.Client
+
+    /**
+     * Whether this protocol can currently accept inbound frames from the peer.
+     */
+    open val canReceive: Boolean
+        get() = agency == Agency.Server
+
+    /**
+     * Suspends until a duplex protocol has outbound work ready to transmit, or returns false when done.
+     */
+    open suspend fun awaitCanSend(): Boolean = false
+
+    /**
+     * Returns the next frame payload for a duplex protocol, or null if outbound readiness changed before commit.
+     */
+    open suspend fun sendDataOrNull(): ByteBuffer? = sendData()
+
+    /**
      * Get the data to send. suspend until there is something to send
      * @return ByteBuffer to send
      */

@@ -7,6 +7,7 @@ import io.ktor.network.sockets.Connection
 import io.ktor.network.sockets.isClosed
 import io.ktor.util.cio.KtorDefaultPool
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.pool.ByteBufferPool
 import io.ktor.utils.io.readFully
 import io.ktor.utils.io.writeFully
@@ -62,45 +63,60 @@ class Mux(
             protocols.forEach { protocol ->
                 deferreds.add(
                     async {
-                        protocol.agencyFlow
-                            .takeWhile { agency -> agency != Agency.None }
-                            .filter { agency -> agency == Agency.Client }
-                            .collect {
-                                val payload = protocol.sendData()
-                                val sendBuffer = muxByteBufferPool.borrow()
-                                try {
-                                    sendBuffer.putInt(timestampNow)
-                                    sendBuffer.putShort(protocol.protocolId)
-                                    sendBuffer.putShort(payload.remaining().toShort())
-                                    sendBuffer.put(payload)
-                                    sendBuffer.flip()
-
-                                    if (log.isTraceEnabled) {
-                                        val hex =
-                                            sendBuffer
-                                                .array()
-                                                .copyOfRange(
-                                                    sendBuffer.position(),
-                                                    sendBuffer.position() + sendBuffer.remaining()
-                                                ).toHexString()
-                                        log.error("> : $hex")
-                                    }
-
-                                    txMutex.withLock {
-                                        txChannel.writeFully(sendBuffer)
-                                        txChannel.flush()
-                                    }
-                                } finally {
-                                    muxByteBufferPool.recycle(payload)
-                                    muxByteBufferPool.recycle(sendBuffer)
-                                }
+                        if (protocol.duplex) {
+                            while (protocol.awaitCanSend()) {
+                                val payload = protocol.sendDataOrNull() ?: continue
+                                transmitPayload(txChannel, protocol.protocolId, payload)
                             }
+                        } else {
+                            protocol.agencyFlow
+                                .takeWhile { agency -> agency != Agency.None }
+                                .filter { agency -> agency == Agency.Client }
+                                .collect {
+                                    val payload = protocol.sendData()
+                                    transmitPayload(txChannel, protocol.protocolId, payload)
+                                }
+                        }
                         log.info("executeTx: protocol %02X done.".format(protocol.protocolId))
                     }
                 )
             }
             deferreds.awaitAll()
         }
+
+    private suspend fun transmitPayload(
+        txChannel: ByteWriteChannel,
+        protocolId: Short,
+        payload: ByteBuffer,
+    ) {
+        val sendBuffer = muxByteBufferPool.borrow()
+        try {
+            sendBuffer.putInt(timestampNow)
+            sendBuffer.putShort(protocolId)
+            sendBuffer.putShort(payload.remaining().toShort())
+            sendBuffer.put(payload)
+            sendBuffer.flip()
+
+            if (log.isTraceEnabled) {
+                val hex =
+                    sendBuffer
+                        .array()
+                        .copyOfRange(
+                            sendBuffer.position(),
+                            sendBuffer.position() + sendBuffer.remaining()
+                        ).toHexString()
+                log.error("> : $hex")
+            }
+
+            txMutex.withLock {
+                txChannel.writeFully(sendBuffer)
+                txChannel.flush()
+            }
+        } finally {
+            muxByteBufferPool.recycle(payload)
+            muxByteBufferPool.recycle(sendBuffer)
+        }
+    }
 
     private suspend fun executeRx(protocols: Array<out MiniProtocol>) =
         coroutineScope {
@@ -114,11 +130,18 @@ class Mux(
                     throw IOException("rxChannel closed.")
                 }
                 rxChannel.awaitContent()
-                val serverAgencyProtocols =
-                    protocols.filter { protocol -> protocol.agency == Agency.Server }.associateBy { it.protocolId }
-                if (serverAgencyProtocols.isNotEmpty()) {
+                val receivableProtocols =
+                    protocols
+                        .filter { protocol -> if (protocol.duplex) protocol.canReceive else protocol.agency == Agency.Server }
+                        .associateBy { it.protocolId }
+                if (receivableProtocols.isNotEmpty()) {
                     val header = readHeader(rxChannel)
-                    val rxProtocol = serverAgencyProtocols[header.protocolId]!!
+                    val rxProtocol =
+                        receivableProtocols[header.protocolId]
+                            ?: protocols.firstOrNull {
+                                it.protocolId == header.protocolId &&
+                                    (if (it.duplex) it.canReceive else it.agency == Agency.Server)
+                            }!!
                     val rxMuxBuffer = rxMuxBufferMap.getOrPut(header.protocolId) {
                         MuxRxBuffer(ByteBuffer.allocate(rxProtocol.rxBufferSize))
                     }
